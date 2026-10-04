@@ -1,0 +1,30 @@
+{
+	"name": "obsidian-sync-evo",
+	"version": "0.0.1",
+	"description": "Sync Evo: vault sync for Obsidian (under development).",
+	"private": true,
+	"type": "module",
+	"main": "main.js",
+	"license": "AGPL-3.0-only",
+	"author": "seking",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/seking/obsidian-sync-evo.git"
+	},
+	"engines": {
+		"node": ">=20.12"
+	},
+	"scripts": {
+		"dev": "node esbuild.config.mjs",
+		"build": "tsc --noEmit && tsc --noEmit -p tests && node esbuild.config.mjs production",
+		"test": "vitest run",
+		"install:vault": "node scripts/install-to-vault.mjs"
+	},
+	"devDependencies": {
+		"@types/node": "25.9.9",
+		"esbuild": "0.28.2",
+		"obsidian": "1.13.1",
+		"typescript": "7.0.2",
+		"vitest": "4.1.11"
+	}
+}

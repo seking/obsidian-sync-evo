@@ -1,0 +1,10 @@
+{
+	"id": "sync-evo",
+	"name": "Sync Evo",
+	"version": "0.0.1",
+	"minAppVersion": "1.11.4",
+	"description": "Lays the groundwork for vault sync. Under development: it does not sync anything yet.",
+	"author": "seking",
+	"authorUrl": "https://github.com/seking",
+	"isDesktopOnly": false
+}
