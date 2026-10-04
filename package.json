@@ -18,7 +18,8 @@
 		"dev": "node esbuild.config.mjs",
 		"build": "tsc --noEmit && tsc --noEmit -p tests && node esbuild.config.mjs production",
 		"test": "vitest run",
-		"install:vault": "node scripts/install-to-vault.mjs"
+		"install:vault": "node scripts/install-to-vault.mjs",
+		"release:beta": "node scripts/release-beta.mjs"
 	},
 	"devDependencies": {
 		"@types/node": "25.9.9",
