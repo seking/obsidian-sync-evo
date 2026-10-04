@@ -9,11 +9,16 @@
  * Source: https://github.com/seking/obsidian-sync-evo
  */
 
-import { Plugin } from "obsidian";
+import { getLanguage, Plugin } from "obsidian";
+import { type Translate, translatorFor } from "./core/i18n";
 
 export default class SyncEvoPlugin extends Plugin {
+	/** Looks up every text the plugin shows, in the language of the app. */
+	t: Translate = translatorFor("");
+
 	override onload(): void {
-		// Nothing yet. Sync features are added in later versions.
+		// A change of the app language takes effect on restart, so reading it once is enough.
+		this.t = translatorFor(getLanguage());
 	}
 
 	override onunload(): void {
