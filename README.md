@@ -21,6 +21,12 @@ npm run build    # type check, then production build of main.js
 npm test         # unit tests
 ```
 
+### Source layout
+
+`src/core/` holds the parts that do not depend on where they run: the interface a remote implements, and the decision of what to fetch, send, and delete. Code there must not import `obsidian` (a types-only package that the tests cannot load) or any Node API (the mobile app has none); a test checks this. Code that touches the Obsidian API stays outside `src/core/` and is kept thin.
+
+The in-memory remote used by the tests is in `tests/support/`.
+
 ### Installing into a vault
 
 `npm run install:vault` copies `main.js` and `manifest.json` (and `styles.css`, if present) into `<vault>/.obsidian/plugins/sync-evo/`.
