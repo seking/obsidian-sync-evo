@@ -140,13 +140,39 @@ export interface Backend {
 export type BackendErrorKind =
 	/** Network failure, timeout, or a server-side error. Worth retrying later. */
 	| "unreachable"
+	/** The credentials were refused: wrong, revoked, or expired. */
 	| "unauthorized"
-	/** The configured target (repository, branch, folder) or a revision does not exist. */
+	/** The credentials are valid but do not allow this operation on the target. */
+	| "forbidden"
+	/**
+	 * The configured target (repository, folder) or a revision does not exist,
+	 * or the credentials cannot see it. A remote that hides what a credential
+	 * may not see answers the same for both.
+	 */
 	| "not-found"
+	/**
+	 * The target exists and has content, but not the configured branch. Kept
+	 * apart from "not-found" because the branch is never created on the user's
+	 * behalf: a missing branch cannot be told from a mistyped name.
+	 */
+	| "branch-not-found"
+	/** The remote's request quota is used up. Always thrown as a `RateLimitedError`. */
+	| "rate-limited"
+	/**
+	 * A push touched workflow files (`.github/workflows/`) and the credentials
+	 * lack the separate permission the host requires for them.
+	 */
+	| "workflows-permission"
 	/** The remote could not return the whole listing. */
 	| "incomplete-listing"
+	/** The caller asked for the work to stop. Nothing is wrong with the remote. */
+	| "cancelled"
 	| "other";
 
+/**
+ * `message` is for developers and logs, in English. What the user reads is
+ * chosen from `kind`.
+ */
 export class BackendError extends Error {
 	readonly kind: BackendErrorKind;
 
@@ -154,5 +180,16 @@ export class BackendError extends Error {
 		super(message);
 		this.name = "BackendError";
 		this.kind = kind;
+	}
+}
+
+export class RateLimitedError extends BackendError {
+	/** When the remote accepts requests again, in milliseconds since the epoch. */
+	readonly waitUntil: number;
+
+	constructor(waitUntil: number, message: string) {
+		super("rate-limited", message);
+		this.name = "RateLimitedError";
+		this.waitUntil = waitUntil;
 	}
 }
