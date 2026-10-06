@@ -4,11 +4,15 @@ Sync Evo is a plugin for [Obsidian](https://obsidian.md) that is being built to 
 
 ## Status
 
-Under development. The current version is an empty plugin: it loads and unloads, and does nothing else. It does not sync anything yet.
+Under development. The current version has a settings screen where you enter the repository, the branch, the token, and a name for the device, and can test the connection. It does not sync anything yet.
+
+The settings are kept on the device, outside the vault. The token is kept in Obsidian's Keychain; the settings hold only the name it is saved under.
 
 ## Network use
 
-Sync Evo does not make any network requests yet. This section will list each service the plugin contacts, and what is sent and why, as those features are added.
+Sync Evo makes a network request only when you press "Test connection" in its settings. It then asks GitHub (`api.github.com`) for the branch you entered, and for the repository when the branch is not found, to tell you whether the token can reach them. The request carries the token and the names of the repository and the branch. Nothing from the vault is sent.
+
+This section will list each service the plugin contacts, and what is sent and why, as more features are added.
 
 ## Development
 
@@ -27,7 +31,7 @@ npm test         # unit tests
 
 The in-memory remote used by the tests is in `tests/support/`.
 
-Every text the plugin shows comes from `src/core/i18n/`, never from a string written where it is used. To add a message, add it to `en.ts` (the base) and to `ja.ts`, and read it through the plugin's `t("key", { name: value })`; placeholders are `{name}`, and a message that changes with a number is written as `{ one: "{count} file", other: "{count} files" }`. The build fails if Japanese lacks a key, has one the base does not, or names a placeholder differently. The type check also stops an empty message, a misnamed or empty plural form, and an `other` form that drops a placeholder, while the tests (`npm test`, which `npm run build` does not run) stop what the types cannot see, such as text that is only spaces. To add a language, add its file (with `partialTranslation` while it is incomplete; missing messages are shown in English) and register it in `index.ts` under the code Obsidian uses for that language.
+Every text the plugin shows comes from `src/core/i18n/`, never from a string written where it is used; a test searches the code outside `src/core/` for a string given to `setName`, `Notice`, and the like. To add a message, add it to `en.ts` (the base) and to `ja.ts`, and read it through the plugin's `t("key", { name: value })`; placeholders are `{name}`, and a message that changes with a number is written as `{ one: "{count} file", other: "{count} files" }`. The build fails if Japanese lacks a key, has one the base does not, or names a placeholder differently. The type check also stops an empty message, a misnamed or empty plural form, and an `other` form that drops a placeholder, while the tests (`npm test`, which `npm run build` does not run) stop what the types cannot see, such as text that is only spaces. To add a language, add its file (with `partialTranslation` while it is incomplete; missing messages are shown in English) and register it in `index.ts` under the code Obsidian uses for that language.
 
 The names of the file type and vault configuration options follow the wording of the same options of Obsidian Sync in the app ([obsidian-translations](https://github.com/obsidianmd/obsidian-translations)), so that they read the same in each language.
 
