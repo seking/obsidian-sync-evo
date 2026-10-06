@@ -25,6 +25,7 @@ import {
 import { obsidianHttp } from "./obsidian/http";
 import { SettingsStore } from "./obsidian/settings-store";
 import { type SettingsHost, SyncEvoSettingTab } from "./obsidian/settings-tab";
+import { SyncState, syncStateDepsOf } from "./obsidian/sync-state";
 
 export default class SyncEvoPlugin extends Plugin implements SettingsHost {
 	/** Looks up every text the plugin shows, in the language of the app. */
@@ -43,6 +44,15 @@ export default class SyncEvoPlugin extends Plugin implements SettingsHost {
 
 	private readonly store = new SettingsStore(this.app);
 
+	/**
+	 * The records and everything else a sync leaves behind for the next one.
+	 * A sync gets them with `syncState.open()` and in no other way: that
+	 * waits for a discard asked for by a change of the connection, and
+	 * answers "newer-version" or "unavailable" instead of a store when there
+	 * is nothing the sync may use. Nothing is opened before a sync asks.
+	 */
+	readonly syncState = new SyncState(syncStateDepsOf(this.app));
+
 	override onload(): void {
 		// A change of the app language takes effect on restart, so reading it once is enough.
 		this.t = translatorFor(getLanguage());
@@ -53,7 +63,7 @@ export default class SyncEvoPlugin extends Plugin implements SettingsHost {
 	}
 
 	override onunload(): void {
-		// Nothing to clean up yet.
+		this.syncState.close();
 	}
 
 	/**
@@ -66,10 +76,14 @@ export default class SyncEvoPlugin extends Plugin implements SettingsHost {
 		if (before === null) return "none";
 
 		const change = connectionChange(connectionOf(before), connectionOf(next));
-		// Nothing acts on `change` yet. When there is a sync state, it is
-		// discarded here on "set" and "changed", so that the records of one
-		// repository are never compared with another; a change of the token
-		// or the device name is "none" and keeps it.
+		// The sync state is discarded on "set" and "changed", so that the
+		// records of one repository are never compared with another; a change
+		// of the token or the device name is "none" and keeps it. Asked for
+		// before the connection is saved: the request leaves a note that
+		// outlives the app, so no stop in between can leave the new
+		// connection with the old state. The removal itself ends later, and
+		// `syncState.open()` waits for it.
+		if (change === "set" || change === "changed") this.syncState.requestDiscard();
 		this.deviceSettings = next;
 		this.store.save(next);
 		return change;

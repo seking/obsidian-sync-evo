@@ -24,6 +24,7 @@
 	"devDependencies": {
 		"@types/node": "25.9.9",
 		"esbuild": "0.28.2",
+		"fake-indexeddb": "6.2.5",
 		"obsidian": "1.13.1",
 		"typescript": "7.0.2",
 		"vitest": "4.1.11"
