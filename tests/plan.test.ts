@@ -11,8 +11,26 @@
 
 import { describe, expect, test } from "vitest";
 import type { RemoteEntry } from "../src/core/backend";
-import { planSync, type LocalEntry, type SyncPlan, type SyncRecord } from "../src/core/plan";
+import { conflictCopyPath } from "../src/core/conflict-name";
+import { createExclusion, type Exclusion } from "../src/core/exclusion";
+import { planSync, type LocalEntry, type PlanInput, type SyncPlan, type SyncRecord } from "../src/core/plan";
 import { blobHash, MemoryBackend } from "./support/memory-backend";
+
+const ownFolder = ".obsidian/plugins/sync-evo";
+
+/** The exclusion of a vault whose `.gitignore` has this text. */
+function rules(gitignore: string | null): Exclusion {
+	return createExclusion({ configDir: ".obsidian", pluginDir: ownFolder, gitignore });
+}
+
+// A vault without a `.gitignore`, for the tests that are not about what is
+// left out. The two fixed exclusions and the default lines still apply; no
+// path of those tests comes near them.
+const noRules = rules(null);
+
+function planOf(input: Omit<PlanInput, "exclusion"> & { exclusion?: Exclusion }): SyncPlan {
+	return planSync({ ...input, exclusion: input.exclusion ?? noRules });
+}
 
 interface Scenario {
 	/** Files that were on both sides, with a record, at the last sync. */
@@ -21,6 +39,8 @@ interface Scenario {
 	remote?: Record<string, string | null>;
 	/** What happened in the vault since then (`null` deletes). */
 	local?: Record<string, string | null>;
+	/** What is left out of the sync; `noRules` when absent. */
+	exclusion?: Exclusion;
 }
 
 async function planFor(scenario: Scenario): Promise<SyncPlan> {
@@ -40,7 +60,7 @@ async function planFor(scenario: Scenario): Promise<SyncPlan> {
 	}
 
 	const local: LocalEntry[] = [...vault].map(([path, content]) => ({ path, hash: blobHash(content) }));
-	return planSync({ remote: await listRemote(backend), local, records });
+	return planOf({ remote: await listRemote(backend), local, records, exclusion: scenario.exclusion });
 }
 
 async function listRemote(backend: MemoryBackend): Promise<readonly RemoteEntry[]> {
@@ -233,7 +253,7 @@ describe("spelling of paths", () => {
 			{ path: nfc, hash: blobHash("A") },
 			{ path: nfd, hash: blobHash("edited") },
 		];
-		const plan = planSync({ remote, local, records: remote });
+		const plan = planOf({ remote, local, records: remote });
 		expect(plan.actions).toEqual([]);
 		expect(skips(plan)).toEqual([`duplicate-path ${nfc}`]);
 		expect(plan.skipped[0]?.local).toEqual(local);
@@ -262,7 +282,7 @@ describe("across every combination of the three sides", () => {
 			}
 		}
 	}
-	const plan = planSync({ remote, local, records });
+	const plan = planOf({ remote, local, records });
 	const deletes = plan.actions.filter(
 		(action) => action.type === "delete-local" || action.type === "delete-remote",
 	);
@@ -274,7 +294,7 @@ describe("across every combination of the three sides", () => {
 
 	test("the same holds when each path is planned on its own", () => {
 		for (const path of unrecorded) {
-			const alone = planSync({
+			const alone = planOf({
 				remote: remote.filter((entry) => entry.path === path),
 				local: local.filter((entry) => entry.path === path),
 				records: [],
@@ -297,7 +317,7 @@ describe("entries that are not regular files", () => {
 	const hash = blobHash("../target");
 
 	test("a symlink or submodule on the remote is not written", () => {
-		const plan = planSync({
+		const plan = planOf({
 			remote: [
 				{ path: "link", kind: "symlink", hash },
 				{ path: "sub", kind: "submodule", hash },
@@ -311,7 +331,7 @@ describe("entries that are not regular files", () => {
 
 	test("a path recorded as a symlink is left alone even when both sides now hold a file", () => {
 		const file = blobHash("a real file");
-		const plan = planSync({
+		const plan = planOf({
 			remote: [{ path: "link", kind: "file", hash: file }],
 			local: [{ path: "link", hash: blobHash("another file") }],
 			records: [{ path: "link", kind: "symlink", hash }],
@@ -321,13 +341,13 @@ describe("entries that are not regular files", () => {
 	});
 
 	test("a path recorded as a symlink and gone from both sides keeps its record", () => {
-		const plan = planSync({ remote: [], local: [], records: [{ path: "link", kind: "symlink", hash }] });
+		const plan = planOf({ remote: [], local: [], records: [{ path: "link", kind: "symlink", hash }] });
 		expect(plan.actions).toEqual([]);
 		expect(skips(plan)).toEqual(["not-a-file link"]);
 	});
 
 	test("a recorded symlink that is absent from the vault is not deleted on the remote", () => {
-		const plan = planSync({
+		const plan = planOf({
 			remote: [{ path: "link", kind: "symlink", hash }],
 			local: [],
 			records: [{ path: "link", kind: "symlink", hash }],
@@ -336,7 +356,7 @@ describe("entries that are not regular files", () => {
 	});
 
 	test("a vault file at the path of a remote symlink is not sent over it", () => {
-		const plan = planSync({
+		const plan = planOf({
 			remote: [{ path: "link", kind: "symlink", hash }],
 			local: [{ path: "link", hash: blobHash("a real file") }],
 			records: [],
@@ -345,7 +365,7 @@ describe("entries that are not regular files", () => {
 	});
 
 	test("a vault file below a remote submodule is not sent", () => {
-		const plan = planSync({
+		const plan = planOf({
 			remote: [{ path: "sub", kind: "submodule", hash }],
 			local: [{ path: "sub/x.md", hash: blobHash("X") }],
 			records: [],
@@ -357,7 +377,7 @@ describe("entries that are not regular files", () => {
 
 	test("paths below a remote symlink are left alone on every side", () => {
 		const x = blobHash("X");
-		const plan = planSync({
+		const plan = planOf({
 			remote: [
 				{ path: "link", kind: "symlink", hash },
 				{ path: "link/on-remote.md", kind: "file", hash: x },
@@ -385,7 +405,7 @@ describe("entries that are not regular files", () => {
 
 	test("a symlink that is only in the records still shields the paths below it", () => {
 		const x = blobHash("X");
-		const plan = planSync({
+		const plan = planOf({
 			remote: [{ path: "link/on-remote.md", kind: "file", hash: x }],
 			local: [{ path: "link/in-vault.md", hash: x }],
 			records: [
@@ -403,7 +423,7 @@ describe("entries that are not regular files", () => {
 	});
 
 	test("the parent is matched by its normalized name, and only as a whole folder name", () => {
-		const plan = planSync({
+		const plan = planOf({
 			remote: [{ path: "が", kind: "submodule", hash }],
 			local: [
 				{ path: "が/x.md", hash: blobHash("X") },
@@ -414,5 +434,397 @@ describe("entries that are not regular files", () => {
 		});
 		expect(summary(plan)).toEqual(["upload が.md", "upload がく/x.md"]);
 		expect(skips(plan)).toEqual(["not-a-file が", "under-non-file が/x.md"]);
+	});
+});
+
+describe("the rules of .gitignore", () => {
+	const drafts = rules("/drafts/\n*.png\n");
+
+	test("only in the vault and matched: left alone, and listed as excluded", async () => {
+		const plan = await planFor({ local: { "drafts/a.md": "A", "img.png": "P", "b.md": "B" }, exclusion: drafts });
+		expect(summary(plan)).toEqual(["upload b.md"]);
+		expect(skips(plan)).toEqual(["excluded drafts/a.md", "excluded img.png"]);
+		expect(plan.skipped[0]?.local.map((entry) => entry.path)).toEqual(["drafts/a.md"]);
+	});
+
+	test("only on the remote and matched: downloaded, never deleted there", async () => {
+		const plan = await planFor({ remote: { "drafts/a.md": "A", "img.png": "P" }, exclusion: drafts });
+		expect(summary(plan)).toEqual(["download drafts/a.md", "download img.png"]);
+		expect(plan.skipped).toEqual([]);
+	});
+
+	test("on both sides without a record and matched: compared like any other path", async () => {
+		const plan = await planFor({
+			remote: { "drafts/same.md": "S", "drafts/differs.md": "theirs" },
+			local: { "drafts/same.md": "S", "drafts/differs.md": "mine" },
+			exclusion: drafts,
+		});
+		expect(summary(plan)).toEqual(["conflict drafts/differs.md", "update-record drafts/same.md"]);
+	});
+
+	test("a recorded path keeps syncing when a rule is added for it", async () => {
+		const plan = await planFor({
+			synced: { "drafts/up.md": "1", "drafts/down.md": "1", "drafts/gone-here.md": "1", "drafts/same.md": "1" },
+			remote: { "drafts/down.md": "2" },
+			local: { "drafts/up.md": "2", "drafts/gone-here.md": null },
+			exclusion: drafts,
+		});
+		expect(summary(plan)).toEqual([
+			"download drafts/down.md",
+			"delete-remote drafts/gone-here.md",
+			"upload drafts/up.md",
+		]);
+		expect(plan.skipped).toEqual([]);
+	});
+
+	test("recorded, deleted on the remote, untouched in the vault: deleted in the vault as usual", async () => {
+		const plan = await planFor({
+			synced: { "drafts/a.md": "A" },
+			remote: { "drafts/a.md": null },
+			exclusion: drafts,
+		});
+		expect(summary(plan)).toEqual(["delete-local drafts/a.md"]);
+	});
+
+	test("recorded, deleted on the remote, edited in the vault: kept, not sent back, and the record dropped", async () => {
+		const plan = await planFor({
+			synced: { "drafts/a.md": "A" },
+			remote: { "drafts/a.md": null },
+			local: { "drafts/a.md": "edited" },
+			exclusion: drafts,
+		});
+		expect(summary(plan)).toEqual(["drop-record drafts/a.md"]);
+		// The action carries the vault file, which tells it from "gone on both sides".
+		expect(plan.actions[0]?.local?.hash).toBe(blobHash("edited"));
+		expect(plan.actions[0]?.remote).toBeUndefined();
+	});
+
+	test("after the record is dropped the file is simply excluded, so the decision is not repeated", async () => {
+		const plan = await planFor({ local: { "drafts/a.md": "edited" }, exclusion: drafts });
+		expect(plan.actions).toEqual([]);
+		expect(skips(plan)).toEqual(["excluded drafts/a.md"]);
+	});
+
+	test("and if the remote holds it again with other content, that is a conflict", async () => {
+		const plan = await planFor({
+			remote: { "drafts/a.md": "back" },
+			local: { "drafts/a.md": "edited" },
+			exclusion: drafts,
+		});
+		expect(summary(plan)).toEqual(["conflict drafts/a.md"]);
+	});
+
+	test("the same case without a matching rule is still sent back", async () => {
+		const plan = await planFor({
+			synced: { "notes/a.md": "A" },
+			remote: { "notes/a.md": null },
+			local: { "notes/a.md": "edited" },
+			exclusion: drafts,
+		});
+		expect(summary(plan)).toEqual(["upload notes/a.md"]);
+	});
+
+	test("gone on both sides: the record is dropped, as without rules", async () => {
+		const plan = await planFor({
+			synced: { "drafts/a.md": "A" },
+			remote: { "drafts/a.md": null },
+			local: { "drafts/a.md": null },
+			exclusion: drafts,
+		});
+		expect(summary(plan)).toEqual(["drop-record drafts/a.md"]);
+		expect(plan.actions[0]?.local).toBeUndefined();
+	});
+
+	test("with no section in .gitignore, the default lines exclude what the remote does not hold", async () => {
+		const plan = await planFor({
+			remote: { ".obsidian/workspace.json": "theirs", ".obsidian/plugins/dataview/main.js": "D" },
+			local: {
+				".obsidian/workspace.json": "mine",
+				".obsidian/workspace-mobile.json": "M",
+				".obsidian/plugins/tasks/main.js": "T",
+				".trash/old.md": "O",
+				"notes/.DS_Store": "S",
+				".obsidian/app.json": "A",
+			},
+			exclusion: rules("*.log\n"),
+		});
+		expect(summary(plan)).toEqual([
+			"upload .obsidian/app.json",
+			"download .obsidian/plugins/dataview/main.js",
+			"conflict .obsidian/workspace.json",
+		]);
+		expect(skips(plan)).toEqual([
+			"excluded .obsidian/plugins/tasks/main.js",
+			"excluded .obsidian/workspace-mobile.json",
+			"excluded .trash/old.md",
+			"excluded notes/.DS_Store",
+		]);
+	});
+
+	test("paths that start with a dot are ordinary files", async () => {
+		const plan = await planFor({
+			synced: { ".github/workflows/ci.yml": "1" },
+			remote: { ".github/workflows/ci.yml": "2", ".gitmodules": "M", ".claude/settings.json": "C" },
+			local: { ".github/dependabot.yml": "D" },
+			exclusion: rules(null),
+		});
+		expect(summary(plan)).toEqual([
+			"download .claude/settings.json",
+			"upload .github/dependabot.yml",
+			"download .github/workflows/ci.yml",
+			"download .gitmodules",
+		]);
+		expect(plan.skipped).toEqual([]);
+	});
+
+	test("a .gitignore in a subfolder is an ordinary file and its rules have no effect", async () => {
+		const plan = await planFor({
+			local: { "notes/.gitignore": "*.png\n", "notes/a.png": "P" },
+			exclusion: rules("*.log\n"),
+		});
+		expect(summary(plan)).toEqual(["upload notes/.gitignore", "upload notes/a.png"]);
+	});
+
+	test(".gitignore changed on the remote is fetched, not a conflict, and no rule can exclude it", async () => {
+		const plan = await planFor({
+			synced: { ".gitignore": "*.log\n" },
+			remote: { ".gitignore": "*.log\n/drafts/\n" },
+			// Made from the text the vault has: nothing was written to it.
+			exclusion: rules("*.log\n"),
+		});
+		expect(summary(plan)).toEqual(["download .gitignore"]);
+
+		const firstSend = await planFor({ local: { ".gitignore": ".*\n" }, exclusion: rules(".*\n") });
+		expect(summary(firstSend)).toEqual(["upload .gitignore"]);
+	});
+
+	test("a rule in NFC excludes a vault path returned in NFD, and a known path is one file in either form", async () => {
+		const nfc = "ガイド/が.md";
+		const nfd = nfc.normalize("NFD");
+		const exclusion = rules("/ガイド/\n");
+		const onlyLocal = await planFor({ local: { [nfd]: "A" }, exclusion });
+		expect(skips(onlyLocal)).toEqual([`excluded ${nfc}`]);
+
+		for (const [theirs, mine] of [
+			[nfc, nfd],
+			[nfd, nfc],
+		] as const) {
+			const plan = await planFor({ synced: { [theirs]: "A" }, local: { [theirs]: null, [mine]: "A" }, exclusion });
+			expect(plan).toEqual({ actions: [], skipped: [] });
+		}
+	});
+
+	test("a conflict copy is judged by the name of the file it is a copy of", async () => {
+		const at = new Date(2026, 9, 3, 22, 15, 0);
+		const exclusion = rules("/exact.md\n*.conflict-from-*\n!kept.md\n");
+		const excluded = conflictCopyPath("exact.md", "iPhone", at);
+		const sent = conflictCopyPath("kept.md", "iPhone", at);
+		const plan = await planFor({ local: { [excluded]: "mine", [sent]: "mine" }, exclusion });
+		expect(summary(plan)).toEqual([`upload ${sent}`]);
+		expect(skips(plan)).toEqual([`excluded ${excluded}`]);
+	});
+});
+
+describe("a conflict copy and the rules", () => {
+	const at = new Date(2026, 9, 3, 22, 15, 0);
+	const exclusion = rules("/drafts/\n*.png\n");
+
+	test("the copy of a tracked file in an excluded folder is sent", async () => {
+		const copy = conflictCopyPath("drafts/a.md", "iPhone", at);
+		const plan = await planFor({ synced: { "drafts/a.md": "theirs" }, local: { [copy]: "mine" }, exclusion });
+		expect(summary(plan)).toEqual([`upload ${copy}`]);
+		expect(plan.skipped).toEqual([]);
+	});
+
+	test("the copy of a tracked image is sent, though the rule matches images", async () => {
+		const copy = conflictCopyPath("img.png", "iPhone", at);
+		const plan = await planFor({
+			synced: { "img.png": "theirs" },
+			local: { [copy]: "mine", "new.png": "N" },
+			exclusion,
+		});
+		expect(summary(plan)).toEqual([`upload ${copy}`]);
+		expect(skips(plan)).toEqual(["excluded new.png"]);
+	});
+
+	test("the original on the remote is enough, with or without a record", async () => {
+		const copy = conflictCopyPath("img.png", "iPhone", at);
+		const plan = await planFor({ remote: { "img.png": "theirs" }, local: { [copy]: "mine" }, exclusion });
+		expect(summary(plan)).toEqual([`upload ${copy}`, "download img.png"]);
+	});
+
+	test("a record of the original is not enough: once the remote deleted it, the copy is excluded", async () => {
+		const copy = conflictCopyPath("img.png", "iPhone", at);
+		const plan = await planFor({
+			synced: { "img.png": "theirs" },
+			remote: { "img.png": null },
+			local: { [copy]: "mine" },
+			exclusion,
+		});
+		expect(summary(plan)).toEqual(["delete-local img.png"]);
+		expect(skips(plan)).toEqual([`excluded ${copy}`]);
+	});
+
+	test("the copy of a file that is not known is excluded", async () => {
+		const copies = [conflictCopyPath("drafts/a.md", "iPhone", at), conflictCopyPath("img.png", "iPhone", at)];
+		const plan = await planFor({
+			synced: { "drafts/other.md": "O" },
+			local: { [copies[0] ?? ""]: "mine", [copies[1] ?? ""]: "mine" },
+			exclusion,
+		});
+		expect(plan.actions).toEqual([]);
+		expect(skips(plan)).toEqual(copies.map((copy) => `excluded ${copy}`).sort());
+	});
+
+	test("a copy of a copy goes by the first file", async () => {
+		const first = conflictCopyPath("img.png", "iPhone", at);
+		const second = conflictCopyPath(first, "iPhone", at, 2);
+		const plan = await planFor({ synced: { "img.png": "theirs" }, local: { [second]: "mine" }, exclusion });
+		expect(summary(plan)).toEqual([`upload ${second}`]);
+	});
+
+	test("a recorded copy the remote deleted and the vault edited is sent back only while its original is on the remote", async () => {
+		const copy = conflictCopyPath("img.png", "iPhone", at);
+		const onRemote = await planFor({
+			synced: { "img.png": "theirs", [copy]: "mine" },
+			remote: { [copy]: null },
+			local: { [copy]: "edited" },
+			exclusion,
+		});
+		expect(summary(onRemote)).toEqual([`upload ${copy}`]);
+
+		// The remote deleted both: the copy is like any other matched path.
+		const deleted = await planFor({
+			synced: { "img.png": "theirs", [copy]: "mine" },
+			remote: { "img.png": null, [copy]: null },
+			local: { [copy]: "edited" },
+			exclusion,
+		});
+		expect(summary(deleted)).toEqual([`drop-record ${copy}`, "delete-local img.png"]);
+	});
+});
+
+describe("the two things that are never synced", () => {
+	// Every line that could bring them back.
+	const exclusion = rules("!.git\n!.git/\n!**/.git/**\n!/.obsidian/plugins/\n!/.obsidian/plugins/sync-evo/\n");
+
+	test("the plugin's own folder is left alone on every side, even when the remote holds it", () => {
+		const hash = blobHash("x");
+		const other = blobHash("y");
+		const plan = planOf({
+			remote: [
+				{ path: `${ownFolder}/main.js`, kind: "file", hash },
+				{ path: `${ownFolder}/remote-only.js`, kind: "file", hash },
+				{ path: `${ownFolder}/deleted-here.js`, kind: "file", hash },
+				{ path: `${ownFolder}/changed-there.js`, kind: "file", hash: other },
+			],
+			local: [
+				{ path: `${ownFolder}/main.js`, hash: other },
+				{ path: `${ownFolder}/manifest.json`, hash },
+				{ path: `${ownFolder}/deleted-there.js`, hash },
+				{ path: `${ownFolder}/changed-there.js`, hash },
+			],
+			records: [
+				{ path: `${ownFolder}/deleted-here.js`, kind: "file", hash },
+				{ path: `${ownFolder}/deleted-there.js`, kind: "file", hash },
+				{ path: `${ownFolder}/changed-there.js`, kind: "file", hash },
+				{ path: `${ownFolder}/gone.js`, kind: "file", hash },
+			],
+			exclusion,
+		});
+		expect(plan.actions).toEqual([]);
+		expect(plan.skipped.map((skip) => skip.reason)).toEqual(Array(7).fill("own-folder"));
+		// What tells the caller that the remote holds the folder.
+		const onRemote = plan.skipped.filter((skip) => skip.reason === "own-folder" && skip.remote.length > 0);
+		expect(onRemote.map((skip) => skip.key)).toEqual([
+			`${ownFolder}/changed-there.js`,
+			`${ownFolder}/deleted-here.js`,
+			`${ownFolder}/main.js`,
+			`${ownFolder}/remote-only.js`,
+		]);
+	});
+
+	test("the other plugins next to it are synced, since the rule for them was taken back", async () => {
+		const plan = await planFor({ local: { ".obsidian/plugins/dataview/main.js": "D" }, exclusion });
+		expect(summary(plan)).toEqual(["upload .obsidian/plugins/dataview/main.js"]);
+	});
+
+	test("anything under a .git is left alone on every side, at any depth", () => {
+		const hash = blobHash("x");
+		const plan = planOf({
+			remote: [{ path: "sub/.git/config", kind: "file", hash }],
+			local: [
+				{ path: ".git/HEAD", hash },
+				{ path: "sub/.git", hash },
+				{ path: ".gitignore", hash },
+				{ path: ".github/a.yml", hash },
+			],
+			records: [{ path: ".git/index", kind: "file", hash }],
+			exclusion,
+		});
+		expect(summary(plan)).toEqual(["upload .github/a.yml", "upload .gitignore"]);
+		expect(skips(plan)).toEqual(["dot-git .git/HEAD", "dot-git .git/index", "dot-git sub/.git", "dot-git sub/.git/config"]);
+	});
+
+	test("they come before every other reason to skip a path", () => {
+		const hash = blobHash("x");
+		const plan = planOf({
+			remote: [
+				{ path: `${ownFolder}/link`, kind: "symlink", hash },
+				{ path: `${ownFolder}/link/below`, kind: "file", hash },
+			],
+			local: [],
+			records: [],
+			exclusion,
+		});
+		expect(plan.skipped.map((skip) => skip.reason)).toEqual(["own-folder", "own-folder"]);
+	});
+});
+
+describe("paths that are not paths", () => {
+	const hash = blobHash("x");
+	const odd = ["", "/", "a/", "/a.md", "./a.md", "../x", "a//b.md", "a/./b.md", "a/../b.md", "."];
+
+	test.each(odd)("%j is skipped on every side, wherever it comes from", (path) => {
+		for (const side of ["remote", "local", "records"] as const) {
+			const plan = planOf({
+				remote: side === "remote" ? [{ path, kind: "file", hash }] : [],
+				local: side === "local" ? [{ path, hash }] : [],
+				records: side === "records" ? [{ path, kind: "file", hash }] : [],
+			});
+			expect(plan.actions).toEqual([]);
+			expect(skips(plan)).toEqual([`invalid-path ${path}`]);
+			expect(plan.skipped[0]?.[side].map((entry) => entry.path)).toEqual([path]);
+		}
+	});
+
+	test("the rest of the plan is made as usual", () => {
+		const plan = planOf({
+			remote: [...odd.map((path) => ({ path, kind: "file" as const, hash })), { path: "a.md", kind: "file", hash }],
+			local: [
+				{ path: "b.md", hash },
+				{ path: "drafts/c.md", hash },
+				{ path: "./d.md", hash },
+			],
+			records: [{ path: "a//b.md", kind: "file", hash }],
+			exclusion: rules("/drafts/\n"),
+		});
+		expect(summary(plan)).toEqual(["download a.md", "upload b.md"]);
+		expect(plan.skipped.filter((skip) => skip.reason === "invalid-path").map((skip) => skip.key).sort()).toEqual(
+			[...odd, "./d.md"].sort(),
+		);
+		expect(skips(plan)).toContain("excluded drafts/c.md");
+	});
+
+	test("it comes before every other reason, a duplicate included", () => {
+		const plan = planOf({
+			remote: [
+				{ path: "が/", kind: "file", hash },
+				{ path: "が/".normalize("NFD"), kind: "symlink", hash },
+			],
+			local: [],
+			records: [],
+		});
+		expect(skips(plan)).toEqual(["invalid-path が/"]);
 	});
 });

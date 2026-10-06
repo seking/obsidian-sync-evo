@@ -73,4 +73,9 @@ export const ja = completeTranslation(en, {
 	"check.noTokenSecret": "先に、トークンを保存したシークレットを選んでください。",
 	"check.noTokenValue":
 		"シークレット {name} に値がありません。トークンをこの名前で保存するか、別のシークレットを選んでください。",
+
+	"notice.ownFolderOnRemote":
+		"保存先に Sync Evo 自身のフォルダ（{path}）があります。Sync Evo はこのフォルダを同期しません。保存先でも、このデバイスでも、そのままにします。ほかのファイルは、通常どおり同期されます。",
+	"notice.gitAtRoot":
+		"この保管庫のルートに .git があり、git のリポジトリになっています。このデバイスでは、git か Obsidian Git プラグインで同期してください。Sync Evo が送った内容を git は知らないため、次の git pull が止まります。Sync Evo は、その間も同期を続けます。",
 });

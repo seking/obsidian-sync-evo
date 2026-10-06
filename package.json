@@ -21,6 +21,9 @@
 		"install:vault": "node scripts/install-to-vault.mjs",
 		"release:beta": "node scripts/release-beta.mjs"
 	},
+	"dependencies": {
+		"ignore": "7.0.12"
+	},
 	"devDependencies": {
 		"@types/node": "25.9.9",
 		"esbuild": "0.28.2",

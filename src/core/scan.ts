@@ -1,0 +1,131 @@
+/*
+ * Sync Evo
+ * Copyright (C) 2026 seking
+ *
+ * This file is part of Sync Evo, which is free software licensed under the
+ * GNU Affero General Public License, version 3. It comes with ABSOLUTELY NO
+ * WARRANTY. See the LICENSE file for the full text.
+ *
+ * Source: https://github.com/seking/obsidian-sync-evo
+ */
+
+// The one scan of the vault: every file that takes part in the sync, found
+// by listing folder after folder. It only lists. It reads no file, hashes
+// nothing, and asks for no time or size; that is the work of whoever turns
+// the result into the local side of the sync decision.
+
+import type { RemoteEntry } from "./backend";
+import { type Exclusion, knownPaths } from "./exclusion";
+import { foldedKey, pathKey } from "./paths";
+import type { SyncRecord } from "./plan";
+
+/**
+ * What lists one folder. The data adapter of the app is one; unlike the
+ * app's own index of the vault, it also returns names that start with a `.`.
+ * The folder is given as a path from the vault root, and the root itself as
+ * `/`. The paths it returns are from the vault root too.
+ */
+export interface FolderLister {
+	list(folder: string): Promise<{ readonly files: readonly string[]; readonly folders: readonly string[] }>;
+}
+
+/**
+ * One file the scan found. `state` has a single value so far; it is there so
+ * that a file that exists but cannot be read (one a cloud drive has taken
+ * off the device) can be told from a deleted one later, without changing
+ * what a scan returns.
+ */
+export interface ScannedPath {
+	/** Path from the vault root, spelled as the lister returned it. */
+	readonly path: string;
+	/** `pathKey(path)`. */
+	readonly key: string;
+	readonly state: "present";
+}
+
+export interface ScanInput {
+	readonly lister: FolderLister;
+	/** The same object that is given to the sync decision. */
+	readonly exclusion: Exclusion;
+	/**
+	 * The remote listing and the records, the same two the sync decision is
+	 * given. A path a rule matches is still synced when it is in either, so
+	 * the scan has to look for it; and the records say which paths are
+	 * symlinks.
+	 */
+	readonly remote: readonly RemoteEntry[];
+	readonly records: readonly SyncRecord[];
+}
+
+export interface ScanResult {
+	/** In the order the folders were listed. */
+	readonly paths: readonly ScannedPath[];
+	/** Whether the vault root has a `.git`, as a folder or as a file. */
+	readonly rootHasGit: boolean;
+}
+
+const ROOT = "/";
+
+/**
+ * Lists the vault. Left out, without being entered or listed:
+ *
+ * - `.git` and the plugin's own folder, at any cost;
+ * - what lies below a path that a record holds as a symlink. On a desktop a
+ *   symlink to a folder looks like a folder, and its content belongs to the
+ *   path it points to;
+ * - a folder a rule matches that has nothing known below it, and a file a
+ *   rule matches that is not known. (What "known" means for a copy kept
+ *   from a conflict is the exclusion's to say.) The sync decision would turn each of
+ *   them away as excluded; this only saves listing them, and a
+ *   `.obsidian/plugins/` with thousands of files is the usual case.
+ *
+ * Whether a path is known is asked without regard to case (`knownPaths`).
+ * Returning one file too many costs nothing, since the decision is taken
+ * again from the result.
+ *
+ * A folder that cannot be listed fails the whole scan, for the same reason:
+ * a partial result would read as deletions.
+ */
+export async function scanVault(input: ScanInput): Promise<ScanResult> {
+	const { lister, exclusion } = input;
+
+	const known = knownPaths(input.remote, input.records);
+	// Without regard to case, like what is known: not going below a folder
+	// by mistake leaves its files as they are on every side.
+	const symlinks = new Set<string>();
+	for (const record of input.records) {
+		if (record.kind === "symlink") symlinks.add(foldedKey(record.path));
+	}
+
+	const paths: ScannedPath[] = [];
+	let rootHasGit = false;
+
+	const pending: string[] = [ROOT];
+	for (let folder = pending.pop(); folder !== undefined; folder = pending.pop()) {
+		const listed = await lister.list(folder);
+
+		for (const returned of listed.files) {
+			const path = fromRoot(returned);
+			if (folder === ROOT && foldedKey(path) === ".git") rootHasGit = true;
+			if (exclusion.excludes(path, "file", known)) continue;
+			paths.push({ path, key: pathKey(path), state: "present" });
+		}
+
+		for (const returned of listed.folders) {
+			const path = fromRoot(returned);
+			const folded = foldedKey(path);
+			if (folder === ROOT && folded === ".git") rootHasGit = true;
+			if (exclusion.excludes(path, "folder", known)) continue;
+			if (symlinks.has(folded)) continue;
+			pending.push(path);
+		}
+	}
+
+	return { paths, rootHasGit };
+}
+
+// A lister may put the root in front of what it returns (`/a.md`, `./a.md`).
+// The exclusion takes paths from the root and refuses anything else.
+function fromRoot(path: string): string {
+	return path.replace(/^(?:\.?\/)+/, "");
+}

@@ -80,4 +80,11 @@ export const en = baseCatalog({
 	"check.noBranch": "Enter a branch first.",
 	"check.noTokenSecret": "Select the secret that holds the token first.",
 	"check.noTokenValue": "The secret {name} has no value. Save the token under it, or select another secret.",
+
+	// Things the user is told once, and again only after they went away and
+	// came back. Neither stops the sync.
+	"notice.ownFolderOnRemote":
+		"The remote contains Sync Evo's own folder ({path}). Sync Evo never syncs that folder: it is left as it is, on the remote and on this device. Everything else is synced as usual.",
+	"notice.gitAtRoot":
+		"This vault has a .git at its root, so it is a git repository. Sync this device with git or the Obsidian Git plugin instead: git does not learn of what Sync Evo sends, and its next pull would stop. Sync Evo keeps syncing in the meantime.",
 });

@@ -10,6 +10,7 @@
  */
 
 import { describe, expect, test } from "vitest";
+import { createExclusion } from "../src/core/exclusion";
 import { planSync } from "../src/core/plan";
 import {
 	isListing,
@@ -79,7 +80,12 @@ describe("making a record", () => {
 
 	test("stored records are what the sync decision takes as records", () => {
 		const record = fileRecord("a.md", HASH);
-		const plan = planSync({ remote: [{ path: "a.md", kind: "file", hash: OTHER }], local: [], records: [record] });
+		const plan = planSync({
+			remote: [{ path: "a.md", kind: "file", hash: OTHER }],
+			local: [],
+			records: [record],
+			exclusion: createExclusion({ configDir: ".obsidian", pluginDir: ".obsidian/plugins/sync-evo", gitignore: null }),
+		});
 		expect(plan.actions.map((action) => action.type)).toEqual(["download"]);
 	});
 });

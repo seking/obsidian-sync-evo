@@ -12,7 +12,12 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { expect, test } from "vitest";
 
-test("src/core only imports from inside itself", () => {
+// The boundary keeps `obsidian` and the APIs of Node out of the core, so that
+// it runs on a phone and in the tests alike. A package that is JavaScript
+// alone and uses neither does not cross it. Each one is named here.
+const ALLOWED_PACKAGES: readonly string[] = ["ignore"];
+
+test("src/core only imports from inside itself, and the packages named above", () => {
 	const root = new URL("../src/core/", import.meta.url);
 	const files = readdirSync(root, { recursive: true, encoding: "utf8" }).filter((name) =>
 		name.endsWith(".ts"),
@@ -32,6 +37,7 @@ test("src/core only imports from inside itself", () => {
 		const code = source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|\s)\/\/.*$/gm, "$1");
 		for (const match of code.matchAll(/\b(?:from|import|require)\s*\(?\s*(["'`])(.*?)\1/g)) {
 			const specifier = match[2] ?? "";
+			if (ALLOWED_PACKAGES.includes(specifier)) continue;
 			const climbs = specifier.split("/").filter((part) => part === "..").length;
 			if (!specifier.startsWith(".") || climbs > depth) outside.push(`${file}: ${specifier}`);
 		}
