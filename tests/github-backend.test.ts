@@ -9,6 +9,7 @@
  * Source: https://github.com/seking/obsidian-sync-evo
  */
 
+import { strToU8, zipSync } from "fflate";
 import { describe, expect, test } from "vitest";
 import { BackendError, type BackendErrorKind, type FetchedFile, type RemoteEntry } from "../src/core/backend";
 import { MAX_CONCURRENT_FETCH_BYTES, MAX_CONCURRENT_FETCHES } from "../src/core/concurrent-fetch";
@@ -28,6 +29,7 @@ class FakeClient implements GitHubBackendClient {
 	tree: GitTreeItem[] | BackendError = [];
 	blobs = new Map<string, Uint8Array | BackendError>();
 	ancestor: boolean | BackendError = true;
+	zip: Uint8Array | BackendError = new Uint8Array();
 
 	async resolveHead(): Promise<HeadResult> {
 		this.calls.push("resolveHead");
@@ -52,6 +54,13 @@ class FakeClient implements GitHubBackendClient {
 		if (blob === undefined) throw new BackendError("not-found", "no such blob");
 		if (blob instanceof BackendError) throw blob;
 		return blob;
+	}
+
+	async getZip(sha: string): Promise<ArrayBuffer> {
+		this.calls.push(`getZip ${sha}`);
+		if (this.zip instanceof BackendError) throw this.zip;
+		// As a response hands it over: a buffer of its own.
+		return this.zip.slice().buffer;
 	}
 
 	async isAncestor(base: string, head: string): Promise<boolean> {
@@ -349,6 +358,36 @@ describe("fetch", () => {
 		expect(await kindOf(collect(fetching))).toBe("other");
 		await settle();
 		expect(client.calls).toEqual([]);
+	});
+});
+
+describe("fetchArchive", () => {
+	test("the zip of the commit, with the folder GitHub puts everything in left out", async () => {
+		const client = new FakeClient();
+		client.zip = zipSync({
+			[`octo-notes-${A.slice(0, 7)}/`]: new Uint8Array(),
+			[`octo-notes-${A.slice(0, 7)}/a.md`]: strToU8("alpha"),
+			[`octo-notes-${A.slice(0, 7)}/notes/b.md`]: strToU8("beta"),
+		});
+		const archive = await new GitHubBackend(client).fetchArchive(A);
+		// Asked for by the commit, and nothing else is asked for.
+		expect(client.calls).toEqual([`getZip ${A}`]);
+		expect(archive.byteLength).toBe(client.zip.length);
+		expect(archive.sizeOf("a.md")).toBe(5);
+		expect(new TextDecoder().decode(archive.read("notes/b.md"))).toBe("beta");
+		expect(archive.sizeOf(`octo-notes-${A.slice(0, 7)}/a.md`)).toBeNull();
+	});
+
+	test("a failure of the request is the client's, unchanged", async () => {
+		const client = new FakeClient();
+		client.zip = new BackendError("other", "get zip: HTTP 302");
+		expect(await kindOf(new GitHubBackend(client).fetchArchive(A))).toBe("other");
+	});
+
+	test("an answer that is not a zip fails, and not as a failure of the remote", async () => {
+		const client = new FakeClient();
+		client.zip = strToU8("<html>Sign in</html>".repeat(5));
+		await expect(new GitHubBackend(client).fetchArchive(A)).rejects.not.toBeInstanceOf(BackendError);
 	});
 });
 

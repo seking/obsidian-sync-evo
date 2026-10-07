@@ -56,6 +56,7 @@ export class PullRunner {
 	private progressShownAt = 0;
 	private progressPhase = "";
 	private progressClosedViews = false;
+	private progressArchive: PullProgress["archive"] = undefined;
 	/** What was last reported, for writing the line again when only the request limit changed. */
 	private lastProgress: PullProgress | null = null;
 	/** Set while a pull runs: what there is to tell about the request limit. */
@@ -147,6 +148,9 @@ export class PullRunner {
 					return answer;
 				},
 				beginBulkWrite: graphViewPause(host.app),
+				// Only the files that are fetched one at a time come through
+				// here: the pull takes many files from the zip of the commit
+				// instead, which is one request and no matter of the quota.
 				// Where the number of files to fetch is known, right before
 				// the first is asked for: a fetch that does not fit in the
 				// quota is told from here on.
@@ -155,6 +159,9 @@ export class PullRunner {
 					this.showLimit();
 					return contents;
 				},
+				// The estimate of the zip beside its real size, to see later
+				// whether the estimate holds.
+				log: (message) => console.info(`Sync Evo: ${message}`),
 				onProgress: (progress) => this.showProgress(progress),
 				signal: controller.signal,
 				yieldControl,
@@ -170,6 +177,7 @@ export class PullRunner {
 			this.progress?.hide();
 			this.progress = null;
 			this.progressPhase = "";
+			this.progressArchive = undefined;
 			this.lastProgress = null;
 			this.limitWatch = null;
 			this.shownLimit = NO_FETCH_LIMIT;
@@ -203,11 +211,13 @@ export class PullRunner {
 		const step =
 			progress.phase !== this.progressPhase ||
 			progress.closedViews !== this.progressClosedViews ||
+			progress.archive !== this.progressArchive ||
 			!sameFetchLimit(limit, this.shownLimit);
 		const last = progress.total > 0 && progress.done === progress.total;
 		if (!step && !last && now - this.progressShownAt < PROGRESS_INTERVAL_MS) return;
 		this.progressPhase = progress.phase;
 		this.progressClosedViews = progress.closedViews;
+		this.progressArchive = progress.archive;
 		this.shownLimit = limit;
 		this.progressShownAt = now;
 		this.progress.setMessage(pullProgressText(this.host.t, progress, limit));

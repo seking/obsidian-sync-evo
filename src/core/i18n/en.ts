@@ -104,6 +104,8 @@ export const en = baseCatalog({
 		"This device refused to write, move, or delete some files, so the pull skipped them. Nothing about them was changed on the remote, and each pull tries them again:\n{list}",
 	"notice.blockedPath":
 		"The file {path} of the remote could not be written: files that are only on this device are in its place. Move or rename them, and the next pull writes it:\n{list}",
+	"notice.archiveGivenUp":
+		"Downloading all files at once did not work on this device, so Sync Evo no longer tries it here. When there are many files to fetch, they are now fetched one by one, which takes longer.",
 
 	// Lists inside a message.
 	"list.separator": ", ",
@@ -120,6 +122,9 @@ export const en = baseCatalog({
 	"pull.progress.hashing": "Pull: comparing files ({done}/{total})…",
 	"pull.progress.applyingStart": "Pull: updating files…",
 	"pull.progress.applying": "Pull: updating files ({done}/{total})…",
+	"pull.progress.downloadingArchive": "Pull: downloading all files at once…",
+	"pull.progress.archiveRetry":
+		"The last download did not finish. Keep Obsidian in front and wait until this one is done.",
 	"pull.progress.graphClosed":
 		"Graph views are closed while the files are written. They reopen when the pull ends.",
 	"pull.progress.rateLimited":
@@ -133,6 +138,10 @@ export const en = baseCatalog({
 	"pull.count.renamed": { one: "{count} file renamed", other: "{count} files renamed" },
 	"pull.count.conflicts": { one: "{count} conflict", other: "{count} conflicts" },
 	"pull.summary": "Pull finished: {details}.",
+	"pull.refetched": {
+		one: "{count} file was missing from the download of all files, or differed from GitHub's listing there. It was fetched on its own.",
+		other: "{count} files were missing from the download of all files, or differed from GitHub's listing there. They were fetched one by one.",
+	},
 	"pull.done": "Pull finished.",
 	"pull.upToDate": "Nothing to pull. This device is up to date.",
 	"pull.remoteEmpty": "The remote is empty: it has no commits yet. There is nothing to pull.",

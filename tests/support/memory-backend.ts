@@ -44,6 +44,8 @@ export class MemoryBackend implements Backend {
 	// revision can still be fetched.
 	private readonly contents = new Map<string, Uint8Array>();
 	private history: string[] = [];
+	// The files of every revision, for an archive of one that is no longer the head.
+	private readonly snapshots = new Map<string, ReadonlyMap<string, string>>();
 	private counter = 0;
 
 	get revision(): string | null {
@@ -117,6 +119,13 @@ export class MemoryBackend implements Backend {
 		return hash === undefined ? undefined : this.contents.get(hash);
 	}
 
+	/** Path → content of every file at a revision. */
+	protected filesAt(revision: string): Map<string, Uint8Array> {
+		const snapshot = this.snapshots.get(revision);
+		if (snapshot === undefined) throw new BackendError("not-found", `no such revision: ${revision}`);
+		return new Map([...snapshot].map(([path, hash]) => [path, this.contents.get(hash) ?? new Uint8Array()]));
+	}
+
 	private expectListed(entry: RemoteEntry): void {
 		if (this.files.get(entry.path) !== entry.hash) {
 			throw new BackendError("other", `not the listed entry: ${entry.path}`);
@@ -143,6 +152,7 @@ export class MemoryBackend implements Backend {
 		this.counter += 1;
 		const revision = `rev-${this.counter}`;
 		this.history.push(revision);
+		this.snapshots.set(revision, new Map(this.files));
 		return revision;
 	}
 }

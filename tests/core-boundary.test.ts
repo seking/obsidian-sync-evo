@@ -15,7 +15,7 @@ import { expect, test } from "vitest";
 // The boundary keeps `obsidian` and the APIs of Node out of the core, so that
 // it runs on a phone and in the tests alike. A package that is JavaScript
 // alone and uses neither does not cross it. Each one is named here.
-const ALLOWED_PACKAGES: readonly string[] = ["ignore"];
+const ALLOWED_PACKAGES: readonly string[] = ["fflate", "ignore"];
 
 test("src/core only imports from inside itself, and the packages named above", () => {
 	const root = new URL("../src/core/", import.meta.url);

@@ -661,7 +661,11 @@ export class GitHubClient {
 							? "unreachable"
 							: "other";
 		const message = messageOf(response).slice(0, 200);
-		return new BackendError(kind, this.redact(`${what}: HTTP ${status}${message === "" ? "" : `: ${message}`}`));
+		return new BackendError(
+			kind,
+			this.redact(`${what}: HTTP ${status}${message === "" ? "" : `: ${message}`}`),
+			status,
+		);
 	}
 
 	private writeFailure(what: string, response: HttpResponse): BackendError {
@@ -670,6 +674,7 @@ export class GitHubClient {
 			return new BackendError(
 				"workflows-permission",
 				this.redact(`${what}: HTTP ${response.status}: ${message.slice(0, 200)}`),
+				response.status,
 			);
 		}
 		return this.failure(what, response);

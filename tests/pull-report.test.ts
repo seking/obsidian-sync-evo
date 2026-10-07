@@ -53,6 +53,7 @@ const result = (over: Partial<PullResult> = {}): PullResult => ({
 	newSymlinks: [],
 	notices: [],
 	closedViews: false,
+	refetched: 0,
 	...over,
 });
 
@@ -86,6 +87,34 @@ describe("pullProgressText", () => {
 		expect(pullProgressText(t, { phase: "listing", done: 0, total: 0, closedViews: false })).toBe(
 			"Pull: checking the remote…",
 		);
+	});
+
+	test("while everything is downloaded at once, that is told in place of a count", () => {
+		const downloading = { phase: "applying", done: 2, total: 6655, closedViews: false, archive: "downloading" } as const;
+		expect(pullProgressText(t, downloading)).toBe("Pull: downloading all files at once…");
+		expect(pullProgressText(ja, downloading)).toBe("取り込み：全ファイルをまとめて取得中…");
+	});
+
+	test("a download that is tried again tells to keep the app in front", () => {
+		const retrying = { phase: "applying", done: 0, total: 6655, closedViews: false, archive: "retrying" } as const;
+		expect(pullProgressText(t, retrying).split("\n")).toEqual([
+			"Pull: downloading all files at once…",
+			"The last download did not finish. Keep Obsidian in front and wait until this one is done.",
+		]);
+		expect(pullProgressText(ja, retrying).split("\n")).toEqual([
+			"取り込み：全ファイルをまとめて取得中…",
+			"前回は、取得が終わりませんでした。終わるまで、Obsidian を前に出したまま待ってください。",
+		]);
+	});
+
+	test("once the download is over, nothing of it is told any more, also after one that was tried again", () => {
+		const retrying = { phase: "applying", done: 0, total: 6655, closedViews: false, archive: "retrying" } as const;
+		expect(pullProgressText(t, retrying).split("\n")).toHaveLength(2);
+		// The same pull, with the download behind it.
+		const { archive: _over, ...counting } = retrying;
+		expect(pullProgressText(t, counting)).toBe("Pull: updating files (0/6655)…");
+		expect(pullProgressText(t, { ...counting, done: 12 })).toBe("Pull: updating files (12/6655)…");
+		expect(pullProgressText(ja, { ...counting, done: 12 })).toBe("取り込み：ファイルを更新中（12/6655）…");
 	});
 
 	test("closed graph views are told for as long as they are closed", () => {
@@ -154,6 +183,23 @@ describe("pullProgressText", () => {
 });
 
 describe("the summary", () => {
+	test("files that were not taken from the download of all files are counted on a line of their own", () => {
+		const counts = { fetched: 6655, deleted: 0, renamed: 0, conflicts: 0 };
+		const report = pullReport(t, result({ counts, refetched: 12 }), options);
+		expect(report.summary.split("\n")).toEqual([
+			"Pull finished: 6655 files fetched.",
+			"12 files were missing from the download of all files, or differed from GitHub's listing there. They were fetched one by one.",
+		]);
+		expect(report.details).toEqual([]);
+		expect(pullReport(t, result({ counts, refetched: 1 }), options).summary.split("\n")[1]).toBe(
+			"1 file was missing from the download of all files, or differed from GitHub's listing there. It was fetched on its own.",
+		);
+		expect(pullReport(ja, result({ counts, refetched: 12 }), options).summary.split("\n")[1]).toBe(
+			"12 件のファイルは、まとめて取得した中に無いか、中身が GitHub の一覧と合わなかったため、1件ずつ取得しました。",
+		);
+		expect(pullReport(t, result({ counts }), options).summary).toBe("Pull finished: 6655 files fetched.");
+	});
+
 	test("nothing changed", () => {
 		expect(pullReport(t, result(), options)).toEqual({
 			summary: "Nothing to pull. This device is up to date.",
@@ -381,6 +427,7 @@ describe("what the user has to know", () => {
 					{ kind: "lfs-pointer", path: "img.png" },
 					{ kind: "invalid-path", path: "a//b" },
 					{ kind: "blocked-path", path: "notes" },
+					{ kind: "archive-given-up", path: "" },
 				],
 				unwritable: [
 					{ path: "notes", reason: "blocked", inTheWay: ["notes/draft.md", "notes/sub/idea.md"], isNew: true },
@@ -389,6 +436,9 @@ describe("what the user has to know", () => {
 			options,
 		);
 		expect(report.details).toHaveLength(NOTICE_KINDS.length);
+		expect(report.details[9]).toBe(
+			"Downloading all files at once did not work on this device, so Sync Evo no longer tries it here. When there are many files to fetch, they are now fetched one by one, which takes longer.",
+		);
 		expect(report.details[0]).toContain(".obsidian/plugins/sync-evo");
 		expect(report.details[1]).toContain(".git");
 		expect(report.details[2]?.endsWith("\na.md\nA.md")).toBe(true);
@@ -402,6 +452,17 @@ describe("what the user has to know", () => {
 		expect(report.details[8]).toBe(
 			"The file notes of the remote could not be written: files that are only on this device are in its place. Move or rename them, and the next pull writes it:\nnotes/draft.md\nnotes/sub/idea.md",
 		);
+	});
+
+	test("a device that stopped downloading all files at once is told so, apart from the summary", () => {
+		const given = result({ notices: [{ kind: "archive-given-up", path: "" }] });
+		expect(pullReport(ja, given, options)).toEqual({
+			summary: "取り込むものはありません。このデバイスは最新です。",
+			details: [
+				"このデバイスでは、全ファイルをまとめて取得できませんでした。今後このデバイスでは、まとめて取得しません。ファイルが多いときも1件ずつ取得するため、時間が長くかかります。",
+			],
+		});
+		expect(pullReport(t, given, options).details).toHaveLength(1);
 	});
 
 	test("each blocked file has a text of its own, and many files in the way are listed in part", async () => {

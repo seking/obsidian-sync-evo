@@ -96,6 +96,8 @@ export const ja = completeTranslation(en, {
 		"このデバイスで書き込み、移動、または削除ができなかったファイルがあったため、飛ばしました。保存先では何も変更していません。取り込みのたびに、もう一度試します：\n{list}",
 	"notice.blockedPath":
 		"保存先のファイル {path} を書き込めませんでした。その場所に、このデバイスにだけあるファイルがあります。移動するか名前を変えると、次の取り込みで書き込みます：\n{list}",
+	"notice.archiveGivenUp":
+		"このデバイスでは、全ファイルをまとめて取得できませんでした。今後このデバイスでは、まとめて取得しません。ファイルが多いときも1件ずつ取得するため、時間が長くかかります。",
 
 	"list.separator": "、",
 	"list.more": "…ほか {count} 件",
@@ -109,6 +111,9 @@ export const ja = completeTranslation(en, {
 	"pull.progress.hashing": "取り込み：ファイルを比較中（{done}/{total}）…",
 	"pull.progress.applyingStart": "取り込み：ファイルを更新中…",
 	"pull.progress.applying": "取り込み：ファイルを更新中（{done}/{total}）…",
+	"pull.progress.downloadingArchive": "取り込み：全ファイルをまとめて取得中…",
+	"pull.progress.archiveRetry":
+		"前回は、取得が終わりませんでした。終わるまで、Obsidian を前に出したまま待ってください。",
 	"pull.progress.graphClosed":
 		"ファイルを書き込む間、グラフビューを閉じています。取り込みが終わると、開き直します。",
 	"pull.progress.rateLimited":
@@ -120,6 +125,8 @@ export const ja = completeTranslation(en, {
 	"pull.count.renamed": "名前の変更 {count} 件",
 	"pull.count.conflicts": "競合 {count} 件",
 	"pull.summary": "取り込みが終わりました：{details}",
+	"pull.refetched":
+		"{count} 件のファイルは、まとめて取得した中に無いか、中身が GitHub の一覧と合わなかったため、1件ずつ取得しました。",
 	"pull.done": "取り込みが終わりました。",
 	"pull.upToDate": "取り込むものはありません。このデバイスは最新です。",
 	"pull.remoteEmpty": "保存先は空で、コミットがまだありません。取り込むものはありません。",

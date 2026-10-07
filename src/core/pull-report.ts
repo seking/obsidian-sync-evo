@@ -68,10 +68,12 @@ export function pullProgressText(
 			text = total > 0 ? t("pull.progress.hashing", { done, total }) : t("pull.progress.scanning");
 			break;
 		case "applying":
-			text = total > 0 ? t("pull.progress.applying", { done, total }) : t("pull.progress.applyingStart");
+			if (progress.archive !== undefined) text = t("pull.progress.downloadingArchive");
+			else text = total > 0 ? t("pull.progress.applying", { done, total }) : t("pull.progress.applyingStart");
 			break;
 	}
 	const lines = [text];
+	if (progress.archive === "retrying") lines.push(t("pull.progress.archiveRetry"));
 	if (limit.waitingUntil !== null) {
 		lines.push(t("pull.progress.rateLimited", { time: clockTime(nextMinute(limit.waitingUntil)) }));
 	} else if (limit.quota !== null) {
@@ -209,7 +211,10 @@ export function pullReport(t: Translate, result: PullResult, options: PullReport
 	}
 	details.push(...noticeTexts(t, result, options.sizeLimit));
 
-	return { summary: summaryText(t, result), details };
+	// With the summary and not a message of its own: it is nothing to act on.
+	const summary = [summaryText(t, result)];
+	if (result.refetched > 0) summary.push(t("pull.refetched", { count: result.refetched }));
+	return { summary: summary.join("\n"), details };
 }
 
 function summaryText(t: Translate, result: PullResult): string {
@@ -303,6 +308,8 @@ function noticeText(
 				const blocked = result.unwritable.find((entry) => entry.reason === "blocked" && entry.path === path);
 				return t("notice.blockedPath", { path, list: listText(t, blocked?.inTheWay ?? []) });
 			});
+		case "archive-given-up":
+			return [t("notice.archiveGivenUp")];
 	}
 }
 

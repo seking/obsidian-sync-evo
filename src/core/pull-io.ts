@@ -14,6 +14,7 @@
 // are all behind what is declared here, so that it runs the same in the app
 // and in a test.
 
+import type { ArchiveDownload } from "./archive-fetch";
 import type { Backend, FetchedFile, RemoteEntry } from "./backend";
 import type { ExclusionPaths } from "./exclusion";
 import type { NoticeRef } from "./notices";
@@ -126,6 +127,34 @@ export interface BulkWriteSession {
  */
 export type BeginBulkWrite = () => Promise<BulkWriteSession>;
 
+/** A file as a source of contents yields it. */
+export interface SourcedFile extends FetchedFile {
+	/**
+	 * What `Backend.hashContent` answers for `content`, when the source has
+	 * computed it already. The write compares this with the listing instead
+	 * of hashing the content a second time. Never the hash of the entry
+	 * taken on trust.
+	 */
+	readonly hash?: string;
+}
+
+/**
+ * Thrown by a source of contents when the sync state failed inside it, with
+ * what the store threw as `cause`. Anything else a source throws is a
+ * failure to fetch: the files that were not yielded wait for the next sync.
+ * This is not: the pull rejects with `cause`, as it does when the sync state
+ * fails anywhere else.
+ */
+export class SourcedStateError extends Error {
+	readonly cause: unknown;
+
+	constructor(cause: unknown) {
+		super("The sync state failed while the contents were fetched.");
+		this.name = "SourcedStateError";
+		this.cause = cause;
+	}
+}
+
 /**
  * Yields the content of the listed entries, like `Backend.fetch`. The pull
  * decides what to fetch and writes what comes back; how the bytes are
@@ -134,7 +163,7 @@ export type BeginBulkWrite = () => Promise<BulkWriteSession>;
 export type ContentSource = (
 	revision: string | null,
 	entries: readonly RemoteEntry[],
-) => AsyncIterable<FetchedFile>;
+) => AsyncIterable<SourcedFile>;
 
 export type PullPhase = "listing" | "scanning" | "hashing" | "applying";
 
@@ -145,6 +174,11 @@ export interface PullProgress {
 	readonly total: number;
 	/** Whether views were closed for the duration of the pull (`BulkWriteSession`). */
 	readonly closedViews: boolean;
+	/**
+	 * Set while the archive of the commit is downloaded. `done` stands still
+	 * then, with nothing to count: the download is one request.
+	 */
+	readonly archive?: ArchiveDownload;
 }
 
 export interface PullDeps {
@@ -162,8 +196,15 @@ export interface PullDeps {
 	readonly now: () => number;
 	readonly confirm: ConfirmPull;
 	readonly beginBulkWrite?: BeginBulkWrite;
-	/** `backend.fetch` when absent. */
+	/**
+	 * Yields files one at a time; `backend.fetch` when absent. The pull uses
+	 * it for a few files, and for what the archive of the remote
+	 * (`Backend.fetchArchive`) did not give when it fetches many. Which of
+	 * the two means is used is decided in `archive-fetch.ts`.
+	 */
 	readonly fetchContents?: ContentSource;
+	/** For the record of how the fetching went, in English. Nothing a user has to read. */
+	readonly log?: (message: string) => void;
 	readonly onProgress?: (progress: PullProgress) => void;
 	/** Stops the pull between two files. */
 	readonly signal?: AbortSignal;
@@ -315,6 +356,12 @@ export interface PullResult {
 	readonly notices: readonly NoticeRef[];
 	/** Whether views were closed while the pull wrote, and reopened since. */
 	readonly closedViews: boolean;
+	/**
+	 * How many files the archive of the remote was asked for and did not
+	 * give as they are listed: left out of it, or of another content. They
+	 * were fetched one at a time instead. 0 when no archive was used.
+	 */
+	readonly refetched: number;
 	/** What the fetching threw, when it stopped before the end. */
 	readonly fetchError?: unknown;
 }

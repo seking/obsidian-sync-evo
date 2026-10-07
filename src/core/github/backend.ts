@@ -13,6 +13,7 @@
 // what a sync asks of any remote. Reading only, so far.
 
 import {
+	type ArchiveContents,
 	type Backend,
 	BackendError,
 	type BaseRelation,
@@ -24,12 +25,13 @@ import {
 } from "../backend";
 import { fetchConcurrently } from "../concurrent-fetch";
 import { gitBlobHash } from "../hash";
+import { openZip } from "../zip";
 import type { GitHubClient, GitTreeItem } from "./client";
 
 /** The calls of the client a backend is built from. */
 export type GitHubBackendClient = Pick<
 	GitHubClient,
-	"resolveHead" | "getCommit" | "getTree" | "getBlob" | "isAncestor"
+	"resolveHead" | "getCommit" | "getTree" | "getBlob" | "getZip" | "isAncestor"
 >;
 
 export interface GitHubBackendOptions {
@@ -117,6 +119,16 @@ export class GitHubBackend implements Backend {
 			(entry) => this.client.getBlob(entry.hash, entry.size),
 			this.options.signal === undefined ? {} : { signal: this.options.signal },
 		);
+	}
+
+	/**
+	 * The zip of the commit, in one request and a redirect. Every entry of
+	 * such a zip is below one folder named after the repository and the
+	 * commit, which is left out so that the paths are those of the tree.
+	 * Only the directory of the zip is read here.
+	 */
+	async fetchArchive(revision: string): Promise<ArchiveContents> {
+		return openZip(new Uint8Array(await this.client.getZip(revision)), { stripTopFolder: true });
 	}
 
 	// Sending is a later stage. Until then nothing of the vault leaves the device.

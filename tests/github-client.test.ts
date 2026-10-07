@@ -293,8 +293,18 @@ describe("reading", () => {
 
 	test("a redirect that was not followed is a failure, with no second request", async () => {
 		const { client, http } = setup([raw(302, "", { location: "https://codeload.github.com/x" })]);
-		expect(await kindOf(client.getZip(A))).toBe("other");
+		const failure = await failureOf(client.getZip(A));
+		expect(failure.kind).toBe("other");
+		// The status goes along: it is what tells this from any other
+		// failure of the kind.
+		expect(failure.status).toBe(302);
 		expect(http.requests.length).toBe(1);
+	});
+
+	test("a failure that is an answer carries its status, and one that is not carries none", async () => {
+		expect((await failureOf(setup([json(422, { message: "Unprocessable" })]).client.getZip(A))).status).toBe(422);
+		expect((await failureOf(setup([notFound()]).client.getZip(A))).status).toBe(404);
+		expect((await failureOf(setup([]).client.getZip("not a sha"))).status).toBeUndefined();
 	});
 });
 

@@ -30,6 +30,7 @@
 // 6. The plan, step by step.
 // 7. The base revision, when nothing was put off.
 
+import { type ArchiveDownload, archiveContentSource, isArchiveDisabled } from "./archive-fetch";
 import type { RemoteEntry, RemoteListing } from "./backend";
 import { createExclusion } from "./exclusion";
 import { HASH_CHUNK_BYTES } from "./hash";
@@ -39,6 +40,7 @@ import { DEFAULT_SIZE_LIMIT, type LocalEntry } from "./plan";
 import { type ApplyEnv, applyPlan, isLfsPointer, type Seen, Tally } from "./pull-apply";
 import type {
 	BulkWriteSession,
+	ContentSource,
 	PullDeps,
 	PullOutcome,
 	PullPhase,
@@ -104,6 +106,10 @@ class PullRun {
 	private closedViews = false;
 	/** Whether this is a first fetch: only then are views closed for the writing. */
 	private firstFetch = false;
+	/** Set while the archive of the commit is downloaded. */
+	private download: ArchiveDownload | null = null;
+	/** The steps of the plan as last reported, for reporting them again when only `download` changed. */
+	private applied = { done: 0, total: 0 };
 
 	constructor(private readonly deps: PullDeps) {
 		this.store = deps.store;
@@ -123,7 +129,13 @@ class PullRun {
 	}
 
 	private progress(phase: PullPhase, done = 0, total = 0): void {
-		this.deps.onProgress?.({ phase, done, total, closedViews: this.closedViews });
+		this.deps.onProgress?.({
+			phase,
+			done,
+			total,
+			closedViews: this.closedViews,
+			...(this.download === null ? {} : { archive: this.download }),
+		});
 	}
 
 	private aborted(): boolean {
@@ -296,6 +308,7 @@ class PullRun {
 			newSymlinks: [],
 			notices: [],
 			closedViews: this.closedViews,
+			refetched: tally.refetched,
 			...(tally.fetchError === undefined ? {} : { fetchError: tally.fetchError }),
 			...extra,
 		};
@@ -325,7 +338,7 @@ class PullRun {
 			store: this.store,
 			backend: deps.backend,
 			vault: deps.vault,
-			fetchContents: deps.fetchContents ?? ((revision, entries) => deps.backend.fetch(revision, entries)),
+			fetchContents: this.contentSource(listing),
 			deviceName: deps.deviceName,
 			now: deps.now,
 			startedAt: this.startedAt,
@@ -336,10 +349,39 @@ class PullRun {
 			localPaths,
 			tally: this.tally,
 			beforeWrite: () => this.beforeWrite(),
-			onStep: (done, total) => this.progress("applying", done, total),
+			onStep: (done, total) => {
+				this.applied = { done, total };
+				this.progress("applying", done, total);
+			},
 			communityPluginsKey: pathKey(`${trimSlashes(deps.paths.configDir)}/community-plugins.json`),
 			pluginId: deps.pluginId,
 		};
+	}
+
+	/**
+	 * Where the contents come from: all at once when there are many, one
+	 * file at a time otherwise (`archive-fetch.ts`). The mark an attempt at
+	 * the archive leaves in the sync state is looked at in there, when the
+	 * number of files to fetch is known, and not when the pull starts: a
+	 * pull that fetches nothing has no use for it.
+	 */
+	private contentSource(listing: RemoteListing): ContentSource {
+		const { deps } = this;
+		return archiveContentSource({
+			store: this.store,
+			backend: deps.backend,
+			listing,
+			perFile: deps.fetchContents ?? ((revision, entries) => deps.backend.fetch(revision, entries)),
+			...(deps.signal === undefined ? {} : { signal: deps.signal }),
+			...(deps.log === undefined ? {} : { log: deps.log }),
+			onDownload: (download) => {
+				this.download = download;
+				this.progress("applying", this.applied.done, this.applied.total);
+			},
+			onRefetch: (count) => {
+				this.tally.refetched = count;
+			},
+		});
 	}
 
 	// Asked for at the first write rather than up front, so that a first
@@ -533,6 +575,10 @@ class PullRun {
 		};
 
 		if (scan.rootHasGit) add("git-at-root", ".git");
+		// Read from the sync state and not handed over by the fetching: the
+		// pull that made the device remember it can have been killed before
+		// it told anything, and the next one tells it then.
+		if (await isArchiveDisabled(this.store)) add("archive-given-up", "");
 		for (const collision of plan.collisions) {
 			for (const spelling of collision.spellings) add("remote-path-collision", spelling);
 		}

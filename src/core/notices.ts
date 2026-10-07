@@ -42,6 +42,10 @@ import type { StateStore } from "./state";
  * - "blocked-path": a file of the remote is not written because files that
  *   are only in the vault are in its place. Told once for as long as that
  *   is so.
+ * - "archive-given-up": this device remembers not to fetch many files at
+ *   once (`archive-fetch.ts`), and fetches them one at a time from now on.
+ *   About the device and no path: its path is empty. Told once, by the pull
+ *   that finds it so, and not again for as long as the sync state lasts.
  *
  * A new kind is a new name here and a text in the catalog.
  */
@@ -55,6 +59,7 @@ export const NOTICE_KINDS = [
 	"plugin-not-listed",
 	"unwritable-path",
 	"blocked-path",
+	"archive-given-up",
 ] as const;
 
 export type NoticeKind = (typeof NOTICE_KINDS)[number];

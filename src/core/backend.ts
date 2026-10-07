@@ -51,6 +51,29 @@ export interface FetchedFile {
 	readonly content: Uint8Array;
 }
 
+/**
+ * Everything a revision holds, fetched in one piece (the zip of a commit).
+ * The piece is in memory as it was downloaded; the content of a path is
+ * produced when it is asked for and not kept, so that only one content is in
+ * memory beside it.
+ *
+ * Nothing it holds is to be trusted: what a host packs can differ from what
+ * it lists (files left out, line ends converted, symlinks as plain files).
+ * The consumer asks for the paths it took from the listing and for no other,
+ * and checks each content with `hashContent`.
+ */
+export interface ArchiveContents {
+	/** The size of what was downloaded, in bytes. */
+	readonly byteLength: number;
+	/**
+	 * The size the content of a path has, in bytes, without producing it.
+	 * `null` when the archive does not hold the path.
+	 */
+	sizeOf(path: string): number | null;
+	/** The content of a path the archive holds. Throws when it cannot be produced. */
+	read(path: string): Uint8Array;
+}
+
 export interface PushFile {
 	/** Path as it should appear on the remote. */
 	readonly path: string;
@@ -129,6 +152,17 @@ export interface Backend {
 	fetch(revision: string | null, entries: readonly RemoteEntry[]): AsyncIterable<FetchedFile>;
 
 	/**
+	 * Fetches everything the revision holds at once, whatever the number of
+	 * files, in about one request. Absent on a remote that has no such way;
+	 * its files are then always fetched with `fetch`. Whether this or `fetch`
+	 * is used is decided by the caller (`archive-fetch.ts`), never in here.
+	 *
+	 * The revision is the one a listing was taken from, so that what is
+	 * fetched cannot be newer than what was listed.
+	 */
+	fetchArchive?(revision: string): Promise<ArchiveContents>;
+
+	/**
 	 * Applies writes and deletes on top of `baseRevision`. Paths not named are
 	 * left as they are. Answers "stale" instead of overwriting when the remote
 	 * has moved. Fails, changing nothing, when a file's content does not match
@@ -175,11 +209,18 @@ export type BackendErrorKind =
  */
 export class BackendError extends Error {
 	readonly kind: BackendErrorKind;
+	/**
+	 * The status the remote answered with, when the failure is an answer of
+	 * the remote. `kind` folds many statuses into one; the few places that
+	 * have to tell them apart read this instead of the message.
+	 */
+	readonly status?: number;
 
-	constructor(kind: BackendErrorKind, message: string) {
+	constructor(kind: BackendErrorKind, message: string, status?: number) {
 		super(message);
 		this.name = "BackendError";
 		this.kind = kind;
+		if (status !== undefined) this.status = status;
 	}
 }
 

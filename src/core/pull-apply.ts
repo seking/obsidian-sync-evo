@@ -28,19 +28,21 @@
 // sync does not take the pull for done. A failure of the sync state is
 // neither: it is thrown, and ends the pull.
 
-import type { Backend, FetchedFile, RemoteEntry, RemoteListing } from "./backend";
+import type { Backend, RemoteEntry, RemoteListing } from "./backend";
 import { CopyIndex, copyCandidate } from "./conflict-copies";
 import { foldedKey, pathKey } from "./paths";
 import type { LocalEntry, SyncRecord } from "./plan";
-import type {
-	ContentSource,
-	DeferReason,
-	DeferredFile,
-	PullConflict,
-	PullConflictCause,
-	PullVault,
-	UnwritablePath,
-	UnwritableReason,
+import {
+	type ContentSource,
+	type DeferReason,
+	type DeferredFile,
+	type PullConflict,
+	type PullConflictCause,
+	type PullVault,
+	type SourcedFile,
+	SourcedStateError,
+	type UnwritablePath,
+	type UnwritableReason,
 } from "./pull-io";
 import type {
 	FolderRename,
@@ -88,6 +90,8 @@ export class Tally {
 	 */
 	readonly refused: { readonly remotePath: string; readonly reportedAs: string }[] = [];
 	fetchError: unknown = undefined;
+	/** Files the archive did not give as they are listed (`PullResult.refetched`). */
+	refetched = 0;
 	/** Keys written with the remote's content in this pull. */
 	readonly written = new Set<string>();
 	/** Paths written in this pull whose content is an LFS pointer. */
@@ -183,6 +187,9 @@ class Applier {
 			plan.renames.length +
 			plan.strays.length +
 			plan.writes.length;
+		// The total before the first step: a fetch of everything at once
+		// shows nothing of its own for a while.
+		if (this.total > 0) this.env.onStep?.(0, this.total);
 
 		// The record changes touch no file and take no time. They are all
 		// made even when the signal is already set, so that what they settle
@@ -805,10 +812,14 @@ class Applier {
 					stopped = true;
 					break;
 				}
-				let next: IteratorResult<FetchedFile>;
+				let next: IteratorResult<SourcedFile>;
 				try {
 					next = await contents.next();
 				} catch (error) {
+					// Not a failure to fetch, and not for the next sync to
+					// mend: thrown as the store threw it, like every other
+					// failure of the sync state.
+					if (error instanceof SourcedStateError) throw error.cause;
 					if (this.aborted()) {
 						stopped = true;
 						break;
@@ -822,7 +833,7 @@ class Applier {
 				const write = waiting.get(next.value.entry.path);
 				if (write === undefined) continue;
 				waiting.delete(next.value.entry.path);
-				await this.applyWrite(write, next.value.content);
+				await this.applyWrite(write, next.value.content, next.value.hash);
 				this.step();
 			}
 		} finally {
@@ -837,12 +848,14 @@ class Applier {
 		return true;
 	}
 
-	private async applyWrite(write: PullWrite, content: Uint8Array): Promise<void> {
+	private async applyWrite(write: PullWrite, content: Uint8Array, hashed?: string): Promise<void> {
 		const { remote } = write;
 		const path = remote.path;
 
 		// Before anything is written, and for every source of content alike.
-		if ((await this.env.backend.hashContent(content)) !== remote.hash) {
+		// A source that hashed the content hands the hash over (`SourcedFile`);
+		// the comparison is made here all the same.
+		if ((hashed ?? (await this.env.backend.hashContent(content))) !== remote.hash) {
 			this.defer(path, "hash-mismatch");
 			return;
 		}

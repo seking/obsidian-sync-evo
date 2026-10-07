@@ -1,0 +1,54 @@
+{
+	"commit": "cf1b30ca03f36aee997bbae2f4d5c2d6829edf5b",
+	"prefix": "owner-repo-cf1b30c/",
+	"entries": [
+		{
+			"path": "README.md",
+			"kind": "file",
+			"hash": "9741694d75caeb49d3b7c1f59451c0c56bf6216c",
+			"size": 10
+		},
+		{
+			"path": "empty.md",
+			"kind": "file",
+			"hash": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391",
+			"size": 0
+		},
+		{
+			"path": "\u30ce\u30fc\u30c8/\u30ac\u30a4\u30c9.md",
+			"kind": "file",
+			"hash": "21bfb0047ed89018bc92c302929640f57da8e057",
+			"size": 28
+		},
+		{
+			"path": "\u30ce\u30fc\u30c8/\u30c6\u3099\u30cf\u3099\u30a4\u30b9.md",
+			"kind": "file",
+			"hash": "9c8269fe085d29469ff546940d18d9869d56711d",
+			"size": 22
+		},
+		{
+			"path": "assets/noise.bin",
+			"kind": "file",
+			"hash": "7351d5bf1712de891eb2b8cb45354ac79c50ef4a",
+			"size": 256
+		},
+		{
+			"path": "a/b/c/deep.md",
+			"kind": "file",
+			"hash": "fe3a7953494ee706001dc1eae65278a5b058c676",
+			"size": 201
+		},
+		{
+			"path": "a/b/sibling.txt",
+			"kind": "file",
+			"hash": "e620d96ddbb46fde6b49052f50ab204df88d2b1c",
+			"size": 8
+		},
+		{
+			"path": "link-to-readme",
+			"kind": "symlink",
+			"hash": "42061c01a1c70097d1e4579f29a5adf40abdec95",
+			"size": 9
+		}
+	]
+}
