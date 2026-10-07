@@ -19,7 +19,14 @@
 import { BackendError, RateLimitedError } from "../backend";
 import { encodeBase64 } from "./base64";
 import type { HttpFunction, HttpRequest, HttpResponse, Sleep } from "./http";
-import { MARGIN_MS, type RateLimit, rateLimitOf, UNSTATED_WAIT_MS } from "./rate-limit";
+import {
+	MARGIN_MS,
+	quotaOf,
+	type RateLimit,
+	type RateLimitQuota,
+	rateLimitOf,
+	UNSTATED_WAIT_MS,
+} from "./rate-limit";
 
 const API = "https://api.github.com";
 
@@ -43,6 +50,11 @@ const MAX_RATE_LIMIT_WAIT_MS = 2 * 60 * 60 * 1000;
 // the per-hour one. Waits double from a minute, and once they add up to the
 // hour the longest of these limits lasts, waiting more will not help.
 const MAX_UNSTATED_WAIT_TOTAL_MS = 60 * 60 * 1000;
+// Requests refused together for one limit do not name the same end: each is
+// worked out from the clock when its response came in and from a `date`
+// header in whole seconds, and carries the margin of a second. Ends no
+// further apart than this are taken to be of the same limit.
+const SAME_LIMIT_MS = 2_000;
 
 const SHA = /^[0-9a-f]{40}$/;
 
@@ -64,6 +76,14 @@ export interface GitHubClientOptions {
 	 * Asked each time a request hits a rate limit. Answer `true` to wait until
 	 * the given time and continue, `false` to fail with "rate-limited" instead.
 	 * Without it the client always waits.
+	 *
+	 * Requests that run at the same time hit a limit together, and each
+	 * response names its end a little differently. While a wait that was
+	 * asked about is on, a request whose limit ends within that wait, or no
+	 * more than `SAME_LIMIT_MS` after it, joins it without asking again, so
+	 * the caller hears of one limit once. The time in the notice is that of
+	 * the request that asked; another may wait that little longer. A request
+	 * that is refused again after the wait is asked about again.
 	 */
 	readonly onRateLimit?: (notice: RateLimitNotice) => boolean | Promise<boolean>;
 	/**
@@ -192,12 +212,32 @@ export class GitHubClient {
 	private readonly options: GitHubClientOptions;
 	private readonly repoUrl: string;
 	private readonly branchPath: string;
+	/**
+	 * The end of the wait for a rate limit that was agreed to, on the device
+	 * clock; 0 before the first. It holds for every request of this client:
+	 * one that has not been sent yet waits for it too, instead of being sent
+	 * only to be refused.
+	 */
+	private blockedUntil = 0;
+	/** The question about a limit that the caller has not answered yet. */
+	private asking: { readonly until: number; readonly answer: Promise<boolean> } | null = null;
+	private lastQuota: RateLimitQuota | null = null;
 
 	constructor(options: GitHubClientOptions) {
 		this.options = options;
 		this.repoUrl = `${API}/repos/${encodeURIComponent(options.owner)}/${encodeURIComponent(options.repo)}`;
 		// A branch name may contain slashes, which stay as path separators.
 		this.branchPath = options.branch.split("/").map(encodeURIComponent).join("/");
+	}
+
+	/**
+	 * What is left of the hourly quota, as the last response that reported
+	 * it said, or `null` before the first. No request is made for it. With
+	 * requests running at the same time it is the answer that arrived last,
+	 * which is not always the one GitHub sent last.
+	 */
+	get quota(): RateLimitQuota | null {
+		return this.lastQuota;
 	}
 
 	/**
@@ -472,10 +512,12 @@ export class GitHubClient {
 		let unstated = 0;
 		let unstatedWaited = 0;
 		for (let retries = 0; ; retries++) {
-			this.throwIfCancelled(what);
+			// A limit another request ran into holds for this one as well.
+			await this.waitUntil(what, this.blockedUntil);
 			const response = await this.once(what, request, timeoutMs ?? this.options.apiTimeoutMs ?? DEFAULT_API_TIMEOUT_MS);
-			if (response.status !== 403 && response.status !== 429) return response;
 			const now = this.options.now();
+			this.lastQuota = quotaOf(response, now) ?? this.lastQuota;
+			if (response.status !== 403 && response.status !== 429) return response;
 			let limit = rateLimitOf(response, messageOf(response), now);
 			if (limit === null) return response;
 
@@ -499,9 +541,42 @@ export class GitHubClient {
 			if (limit.until - now > MAX_RATE_LIMIT_WAIT_MS) {
 				throw new RateLimitedError(limit.until, `${what}: rate limited for longer than can be waited out`);
 			}
-			const wait = this.options.onRateLimit === undefined || (await this.options.onRateLimit({ ...limit, retries }));
-			if (!wait) throw new RateLimitedError(limit.until, `${what}: rate limited (${limit.kind})`);
+			if (!(await this.agreesToWait({ ...limit, retries }))) {
+				throw new RateLimitedError(limit.until, `${what}: rate limited (${limit.kind})`);
+			}
 			await this.waitUntil(what, limit.until);
+		}
+	}
+
+	/**
+	 * Whether the limit is waited out. The caller is asked once per limit:
+	 * the requests that ran into it together share the one answer. Their
+	 * ends are not the same to the millisecond (`SAME_LIMIT_MS`), and each
+	 * request still waits until its own.
+	 */
+	private async agreesToWait(notice: RateLimitNotice): Promise<boolean> {
+		if (notice.until <= this.blockedUntil) return true;
+		// Only while the wait agreed to is on. Once it is over, a limit that
+		// ends a moment after it is a new one: the request was sent again
+		// and refused again, and a short `retry-after` puts that end
+		// within the tolerance.
+		const waiting = this.options.now() < this.blockedUntil;
+		if (waiting && notice.until <= this.blockedUntil + SAME_LIMIT_MS) return true;
+		// Asked, and not answered yet: an answer can take a moment, and the
+		// other requests get here before it is in.
+		const pending = this.asking;
+		if (pending !== null && notice.until <= pending.until + SAME_LIMIT_MS) return pending.answer;
+
+		const onRateLimit = this.options.onRateLimit;
+		const answer = (async () => onRateLimit === undefined || (await onRateLimit(notice)))();
+		const asking = { until: notice.until, answer };
+		this.asking = asking;
+		try {
+			const wait = await answer;
+			if (wait) this.blockedUntil = Math.max(this.blockedUntil, notice.until);
+			return wait;
+		} finally {
+			if (this.asking === asking) this.asking = null;
 		}
 	}
 

@@ -111,6 +111,10 @@ export const ja = completeTranslation(en, {
 	"pull.progress.applying": "取り込み：ファイルを更新中（{done}/{total}）…",
 	"pull.progress.graphClosed":
 		"ファイルを書き込む間、グラフビューを閉じています。取り込みが終わると、開き直します。",
+	"pull.progress.rateLimited":
+		"GitHub のリクエスト数の上限に達しました。{time} に続きを取り込みます。アプリを閉じても、次の同期で続きから進みます。",
+	"pull.progress.overQuota":
+		"GitHub のリクエスト数の上限までに取得できるのは、約 {count} 件です。残りは {time} 以降に取り込みます。",
 	"pull.count.fetched": "取得 {count} 件",
 	"pull.count.deleted": "削除 {count} 件",
 	"pull.count.renamed": "名前の変更 {count} 件",

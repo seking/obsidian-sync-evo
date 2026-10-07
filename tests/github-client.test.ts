@@ -755,6 +755,235 @@ describe("rate limits", () => {
 		expect((await client.getZip(A)).byteLength).toBe(2);
 		expect(time.slept).toBe(6_000);
 	});
+
+	describe("requests at the same time", () => {
+		const blob = () => raw(200, new Uint8Array([1]));
+		const RESET = START + 91_000;
+
+		test("the caller is asked once for the limit they hit together, and all of them continue", async () => {
+			const notices: RateLimitNotice[] = [];
+			const limited = [primary(START / 1000 + 90), primary(START / 1000 + 90), primary(START / 1000 + 90)];
+			const { client, http } = setup([...limited, blob(), blob(), blob()], {
+				onRateLimit: (notice) => {
+					notices.push(notice);
+					return true;
+				},
+			});
+			const blobs = await Promise.all([client.getBlob(A), client.getBlob(B), client.getBlob(C)]);
+			expect(blobs).toHaveLength(3);
+			expect(notices).toEqual([{ kind: "primary", until: RESET, stated: true, retries: 0 }]);
+			expect(http.requests.length).toBe(6);
+			for (const index of [3, 4, 5]) expect(http.request(index).at).toBeGreaterThanOrEqual(RESET);
+		});
+
+		test("an answer that takes a moment is shared too", async () => {
+			let asked = 0;
+			const limited = [primary(START / 1000 + 90), primary(START / 1000 + 90), primary(START / 1000 + 90)];
+			const { client } = setup([...limited, blob(), blob(), blob()], {
+				onRateLimit: async () => {
+					asked += 1;
+					await new Promise((resolve) => setTimeout(resolve, 0));
+					return true;
+				},
+			});
+			await Promise.all([client.getBlob(A), client.getBlob(B), client.getBlob(C)]);
+			expect(asked).toBe(1);
+		});
+
+		test("a request that was not sent yet waits for the limit another one hit", async () => {
+			const { client, http, time } = setup([primary(START / 1000 + 90), blob(), blob()]);
+			const first = client.getBlob(A);
+			// The first has been refused and is waiting.
+			while (time.sleeps.length === 0) await new Promise((resolve) => setTimeout(resolve, 0));
+			expect(http.requests.length).toBe(1);
+			await Promise.all([first, client.getBlob(B)]);
+			expect(http.requests.length).toBe(3);
+			expect(http.request(1).at).toBeGreaterThanOrEqual(RESET);
+			expect(http.request(2).at).toBeGreaterThanOrEqual(RESET);
+		});
+
+		test("a limit that ends later than the wait agreed to is asked about again", async () => {
+			const untils: number[] = [];
+			const { client } = setup([secondary(5), secondary(60), blob(), blob()], {
+				onRateLimit: (notice) => {
+					untils.push(notice.until);
+					return true;
+				},
+			});
+			await Promise.all([client.getBlob(A), client.getBlob(B)]);
+			expect(untils).toEqual([START + 6_000, START + 61_000]);
+		});
+
+		/**
+		 * A client whose clock is `step` ms further each time it is read, so
+		 * that the responses of requests sent together are read at different
+		 * times, as they are when they come in one after the other.
+		 */
+		function setupApart(script: Step[], step: number) {
+			const time = new FakeTime();
+			const http = new FakeHttp(time, script);
+			const notices: RateLimitNotice[] = [];
+			let reads = 0;
+			const client = new GitHubClient({
+				owner: "octo",
+				repo: "notes",
+				branch: "main",
+				token: TOKEN,
+				http: http.send,
+				now: () => time.current + step * reads++,
+				sleep: time.sleep,
+				onRateLimit: (notice) => {
+					notices.push(notice);
+					return true;
+				},
+			});
+			return { client, http, notices };
+		}
+
+		test("responses that put the end of one limit at slightly different times ask once", async () => {
+			// GitHub's clock, in whole seconds, moved on before the last
+			// answer, and the device read each a few hundred ms apart: the
+			// same reset lands on three times of the device clock.
+			const reset = START / 1000 + 90;
+			const limited = [
+				primaryAt(reset, new Date(START).toUTCString()),
+				primaryAt(reset, new Date(START).toUTCString()),
+				primaryAt(reset, new Date(START + 1000).toUTCString()),
+			];
+			const { client, http, notices } = setupApart([...limited, blob(), blob(), blob()], 300);
+			const blobs = await Promise.all([client.getBlob(A), client.getBlob(B), client.getBlob(C)]);
+			expect(blobs).toHaveLength(3);
+			expect(notices).toHaveLength(1);
+			expect(http.requests.length).toBe(6);
+			for (const index of [3, 4, 5]) expect(http.request(index).at).toBeGreaterThanOrEqual(START + 90_000);
+		});
+
+		test("16 requests refused by a secondary limit ask once, and all of them continue", async () => {
+			const count = 16;
+			const script = [
+				...Array.from({ length: count }, () => secondary(30)),
+				...Array.from({ length: count }, () => blob()),
+			];
+			// `retry-after` counts from when each response is read: 16 ends,
+			// spread over most of a second.
+			const { client, http, notices } = setupApart(script, 50);
+			const shas = Array.from({ length: count }, (_, index) => index.toString(16).padStart(40, "0"));
+			const blobs = await Promise.all(shas.map((sha) => client.getBlob(sha)));
+			expect(blobs).toHaveLength(count);
+			expect(notices).toHaveLength(1);
+			expect(notices[0]?.kind).toBe("secondary");
+			expect(http.requests.length).toBe(count * 2);
+			for (let index = count; index < count * 2; index++) {
+				expect(http.request(index).at).toBeGreaterThanOrEqual(START + 30_000);
+			}
+		});
+
+		test("a wait that has passed holds no one back", async () => {
+			const { client, http, time } = setup([secondary(5), blob(), blob()]);
+			await client.getBlob(A);
+			const slept = time.slept;
+			await client.getBlob(B);
+			expect(time.slept).toBe(slept);
+			expect(http.requests.length).toBe(3);
+		});
+
+		test("declining fails each of them, and holds no one back", async () => {
+			const limited = [primary(START / 1000 + 90), primary(START / 1000 + 90), blob()];
+			const { client, http, time } = setup(limited, { onRateLimit: () => false });
+			const failures = await Promise.all([failureOf(client.getBlob(A)), failureOf(client.getBlob(B))]);
+			expect(failures.map((failure) => (failure as RateLimitedError).waitUntil)).toEqual([RESET, RESET]);
+			// The next one is sent at once: nothing was agreed to.
+			await client.getBlob(C);
+			expect(time.sleeps).toEqual([]);
+			expect(http.requests.length).toBe(3);
+		});
+
+		test("cancelling ends the wait of a request that was not sent yet, and it is not sent", async () => {
+			const stop = new AbortController();
+			const { client, http, time } = setup([primary(START / 1000 + 90), blob(), blob()], { signal: stop.signal });
+			const first = kindOf(client.getBlob(A));
+			while (time.sleeps.length === 0) await new Promise((resolve) => setTimeout(resolve, 0));
+			const second = kindOf(client.getBlob(B));
+			stop.abort();
+			expect(await Promise.all([first, second])).toEqual(["cancelled", "cancelled"]);
+			expect(http.requests.length).toBe(1);
+		});
+	});
+});
+
+describe("the quota", () => {
+	const quota = (remaining: number, resetSeconds: number, more: Record<string, string> = {}) => ({
+		"X-RateLimit-Limit": "5000",
+		"X-RateLimit-Remaining": String(remaining),
+		"X-RateLimit-Reset": String(resetSeconds),
+		...more,
+	});
+	const head = (headers: Record<string, string>) =>
+		json(200, { ref: "refs/heads/main", object: { type: "commit", sha: A } }, headers);
+	const RESET_SECONDS = START / 1000 + 1800;
+
+	test("is not known before a response reports it", async () => {
+		const { client } = setup([ref(A)]);
+		expect(client.quota).toBeNull();
+		await client.resolveHead();
+		expect(client.quota).toBeNull();
+	});
+
+	test("is what the last response reported, without a request of its own", async () => {
+		const { client, http } = setup([head(quota(4321, RESET_SECONDS)), head(quota(4320, RESET_SECONDS))]);
+		await client.resolveHead();
+		expect(client.quota).toEqual({ remaining: 4321, resetAt: START + 1_800_000, limit: 5000 });
+		await client.resolveHead();
+		expect(client.quota?.remaining).toBe(4320);
+		expect(http.requests.length).toBe(2);
+	});
+
+	test("the limit is left out when the response does not name it", async () => {
+		const headers = { "x-ratelimit-remaining": "7", "x-ratelimit-reset": String(RESET_SECONDS) };
+		const { client } = setup([head(headers)]);
+		await client.resolveHead();
+		expect(client.quota).toEqual({ remaining: 7, resetAt: START + 1_800_000 });
+	});
+
+	test("the reset is given on the device clock", async () => {
+		// GitHub's clock is five minutes ahead of the device's.
+		const github = START + 300_000;
+		const headers = quota(10, github / 1000 + 1800, { Date: new Date(github).toUTCString() });
+		const { client } = setup([head(headers)]);
+		await client.resolveHead();
+		expect(client.quota?.resetAt).toBe(START + 1_800_000);
+	});
+
+	test("a response that reports none leaves the last one standing", async () => {
+		const { client } = setup([head(quota(10, RESET_SECONDS)), ref(B), head({ "x-ratelimit-remaining": "9" })]);
+		await client.resolveHead();
+		await client.resolveHead();
+		await client.resolveHead();
+		expect(client.quota?.remaining).toBe(10);
+	});
+
+	test("the quota of another resource is not this one", async () => {
+		const { client } = setup([
+			head(quota(10, RESET_SECONDS, { "X-RateLimit-Resource": "core" })),
+			head(quota(3, RESET_SECONDS, { "X-RateLimit-Resource": "search" })),
+		]);
+		await client.resolveHead();
+		await client.resolveHead();
+		expect(client.quota?.remaining).toBe(10);
+	});
+
+	test("a failure reports it like any other response", async () => {
+		const { client } = setup([json(404, { message: "Not Found" }, quota(42, RESET_SECONDS))]);
+		expect(await kindOf(client.getBlob(A))).toBe("not-found");
+		expect(client.quota?.remaining).toBe(42);
+	});
+
+	test("a refusal for the limit reports that nothing is left", async () => {
+		const refused = json(403, { message: "API rate limit exceeded" }, quota(0, RESET_SECONDS));
+		const { client } = setup([refused], { onRateLimit: () => false });
+		expect(await kindOf(client.resolveHead())).toBe("rate-limited");
+		expect(client.quota).toEqual({ remaining: 0, resetAt: START + 1_800_000, limit: 5000 });
+	});
 });
 
 describe("timeouts and connection failures", () => {

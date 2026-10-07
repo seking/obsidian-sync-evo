@@ -122,6 +122,12 @@ export const en = baseCatalog({
 	"pull.progress.applying": "Pull: updating files ({done}/{total})…",
 	"pull.progress.graphClosed":
 		"Graph views are closed while the files are written. They reopen when the pull ends.",
+	"pull.progress.rateLimited":
+		"GitHub's request limit was reached. The pull continues at {time}. You can close the app: the next sync continues from where it stopped.",
+	"pull.progress.overQuota": {
+		one: "About {count} file can be fetched before GitHub's request limit is reached. The rest continues after {time}.",
+		other: "About {count} files can be fetched before GitHub's request limit is reached. The rest continues after {time}.",
+	},
 	"pull.count.fetched": { one: "{count} file fetched", other: "{count} files fetched" },
 	"pull.count.deleted": { one: "{count} file deleted", other: "{count} files deleted" },
 	"pull.count.renamed": { one: "{count} file renamed", other: "{count} files renamed" },

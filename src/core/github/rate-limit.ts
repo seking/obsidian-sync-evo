@@ -32,6 +32,7 @@ export const UNSTATED_WAIT_MS = 60_000;
 // exactly at the reset can still be refused.
 export const MARGIN_MS = 1_000;
 
+/** A header that is a whole number, or `null`. */
 function seconds(value: string | undefined): number | null {
 	if (value === undefined || !/^\d+$/.test(value.trim())) return null;
 	return Number(value.trim());
@@ -85,4 +86,32 @@ export function rateLimitOf(response: HttpResponse, message: string, now: number
 		return { kind: "secondary", until: now + UNSTATED_WAIT_MS + MARGIN_MS, stated: false };
 	}
 	return null;
+}
+
+/** What is left of the hourly quota of the token, as a response reported it. */
+export interface RateLimitQuota {
+	/** How many requests are left until the reset. */
+	readonly remaining: number;
+	/** When the quota is full again, in milliseconds since the epoch, on the device clock. */
+	readonly resetAt: number;
+	/** The size of the full quota, when the response named it. */
+	readonly limit?: number;
+}
+
+/**
+ * The quota a response reports, or `null` when it reports none, or one of
+ * another resource than "core": searching, for one, is counted apart, and its
+ * numbers say nothing about the calls a sync makes. A response that does not
+ * name its resource is taken to be of the core.
+ */
+export function quotaOf(response: HttpResponse, now: number): RateLimitQuota | null {
+	const resource = headerOf(response, "x-ratelimit-resource")?.trim();
+	if (resource !== undefined && resource !== "" && resource !== "core") return null;
+	const remaining = seconds(headerOf(response, "x-ratelimit-remaining"));
+	const reset = seconds(headerOf(response, "x-ratelimit-reset"));
+	if (remaining === null || reset === null) return null;
+	const limit = seconds(headerOf(response, "x-ratelimit-limit"));
+	// Moved onto the device clock, as in `rateLimitOf`.
+	const resetAt = reset * 1000 - (clockSkew(response, now) ?? 0);
+	return { remaining, resetAt, ...(limit === null ? {} : { limit }) };
 }

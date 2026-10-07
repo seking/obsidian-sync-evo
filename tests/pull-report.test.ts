@@ -16,6 +16,7 @@ import { NOTICE_KINDS } from "../src/core/notices";
 import type { PullResult } from "../src/core/pull-io";
 import {
 	capList,
+	clockTime,
 	failureReason,
 	listText,
 	pullFailureText,
@@ -93,6 +94,62 @@ describe("pullProgressText", () => {
 			"Pull: updating files (3/10)…",
 			"Graph views are closed while the files are written. They reopen when the pull ends.",
 		]);
+	});
+
+	// Times of this device's own time zone, so that the texts read the same wherever the tests run.
+	const at = (hours: number, minutes: number, seconds = 0): number => new Date(2026, 9, 7, hours, minutes, seconds).getTime();
+	const applying = { phase: "applying", done: 3, total: 10, closedViews: false } as const;
+
+	test("a wait for the request limit is told with the time it ends", () => {
+		const text = pullProgressText(t, applying, { waitingUntil: at(14, 5), quota: null });
+		expect(text.split("\n")).toEqual([
+			"Pull: updating files (3/10)…",
+			"GitHub's request limit was reached. The pull continues at 14:05. You can close the app: the next sync continues from where it stopped.",
+		]);
+		expect(pullProgressText(ja, applying, { waitingUntil: at(14, 5), quota: null }).split("\n")[1]).toBe(
+			"GitHub のリクエスト数の上限に達しました。14:05 に続きを取り込みます。アプリを閉じても、次の同期で続きから進みます。",
+		);
+	});
+
+	test("the time shown is never before the one that is waited for", () => {
+		const text = pullProgressText(t, applying, { waitingUntil: at(9, 59, 1), quota: null });
+		expect(text).toContain("continues at 10:00.");
+	});
+
+	test("a fetch that does not fit in the quota is told with what fits and when the rest continues", () => {
+		const quota = { fetchable: 4990, resumesAt: at(8, 30) };
+		expect(pullProgressText(t, applying, { waitingUntil: null, quota }).split("\n")).toEqual([
+			"Pull: updating files (3/10)…",
+			"About 4990 files can be fetched before GitHub's request limit is reached. The rest continues after 08:30.",
+		]);
+		expect(pullProgressText(ja, applying, { waitingUntil: null, quota }).split("\n")[1]).toBe(
+			"GitHub のリクエスト数の上限までに取得できるのは、約 4990 件です。残りは 08:30 以降に取り込みます。",
+		);
+		expect(pullProgressText(t, applying, { waitingUntil: null, quota: { ...quota, fetchable: 1 } })).toContain(
+			"About 1 file can be fetched",
+		);
+	});
+
+	test("while it waits, the wait is told and not the quota", () => {
+		const quota = { fetchable: 4990, resumesAt: at(8, 30) };
+		const lines = pullProgressText(t, applying, { waitingUntil: at(8, 31), quota }).split("\n");
+		expect(lines).toHaveLength(2);
+		expect(lines[1]).toContain("continues at 08:31");
+	});
+
+	test("the request limit comes before the graph views, and any phase can show it", () => {
+		const text = pullProgressText(
+			t,
+			{ phase: "listing", done: 0, total: 0, closedViews: true },
+			{ waitingUntil: at(14, 5), quota: null },
+		);
+		expect(text.split("\n").map((line) => line.slice(0, 12))).toEqual(["Pull: checki", "GitHub's req", "Graph views "]);
+	});
+
+	test("clockTime is the time of day on the device, to the minute", () => {
+		expect(clockTime(at(0, 0))).toBe("00:00");
+		expect(clockTime(at(7, 5, 59))).toBe("07:05");
+		expect(clockTime(at(23, 59))).toBe("23:59");
 	});
 });
 

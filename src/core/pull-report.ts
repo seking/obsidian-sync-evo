@@ -14,6 +14,7 @@
 // it only puts these texts on the screen.
 
 import { BackendError, type BackendErrorKind } from "./backend";
+import { type FetchLimitState, NO_FETCH_LIMIT } from "./fetch-quota";
 import type { Translate } from "./i18n";
 import { NOTICE_KINDS, type NoticeKind, type NoticeRef } from "./notices";
 import type { DeferReason, PullConflict, PullProgress, PullResult } from "./pull-io";
@@ -45,8 +46,15 @@ export function listText(t: Translate, lines: readonly string[], limit = NOTICE_
 // ---------------------------------------------------------------------------
 // While it runs
 
-/** The one line of progress, with a second one while views are closed. */
-export function pullProgressText(t: Translate, progress: PullProgress): string {
+/**
+ * The one line of progress, with a line more while views are closed, and one
+ * about the request limit while there is something to tell of it.
+ */
+export function pullProgressText(
+	t: Translate,
+	progress: PullProgress,
+	limit: FetchLimitState = NO_FETCH_LIMIT,
+): string {
 	const { done, total } = progress;
 	let text: string;
 	switch (progress.phase) {
@@ -63,7 +71,28 @@ export function pullProgressText(t: Translate, progress: PullProgress): string {
 			text = total > 0 ? t("pull.progress.applying", { done, total }) : t("pull.progress.applyingStart");
 			break;
 	}
-	return progress.closedViews ? `${text}\n${t("pull.progress.graphClosed")}` : text;
+	const lines = [text];
+	if (limit.waitingUntil !== null) {
+		lines.push(t("pull.progress.rateLimited", { time: clockTime(nextMinute(limit.waitingUntil)) }));
+	} else if (limit.quota !== null) {
+		const { fetchable, resumesAt } = limit.quota;
+		lines.push(t("pull.progress.overQuota", { count: fetchable, time: clockTime(nextMinute(resumesAt)) }));
+	}
+	if (progress.closedViews) lines.push(t("pull.progress.graphClosed"));
+	return lines.join("\n");
+}
+
+// A time is shown without its seconds. Rounded up, so that the time shown is
+// never before the one that is waited for.
+function nextMinute(time: number): number {
+	return Math.ceil(time / 60_000) * 60_000;
+}
+
+/** The time of day on the device, to the minute, as "14:05". */
+export function clockTime(time: number): string {
+	const at = new Date(time);
+	const two = (value: number): string => String(value).padStart(2, "0");
+	return `${two(at.getHours())}:${two(at.getMinutes())}`;
 }
 
 // ---------------------------------------------------------------------------

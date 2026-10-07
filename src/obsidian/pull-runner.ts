@@ -15,6 +15,7 @@
 
 import { type App, Notice, type PluginManifest } from "obsidian";
 import { connectionCheckText, prepareCheck } from "../core/connection-check";
+import { type FetchLimitState, FetchLimitWatch, NO_FETCH_LIMIT, sameFetchLimit } from "../core/fetch-quota";
 import { GitHubBackend } from "../core/github/backend";
 import { GitHubClient } from "../core/github/client";
 import { timerSleep } from "../core/github/timer-sleep";
@@ -55,6 +56,11 @@ export class PullRunner {
 	private progressShownAt = 0;
 	private progressPhase = "";
 	private progressClosedViews = false;
+	/** What was last reported, for writing the line again when only the request limit changed. */
+	private lastProgress: PullProgress | null = null;
+	/** Set while a pull runs: what there is to tell about the request limit. */
+	private limitWatch: FetchLimitWatch | null = null;
+	private shownLimit: FetchLimitState = NO_FETCH_LIMIT;
 	/** The plugin is going away: nothing more is shown. */
 	private stopped = false;
 
@@ -96,19 +102,28 @@ export class PullRunner {
 			}
 
 			const yieldControl = (): Promise<void> => timerSleep(0);
-			const client = new GitHubClient({
+			const client: GitHubClient = new GitHubClient({
 				...prepared.target,
 				http: obsidianHttp,
 				now: Date.now,
 				sleep: timerSleep,
 				signal: controller.signal,
-				// Reported, not waited out, for now. Waiting, with a display
-				// of the wait, comes with the fetch of many files (T022).
-				onRateLimit: () => false,
+				// Waited out: a fetch of thousands of files does not fit in
+				// the quota of an hour. The requests that run together ask
+				// once, and the line of progress says until when.
+				onRateLimit: (notice) => {
+					limitWatch.rateLimited(notice.until);
+					this.showLimit();
+					return true;
+				},
 			});
+			const limitWatch = new FetchLimitWatch(() => client.quota, Date.now);
+			this.limitWatch = limitWatch;
+			const backend = new GitHubBackend(client, { yieldControl, signal: controller.signal });
+			const fetchContents = limitWatch.watch((revision, entries) => backend.fetch(revision, entries));
 			const result = await runPull({
 				store: opened.store,
-				backend: new GitHubBackend(client, { yieldControl }),
+				backend,
 				vault: pullVaultOf(host.app),
 				paths: exclusionPathsOf(host.app, host.manifest),
 				pluginId: host.manifest.id,
@@ -125,10 +140,21 @@ export class PullRunner {
 					if (!this.stopped && answer !== "cancel") {
 						this.progress = new Notice(t("pull.progress.applyingStart"), 0);
 						this.progressPhase = "";
+						// The new line shows nothing of the limit yet.
+						this.lastProgress = null;
+						this.shownLimit = NO_FETCH_LIMIT;
 					}
 					return answer;
 				},
 				beginBulkWrite: graphViewPause(host.app),
+				// Where the number of files to fetch is known, right before
+				// the first is asked for: a fetch that does not fit in the
+				// quota is told from here on.
+				fetchContents: (revision, entries) => {
+					const contents = fetchContents(revision, entries);
+					this.showLimit();
+					return contents;
+				},
 				onProgress: (progress) => this.showProgress(progress),
 				signal: controller.signal,
 				yieldControl,
@@ -144,6 +170,9 @@ export class PullRunner {
 			this.progress?.hide();
 			this.progress = null;
 			this.progressPhase = "";
+			this.lastProgress = null;
+			this.limitWatch = null;
+			this.shownLimit = NO_FETCH_LIMIT;
 		}
 	}
 
@@ -165,14 +194,36 @@ export class PullRunner {
 
 	private showProgress(progress: PullProgress): void {
 		if (this.stopped || this.progress === null) return;
+		// After the guard: while a question is open there is no line, and
+		// what `showLimit` passes in place of a report must not be kept.
+		this.lastProgress = progress;
 		const now = Date.now();
-		const step = progress.phase !== this.progressPhase || progress.closedViews !== this.progressClosedViews;
+		const limit = this.limitWatch?.state() ?? NO_FETCH_LIMIT;
+		// A wait that ended takes its line away with the next file.
+		const step =
+			progress.phase !== this.progressPhase ||
+			progress.closedViews !== this.progressClosedViews ||
+			!sameFetchLimit(limit, this.shownLimit);
 		const last = progress.total > 0 && progress.done === progress.total;
 		if (!step && !last && now - this.progressShownAt < PROGRESS_INTERVAL_MS) return;
 		this.progressPhase = progress.phase;
 		this.progressClosedViews = progress.closedViews;
+		this.shownLimit = limit;
 		this.progressShownAt = now;
-		this.progress.setMessage(pullProgressText(this.host.t, progress));
+		this.progress.setMessage(pullProgressText(this.host.t, progress, limit));
+	}
+
+	/**
+	 * Writes the line of progress again when what there is to tell about the
+	 * request limit changed. While a limit is waited out no file is reported,
+	 * so the line would not change by itself.
+	 */
+	private showLimit(): void {
+		const limit = this.limitWatch?.state() ?? NO_FETCH_LIMIT;
+		if (sameFetchLimit(limit, this.shownLimit)) return;
+		// Nothing reported since the line was put up: after a question it
+		// is the one the updating starts with.
+		this.showProgress(this.lastProgress ?? { phase: "applying", done: 0, total: 0, closedViews: false });
 	}
 
 	private report(result: PullResult, settings: DeviceSettings): void {

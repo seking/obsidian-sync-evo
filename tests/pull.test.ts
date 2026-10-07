@@ -738,6 +738,66 @@ describe("content that cannot be trusted or fetched", () => {
 		expect(h.views).toEqual(["close", "reopen"]);
 	});
 
+	test("contents that come in another order than the listing give the same pull", async () => {
+		// A remote that fetches several at a time yields them as they arrive.
+		const reversed = (backend: MemoryBackend): PullDeps["fetchContents"] =>
+			async function* (revision, entries): AsyncIterable<FetchedFile> {
+				const files: FetchedFile[] = [];
+				for await (const file of backend.fetch(revision, entries)) files.push(file);
+				yield* files.reverse();
+			};
+		const run = async (source?: (backend: MemoryBackend) => PullDeps["fetchContents"]) => {
+			const h = await synced({ "a.md": "A", "b.md": "B", "gone.md": "G", "notes/c.md": "C" });
+			const head = h.backend.commit({
+				"a.md": "A2",
+				"gone.md": null,
+				"notes/c.md": "C2",
+				"notes/d.md": "D",
+				"e.md": "E",
+				"z/f.md": "F",
+			});
+			const order: string[] = [];
+			const fetchContents = source?.(h.backend) ?? ((revision, entries) => h.backend.fetch(revision, entries));
+			const result = await h.pull({
+				fetchContents: async function* (revision, entries) {
+					for await (const file of fetchContents(revision, entries)) {
+						order.push(file.entry.path);
+						yield file;
+					}
+				},
+			});
+			return {
+				result,
+				order,
+				files: h.vault.snapshot(),
+				records: await h.records(),
+				atHead: (await h.base()) === head,
+				last: h.progress[h.progress.length - 1],
+			};
+		};
+
+		const inOrder = await run();
+		const shuffled = await run(reversed);
+
+		expect(inOrder.order.length).toBeGreaterThan(2);
+		expect(shuffled.order).toEqual([...inOrder.order].reverse());
+		expect(shuffled.result.outcome).toBe("completed");
+		expect(shuffled.result.counts).toEqual({ fetched: 5, deleted: 1, renamed: 0, conflicts: 0 });
+		expect(shuffled.result).toEqual(inOrder.result);
+		expect(shuffled.files).toEqual(inOrder.files);
+		expect(shuffled.files).toEqual({
+			"a.md": "A2",
+			"b.md": "B",
+			"notes/c.md": "C2",
+			"notes/d.md": "D",
+			"e.md": "E",
+			"z/f.md": "F",
+		});
+		expect(shuffled.records).toEqual(inOrder.records);
+		expect(shuffled.atHead).toBe(true);
+		expect(shuffled.last).toEqual(inOrder.last);
+	});
+
 	test("the sizes of the listing are passed on to whatever fetches", async () => {
 		const h = harness();
 		h.backend.commit({ "a.md": "12345" });

@@ -22,6 +22,7 @@ import {
 	type PushResult,
 	type RemoteEntry,
 } from "../backend";
+import { fetchConcurrently } from "../concurrent-fetch";
 import { gitBlobHash } from "../hash";
 import type { GitHubClient, GitTreeItem } from "./client";
 
@@ -34,6 +35,12 @@ export type GitHubBackendClient = Pick<
 export interface GitHubBackendOptions {
 	/** Awaited between the pieces of a large file while it is hashed (`gitBlobHash`). */
 	readonly yieldControl?: () => Promise<void>;
+	/**
+	 * Aborted when the user stops the sync. A fetch then starts no more
+	 * requests and ends with a "cancelled" failure, without waiting for the
+	 * ones on their way.
+	 */
+	readonly signal?: AbortSignal;
 }
 
 const SYMLINK_MODE = "120000";
@@ -90,19 +97,26 @@ export class GitHubBackend implements Backend {
 	}
 
 	/**
-	 * One blob per entry, one after the other. A blob is addressed by its
-	 * hash, so the revision plays no part. The size the tree gave goes
-	 * along: it sets how long the download may take. A cancelled client
-	 * ends this with its "cancelled" failure before the next request.
+	 * One blob per entry, several at a time (`fetchConcurrently`), yielded
+	 * as they arrive. A blob is addressed by its hash, so the revision plays
+	 * no part. The size the tree gave goes along: it sets how long the
+	 * download may take, and how many are fetched at once. A cancelled
+	 * client ends this with its "cancelled" failure. A submodule among the
+	 * entries fails the fetch when it is first asked for, with no request sent.
 	 */
-	async *fetch(_revision: string | null, entries: readonly RemoteEntry[]): AsyncIterable<FetchedFile> {
-		for (const entry of entries) {
-			// The hash of a submodule is a commit of another repository.
-			if (entry.kind === "submodule") {
-				throw new BackendError("other", `fetch: a submodule has no content: ${entry.path}`);
-			}
-			yield { entry, content: await this.client.getBlob(entry.hash, entry.size) };
+	async *fetch(_revision: string | null, entries: readonly RemoteEntry[]): AsyncGenerator<FetchedFile, void, void> {
+		// Before anything is asked for: found on the way, the requests of the
+		// entries around it would already be out. The hash of a submodule is
+		// a commit of another repository.
+		const submodule = entries.find((entry) => entry.kind === "submodule");
+		if (submodule !== undefined) {
+			throw new BackendError("other", `fetch: a submodule has no content: ${submodule.path}`);
 		}
+		yield* fetchConcurrently(
+			entries,
+			(entry) => this.client.getBlob(entry.hash, entry.size),
+			this.options.signal === undefined ? {} : { signal: this.options.signal },
+		);
 	}
 
 	// Sending is a later stage. Until then nothing of the vault leaves the device.

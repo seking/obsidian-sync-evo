@@ -11,6 +11,7 @@
 
 import { describe, expect, test } from "vitest";
 import { BackendError, type BackendErrorKind, type FetchedFile, type RemoteEntry } from "../src/core/backend";
+import { MAX_CONCURRENT_FETCH_BYTES, MAX_CONCURRENT_FETCHES } from "../src/core/concurrent-fetch";
 import { entryOfTreeItem, GitHubBackend, type GitHubBackendClient } from "../src/core/github/backend";
 import type { GitCommit, GitTreeItem, HeadResult } from "../src/core/github/client";
 import { blobHash } from "./support/memory-backend";
@@ -225,7 +226,7 @@ describe("fetch", () => {
 		...(size === undefined ? {} : { size }),
 	});
 
-	test("one blob per entry, in order, with the size the tree gave", async () => {
+	test("one blob per entry, with the size the tree gave", async () => {
 		const client = new FakeClient();
 		client.blobs.set(B, new Uint8Array([1]));
 		client.blobs.set(C, new Uint8Array([2, 3]));
@@ -238,13 +239,74 @@ describe("fetch", () => {
 		expect(client.calls).toEqual([`getBlob ${B} 1`, `getBlob ${C} undefined`]);
 	});
 
-	test("the next blob is only asked for when the one before was taken", async () => {
+	/** A client whose blobs stay on their way until the test lets them through. */
+	class SlowClient extends FakeClient {
+		private readonly open: (() => void)[] = [];
+
+		override async getBlob(sha: string, size?: number): Promise<Uint8Array> {
+			this.calls.push(`getBlob ${sha} ${String(size)}`);
+			await new Promise<void>((resolve) => {
+				this.open.push(resolve);
+			});
+			return new Uint8Array([1]);
+		}
+
+		/** Answers the request that has waited longest. */
+		async answerOne(): Promise<void> {
+			this.open.shift()?.();
+			await settle();
+		}
+	}
+
+	async function settle(): Promise<void> {
+		for (let i = 0; i < 20; i++) await Promise.resolve();
+	}
+
+	const hashOf = (index: number): string => index.toString(16).padStart(40, "0");
+
+	test("nothing is asked for before the first is wanted", async () => {
 		const client = new FakeClient();
-		client.blobs.set(B, new Uint8Array([1]));
-		client.blobs.set(C, new Uint8Array([2]));
-		const iterator = new GitHubBackend(client).fetch(A, [file("a.md", B), file("b.md", C)])[Symbol.asyncIterator]();
-		await iterator.next();
-		expect(client.calls).toHaveLength(1);
+		new GitHubBackend(client).fetch(A, [file("a.md", B)]);
+		await settle();
+		expect(client.calls).toEqual([]);
+	});
+
+	test("16 blobs at a time, and one more for each one taken", async () => {
+		const client = new SlowClient();
+		const entries = Array.from({ length: 40 }, (_, index) => file(`${index}.md`, hashOf(index), 1));
+		const iterator = new GitHubBackend(client).fetch(A, entries)[Symbol.asyncIterator]();
+		const first = iterator.next();
+		await settle();
+		expect(client.calls).toEqual(entries.slice(0, MAX_CONCURRENT_FETCHES).map((entry) => `getBlob ${entry.hash} 1`));
+
+		await client.answerOne();
+		expect((await first).value?.entry).toBe(entries[0]);
+		expect(client.calls).toHaveLength(16);
+		iterator.next();
+		await settle();
+		expect(client.calls).toHaveLength(17);
+	});
+
+	test("the sizes the tree gave bound what is fetched at once", async () => {
+		const client = new SlowClient();
+		const half = MAX_CONCURRENT_FETCH_BYTES / 2;
+		const entries = [file("a.bin", hashOf(1), half), file("b.bin", hashOf(2), half), file("c.md", hashOf(3), 1)];
+		const iterator = new GitHubBackend(client).fetch(A, entries)[Symbol.asyncIterator]();
+		iterator.next();
+		await settle();
+		expect(client.calls).toHaveLength(2);
+	});
+
+	test("a stop ends the fetch, and starts nothing more", async () => {
+		const client = new SlowClient();
+		const stop = new AbortController();
+		const entries = Array.from({ length: 40 }, (_, index) => file(`${index}.md`, hashOf(index)));
+		const fetching = collect(new GitHubBackend(client, { signal: stop.signal }).fetch(A, entries));
+		await settle();
+		stop.abort();
+		expect(await kindOf(fetching)).toBe("cancelled");
+		await client.answerOne();
+		expect(client.calls).toHaveLength(16);
 	});
 
 	test("the blob of a symlink is fetched like a file's", async () => {
@@ -271,6 +333,22 @@ describe("fetch", () => {
 	test("a submodule has no content to fetch", async () => {
 		const entry: RemoteEntry = { path: "lib", kind: "submodule", hash: C };
 		expect(await kindOf(collect(new GitHubBackend(new FakeClient()).fetch(A, [entry])))).toBe("other");
+	});
+
+	test("a submodule among the entries fails the fetch before anything is asked for", async () => {
+		const client = new SlowClient();
+		const entries: RemoteEntry[] = [
+			file("a.md", hashOf(1), 1),
+			file("b.md", hashOf(2), 1),
+			{ path: "lib", kind: "submodule", hash: C },
+			file("c.md", hashOf(3), 1),
+		];
+		const fetching = new GitHubBackend(client).fetch(A, entries);
+		await settle();
+		// Thrown when the first is wanted, like every failure of a fetch.
+		expect(await kindOf(collect(fetching))).toBe("other");
+		await settle();
+		expect(client.calls).toEqual([]);
 	});
 });
 
