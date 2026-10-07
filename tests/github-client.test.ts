@@ -148,6 +148,8 @@ describe("requests", () => {
 			Authorization: `Bearer ${TOKEN}`,
 			Accept: "application/vnd.github+json",
 			"X-GitHub-Api-Version": "2022-11-28",
+			// A read must not be answered from the app's HTTP cache.
+			"Cache-Control": "no-cache",
 		});
 		expect(http.request(0).body).toBeUndefined();
 	});

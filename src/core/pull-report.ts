@@ -170,6 +170,9 @@ export function pullReport(t: Translate, result: PullResult, options: PullReport
 	if (result.trashed.length > 0) {
 		details.push(t("pull.trashed", { count: result.trashed.length, list: listText(t, result.trashed) }));
 	}
+	if (result.keptLocal.length > 0) {
+		details.push(t("pull.keptLocal", { count: result.keptLocal.length, list: listText(t, result.keptLocal) }));
+	}
 	const failed = incompleteText(t, result, options.settings);
 	if (failed !== null) details.push(failed);
 	if (result.newSymlinks.length > 0) {
@@ -192,8 +195,9 @@ function summaryText(t: Translate, result: PullResult): string {
 	if (renamed > 0) parts.push(t("pull.count.renamed", { count: renamed }));
 	if (conflicts > 0) parts.push(t("pull.count.conflicts", { count: conflicts }));
 	if (parts.length > 0) return t("pull.summary", { details: parts.join(t("list.separator")) });
-	// "Up to date" would not be true of a pull that left files for later.
-	return result.outcome === "completed" ? t("pull.upToDate") : t("pull.done");
+	// "Up to date" would not be true of a pull that left files for later,
+	// or of one that kept files which differ from the remote.
+	return result.outcome === "completed" && result.keptLocal.length === 0 ? t("pull.upToDate") : t("pull.done");
 }
 
 function conflictLine(t: Translate, conflict: PullConflict): string {

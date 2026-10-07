@@ -137,6 +137,15 @@ describe("the summary", () => {
 		);
 	});
 
+	test("a pull that kept files which differ from the remote is not called up to date", () => {
+		expect(pullReport(t, result({ keptLocal: ["a.md"] }), options).summary).toBe("Pull finished.");
+		expect(pullReport(ja, result({ keptLocal: ["a.md"] }), options).summary).toBe("取り込みが終わりました。");
+		const counts = { fetched: 1, deleted: 0, renamed: 0, conflicts: 0 };
+		expect(pullReport(t, result({ keptLocal: ["a.md"], counts }), options).summary).toBe(
+			"Pull finished: 1 file fetched.",
+		);
+	});
+
 	test("a pull that left files for later is not called up to date", () => {
 		const report = pullReport(
 			t,
@@ -274,6 +283,23 @@ describe("what the user has to know", () => {
 		const report = pullReport(t, result({ trashed: ["a.md"] }), options);
 		expect(report.details).toEqual([
 			"1 file was moved to .trash/ in this vault before the pull replaced or removed it. You can get it back from there:\na.md",
+		]);
+	});
+
+	test("files the user chose to keep are listed, in part when they are many", () => {
+		expect(pullReport(t, result({ keptLocal: ["c.md"] }), options).details).toEqual([
+			"1 file was left as it is on this device, as you chose. It differs from the remote:\nc.md",
+		]);
+		expect(pullReport(ja, result({ keptLocal: ["c.md", "a.md"] }), options).details).toEqual([
+			"選んだとおり、このデバイスのファイル 2 件をそのまま残しました。保存先の内容とは異なります：\nc.md\na.md",
+		]);
+
+		const kept = Array.from({ length: 8 }, (_, i) => `kept/${i}.md`);
+		const [text = ""] = pullReport(t, result({ keptLocal: kept }), options).details;
+		expect(text.split("\n")).toEqual([
+			"8 files were left as they are on this device, as you chose. They differ from the remote:",
+			...kept.slice(0, 5),
+			"…and 3 more",
 		]);
 	});
 

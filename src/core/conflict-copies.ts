@@ -13,7 +13,7 @@
 // Built on the form of the name alone (`conflict-name.ts`).
 
 import { conflictCopyPath, originalPathOfConflictCopy } from "./conflict-name";
-import { pathKey } from "./paths";
+import { foldedKey } from "./paths";
 
 // The same shape `conflict-name.ts` reads, with the number at the end apart.
 const COPY_PARTS = /^(.+\.conflict-from-.+-\d{8}-\d{6})(?:-(\d+))?$/s;
@@ -68,10 +68,24 @@ export function copyCandidate(path: string, deviceName: string, at: Date, n: num
  * not a copy: its own key, which is what every copy of it gives as its
  * original. For a copy: its name without the number, shared by the names its
  * content can go to.
+ *
+ * Without the cases (`foldedKey`): a copy is listed as the disk spells it,
+ * and asked for by the path of the remote, whose folders the disk may spell
+ * otherwise. Where the cases are told apart this finds the copies of a file
+ * that differs only in case as well; a copy is only used when it holds the
+ * very content that is to be kept, so that costs nothing.
  */
 function familyOf(path: string): string {
 	const parts = copyParts(path);
-	return parts === null ? `file:${pathKey(path)}` : `copy:${pathKey(parts.stem + parts.extension)}`;
+	return parts === null ? fileFamily(path) : copyFamily(parts);
+}
+
+function fileFamily(original: string): string {
+	return `file:${foldedKey(original)}`;
+}
+
+function copyFamily(parts: CopyParts): string {
+	return `copy:${foldedKey(parts.stem + parts.extension)}`;
 }
 
 /**
@@ -91,8 +105,8 @@ export class CopyIndex {
 		const original = originalPathOfConflictCopy(path);
 		if (original === null) return;
 		const parts = copyParts(path);
-		const families = [`file:${pathKey(original)}`];
-		if (parts !== null) families.push(`copy:${pathKey(parts.stem + parts.extension)}`);
+		const families = [fileFamily(original)];
+		if (parts !== null) families.push(copyFamily(parts));
 		for (const family of families) {
 			const group = this.families.get(family);
 			if (group === undefined) this.families.set(family, [path]);
@@ -100,9 +114,13 @@ export class CopyIndex {
 		}
 	}
 
-	/** The paths that may already keep content of `path`. Never `path` itself. */
+	/**
+	 * The paths that may already keep content of `path`, each as it was
+	 * added. Never `path` itself, in any case: where the cases are not told
+	 * apart that is the file whose content is about to be replaced.
+	 */
 	copiesOf(path: string): readonly string[] {
-		const key = pathKey(path);
-		return (this.families.get(familyOf(path)) ?? []).filter((copy) => pathKey(copy) !== key);
+		const key = foldedKey(path);
+		return (this.families.get(familyOf(path)) ?? []).filter((copy) => foldedKey(copy) !== key);
 	}
 }

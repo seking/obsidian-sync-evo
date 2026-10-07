@@ -180,9 +180,12 @@ export interface PullDeps {
  * - "remote-empty": the remote has no content and there is no base revision.
  *   Nothing was changed.
  * - "declined": the user was asked and said no. Nothing was changed: no
- *   file, no record, and every count is zero.
+ *   file, no record, and every count is zero. The paths the plan cannot
+ *   write ("blocked" in `unwritable`) are listed all the same, since their
+ *   notice is told by this pull too.
  * - "cancelled": stopped through the signal. What was done is recorded; the
- *   base revision is where it was.
+ *   base revision is where it was. The "blocked" paths are listed here too,
+ *   also when the stop came before anything was done.
  */
 export type PullOutcome = "completed" | "incomplete" | "remote-empty" | "declined" | "cancelled";
 
@@ -242,7 +245,9 @@ export interface DeferredFile {
  *
  * - "write-failed", "rename-failed", "trash-failed": the vault refused.
  *   For "trash-failed" the path is the vault file that was to be taken
- *   away; it stays, with its record.
+ *   away; it stays, with its record. For "rename-failed" it is the vault
+ *   file that was to be renamed or moved out of the way (to the name of a
+ *   copy); it stays where it is.
  * - "copy-unwritable": the copy of a conflict could not be written, so the
  *   file it is a copy of was not written either.
  * - "folder-in-the-way": a folder is at the path, and it is not empty.

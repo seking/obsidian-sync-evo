@@ -93,7 +93,7 @@ export const ja = completeTranslation(en, {
 	"notice.pluginNotListed":
 		"取り込んだ「アクティブなコミュニティプラグインのリスト」（{path}）に Sync Evo がありません。次に Obsidian を起動すると Sync Evo が無効になり、同期が止まります。設定の「コミュニティプラグイン」で、もう一度有効にしてください。",
 	"notice.unwritablePath":
-		"このデバイスで書き込めない、または削除できないファイルがあったため、飛ばしました。保存先では何も変更していません。取り込みのたびに、もう一度試します：\n{list}",
+		"このデバイスで書き込み、移動、または削除ができなかったファイルがあったため、飛ばしました。保存先では何も変更していません。取り込みのたびに、もう一度試します：\n{list}",
 	"notice.blockedPath":
 		"保存先のファイル {path} を書き込めませんでした。その場所に、このデバイスにだけあるファイルがあります。移動するか名前を変えると、次の取り込みで書き込みます：\n{list}",
 
@@ -137,6 +137,8 @@ export const ja = completeTranslation(en, {
 	"pull.conflict.nameTaken": "{copy}（保存先で、別のファイルの名前が {path} に変わりました）",
 	"pull.trashed":
 		"{count} 件のファイルを、置き換える前または削除する前に、この保管庫の .trash/ へ移しました。そこから戻せます：\n{list}",
+	"pull.keptLocal":
+		"選んだとおり、このデバイスのファイル {count} 件をそのまま残しました。保存先の内容とは異なります：\n{list}",
 	"pull.symlinks":
 		"保存先にシンボリックリンクが {count} 件あります。Sync Evo は、このデバイスに書き込まず、保存先でもそのままにします。飛ばしているリンクは、設定画面で確認できます：\n{list}",
 

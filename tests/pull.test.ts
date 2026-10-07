@@ -411,6 +411,21 @@ describe("a conflict", () => {
 		expect(h.vault.snapshot()).toEqual({ "a.md": "theirs", [onRemote]: "mine" });
 	});
 
+	test("a copy the disk spells otherwise than the remote spells the file is used, not made again", async () => {
+		const h = harness({ caseSensitive: false });
+		h.backend.commit({ "Notes/b.md": "theirs" });
+		h.vault.put("notes/b.md", "mine");
+		const earlier = "notes/b.conflict-from-iPhone-20260101-090000.md";
+		h.vault.put(earlier, "mine");
+
+		const result = await h.pull();
+
+		// The folder was renamed on the way, and the copy with it.
+		const copy = "Notes/b.conflict-from-iPhone-20260101-090000.md";
+		expect(result.conflicts).toEqual([{ path: "Notes/b.md", copyPath: copy, cause: "conflict" }]);
+		expect(h.vault.snapshot()).toEqual({ "Notes/b.md": "theirs", [copy]: "mine" });
+	});
+
 	test("a copy of that name with other content gets a number", async () => {
 		const h = await synced({ "a.md": "A" });
 		h.backend.commit({ "a.md": "theirs" });
@@ -936,6 +951,64 @@ describe("a rename that only changes the case", () => {
 		expect(h.vault.folderPaths()).toEqual(["Notes"]);
 	});
 
+	test("a file of the new name that cannot be moved to a copy is told once, with the rename it holds up", async () => {
+		const h = await synced({ "notes.md": "N" }, { caseSensitive: true });
+		h.backend.commit({ "notes.md": null, "Notes.md": "N2" });
+		h.vault.put("Notes.md", "made here");
+		h.vault.before = (op, path) => {
+			if (op === "rename" && path === "Notes.md") throw new Error("busy");
+		};
+
+		const first = await h.pull();
+
+		expect(first.unwritable).toMatchObject([
+			{ path: "Notes.md", reason: "rename-failed", isNew: true },
+			{ path: "Notes.md", reason: "depends-on-unwritable", isNew: false },
+		]);
+		expect(first.notices).toEqual([{ kind: "unwritable-path", path: "Notes.md" }]);
+		expect(h.vault.snapshot()).toEqual({ "Notes.md": "made here", "notes.md": "N" });
+
+		const second = await h.pull();
+		expect(second.unwritable).toMatchObject([
+			{ path: "Notes.md", reason: "rename-failed", isNew: false },
+			{ path: "Notes.md", reason: "depends-on-unwritable", isNew: false },
+		]);
+		expect(second.notices).toEqual([]);
+
+		h.vault.before = undefined;
+		const third = await h.pull();
+		expect(third.unwritable).toEqual([]);
+		expect(h.vault.text("Notes.md")).toBe("N2");
+		expect(await readNotices(h.store)).toEqual([]);
+	});
+
+	test("an unsent file of the old folder that cannot be moved to a copy is told, under where it is", async () => {
+		const h = await synced({ "notes/a.md": "A" }, { caseSensitive: true });
+		h.backend.commit({ "notes/a.md": null, "Notes/a.md": "A" });
+		h.vault.putAll({ "Notes/x.md": "X in the new folder", "notes/x.md": "X in the old folder" });
+		h.vault.before = (op, path) => {
+			if (op === "rename" && path === "notes/x.md") throw new Error("busy");
+		};
+
+		const first = await h.pull();
+
+		expect(first.unwritable).toMatchObject([{ path: "notes/x.md", reason: "rename-failed", isNew: true }]);
+		expect(first.notices).toEqual([{ kind: "unwritable-path", path: "notes/x.md" }]);
+		expect(first.conflicts).toEqual([]);
+		expect(h.vault.snapshot()).toEqual({
+			"Notes/a.md": "A",
+			"Notes/x.md": "X in the new folder",
+			"notes/x.md": "X in the old folder",
+		});
+
+		// The other files of the folder are renamed by now, so nothing moves
+		// this one any more: it is left where it is, and forgotten.
+		const second = await h.pull();
+		expect(second.unwritable).toEqual([]);
+		expect(second.notices).toEqual([]);
+		expect(await readNotices(h.store)).toEqual([]);
+	});
+
 	test("a folder that cannot be listed while the plan is carried out: the file waits, no record is respelled", async () => {
 		const h = await synced({ "notes/a.md": "A" });
 		const base = await h.base();
@@ -1107,6 +1180,44 @@ describe("files and folders that trade places", () => {
 		const copy = h.copyName("a");
 		expect(result.conflicts).toEqual([{ path: "a", copyPath: copy, cause: "became-folder" }]);
 		expect(h.vault.snapshot()).toEqual({ "a/x.md": "X", [copy]: "mine" });
+	});
+
+	test("an unsent file that cannot be moved out of the way of a folder is told once, until it is moved", async () => {
+		const h = harness();
+		h.backend.commit({ "a/x.md": "X" });
+		h.vault.put("a", "mine");
+		h.vault.before = (op) => {
+			if (op === "rename") throw new Error("busy");
+		};
+
+		const first = await h.pull();
+
+		// The file that stayed, and the file of the remote it is in the way of.
+		expect(first.unwritable).toMatchObject([
+			{ path: "a", reason: "rename-failed", isNew: true },
+			{ path: "a/x.md", reason: "write-failed", isNew: true },
+		]);
+		expect(first.notices).toEqual([
+			{ kind: "unwritable-path", path: "a" },
+			{ kind: "unwritable-path", path: "a/x.md" },
+		]);
+		expect(first.conflicts).toEqual([]);
+		expect(h.vault.snapshot()).toEqual({ a: "mine" });
+
+		const second = await h.pull();
+		expect(second.unwritable).toMatchObject([
+			{ path: "a", reason: "rename-failed", isNew: false },
+			{ path: "a/x.md", reason: "write-failed", isNew: false },
+		]);
+		expect(second.notices).toEqual([]);
+
+		h.vault.before = undefined;
+		const third = await h.pull();
+		const copy = h.copyName("a");
+		expect(third.unwritable).toEqual([]);
+		expect(third.conflicts).toEqual([{ path: "a", copyPath: copy, cause: "became-folder" }]);
+		expect(h.vault.snapshot()).toEqual({ "a/x.md": "X", [copy]: "mine" });
+		expect(await readNotices(h.store)).toEqual([]);
 	});
 
 	test("folders the pull emptied are removed; a folder that was empty before is not", async () => {
@@ -1762,6 +1873,36 @@ describe("what is skipped, and what the user is told once", () => {
 		expect(await readNotices(h.store)).toEqual([]);
 	});
 
+	test("a pull that is declined tells a blocked file with what is in the way, and the next pull not again", async () => {
+		const many = Object.fromEntries(
+			Array.from({ length: 12 }, (_, i) => [`f${String(i).padStart(2, "0")}.md`, `F${i}`]),
+		);
+		const h = await synced({ ...many, "notes/a.md": "A" });
+		h.vault.put("notes/draft.md", "D");
+		const gone = Object.fromEntries(Object.keys(many).slice(0, 10).map((path) => [path, null]));
+		h.backend.commit({ ...gone, "notes/a.md": null, notes: "now a file" });
+		h.answer = "cancel";
+
+		const declined = await h.pull();
+
+		expect(declined.outcome).toBe("declined");
+		expect(h.asked).toHaveLength(1);
+		expect(declined.notices).toEqual([{ kind: "blocked-path", path: "notes" }]);
+		expect(declined.unwritable).toEqual([
+			{ path: "notes", reason: "blocked", inTheWay: ["notes/draft.md"], isNew: true },
+		]);
+		expect(h.vault.log).toEqual([]);
+
+		// Told by the pull that was declined, so not by the one that goes on.
+		h.answer = "proceed";
+		const next = await h.pull();
+		expect(next.outcome).toBe("completed");
+		expect(next.notices).toEqual([]);
+		expect(next.unwritable).toEqual([
+			{ path: "notes", reason: "blocked", inTheWay: ["notes/draft.md"], isNew: false },
+		]);
+	});
+
 	test("a blocked file that is gone from the remote is forgotten, and told again if it comes back", async () => {
 		const h = await synced({ "notes/a.md": "A" });
 		h.vault.put("notes/draft.md", "D");
@@ -1815,6 +1956,28 @@ describe("what is skipped, and what the user is told once", () => {
 		expect((await h.pull({ signal: stop.signal })).outcome).toBe("cancelled");
 		expect(await readNotices(h.store)).toEqual([{ kind: "unwritable-path", path: "a.md" }]);
 		expect((await h.pull()).notices).toEqual([]);
+	});
+
+	test("a refused deletion stays remembered through a pull that put the file off", async () => {
+		const h = await synced({ "a.md": "A", "b.md": "B" });
+		h.backend.commit({ "a.md": null });
+		h.vault.before = (op) => {
+			if (op === "trash") throw new Error("the trash is full");
+		};
+		expect((await h.pull()).notices).toEqual([{ kind: "unwritable-path", path: "a.md" }]);
+
+		// An editor that cannot save: the deletion is not tried at all.
+		h.vault.openFailing("a.md");
+		const second = await h.pull();
+		expect(second.outcome).toBe("incomplete");
+		expect(second.deferred).toEqual([{ path: "a.md", reason: "save-failed" }]);
+		expect(second.notices).toEqual([]);
+		expect(await readNotices(h.store)).toEqual([{ kind: "unwritable-path", path: "a.md" }]);
+
+		h.vault.close("a.md");
+		const third = await h.pull();
+		expect(third.unwritable).toMatchObject([{ path: "a.md", reason: "trash-failed", isNew: false }]);
+		expect(third.notices).toEqual([]);
 	});
 
 	test("paths that differ only in case are not written, have no record, and are told", async () => {
@@ -1883,10 +2046,18 @@ describe("what is skipped, and what the user is told once", () => {
 // for a disk that tells the cases apart, so they are carried out here by
 // hand, as they would be if such a plan met the other kind of disk.
 describe("a file moved to a folder the disk spells otherwise", () => {
-	async function moveStray(aside: boolean): Promise<{ vault: MemoryPullVault; tally: Tally; seen: Map<string, Seen> }> {
+	async function moveStray(
+		aside: boolean,
+		refuseRenames = false,
+	): Promise<{ vault: MemoryPullVault; tally: Tally; seen: Map<string, Seen> }> {
 		const time = Date.UTC(2026, 9, 3, 12, 0, 0);
 		const vault = new MemoryPullVault({ caseSensitive: false, now: () => time });
 		vault.put("notes/x.md", "X");
+		if (refuseRenames) {
+			vault.before = (op) => {
+				if (op === "rename") throw new Error("busy");
+			};
+		}
 		const local = { path: "notes/x.md", hash: blobHash("X"), size: 1 };
 		const empty = planPull({
 			remote: [],
@@ -1934,6 +2105,17 @@ describe("a file moved to a folder the disk spells otherwise", () => {
 		expect(vault.paths()).toEqual(["notes/x.md"]);
 		expect(tally.unwritable).toEqual([]);
 		expect([...seen.keys()]).toEqual(["notes/x.md"]);
+	});
+
+	test("a move the vault refuses is told, whether to the folder or to a copy", async () => {
+		for (const aside of [false, true]) {
+			const { vault, tally, seen } = await moveStray(aside, true);
+			expect(vault.paths()).toEqual(["notes/x.md"]);
+			expect(tally.unwritable).toMatchObject([{ path: "notes/x.md", reason: "rename-failed" }]);
+			expect(tally.refused).toEqual([{ remotePath: "notes/x.md", reportedAs: "notes/x.md" }]);
+			expect(tally.conflicts).toEqual([]);
+			expect([...seen.keys()]).toEqual(["notes/x.md"]);
+		}
 	});
 });
 

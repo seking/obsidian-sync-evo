@@ -35,8 +35,10 @@ import type { StateStore } from "./state";
  *   not about a state, and is told every time such a file is written.
  * - "unwritable-path": the vault refuses to write a path of the remote (a
  *   name the device does not allow, for one), or to take away a file the
- *   remote deleted; the path is then the vault's. It is tried again by
- *   every pull, and told once for as long as it keeps failing.
+ *   remote deleted, or to move a file that is in the way of the remote's;
+ *   the path is then the vault's where no path of the remote stands for
+ *   it. It is tried again by every pull, and told once for as long as it
+ *   keeps failing.
  * - "blocked-path": a file of the remote is not written because files that
  *   are only in the vault are in its place. Told once for as long as that
  *   is so.

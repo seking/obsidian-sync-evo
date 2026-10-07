@@ -192,6 +192,7 @@ class PullRun {
 
 		const losses = pullLosses(plan, rewritten);
 		const keptLocal: string[] = [];
+		let declined = false;
 		if (needsConfirmation(losses, plan.recordCount)) {
 			if (!isConfirmed(losses, confirmed)) {
 				const answer = await deps.confirm({ losses, recordCount: plan.recordCount });
@@ -210,17 +211,14 @@ class PullRun {
 				} else {
 					// What was confirmed before does not outlive a "no".
 					await store.deleteMeta(PULL_CONFIRMATION_KEY);
-					return finish("declined", { notices: await notices(false) });
+					declined = true;
 				}
 			}
 		}
-		if (this.aborted()) return finish("cancelled", { notices: await notices(false) });
-
-		this.progress("applying", 0, 0);
-		const completed = await applyPlan(
-			this.applyEnv(listing, protect, local.seen, scan.paths.map((scanned) => scanned.path)),
-			plan,
-		);
+		// The plan is final. What it cannot write is listed from here on, by
+		// every result of this pull: the "blocked-path" notice is made from
+		// the plan whether or not it is carried out, and its text names the
+		// files in the way, which are read from this list.
 		for (const skip of plan.skipped) {
 			if (skip.reason !== "blocked") continue;
 			this.tally.unwritable.push({
@@ -229,6 +227,14 @@ class PullRun {
 				inTheWay: skip.local.map((entry) => entry.path),
 			});
 		}
+		if (declined) return finish("declined", { notices: await notices(false) });
+		if (this.aborted()) return finish("cancelled", { notices: await notices(false) });
+
+		this.progress("applying", 0, 0);
+		const completed = await applyPlan(
+			this.applyEnv(listing, protect, local.seen, scan.paths.map((scanned) => scanned.path)),
+			plan,
+		);
 		// The record changes are made whatever the signal says, so every
 		// symlink has its record by now and is not told a second time.
 		const newSymlinks = plan.symlinks.filter((link) => link.firstSeen).map((link) => link.remote.path);
@@ -572,9 +578,11 @@ class PullRun {
 		// is not refused by a pull that tried it was written, or is gone from
 		// the remote. A pull that did not get to it says nothing about it.
 		//
-		// A vault file that could not be taken away is the other thing told
-		// under this kind. Its path is not on the remote: it is kept while
-		// the file is in the vault and no pull has tried it since.
+		// A vault file that could not be taken away or moved is the other
+		// thing told under this kind. Its path is not on the remote: it is
+		// kept while the file is in the vault and no pull has tried it
+		// since. A pull that put the file off (an editor that could not
+		// save) has not tried it either.
 		for (const { remotePath } of tally.refused) add("unwritable-path", remotePath);
 		const putOff = new Set(tally.deferred.map((file) => pathKey(file.path)));
 		const inVault = new Set(scan.paths.map((scanned) => scanned.key));
@@ -582,7 +590,7 @@ class PullRun {
 			if (notice.kind !== "unwritable-path") continue;
 			const key = pathKey(notice.path);
 			if (!remoteFiles.has(notice.path)) {
-				if (!tried && inVault.has(key)) current.push(notice);
+				if ((!tried || putOff.has(key)) && inVault.has(key)) current.push(notice);
 				continue;
 			}
 			if (tally.written.has(key)) continue;
@@ -688,8 +696,10 @@ function readConfirmation(value: unknown): PullConfirmation | undefined {
 
 /**
  * The reasons of an unwritable path that have an "unwritable-path" notice:
- * the write or the rename of the remote path itself, and the removal of a
- * vault file.
+ * the write or the rename of the remote path itself, the removal of a vault
+ * file, and the move of a vault file out of the way. Every place that gives
+ * one of these reasons does so through `refuse` (`pull-apply.ts`), which is
+ * what makes the notice.
  */
 const NOTICED_REASONS: ReadonlySet<UnwritableReason> = new Set([
 	"write-failed",

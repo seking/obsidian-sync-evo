@@ -101,7 +101,7 @@ export const en = baseCatalog({
 	"notice.pluginNotListed":
 		"The list of active community plugins that was just pulled ({path}) does not include Sync Evo. The next time Obsidian starts, Sync Evo will be turned off and syncing stops. Turn it on again under Settings → Community plugins.",
 	"notice.unwritablePath":
-		"This device refused to write or to delete some files, so the pull skipped them. Nothing about them was changed on the remote, and each pull tries them again:\n{list}",
+		"This device refused to write, move, or delete some files, so the pull skipped them. Nothing about them was changed on the remote, and each pull tries them again:\n{list}",
 	"notice.blockedPath":
 		"The file {path} of the remote could not be written: files that are only on this device are in its place. Move or rename them, and the next pull writes it:\n{list}",
 
@@ -155,6 +155,10 @@ export const en = baseCatalog({
 	"pull.trashed": {
 		one: "{count} file was moved to .trash/ in this vault before the pull replaced or removed it. You can get it back from there:\n{list}",
 		other: "{count} files were moved to .trash/ in this vault before the pull replaced or removed them. You can get them back from there:\n{list}",
+	},
+	"pull.keptLocal": {
+		one: "{count} file was left as it is on this device, as you chose. It differs from the remote:\n{list}",
+		other: "{count} files were left as they are on this device, as you chose. They differ from the remote:\n{list}",
 	},
 	"pull.symlinks": {
 		one: "The remote has {count} symbolic link. Sync Evo does not write it to this device and leaves it as it is on the remote. The settings list the links that are skipped:\n{list}",

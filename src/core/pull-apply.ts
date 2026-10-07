@@ -83,8 +83,8 @@ export class Tally {
 	/**
 	 * What the "unwritable-path" notices are about: the paths of the remote
 	 * the vault refused to write in this pull, as the remote spells them,
-	 * and the vault files it refused to take away. Beside each, the path it
-	 * was reported under in `unwritable`.
+	 * and the vault files it refused to take away or to move. Beside each,
+	 * the path it was reported under in `unwritable`.
 	 */
 	readonly refused: { readonly remotePath: string; readonly reportedAs: string }[] = [];
 	fetchError: unknown = undefined;
@@ -246,7 +246,9 @@ class Applier {
 
 	/**
 	 * The same, for the write or the rename of a remote path itself, or the
-	 * removal of a vault file: told once (`Tally.refused`).
+	 * removal or the move of a vault file: told once (`Tally.refused`).
+	 * `remotePath` is what the notice is remembered under, so it has to be
+	 * the same path for as long as the same thing fails.
 	 */
 	private refuse(remotePath: string, reportedAs: string, reason: UnwritableReason, error?: unknown): void {
 		this.unwritable(reportedAs, reason, error);
@@ -447,20 +449,23 @@ class Applier {
 	/**
 	 * Moves the file at `path` to the name of a copy of `original`, by a
 	 * rename, so that its content is never in two places or in none. Answers
-	 * the new path, or `null` when the vault refused.
+	 * the new path, or `null` when the vault refused. The file is then
+	 * reported and told once under `noticePath`: what the pull could not do
+	 * because the file is still there.
 	 */
 	private async moveAside(
 		path: string,
 		key: string,
 		original: string,
 		cause: PullConflictCause,
+		noticePath: string,
 	): Promise<string | null> {
 		let copy: string;
 		try {
 			copy = await this.freeCopyPath(original);
 			await this.change(() => this.vault.rename(path, copy));
 		} catch (error) {
-			this.unwritable(path, "rename-failed", error);
+			this.refuse(noticePath, path, "rename-failed", error);
 			return null;
 		}
 		// The copy is named after `original`, whose folders the vault may
@@ -531,7 +536,10 @@ class Applier {
 			this.defer(path, "unreadable");
 			return;
 		}
-		if (there && (await this.moveAside(path, pathKey(path), entry.nameAfter, entry.cause)) === null) return;
+		// Told under the path the remote has something else at now, which
+		// the vault cannot follow while the file is in its place.
+		const { nameAfter } = entry;
+		if (there && (await this.moveAside(path, pathKey(path), nameAfter, entry.cause, nameAfter)) === null) return;
 		if (entry.record !== undefined || entry.recordAfter !== undefined) {
 			await this.settleRecord(entry.key, entry.recordAfter);
 		}
@@ -670,7 +678,7 @@ class Applier {
 				this.defer(to, "save-failed");
 				return "deferred";
 			}
-			if ((await this.moveAside(to, key, to, "name-taken")) === null) return "unwritable";
+			if ((await this.moveAside(to, key, to, "name-taken", to)) === null) return "unwritable";
 		}
 
 		const now = await this.look(from, scannedKey);
@@ -727,7 +735,7 @@ class Applier {
 			this.defer(from, "unreadable");
 			return "deferred";
 		}
-		return (await this.moveAside(from, scannedKey, to, "name-taken")) === null ? "unwritable" : "done";
+		return (await this.moveAside(from, scannedKey, to, "name-taken", to)) === null ? "unwritable" : "done";
 	}
 
 	private async applyStray(stray: StrayMove): Promise<void> {
@@ -746,14 +754,18 @@ class Applier {
 			this.defer(from, "save-failed");
 			return;
 		}
+		// A stray is on no remote, so there is no path of the remote to tell
+		// a refusal under. It is told under where the file is, which is where
+		// the next pull finds it: that pull refuses it under the same path,
+		// and is not told again, or moves it, and the notice is forgotten.
 		if (taken) {
-			await this.moveAside(from, scannedKey, stray.to, "name-taken");
+			await this.moveAside(from, scannedKey, stray.to, "name-taken", from);
 			return;
 		}
 		try {
 			await this.change(() => this.vault.rename(from, stray.to));
 		} catch (error) {
-			this.unwritable(from, "rename-failed", error);
+			this.refuse(from, from, "rename-failed", error);
 			return;
 		}
 		// Where the cases are not told apart and the folder still has its
@@ -1066,7 +1078,9 @@ class Applier {
 	 * device already sent.
 	 */
 	private async existingCopy(path: string, hash: string): Promise<string | null> {
-		for (const candidate of this.localCopies.copiesOf(path)) {
+		for (const listed of this.localCopies.copiesOf(path)) {
+			// As the scan spelled it; a folder renamed since has taken it along.
+			const candidate = this.current(listed);
 			try {
 				const there = await this.probe(candidate, pathKey(candidate));
 				if (there !== null && there !== "folder" && there.hash === hash) return candidate;

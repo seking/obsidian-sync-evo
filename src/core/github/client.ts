@@ -401,7 +401,16 @@ export class GitHubClient {
 	}
 
 	private get(path: string, accept = "application/vnd.github+json"): HttpRequest {
-		return { url: this.repoUrl + path, method: "GET", headers: this.headers(accept) };
+		// GitHub lets a response be reused for 60 seconds, and the desktop app
+		// does so: a pull right after a push from another device was answered
+		// with the old head, from the cache, without a request. Asking for the
+		// cache to be checked against the server each time costs nothing where
+		// the answer is unchanged.
+		return {
+			url: this.repoUrl + path,
+			method: "GET",
+			headers: { ...this.headers(accept), "Cache-Control": "no-cache" },
+		};
 	}
 
 	private write(method: "POST" | "PATCH", path: string, body: unknown): HttpRequest {
