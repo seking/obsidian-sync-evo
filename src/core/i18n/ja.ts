@@ -103,6 +103,7 @@ export const ja = completeTranslation(en, {
 	"list.more": "…ほか {count} 件",
 
 	"command.pull": "保存先から取り込む（pull）",
+	"command.firstFetch": "初回取得（同期の状態を捨ててやり直す）",
 
 	"pull.alreadyRunning": "取り込みは、すでに実行中です。",
 	"pull.progress.starting": "取り込み：始めています…",
@@ -132,6 +133,8 @@ export const ja = completeTranslation(en, {
 	"pull.remoteEmpty": "保存先は空で、コミットがまだありません。取り込むものはありません。",
 	"pull.declined": "取り込みをやめました。何も変更していません。",
 	"pull.cancelled": "取り込みを中止しました。次の取り込みで、続きから進みます。",
+	"pull.connectionChanged":
+		"接続先が変わったため、取り込みを中止しました。次の取り込みは、新しい接続先で始めます。",
 	"pull.failed": "取り込みに失敗しました。{reason}",
 	"pull.error.incompleteListing":
 		"リポジトリのファイルが多く、GitHub が1回で一覧を返せません（10万件を超えるか、一覧が 7MB を超えています）。そのため、Sync Evo では同期できません。",
@@ -172,6 +175,20 @@ export const ja = completeTranslation(en, {
 	"confirm.delete.body":
 		"このデバイスにあるファイル {count} 件が、保存先で削除されたか、シンボリックリンクに変わっています。取り込むと、このデバイスから削除されます。",
 	"confirm.delete.note": "やめた場合は、何も取り込まず、何も変更しません。",
+	"confirm.firstFetch.title": "初回取得の確認",
+	"confirm.firstFetch.body":
+		"{repository} のブランチ {branch} から、この保管庫に初めて取り込みます。この保管庫には、すでにファイルがあります。",
+	"confirm.firstFetch.different":
+		"保存先と中身が違うファイル：{count} 件。保存先の内容に書き換えます。このデバイスの内容は、同じ場所に別名で残します。",
+	"confirm.firstFetch.localOnly": "このデバイスにだけあるファイル：{count} 件。このデバイスに、そのまま残します。",
+	"confirm.firstFetch.atSymlinks":
+		"保存先でシンボリックリンクになっているパスにあるファイル：{count} 件。比べずに、そのまま残します。",
+	"confirm.startOver.title": "同期の状態を捨ててやり直す",
+	"confirm.startOver.body":
+		"このデバイスの同期の状態を捨てて、{repository} のブランチ {branch} から取り込み直して作り直します。同期の状態は、何を同期したかを Sync Evo が覚えておくための記録です。ファイルは、このデバイスでも保存先でも削除しません。",
+	"confirm.startOver.nothing":
+		"保存先と中身が違うファイルも、このデバイスにだけあるファイルも、ありません。",
+	"confirm.startOver.note": "やめた場合は、同期の状態を捨てず、何も変更しません。",
 	"confirm.rewritten.title": "保存先の履歴の書き換え",
 	"confirm.rewritten.body":
 		"保存先の履歴が、このデバイスが最後に同期した時点から続いていません（force push の後など）。このデバイスから送った変更が、保存先から消えている可能性があります。保存先に合わせると、下のファイルがこのデバイスから失われます。",

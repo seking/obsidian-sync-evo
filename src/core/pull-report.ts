@@ -17,8 +17,8 @@ import { BackendError, type BackendErrorKind } from "./backend";
 import { type FetchLimitState, NO_FETCH_LIMIT } from "./fetch-quota";
 import type { Translate } from "./i18n";
 import { NOTICE_KINDS, type NoticeKind, type NoticeRef } from "./notices";
-import type { DeferReason, PullConflict, PullProgress, PullResult } from "./pull-io";
-import { type DeviceSettings, parseRepository } from "./settings";
+import type { DeferReason, FirstFetchRequest, PullConflict, PullProgress, PullResult } from "./pull-io";
+import { type Connection, type DeviceSettings, parseRepository } from "./settings";
 
 /** How many paths a confirmation lists before it only counts them. */
 export const CONFIRM_LIST_LIMIT = 50;
@@ -41,6 +41,63 @@ export function capList<T>(items: readonly T[], limit: number): CappedList<T> {
 export function listText(t: Translate, lines: readonly string[], limit = NOTICE_LIST_LIMIT): string {
 	const { shown, more } = capList(lines, limit);
 	return [...shown, ...(more > 0 ? [t("list.more", { count: more })] : [])].join("\n");
+}
+
+// ---------------------------------------------------------------------------
+// Before a first fetch
+
+/** A paragraph of a question, and the paths it is about. */
+export interface QuestionPart {
+	readonly text: string;
+	/** Listed below the text, up to `CONFIRM_LIST_LIMIT`. */
+	readonly paths?: CappedList<string>;
+}
+
+export interface FirstFetchQuestion {
+	readonly title: string;
+	readonly parts: readonly QuestionPart[];
+	/** What "cancel" does. The last thing a question says. */
+	readonly note: string;
+}
+
+/**
+ * The words of the question before a first fetch: where it fetches from,
+ * and what becomes of the files the vault already holds. When going on
+ * discards the sync state, that is said first, and the question is worded
+ * also when no file is listed.
+ */
+export function firstFetchQuestion(
+	t: Translate,
+	connection: Pick<Connection, "repository" | "branch">,
+	request: FirstFetchRequest,
+): FirstFetchQuestion {
+	const { files, discardsState } = request;
+	const target = { repository: connection.repository, branch: connection.branch };
+	const parts: QuestionPart[] = [
+		{ text: discardsState ? t("confirm.startOver.body", target) : t("confirm.firstFetch.body", target) },
+	];
+	const listed = (text: string, paths: readonly string[]): void => {
+		parts.push({ text, paths: capList(paths, CONFIRM_LIST_LIMIT) });
+	};
+
+	if (files.different.length > 0) {
+		listed(t("confirm.firstFetch.different", { count: files.different.length }), files.different);
+	}
+	if (files.localOnly.length > 0) {
+		// T028: with a push, this is where the user is told that these
+		// files are sent to the repository named above by the next push.
+		listed(t("confirm.firstFetch.localOnly", { count: files.localOnly.length }), files.localOnly);
+	}
+	if (files.different.length + files.localOnly.length === 0) parts.push({ text: t("confirm.startOver.nothing") });
+	if (files.atSymlinks.length > 0) {
+		listed(t("confirm.firstFetch.atSymlinks", { count: files.atSymlinks.length }), files.atSymlinks);
+	}
+
+	return {
+		title: discardsState ? t("confirm.startOver.title") : t("confirm.firstFetch.title"),
+		parts,
+		note: discardsState ? t("confirm.startOver.note") : t("confirm.delete.note"),
+	};
 }
 
 // ---------------------------------------------------------------------------
@@ -141,9 +198,17 @@ function isCancellation(error: unknown): boolean {
 	return error instanceof BackendError && error.kind === "cancelled";
 }
 
-/** The text for a pull that ended by throwing. */
-export function pullFailureText(t: Translate, settings: DeviceSettings, error: unknown): string {
-	if (isCancellation(error)) return t("pull.cancelled");
+/**
+ * The text for a pull that ended by throwing. `connectionChanged`: whether
+ * it was stopped because the connection it ran with was changed.
+ */
+export function pullFailureText(
+	t: Translate,
+	settings: DeviceSettings,
+	error: unknown,
+	connectionChanged = false,
+): string {
+	if (isCancellation(error)) return stoppedText(t, connectionChanged);
 	return t("pull.failed", { reason: failureReason(t, settings, error) });
 }
 
@@ -168,6 +233,11 @@ export function stateProblemText(t: Translate, problem: StateProblem): string {
 // ---------------------------------------------------------------------------
 // When it ended
 
+/** The text for a pull that was stopped. One stopped by a change of the connection has nothing to go on with. */
+export function stoppedText(t: Translate, connectionChanged: boolean): string {
+	return connectionChanged ? t("pull.connectionChanged") : t("pull.cancelled");
+}
+
 export interface PullReport {
 	/** How the pull ended, in a line. Shown like any passing message. */
 	readonly summary: string;
@@ -183,6 +253,8 @@ export interface PullReportOptions {
 	readonly settings: DeviceSettings;
 	/** The size limit the pull ran with, in bytes. */
 	readonly sizeLimit: number;
+	/** Whether the pull was stopped because the connection it ran with was changed. */
+	readonly connectionChanged?: boolean;
 }
 
 // The reasons a file is put off that say something went wrong. The others
@@ -212,15 +284,15 @@ export function pullReport(t: Translate, result: PullResult, options: PullReport
 	details.push(...noticeTexts(t, result, options.sizeLimit));
 
 	// With the summary and not a message of its own: it is nothing to act on.
-	const summary = [summaryText(t, result)];
+	const summary = [summaryText(t, result, options.connectionChanged === true)];
 	if (result.refetched > 0) summary.push(t("pull.refetched", { count: result.refetched }));
 	return { summary: summary.join("\n"), details };
 }
 
-function summaryText(t: Translate, result: PullResult): string {
+function summaryText(t: Translate, result: PullResult, connectionChanged: boolean): string {
 	if (result.outcome === "remote-empty") return t("pull.remoteEmpty");
 	if (result.outcome === "declined") return t("pull.declined");
-	if (result.outcome === "cancelled" || isCancellation(result.fetchError)) return t("pull.cancelled");
+	if (result.outcome === "cancelled" || isCancellation(result.fetchError)) return stoppedText(t, connectionChanged);
 
 	const { fetched, deleted, renamed, conflicts } = result.counts;
 	const parts: string[] = [];

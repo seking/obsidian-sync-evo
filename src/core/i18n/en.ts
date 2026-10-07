@@ -113,6 +113,7 @@ export const en = baseCatalog({
 
 	// The commands.
 	"command.pull": "Pull",
+	"command.firstFetch": "First fetch (discard the sync state and start over)",
 
 	// A pull: its progress, its outcome, and what the user has to know of it.
 	"pull.alreadyRunning": "A pull is already running.",
@@ -147,6 +148,8 @@ export const en = baseCatalog({
 	"pull.remoteEmpty": "The remote is empty: it has no commits yet. There is nothing to pull.",
 	"pull.declined": "The pull was cancelled. Nothing was changed.",
 	"pull.cancelled": "The pull was stopped. The next pull continues from there.",
+	"pull.connectionChanged":
+		"The pull was stopped because the connection was changed. The next pull starts with the new connection.",
 	"pull.failed": "The pull failed. {reason}",
 	"pull.error.incompleteListing":
 		"The repository has more files than GitHub lists in one response (over 100,000 entries, or a listing over 7 MB), so Sync Evo cannot sync it.",
@@ -203,6 +206,27 @@ export const en = baseCatalog({
 		other: "{count} files on this device were deleted on the remote or turned into symbolic links there. The pull deletes them from this device.",
 	},
 	"confirm.delete.note": "If you cancel, nothing is pulled and nothing is changed.",
+	"confirm.firstFetch.title": "Confirm the first fetch",
+	"confirm.firstFetch.body":
+		"This is the first pull from {repository}, branch {branch}, and this vault already has files.",
+	"confirm.firstFetch.different": {
+		one: "{count} file has other content than the remote. It gets the content of the remote, and the content on this device is kept beside it under another name:",
+		other: "{count} files have other content than the remote. They get the content of the remote, and the content on this device is kept beside them under another name:",
+	},
+	"confirm.firstFetch.localOnly": {
+		one: "{count} file is only on this device. It stays on this device as it is:",
+		other: "{count} files are only on this device. They stay on this device as they are:",
+	},
+	"confirm.firstFetch.atSymlinks": {
+		one: "{count} file is at a path that is a symbolic link on the remote. It is not compared and stays as it is:",
+		other: "{count} files are at paths that are symbolic links on the remote. They are not compared and stay as they are:",
+	},
+	"confirm.startOver.title": "Discard the sync state and start over",
+	"confirm.startOver.body":
+		"This discards the sync state of this device and builds it again by pulling from {repository}, branch {branch}. The sync state is only Sync Evo's own record of what has been synced: no file is deleted, on this device or on the remote.",
+	"confirm.startOver.nothing":
+		"No file on this device has other content than the remote, and none is only on this device.",
+	"confirm.startOver.note": "If you cancel, the sync state is kept and nothing is changed.",
 	"confirm.rewritten.title": "Remote history rewritten",
 	"confirm.rewritten.body":
 		"The remote no longer builds on what this device last synced with, as happens after a force push. Changes that came from this device may be gone from it. Following the remote takes the files below away from this device.",

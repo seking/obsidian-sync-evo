@@ -99,6 +99,11 @@ export class SyncState {
 	// not the note, is what the session goes by: the note may not have been
 	// stored. Cleared only once the database is gone.
 	private discardRequested = false;
+	// Discards that were asked for and whose turn in the queue has not come.
+	// While there is one, a discard that succeeds does not clear the flag or
+	// the note: an open can be queued between two requests, and what it opens
+	// is the state the later request means.
+	private discardsWaiting = 0;
 	private noteRead = false;
 
 	constructor(deps: SyncStateDeps) {
@@ -112,15 +117,28 @@ export class SyncState {
 	 * BEFORE it saves the new connection: stopped between the two, the app
 	 * then finds an old connection with a state to discard, which costs a
 	 * first fetch, and never a new connection with the state of the old one.
+	 *
+	 * `after`: what the removal waits for, when a sync is still using the
+	 * state. The state is closed under whatever uses it, so a sync that is
+	 * running is stopped and awaited first; it must not ask for the state
+	 * again meanwhile, or the two wait for each other. An open asked for
+	 * later waits for all of it, as before.
 	 */
-	requestDiscard(): void {
+	requestDiscard(after?: Promise<unknown>): void {
 		this.discardRequested = true;
 		try {
 			this.deps.note.set();
 		} catch {
 			// The flag above still holds for as long as the app runs.
 		}
-		this.queue = this.queue.then(() => this.discardIfDue());
+		this.discardsWaiting += 1;
+		this.queue = this.queue
+			// However that sync ended, the state goes.
+			.then(() => after?.catch(() => undefined))
+			.then(() => {
+				this.discardsWaiting -= 1;
+				return this.discardIfDue();
+			});
 	}
 
 	/**
@@ -180,10 +198,14 @@ export class SyncState {
 			// writing records of the old connection into a new database.
 			this.close();
 			const result = await discardStateDb(this.deps.appId(), this.deps.indexedDb(), this.deps.onDiscardBlocked);
-			if (result.status === "ok") {
-				// A later request may have asked again meanwhile. Clearing is
-				// still right: nothing was opened since, so the database that
-				// was just removed is the one that request meant.
+			// A request whose turn is still to come keeps the discard due. An
+			// open may be queued ahead of it (the "first fetch" command asks
+			// for a discard and an open, and a change of the connection can
+			// come while they run): what that open makes is what the later
+			// request is about, and it must be removed in its turn, or after
+			// a restart. With no request waiting, nothing was opened since the
+			// removal, and clearing is right.
+			if (result.status === "ok" && this.discardsWaiting === 0) {
 				this.discardRequested = false;
 				try {
 					this.deps.note.clear();

@@ -22,12 +22,20 @@ import { timerSleep } from "../core/github/timer-sleep";
 import type { Translate } from "../core/i18n";
 import { DEFAULT_SIZE_LIMIT } from "../core/plan";
 import { type PullProgress, type PullResult, runPull } from "../core/pull";
-import { pullFailureText, pullProgressText, pullReport, stateProblemText } from "../core/pull-report";
+import {
+	pullFailureText,
+	pullProgressText,
+	pullReport,
+	type StateProblem,
+	stateProblemText,
+	stoppedText,
+} from "../core/pull-report";
 import type { DeviceSettings } from "../core/settings";
+import type { StateStore } from "../core/state";
 import { exclusionPathsOf } from "./exclusion-paths";
 import { graphViewPause } from "./graph-views";
 import { obsidianHttp } from "./http";
-import { confirmPullIn } from "./pull-confirm";
+import { confirmPullIn, type PullTarget } from "./pull-confirm";
 import { pullVaultOf } from "./pull-vault";
 import type { SyncState } from "./sync-state";
 
@@ -42,6 +50,21 @@ export interface PullHost {
 	readToken(secretName: string): string | null;
 }
 
+/**
+ * - "pull": from where the sync state stands.
+ * - "first-fetch": the sync state is discarded and the pull starts over,
+ *   after one question that says so.
+ */
+export type PullMode = "pull" | "first-fetch";
+
+/** There is no sync state to go on with, after the one there was has been discarded. */
+class StateUnavailable extends Error {
+	constructor(readonly problem: StateProblem) {
+		super(`The sync state is not available: ${problem}`);
+		this.name = "StateUnavailable";
+	}
+}
+
 // The line of progress is rewritten at most this often. A pull reports
 // every file, thousands of them in a second.
 const PROGRESS_INTERVAL_MS = 200;
@@ -50,6 +73,10 @@ export class PullRunner {
 	private readonly host: PullHost;
 	/** Set while a pull runs. Aborted to stop it. */
 	private controller: AbortController | null = null;
+	/** Set while a pull runs: resolves when it has ended, however it ends. */
+	private ended: Promise<void> | null = null;
+	/** Whether the running pull was stopped because the connection it runs with was changed. */
+	private connectionChanged = false;
 	/** Whether the running pull is waiting for the sync state to open. */
 	private opening = false;
 	private progress: Notice | null = null;
@@ -70,7 +97,7 @@ export class PullRunner {
 	}
 
 	/** Pulls once, and shows how it went. One pull at a time: a second call only says that one is running. */
-	async run(): Promise<void> {
+	async run(mode: PullMode = "pull"): Promise<void> {
 		const { host } = this;
 		const t = host.t;
 		if (this.controller !== null) {
@@ -88,15 +115,25 @@ export class PullRunner {
 			new Notice(connectionCheckText(t, settings, prepared));
 			return;
 		}
+		// Named in the question before a first fetch.
+		const { owner, repo, branch } = prepared.target;
+		const target: PullTarget = { repository: `${owner}/${repo}`, branch };
 
 		const controller = new AbortController();
 		this.controller = controller;
+		let end = (): void => {};
+		this.ended = new Promise((resolve) => {
+			end = resolve;
+		});
 		this.progress = new Notice(t("pull.progress.starting"), 0);
 		try {
 			this.opening = true;
 			const opened = await host.syncState.open();
 			this.opening = false;
-			if (controller.signal.aborted) return;
+			if (controller.signal.aborted) {
+				if (this.connectionChanged) this.show(stoppedText(t, true));
+				return;
+			}
 			if (opened.status !== "ok") {
 				this.show(stateProblemText(t, opened.status === "unavailable" ? opened.reason : opened.status), 0);
 				return;
@@ -136,7 +173,7 @@ export class PullRunner {
 					// It is taken away while the user answers and put back after.
 					this.progress?.hide();
 					this.progress = null;
-					const answer = await confirmPullIn(host.app, t)(request);
+					const answer = await confirmPullIn(host.app, t, target)(request);
 					// Not after a "no": nothing is updated then.
 					if (!this.stopped && answer !== "cancel") {
 						this.progress = new Notice(t("pull.progress.applyingStart"), 0);
@@ -147,6 +184,7 @@ export class PullRunner {
 					}
 					return answer;
 				},
+				...(mode === "first-fetch" ? { discardState: () => this.discardState() } : {}),
 				beginBulkWrite: graphViewPause(host.app),
 				// Only the files that are fetched one at a time come through
 				// here: the pull takes many files from the zip of the commit
@@ -170,10 +208,13 @@ export class PullRunner {
 			this.report(result, settings);
 		} catch (error) {
 			if (!this.stopped) console.error("Sync Evo: the pull failed", error);
-			this.show(pullFailureText(t, settings, error), 0);
+			if (error instanceof StateUnavailable) this.show(stateProblemText(t, error.problem), 0);
+			else this.show(pullFailureText(t, settings, error, this.connectionChanged), 0);
 		} finally {
 			this.opening = false;
 			this.controller = null;
+			this.ended = null;
+			this.connectionChanged = false;
 			this.progress?.hide();
 			this.progress = null;
 			this.progressPhase = "";
@@ -181,7 +222,49 @@ export class PullRunner {
 			this.lastProgress = null;
 			this.limitWatch = null;
 			this.shownLimit = NO_FETCH_LIMIT;
+			// Last: whoever waited for the pull to end may start the next.
+			end();
 		}
+	}
+
+	/**
+	 * For `PullDeps.discardState`: discards the sync state and opens the
+	 * empty one. With it go what the device remembers of the zip of the
+	 * commit (that it gave up on it, and a download left unfinished), so
+	 * that the first fetch tries the zip again.
+	 *
+	 * Nothing is awaited before the open is asked for. A change of the
+	 * connection that came first would wait for this pull to end, and the
+	 * open would wait behind it; the pull looks at its signal right before
+	 * it calls this, and nothing can come in between.
+	 */
+	private async discardState(): Promise<StateStore> {
+		const { syncState } = this.host;
+		syncState.requestDiscard();
+		// As in `run`: while this waits, `stateBlocked` tells that the removal
+		// is held up, which is by another window more often than not.
+		this.opening = true;
+		try {
+			const opened = await syncState.open();
+			if (opened.status === "ok") return opened.store;
+			throw new StateUnavailable(opened.status === "unavailable" ? opened.reason : opened.status);
+		} finally {
+			this.opening = false;
+		}
+	}
+
+	/**
+	 * Stops a running pull because the connection it runs with is being
+	 * changed, and resolves when it has ended: between two files, after the
+	 * one being written is written and recorded. Resolved at once when no
+	 * pull runs. The sync state is discarded after this (`main.ts`), and not
+	 * under a pull that still writes to it.
+	 */
+	interrupt(): Promise<void> {
+		if (this.controller === null || this.ended === null) return Promise.resolve();
+		this.connectionChanged = true;
+		this.controller.abort();
+		return this.ended;
 	}
 
 	/** Stops a running pull between two files. For when the plugin is unloaded. */
@@ -239,7 +322,11 @@ export class PullRunner {
 	private report(result: PullResult, settings: DeviceSettings): void {
 		// Unloading stops the pull; there is no one to tell.
 		if (this.stopped) return;
-		const report = pullReport(this.host.t, result, { settings, sizeLimit: DEFAULT_SIZE_LIMIT });
+		const report = pullReport(this.host.t, result, {
+			settings,
+			sizeLimit: DEFAULT_SIZE_LIMIT,
+			connectionChanged: this.connectionChanged,
+		});
 		this.show(report.summary);
 		// Until they are dismissed: each is something to know or to act on.
 		for (const detail of report.details) this.show(detail, 0);

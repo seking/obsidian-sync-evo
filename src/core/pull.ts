@@ -26,13 +26,16 @@
 //    they have to be the ones the remote has now; the file itself is
 //    written by the plan, like any other.
 // 4. The scan, the hashing of what it found, and the plan.
-// 5. Asking the user, when the plan takes away too much.
+// 5. Asking the user, when the plan takes away too much, or when this is a
+//    first fetch into a vault that has files of its own (`first-fetch.ts`).
+//    One question, also when both are reasons to ask.
 // 6. The plan, step by step.
 // 7. The base revision, when nothing was put off.
 
 import { type ArchiveDownload, archiveContentSource, isArchiveDisabled } from "./archive-fetch";
 import type { RemoteEntry, RemoteListing } from "./backend";
 import { createExclusion } from "./exclusion";
+import { firstFetchFiles, hasFirstFetchQuestion, isFirstFetchConfirmed, markFirstFetchConfirmed } from "./first-fetch";
 import { HASH_CHUNK_BYTES } from "./hash";
 import { type NoticeKind, type NoticeRef, readNotices, reconcileNotices, writeNotices } from "./notices";
 import { foldedKey, pathKey } from "./paths";
@@ -98,7 +101,8 @@ export async function runPull(deps: PullDeps): Promise<PullResult> {
 }
 
 class PullRun {
-	private readonly store: StateStore;
+	/** Replaced once, by the empty one, when the pull starts over (`PullDeps.discardState`). */
+	private store: StateStore;
 	private readonly startedAt: number;
 	private readonly sizeLimit: number;
 	private readonly tally = new Tally();
@@ -143,23 +147,36 @@ class PullRun {
 	}
 
 	async pull(): Promise<PullResult> {
-		const { store, deps } = this;
-		const base = await readBaseRevision(store);
+		const { deps } = this;
+		let store = this.store;
+		// The "first fetch" command. Everything up to the question is decided
+		// as if there were no sync state, and the one there is, which is only
+		// discarded once the user said yes, is neither read nor changed.
+		const startOver = deps.discardState !== undefined;
+		const base = startOver ? null : await readBaseRevision(store);
 		this.firstFetch = base === null;
 
 		this.progress("listing");
-		const listing = await this.currentListing();
+		const listing = startOver ? await this.freshListing() : await this.currentListing();
 		const head = listing.revision;
 
+		// Whether the question before a first fetch is still to be asked. By
+		// the base revision and not by the records: a remote that is empty,
+		// or holds nothing but excluded paths, leaves no record.
+		const unconfirmed = base === null && (startOver || !(await isFirstFetchConfirmed(store)));
+
 		// A remote without content. With nothing pulled before, there is
-		// nothing to do and nothing to compare. With a base revision, the
+		// nothing to do and nothing to compare; the vault is only looked at
+		// while the user has yet to be asked about the files it holds, which
+		// are all "only on this device" then. With a base revision, the
 		// content that was there is gone: no history holds the base any
 		// more, which is what a rewritten history is, and nothing can be
 		// asked of the remote about a head it does not have.
+		const nothingToPull = head === null && base === null;
 		let rewritten = false;
 		if (head === null) {
-			if (base === null) return this.result("remote-empty", head, false, {});
-			rewritten = true;
+			if (base !== null) rewritten = true;
+			else if (!unconfirmed) return this.result("remote-empty", head, false, {});
 		} else if (base !== null && head !== base) {
 			rewritten = (await deps.backend.checkBase(base, head)) === "rewritten";
 		}
@@ -170,7 +187,7 @@ class PullRun {
 		// A pull that the user let go on after the history was rewritten
 		// keeps protecting what it takes away until it is done, even if the
 		// history reads as continuous by the time it resumes.
-		const confirmed = readConfirmation(await store.getMeta(PULL_CONFIRMATION_KEY));
+		const confirmed = startOver ? undefined : readConfirmation(await store.getMeta(PULL_CONFIRMATION_KEY));
 		const protect = rewritten || confirmed?.rewritten === true;
 
 		// T024: write markers a pull left behind when it stopped are dealt
@@ -180,7 +197,7 @@ class PullRun {
 		// that is left is only ever replaced or removed by a later write of
 		// the same path.
 
-		const records = await store.readRecords();
+		const records = startOver ? [] : await store.readRecords();
 		const gitignore = await this.gitignoreAfter(listing, records, protect);
 		if (this.aborted()) return finish("cancelled");
 
@@ -202,13 +219,50 @@ class PullRun {
 		const notices = (tried: boolean): Promise<NoticeRef[]> =>
 			this.updateNotices(plan, scan, listing, local.lfsPointers, tried);
 
+		// The two reasons to ask. They rarely meet: a first fetch has no
+		// history to be rewritten, and deletes nothing until it has records.
+		// A first fetch that resumes can do both (its records are of files the
+		// remote has deleted since, and the vault got files of its own), and
+		// is then asked once, about both.
 		const losses = pullLosses(plan, rewritten);
+		// Not when there is nothing to pull: nothing is taken away then.
+		const lossesDue =
+			!nothingToPull && needsConfirmation(losses, plan.recordCount) && !isConfirmed(losses, confirmed);
+		const files = unconfirmed ? firstFetchFiles(plan) : null;
+		const firstDue = files !== null && (startOver || hasFirstFetchQuestion(files, this.deps.paths.configDir));
 		const keptLocal: string[] = [];
 		let declined = false;
-		if (needsConfirmation(losses, plan.recordCount)) {
-			if (!isConfirmed(losses, confirmed)) {
-				const answer = await deps.confirm({ losses, recordCount: plan.recordCount });
-				if (answer === "keep-local" && rewritten) {
+		if (lossesDue || firstDue) {
+			const answer = await deps.confirm({
+				losses: lossesDue ? losses : null,
+				recordCount: plan.recordCount,
+				firstFetch: firstDue ? { files, discardsState: startOver } : null,
+			});
+			const keep = answer === "keep-local" && lossesDue && rewritten;
+			if (answer !== "proceed" && !keep) {
+				// What was confirmed before does not outlive a "no". A "no" to
+				// a first fetch alone changes nothing at all.
+				if (lossesDue) await store.deleteMeta(PULL_CONFIRMATION_KEY);
+				declined = true;
+			} else {
+				if (deps.discardState !== undefined) {
+					// Looked at right before, with nothing awaited in between:
+					// a change of the connection stops this pull and waits
+					// for it to end before it discards the state itself, and
+					// must not find this pull waiting for the state in turn.
+					if (this.aborted()) return finish("cancelled");
+					store = await deps.discardState();
+					this.store = store;
+					// The listing this pull goes by, for the next one.
+					await store.putListing(listing);
+				}
+				// Before anything is changed, so that a first fetch that stops
+				// halfway goes on without asking again. When there was nothing
+				// to ask it is stored at the end instead, with the base
+				// revision: until a first fetch is done, files that come to a
+				// vault which had none are asked about by the next sync.
+				if (firstDue) await markFirstFetchConfirmed(store);
+				if (keep) {
 					const all = [...losses.deletions, ...losses.overwrites];
 					plan = keepLocal(plan, new Set(all.map((loss) => loss.key)));
 					keptLocal.push(...all.map((loss) => loss.path));
@@ -216,17 +270,17 @@ class PullRun {
 					// before was to another question. Left in place, it
 					// would stand for this pull if it stops halfway.
 					await store.deleteMeta(PULL_CONFIRMATION_KEY);
-				} else if (answer === "proceed") {
+				} else if (lossesDue) {
 					// Before anything is changed, so that a pull that stops
 					// halfway goes on without asking again.
 					await store.setMeta(PULL_CONFIRMATION_KEY, confirmationOf(losses));
-				} else {
-					// What was confirmed before does not outlive a "no".
-					await store.deleteMeta(PULL_CONFIRMATION_KEY);
-					declined = true;
 				}
 			}
 		}
+		// Nothing was planned but what a push sends, and the question is
+		// answered: the same end as when it did not have to be asked.
+		if (nothingToPull) return this.result(declined ? "declined" : "remote-empty", head, false, {});
+
 		// The plan is final. What it cannot write is listed from here on, by
 		// every result of this pull: the "blocked-path" notice is made from
 		// the plan whether or not it is carried out, and its text names the
@@ -239,7 +293,9 @@ class PullRun {
 				inTheWay: skip.local.map((entry) => entry.path),
 			});
 		}
-		if (declined) return finish("declined", { notices: await notices(false) });
+		// A pull that was to start over leaves the sync state as it is when
+		// the user says no, down to what it remembers of notices.
+		if (declined) return finish("declined", startOver ? {} : { notices: await notices(false) });
 		if (this.aborted()) return finish("cancelled", { notices: await notices(false) });
 
 		this.progress("applying", 0, 0);
@@ -259,8 +315,18 @@ class PullRun {
 		if (this.tally.deferred.length > 0 || this.tally.fetchError !== undefined) return finish("incomplete", extra);
 
 		// Everything is done: only now is the head what this device builds on.
-		if (head === null) await store.deleteMeta(BASE_REVISION_KEY);
-		else await writeBaseRevision(store, head);
+		if (head === null) {
+			await store.deleteMeta(BASE_REVISION_KEY);
+		} else {
+			// A first fetch that is done counts as answered, also when it had
+			// nothing to ask. Otherwise a remote that is emptied later, which
+			// takes the base revision away again, would make the next sync
+			// read as a first fetch and ask about files that were synced.
+			// Before the base revision: stopped between the two, the next
+			// pull finds nothing left to do and nothing to ask.
+			if (base === null) await markFirstFetchConfirmed(store);
+			await writeBaseRevision(store, head);
+		}
 		await store.deleteMeta(PULL_CONFIRMATION_KEY);
 		return finish("completed", extra);
 	}
@@ -324,6 +390,13 @@ class PullRun {
 			throw new Error("The remote answered that nothing changed since a listing that was never taken.");
 		}
 		await this.store.putListing(listed.listing);
+		return listed.listing;
+	}
+
+	/** The listing of the head, asked of the remote without looking at the stored one. */
+	private async freshListing(): Promise<RemoteListing> {
+		const listed = await this.deps.backend.list(null);
+		if (!listed.changed) throw new Error("The remote answered that nothing changed since no listing.");
 		return listed.listing;
 	}
 

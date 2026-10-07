@@ -40,10 +40,13 @@ function device(appId: unknown = "vault-id") {
 	const failing = { deletes: false };
 	const has = { indexedDb: true };
 	const blocked = { count: 0 };
+	/** Every removal of the database that was asked of IndexedDB, as "discard"; a test adds what it wants in between. */
+	const events: string[] = [];
 	const factory = {
 		open: (name: string, version?: number) => real.open(name, version),
 		deleteDatabase: (name: string) => {
 			if (failing.deletes) throw new Error("cannot delete");
+			events.push("discard");
 			return real.deleteDatabase(name);
 		},
 	} as unknown as IDBFactory;
@@ -54,7 +57,7 @@ function device(appId: unknown = "vault-id") {
 			indexedDb: () => (has.indexedDb ? factory : undefined),
 			onDiscardBlocked: () => blocked.count++,
 		});
-	return { real, note, failing, has, blocked, start };
+	return { real, note, failing, has, blocked, events, start };
 }
 
 async function opened(state: SyncState): Promise<StateStore> {
@@ -274,6 +277,86 @@ describe("discarding on a change of the connection", () => {
 		stubborn.close();
 		expect(await (await open).readRecords()).toEqual([]);
 		expect(blocked.count).toBe(1);
+	});
+
+	test("a discard that waits for a running sync leaves the state usable until that sync has ended", async () => {
+		const state = device().start();
+		const store = await opened(state);
+		let end = (): void => {};
+		const running = new Promise<void>((resolve) => {
+			end = resolve;
+		});
+
+		state.requestDiscard(running);
+		let reopened = false;
+		const next = opened(state).then((fresh) => {
+			reopened = true;
+			return fresh;
+		});
+		await new Promise((resolve) => setTimeout(resolve, 20));
+
+		// The sync finishes the file it is writing, and records it.
+		await store.commitWrite(fileRecord("being-written.md"));
+		expect(reopened).toBe(false);
+
+		end();
+		expect(await (await next).readRecords()).toEqual([]);
+		await expect(store.commitWrite(fileRecord("late.md"))).rejects.toThrow();
+	});
+
+	test("a discard goes on when the sync it waited for failed", async () => {
+		const state = device().start();
+		await (await opened(state)).commitWrite(fileRecord("old.md"));
+
+		state.requestDiscard(Promise.reject(new Error("the pull failed")));
+
+		expect(await (await opened(state)).readRecords()).toEqual([]);
+	});
+
+	test("a second discard, asked for while a discard and an open are under way, is not lost: discard, open, discard", async () => {
+		const { note, events, start } = device();
+		const state = start();
+		await (await opened(state)).commitWrite(fileRecord("old.md"));
+		events.length = 0;
+
+		// The "first fetch" command: the state is discarded and the empty one
+		// opened, for the pull that goes on with it.
+		state.requestDiscard();
+		const forPull = opened(state).then((store) => {
+			events.push("open");
+			return store;
+		});
+		// Meanwhile the connection is changed: that pull is stopped, and the
+		// discard waits for it to end.
+		let end = (): void => {};
+		const running = new Promise<void>((resolve) => {
+			end = resolve;
+		});
+		state.requestDiscard(running);
+		const next = opened(state).then((store) => {
+			events.push("reopen");
+			return store;
+		});
+
+		// The pull gets its store, and writes to it what it still has to.
+		const store = await forPull;
+		await store.commitWrite(fileRecord("of-the-old-connection.md"));
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		expect(events.filter((event) => event !== "discard")).toEqual(["open"]);
+		expect(events[0]).toBe("discard");
+		// The second discard is still due, also for a start after a stop here.
+		expect(note.value).toBe(true);
+
+		end();
+		const fresh = await next;
+		// Nothing of what the pull wrote is under the new connection.
+		expect(await fresh.readRecords()).toEqual([]);
+		expect(fresh).not.toBe(store);
+		await expect(store.commitWrite(fileRecord("late.md"))).rejects.toThrow();
+		expect(events[events.length - 2]).toBe("discard");
+		expect(events[events.length - 1]).toBe("reopen");
+		expect(events.indexOf("open")).toBeLessThan(events.lastIndexOf("discard"));
+		expect(note.value).toBe(false);
 	});
 
 	test("a state written by a newer version is removed like any other", async () => {

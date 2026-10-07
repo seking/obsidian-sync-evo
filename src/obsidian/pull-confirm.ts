@@ -13,66 +13,97 @@ import { type App, ButtonComponent, Modal, Platform } from "obsidian";
 import type { Translate } from "../core/i18n";
 import type { ConfirmPull, PullAnswer, PullConfirmRequest } from "../core/pull-io";
 import type { PullLoss } from "../core/pull-plan";
-import { CONFIRM_LIST_LIMIT, capList } from "../core/pull-report";
+import { type CappedList, CONFIRM_LIST_LIMIT, capList, firstFetchQuestion } from "../core/pull-report";
+import type { Connection } from "../core/settings";
 
-/** Asks in a dialog. Closing it in any way but a button is "cancel". */
-export function confirmPullIn(app: App, t: Translate): ConfirmPull {
+/** Where a pull fetches from, as the question before a first fetch names it. `repository` is `owner/name`. */
+export type PullTarget = Pick<Connection, "repository" | "branch">;
+
+/**
+ * Asks in a dialog. Closing it in any way but a button is "cancel". A push
+ * that asks the question before a first fetch (T028) asks it through this
+ * too, with a request that has no losses.
+ */
+export function confirmPullIn(app: App, t: Translate, target: PullTarget): ConfirmPull {
 	return (request) =>
 		new Promise((resolve) => {
-			new PullConfirmModal(app, t, request, resolve).open();
+			new PullConfirmModal(app, t, target, request, resolve).open();
 		});
 }
 
 /**
- * The dialog a pull stops with before it takes files away. Two forms: many
- * files deleted on the remote (yes or no), and a rewritten history, where
- * the files to delete and to overwrite may exist nowhere else and can also
- * be kept.
+ * The dialog a pull stops with. Three questions: a first fetch into a vault
+ * that has files of its own (yes or no), many files deleted on the remote
+ * (yes or no), and a rewritten history, where the files to delete and to
+ * overwrite may exist nowhere else and can also be kept. A request with two
+ * reasons to ask is one dialog with both, the first fetch on top.
  */
 class PullConfirmModal extends Modal {
 	private readonly t: Translate;
+	private readonly target: PullTarget;
 	private readonly request: PullConfirmRequest;
 	private readonly resolve: (answer: PullAnswer) => void;
 	private answer: PullAnswer = "cancel";
 
-	constructor(app: App, t: Translate, request: PullConfirmRequest, resolve: (answer: PullAnswer) => void) {
+	constructor(
+		app: App,
+		t: Translate,
+		target: PullTarget,
+		request: PullConfirmRequest,
+		resolve: (answer: PullAnswer) => void,
+	) {
 		super(app);
 		this.t = t;
+		this.target = target;
 		this.request = request;
 		this.resolve = resolve;
 	}
 
 	override onOpen(): void {
 		const { t, contentEl } = this;
-		const { losses } = this.request;
+		const { losses, firstFetch } = this.request;
 		contentEl.empty();
 
-		if (losses.rewritten) {
-			this.setTitle(t("confirm.rewritten.title"));
+		// What "cancel" does, said last. The question about a first fetch
+		// has its own when the sync state is at stake.
+		let note: string | null = null;
+		if (firstFetch !== null) {
+			const question = firstFetchQuestion(t, this.target, firstFetch);
+			this.setTitle(question.title);
+			for (const part of question.parts) {
+				contentEl.createEl("p", { text: part.text });
+				if (part.paths !== undefined) this.list(part.paths);
+			}
+			note = question.note;
+		}
+
+		if (losses?.rewritten === true) {
+			if (firstFetch === null) this.setTitle(t("confirm.rewritten.title"));
 			contentEl.createEl("p", { text: t("confirm.rewritten.body") });
 			if (losses.deletions.length > 0) {
 				contentEl.createEl("p", { text: t("confirm.rewritten.deletions", { count: losses.deletions.length }) });
-				this.list(losses.deletions);
+				this.list(pathsOf(losses.deletions));
 			}
 			if (losses.overwrites.length > 0) {
 				contentEl.createEl("p", { text: t("confirm.rewritten.overwrites", { count: losses.overwrites.length }) });
-				this.list(losses.overwrites);
+				this.list(pathsOf(losses.overwrites));
 			}
 			contentEl.createEl("p", { text: t("confirm.rewritten.trashNote") });
 			contentEl.createEl("p", { text: t("confirm.rewritten.keepNote") });
-		} else {
-			this.setTitle(t("confirm.delete.title"));
+		} else if (losses !== null) {
+			if (firstFetch === null) this.setTitle(t("confirm.delete.title"));
 			contentEl.createEl("p", { text: t("confirm.delete.body", { count: losses.deletions.length }) });
-			this.list(losses.deletions);
-			contentEl.createEl("p", { text: t("confirm.delete.note") });
+			this.list(pathsOf(losses.deletions));
+			note ??= t("confirm.delete.note");
 		}
+		if (note !== null) contentEl.createEl("p", { text: note });
 
 		const buttons = contentEl.createDiv({ cls: "modal-button-container" });
 		new ButtonComponent(buttons)
 			.setButtonText(t("confirm.proceed"))
 			.setWarning()
 			.onClick(() => this.closeWith("proceed"));
-		if (losses.rewritten) {
+		if (losses?.rewritten === true) {
 			new ButtonComponent(buttons).setButtonText(t("confirm.keepLocal")).onClick(() => this.closeWith("keep-local"));
 		}
 		// The safe answer is the one the keyboard is on.
@@ -90,9 +121,8 @@ class PullConfirmModal extends Modal {
 		this.close();
 	}
 
-	/** The paths, up to the limit, and then only how many more there are. */
-	private list(losses: readonly PullLoss[]): void {
-		const { shown, more } = capList(losses, CONFIRM_LIST_LIMIT);
+	/** The paths that are shown, and then only how many more there are. */
+	private list(paths: CappedList<string>): void {
 		const list = this.contentEl.createEl("ul");
 		// Fifty paths are tall, so on a desktop the list scrolls by itself.
 		// Not on a phone: there the dialog scrolls as a whole, and with two
@@ -103,7 +133,14 @@ class PullConfirmModal extends Modal {
 			list.style.maxHeight = "30vh";
 			list.style.overflowY = "auto";
 		}
-		for (const loss of shown) list.createEl("li", { text: loss.path });
-		if (more > 0) list.createEl("li", { text: this.t("list.more", { count: more }) });
+		for (const path of paths.shown) list.createEl("li", { text: path });
+		if (paths.more > 0) list.createEl("li", { text: this.t("list.more", { count: paths.more }) });
 	}
+}
+
+function pathsOf(losses: readonly PullLoss[]): CappedList<string> {
+	return capList(
+		losses.map((loss) => loss.path),
+		CONFIRM_LIST_LIMIT,
+	);
 }

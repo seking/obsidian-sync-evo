@@ -17,6 +17,7 @@
 import type { ArchiveDownload } from "./archive-fetch";
 import type { Backend, FetchedFile, RemoteEntry } from "./backend";
 import type { ExclusionPaths } from "./exclusion";
+import type { FirstFetchFiles } from "./first-fetch";
 import type { NoticeRef } from "./notices";
 import type { PullLosses } from "./pull-plan";
 import type { FolderLister } from "./scan";
@@ -95,12 +96,32 @@ export interface PullVault extends FolderLister {
 	saveOpenEditors(path: string): Promise<SaveResult>;
 }
 
-/** What the user is shown when the pull stops to ask. */
+/** The part of a question that is about a first fetch (`first-fetch.ts`). */
+export interface FirstFetchRequest {
+	readonly files: FirstFetchFiles;
+	/**
+	 * Whether going on discards the sync state first: the "first fetch"
+	 * command. The question is then asked whatever the vault holds.
+	 */
+	readonly discardsState: boolean;
+}
+
+/**
+ * What the user is shown when the pull stops to ask. One question, also when
+ * there are two reasons to ask: at least one of `losses` and `firstFetch` is
+ * set.
+ */
 export interface PullConfirmRequest {
-	/** `losses.rewritten` says whether the history of the remote was rewritten. */
-	readonly losses: PullLosses;
+	/**
+	 * What the pull takes away, when that is a reason to ask; `null` when it
+	 * is not. `losses.rewritten` says whether the history of the remote was
+	 * rewritten.
+	 */
+	readonly losses: PullLosses | null;
 	/** The number of records before the pull, of every kind. */
 	readonly recordCount: number;
+	/** Set when this is a first fetch the user has not said yes to. */
+	readonly firstFetch: FirstFetchRequest | null;
 }
 
 /**
@@ -109,6 +130,8 @@ export interface PullConfirmRequest {
  * - "keep-local": only offered when the history was rewritten. The listed
  *   files stay as they are and everything else is pulled. Given for any
  *   other request, it is taken as "cancel".
+ *
+ * A request about a first fetch alone is answered with one of the first two.
  */
 export type PullAnswer = "proceed" | "cancel" | "keep-local";
 
@@ -195,6 +218,15 @@ export interface PullDeps {
 	/** Milliseconds since the epoch, on the clock the file times come from. */
 	readonly now: () => number;
 	readonly confirm: ConfirmPull;
+	/**
+	 * Set for the "first fetch" command: the pull starts over. It decides as
+	 * if there were no sync state, without reading or changing the one given
+	 * as `store`, and always asks first (`FirstFetchRequest.discardsState`).
+	 * Once the user said yes, this is called: it discards the sync state and
+	 * answers the empty one that takes its place, which the pull goes on
+	 * with. Never called when the user said no.
+	 */
+	readonly discardState?: () => Promise<StateStore>;
 	readonly beginBulkWrite?: BeginBulkWrite;
 	/**
 	 * Yields files one at a time; `backend.fetch` when absent. The pull uses
@@ -219,11 +251,14 @@ export interface PullDeps {
  * - "incomplete": some files were put off to the next sync (`deferred`).
  *   What was done is recorded; the base revision is where it was.
  * - "remote-empty": the remote has no content and there is no base revision.
- *   Nothing was changed.
+ *   Nothing was changed, but for the answer to the question before a first
+ *   fetch, when the vault has files and it was asked.
  * - "declined": the user was asked and said no. Nothing was changed: no
  *   file, no record, and every count is zero. The paths the plan cannot
  *   write ("blocked" in `unwritable`) are listed all the same, since their
- *   notice is told by this pull too.
+ *   notice is told by this pull too; not when the pull was to start over
+ *   (`PullDeps.discardState`), which leaves the sync state alone down to
+ *   what it remembers of notices.
  * - "cancelled": stopped through the signal. What was done is recorded; the
  *   base revision is where it was. The "blocked" paths are listed here too,
  *   also when the stop came before anything was done.

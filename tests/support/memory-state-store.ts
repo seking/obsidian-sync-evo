@@ -116,6 +116,14 @@ export class MemoryStateStore implements StateStore {
 		this.closed = true;
 	}
 
+	/** Empties the store, as discarding the sync state leaves it. Not part of `StateStore`. */
+	clear(): void {
+		this.records.clear();
+		this.markers.clear();
+		this.meta.clear();
+		this.listing = undefined;
+	}
+
 	private expectOpen(): void {
 		if (this.closed) throw new Error("the state store is closed");
 	}

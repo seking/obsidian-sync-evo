@@ -10,8 +10,10 @@
  */
 
 import { describe, expect, test } from "vitest";
+import { ARCHIVE_DISABLED_KEY } from "../src/core/archive-fetch";
 import { BackendError, type BaseRelation, type FetchedFile, type ListResult } from "../src/core/backend";
 import { conflictCopyPath, originalPathOfConflictCopy } from "../src/core/conflict-name";
+import { FIRST_FETCH_CONFIRMED_KEY, isFirstFetchConfirmed } from "../src/core/first-fetch";
 import { readNotices } from "../src/core/notices";
 import { applyPlan, type Seen, Tally } from "../src/core/pull-apply";
 import { planPull } from "../src/core/pull-plan";
@@ -113,7 +115,8 @@ function guarded(store: MemoryStateStore, crash: Crash): StateStore {
 
 interface Harness {
 	readonly backend: TestBackend;
-	readonly store: MemoryStateStore;
+	/** Replaced by a test that discards the sync state; every pull uses the one that is here then. */
+	store: MemoryStateStore;
 	readonly vault: MemoryPullVault;
 	readonly crash: Crash;
 	/** Every request the user was shown. */
@@ -142,7 +145,6 @@ function harness(options: { caseSensitive?: boolean } = {}): Harness {
 	const crash = new Crash();
 	const vault = new MemoryPullVault({ caseSensitive: options.caseSensitive ?? false, now });
 	vault.before = (op) => crash.gate(VAULT_CHANGES.has(op));
-	const guardedStore = guarded(store, crash);
 	const asked: PullConfirmRequest[] = [];
 	const progress: PullProgress[] = [];
 	const views: string[] = [];
@@ -160,7 +162,7 @@ function harness(options: { caseSensitive?: boolean } = {}): Harness {
 		pull(overrides = {}) {
 			time += 60_000;
 			return runPull({
-				store: guardedStore,
+				store: guarded(h.store, crash),
 				backend,
 				vault,
 				paths,
@@ -186,10 +188,10 @@ function harness(options: { caseSensitive?: boolean } = {}): Harness {
 		},
 		async records() {
 			const out: Record<string, string> = {};
-			for (const record of await store.readRecords()) out[record.path] = record.hash;
+			for (const record of await h.store.readRecords()) out[record.path] = record.hash;
 			return out;
 		},
-		base: () => readBaseRevision(store),
+		base: () => readBaseRevision(h.store),
 		copyName: (path, attempt = 1) => conflictCopyPath(path, "iPhone", new Date(time), attempt),
 		copies: () => vault.paths().filter((path) => originalPathOfConflictCopy(path) !== null),
 	};
@@ -1311,8 +1313,8 @@ describe("deleting many files", () => {
 
 		expect(result.outcome).toBe("declined");
 		expect(h.asked).toHaveLength(1);
-		expect(h.asked[0]?.losses.rewritten).toBe(false);
-		expect(h.asked[0]?.losses.deletions).toHaveLength(10);
+		expect(h.asked[0]?.losses?.rewritten).toBe(false);
+		expect(h.asked[0]?.losses?.deletions).toHaveLength(10);
 		expect(h.asked[0]?.recordCount).toBe(12);
 		expect(h.vault.snapshot()).toEqual(many);
 		expect(h.vault.log).toEqual([]);
@@ -1414,6 +1416,7 @@ describe("a history that was rewritten", () => {
 					overwrites: [{ key: "a.md", path: "a.md" }],
 				},
 				recordCount: 3,
+				firstFetch: null,
 			},
 		]);
 	});
@@ -1569,6 +1572,13 @@ describe("a remote without content", () => {
 		expect(h.vault.log).toEqual([]);
 		expect(await h.records()).toEqual({});
 		expect(await h.base()).toBeNull();
+		// The file is only on this device: see "the question before a first fetch".
+		expect(h.asked).toHaveLength(1);
+	});
+
+	test("with nothing pulled before and an empty vault: nothing is asked", async () => {
+		const h = harness();
+		expect((await h.pull()).outcome).toBe("remote-empty");
 		expect(h.asked).toEqual([]);
 	});
 
@@ -1721,7 +1731,7 @@ describe(".gitignore", () => {
 
 		await h.pull();
 
-		expect(h.asked[0]?.losses.overwrites).toEqual([{ key: ".gitignore", path: ".gitignore" }]);
+		expect(h.asked[0]?.losses?.overwrites).toEqual([{ key: ".gitignore", path: ".gitignore" }]);
 		expect(h.vault.text(".gitignore")).toBe("v2\n");
 		expect(h.vault.log).toEqual([]);
 
@@ -2269,5 +2279,573 @@ describe("stopping and failing", () => {
 		expect(h.vault.text("a.md")).toBe("A2");
 		// The marker of the path that was written is gone with its record.
 		expect((await h.store.readMarkers()).map((marker) => marker.key)).toEqual(["x.md"]);
+	});
+});
+
+describe("the question before a first fetch", () => {
+	const remote = { "same.md": "S", "different.md": "theirs", "new.md": "N", ".gitignore": "/drafts/\n" };
+	const mine = { "same.md": "S", "different.md": "mine", "only-here.md": "O" };
+
+	test("a vault with files of its own is asked about them, by path", async () => {
+		const h = harness();
+		h.backend.commit(remote);
+		h.vault.putAll(mine);
+		h.answer = "cancel";
+
+		await h.pull();
+
+		expect(h.asked).toEqual([
+			{
+				losses: null,
+				recordCount: 0,
+				firstFetch: {
+					files: { localOnly: ["only-here.md"], different: ["different.md"], atSymlinks: [] },
+					discardsState: false,
+				},
+			},
+		]);
+	});
+
+	test("a no changes nothing: no file, no record, no .gitignore, nothing remembered", async () => {
+		const h = harness();
+		h.backend.commit(remote);
+		h.vault.putAll(mine);
+		h.answer = "cancel";
+
+		const result = await h.pull();
+
+		expect(result.outcome).toBe("declined");
+		expect(result.counts).toEqual({ fetched: 0, deleted: 0, renamed: 0, conflicts: 0 });
+		expect(h.vault.snapshot()).toEqual(mine);
+		expect(h.vault.log).toEqual([]);
+		expect(await h.records()).toEqual({});
+		expect(await h.store.readMarkers()).toEqual([]);
+		expect(await h.base()).toBeNull();
+		expect(await isFirstFetchConfirmed(h.store)).toBe(false);
+		expect(await h.store.getMeta(PULL_CONFIRMATION_KEY)).toBeUndefined();
+		expect(h.views).toEqual([]);
+
+		// Asked again by the next pull, and by every one until it is answered.
+		await h.pull();
+		expect(h.asked).toHaveLength(2);
+	});
+
+	test("a yes pulls: what differs is kept as a copy, nothing is lost, and the answer is remembered", async () => {
+		const h = harness();
+		const head = h.backend.commit(remote);
+		h.vault.putAll(mine);
+
+		const result = await h.pull();
+
+		const copy = h.copyName("different.md");
+		expect(result.outcome).toBe("completed");
+		expect(result.conflicts).toEqual([{ path: "different.md", copyPath: copy, cause: "conflict" }]);
+		expect(h.vault.snapshot()).toEqual({ ...remote, [copy]: "mine", "only-here.md": "O" });
+		expect(h.vault.trashed).toEqual([]);
+		expect(await h.base()).toBe(head);
+		expect(await isFirstFetchConfirmed(h.store)).toBe(true);
+		expect(h.asked).toHaveLength(1);
+	});
+
+	test("an empty vault is not asked, and neither is one that only holds what the remote holds", async () => {
+		const empty = harness();
+		empty.backend.commit(remote);
+		expect((await empty.pull()).outcome).toBe("completed");
+		expect(empty.asked).toEqual([]);
+
+		const same = harness();
+		same.backend.commit(remote);
+		same.vault.putAll({ "same.md": "S", "new.md": "N" });
+		expect((await same.pull()).outcome).toBe("completed");
+		expect(same.asked).toEqual([]);
+		// Nothing was asked. Done, it is no first fetch any more all the same.
+		expect(await isFirstFetchConfirmed(empty.store)).toBe(true);
+		expect(await isFirstFetchConfirmed(same.store)).toBe(true);
+	});
+
+	test("a first fetch that stopped halfway goes on without asking again", async () => {
+		const h = harness();
+		h.backend.commit(remote);
+		h.vault.putAll(mine);
+		const stop = new AbortController();
+		h.vault.before = (op) => {
+			if (op === "write") stop.abort();
+		};
+
+		expect((await h.pull({ signal: stop.signal })).outcome).toBe("cancelled");
+		expect(await h.base()).toBeNull();
+		expect(h.asked).toHaveLength(1);
+
+		h.vault.before = undefined;
+		expect((await h.pull()).outcome).toBe("completed");
+		expect(h.asked).toHaveLength(1);
+		expect(h.vault.snapshot()).toMatchObject({ "different.md": "theirs", "only-here.md": "O", "new.md": "N" });
+	});
+
+	test("an empty remote: the files of the vault are asked about once, and not at every sync", async () => {
+		const h = harness();
+		h.backend.emptied = true;
+		h.vault.putAll({ "a.md": "A", "notes/b.md": "B" });
+
+		const first = await h.pull();
+
+		expect(first.outcome).toBe("remote-empty");
+		expect(h.asked).toEqual([
+			{
+				losses: null,
+				recordCount: 0,
+				firstFetch: {
+					files: { localOnly: ["a.md", "notes/b.md"], different: [], atSymlinks: [] },
+					discardsState: false,
+				},
+			},
+		]);
+		expect(await isFirstFetchConfirmed(h.store)).toBe(true);
+		// There is still no base, and there never will be while it is empty.
+		expect(await h.base()).toBeNull();
+
+		const read: string[] = [];
+		h.vault.before = (op, path) => {
+			if (op === "read") read.push(path);
+		};
+		h.vault.put("c.md", "C");
+		expect((await h.pull()).outcome).toBe("remote-empty");
+		expect((await h.pull()).outcome).toBe("remote-empty");
+		expect(h.asked).toHaveLength(1);
+		// Nor is the vault looked through for a question that was answered.
+		expect(read).toEqual([]);
+	});
+
+	test("an empty remote, and a no: nothing is remembered, and the next sync asks again", async () => {
+		const h = harness();
+		h.backend.emptied = true;
+		h.vault.put("a.md", "A");
+		h.answer = "cancel";
+
+		expect((await h.pull()).outcome).toBe("declined");
+		expect(await isFirstFetchConfirmed(h.store)).toBe(false);
+		expect(h.vault.log).toEqual([]);
+
+		await h.pull();
+		expect(h.asked).toHaveLength(2);
+	});
+
+	test("the answer goes with the sync state: after a discard it is asked again", async () => {
+		const h = harness();
+		h.backend.commit(remote);
+		h.vault.putAll(mine);
+		await h.pull();
+		expect(h.asked).toHaveLength(1);
+		const copy = h.copyName("different.md");
+
+		// As a change of the repository or the branch does.
+		h.store.clear();
+		h.vault.put("later.md", "L");
+		h.answer = "cancel";
+		await h.pull();
+
+		expect(h.asked).toHaveLength(2);
+		// Not compared by the records of before: nothing is a deletion, and
+		// what the vault holds beyond the remote is only on this device.
+		expect(h.asked[1]?.firstFetch?.files).toEqual({
+			localOnly: [copy, "later.md", "only-here.md"],
+			different: [],
+			atSymlinks: [],
+		});
+		expect(h.asked[1]?.losses).toBeNull();
+	});
+
+	test("the answer stays when the remote became empty and took the base with it", async () => {
+		const h = harness();
+		h.backend.commit({ "a.md": "A" });
+		h.vault.put("only-here.md", "O");
+		await h.pull();
+		expect(h.asked).toHaveLength(1);
+
+		h.backend.emptied = true;
+		expect((await h.pull()).outcome).toBe("completed");
+		expect(await h.base()).toBeNull();
+		// That was the question about a rewritten history, not this one.
+		expect(h.asked).toHaveLength(2);
+		expect(h.asked[1]?.firstFetch).toBeNull();
+		expect(await isFirstFetchConfirmed(h.store)).toBe(true);
+
+		expect((await h.pull()).outcome).toBe("remote-empty");
+		h.backend.emptied = false;
+		expect((await h.pull()).outcome).toBe("completed");
+		expect(h.asked).toHaveLength(2);
+	});
+
+	test("a first fetch that had nothing to ask is done all the same: a remote emptied later does not bring the question back", async () => {
+		const h = harness();
+		h.backend.commit({ "a.md": "A", "b.md": "B" });
+		expect((await h.pull()).outcome).toBe("completed");
+		expect(h.asked).toEqual([]);
+		expect(await isFirstFetchConfirmed(h.store)).toBe(true);
+
+		h.vault.put("mine.md", "M");
+		h.backend.emptied = true;
+		// The question about a rewritten history, which is answered with yes.
+		expect((await h.pull()).outcome).toBe("completed");
+		expect(h.asked).toHaveLength(1);
+		expect(h.asked[0]?.losses?.rewritten).toBe(true);
+		expect(h.asked[0]?.firstFetch).toBeNull();
+		expect(await h.base()).toBeNull();
+		expect(h.vault.snapshot()).toEqual({ "mine.md": "M" });
+
+		// No head and no base, as before the first fetch. But that one was
+		// done: the vault is not looked through, and nothing is asked.
+		const looked: string[] = [];
+		h.vault.before = (op, path) => {
+			looked.push(`${op} ${path}`);
+		};
+		expect((await h.pull()).outcome).toBe("remote-empty");
+		expect(h.asked).toHaveLength(1);
+		expect(looked).toEqual([]);
+	});
+
+	test("a first fetch with nothing to ask that did not get to the end still asks about files that came since", async () => {
+		const h = harness();
+		h.backend.commit({ "a.md": "A", "b.md": "B" });
+		const stop = new AbortController();
+		h.vault.before = (op) => {
+			if (op === "write") stop.abort();
+		};
+		expect((await h.pull({ signal: stop.signal })).outcome).toBe("cancelled");
+		expect(h.asked).toEqual([]);
+		expect(await isFirstFetchConfirmed(h.store)).toBe(false);
+
+		h.vault.before = undefined;
+		h.vault.put("mine.md", "M");
+		expect((await h.pull()).outcome).toBe("completed");
+		expect(h.asked).toHaveLength(1);
+		expect(h.asked[0]?.firstFetch?.files.localOnly).toEqual(["mine.md"]);
+	});
+
+	test("a file at the path of a symlink is counted, and is no reason to ask by itself", async () => {
+		const h = harness();
+		h.backend.symlinks.add("link");
+		h.backend.commit({ link: "../target", "a.md": "A" });
+		h.vault.put("link", "a file here");
+
+		expect((await h.pull()).outcome).toBe("completed");
+		expect(h.asked).toEqual([]);
+		expect(h.vault.text("link")).toBe("a file here");
+		expect(h.copies()).toEqual([]);
+
+		const other = harness();
+		other.backend.symlinks.add("link");
+		other.backend.commit({ link: "../target", "a.md": "A" });
+		other.vault.putAll({ link: "a file here", "only-here.md": "O" });
+		await other.pull();
+		expect(other.asked[0]?.firstFetch?.files).toEqual({
+			localOnly: ["only-here.md"],
+			different: [],
+			atSymlinks: ["link"],
+		});
+	});
+
+	test("excluded paths are not counted: the plugin's own folder, .git, and what .gitignore of the remote names", async () => {
+		const h = harness();
+		h.backend.commit(remote);
+		h.vault.putAll({
+			".obsidian/plugins/sync-evo/main.js": "M",
+			".obsidian/plugins/sync-evo/data.json": "{}",
+			".git/config": "G",
+			"drafts/secret.md": "D",
+		});
+
+		expect((await h.pull()).outcome).toBe("completed");
+		expect(h.asked).toEqual([]);
+
+		const other = harness();
+		other.backend.commit(remote);
+		other.vault.putAll({ ".obsidian/plugins/sync-evo/main.js": "M", "drafts/secret.md": "D", "mine.md": "X" });
+		await other.pull();
+		expect(other.asked[0]?.firstFetch?.files.localOnly).toEqual(["mine.md"]);
+	});
+
+	test("with deletions to confirm in the same pull, both are one question", async () => {
+		const h = harness();
+		const files: Record<string, string> = {};
+		for (let i = 0; i < 10; i++) files[`f${i}.md`] = `F${i}`;
+		h.backend.commit({ ...files, "z.md": "Z" });
+		// Stopped before the last file: ten records, no base, nothing asked.
+		const stop = new AbortController();
+		let writes = 0;
+		h.vault.before = (op) => {
+			if (op === "write" && ++writes === 10) stop.abort();
+		};
+		expect((await h.pull({ signal: stop.signal })).outcome).toBe("cancelled");
+		expect(Object.keys(await h.records())).toHaveLength(10);
+		expect(h.asked).toEqual([]);
+		h.vault.before = undefined;
+
+		const gone: Record<string, null> = {};
+		for (let i = 0; i < 8; i++) gone[`f${i}.md`] = null;
+		const head = h.backend.commit(gone);
+		h.vault.put("only-here.md", "O");
+
+		const result = await h.pull();
+
+		expect(h.asked).toHaveLength(1);
+		expect(h.asked[0]?.losses?.deletions).toHaveLength(8);
+		expect(h.asked[0]?.firstFetch).toEqual({
+			files: { localOnly: ["only-here.md"], different: [], atSymlinks: [] },
+			discardsState: false,
+		});
+		expect(result.outcome).toBe("completed");
+		expect(result.counts.deleted).toBe(8);
+		expect(await h.base()).toBe(head);
+		expect(await isFirstFetchConfirmed(h.store)).toBe(true);
+		expect(h.vault.paths()).toEqual(["f8.md", "f9.md", "only-here.md", "z.md"]);
+	});
+});
+
+describe("starting over: the first fetch command", () => {
+	/**
+	 * A pull that starts over. `discards` counts how often the sync state was
+	 * discarded. As on a device, the store that was open is closed by the
+	 * discard and another one, empty, takes its place: whatever the pull
+	 * still asks of the old one throws.
+	 */
+	function startingOver(h: Harness): { discards: number; pull(overrides?: Partial<PullDeps>): Promise<PullResult> } {
+		const run = {
+			discards: 0,
+			pull: (overrides: Partial<PullDeps> = {}) =>
+				h.pull({
+					discardState: async () => {
+						run.discards += 1;
+						await h.store.close();
+						h.store = new MemoryStateStore();
+						return h.store;
+					},
+					...overrides,
+				}),
+		};
+		return run;
+	}
+
+	/** In sync on three files, then: one edited here, one only here, and something remembered. */
+	async function used(): Promise<Harness> {
+		const h = await synced({ "a.md": "A", "b.md": "B", "c.md": "C" });
+		h.vault.put("b.md", "edited here");
+		h.vault.put("only-here.md", "O");
+		await h.store.setMeta(ARCHIVE_DISABLED_KEY, true);
+		return h;
+	}
+
+	test("asks once, with the files counted as if nothing had been synced", async () => {
+		const h = await used();
+		h.answer = "cancel";
+
+		await startingOver(h).pull();
+
+		// With its record, the edited file is a change to send. Without, it
+		// differs from the remote.
+		expect(h.asked).toEqual([
+			{
+				losses: null,
+				recordCount: 0,
+				firstFetch: {
+					files: { localOnly: ["only-here.md"], different: ["b.md"], atSymlinks: [] },
+					discardsState: true,
+				},
+			},
+		]);
+	});
+
+	test("a no discards nothing: the sync state is not even looked at", async () => {
+		const h = await used();
+		const base = await h.base();
+		const records = await h.records();
+		const calls: string[] = [];
+		const watched = new Proxy(h.store, {
+			get(target, name) {
+				const value: unknown = Reflect.get(target, name, target);
+				if (typeof value !== "function") return value;
+				return (...args: unknown[]): unknown => {
+					calls.push(String(name));
+					return (value as (...rest: unknown[]) => unknown).apply(target, args);
+				};
+			},
+		});
+		h.answer = "cancel";
+		const run = startingOver(h);
+
+		const result = await run.pull({ store: watched });
+
+		expect(result.outcome).toBe("declined");
+		expect(run.discards).toBe(0);
+		expect(calls).toEqual([]);
+		expect(await h.base()).toBe(base);
+		expect(await h.records()).toEqual(records);
+		expect(await h.store.getMeta(ARCHIVE_DISABLED_KEY)).toBe(true);
+		expect(h.vault.log).toEqual([]);
+		expect(h.vault.text("b.md")).toBe("edited here");
+	});
+
+	test("a yes discards the state, rebuilds it, and is the answer to the question before a first fetch", async () => {
+		const h = await used();
+		const head = (await h.store.getListing())?.revision;
+		const run = startingOver(h);
+
+		const result = await run.pull();
+
+		const copy = h.copyName("b.md");
+		expect(run.discards).toBe(1);
+		expect(result.outcome).toBe("completed");
+		expect(result.conflicts).toEqual([{ path: "b.md", copyPath: copy, cause: "conflict" }]);
+		// Only the file that differs is fetched: the others get their record back.
+		expect(result.counts.fetched).toBe(1);
+		expect(h.vault.snapshot()).toEqual({ "a.md": "A", "b.md": "B", [copy]: "edited here", "c.md": "C", "only-here.md": "O" });
+		expect(await h.records()).toEqual(hashes({ "a.md": "A", "b.md": "B", "c.md": "C" }));
+		expect(await h.base()).toBe(head);
+		expect(await h.store.getMeta(FIRST_FETCH_CONFIRMED_KEY)).toBe(true);
+		// What the device remembered of the zip went with the state.
+		expect(await h.store.getMeta(ARCHIVE_DISABLED_KEY)).toBeUndefined();
+		expect(h.asked).toHaveLength(1);
+		// The listing is kept for the next pull, which asks nothing.
+		expect((await h.store.getListing())?.revision).toBe(head);
+		expect((await h.pull()).outcome).toBe("completed");
+		expect(h.asked).toHaveLength(1);
+	});
+
+	test("stopped halfway after a yes: the pull that resumes does not ask", async () => {
+		const h = await used();
+		h.backend.commit({ "d.md": "D", "e.md": "E" });
+		const stop = new AbortController();
+		h.vault.before = (op) => {
+			if (op === "write") stop.abort();
+		};
+
+		expect((await startingOver(h).pull({ signal: stop.signal })).outcome).toBe("cancelled");
+		expect(await h.base()).toBeNull();
+		expect(await isFirstFetchConfirmed(h.store)).toBe(true);
+
+		h.vault.before = undefined;
+		expect((await h.pull()).outcome).toBe("completed");
+		expect(h.asked).toHaveLength(1);
+	});
+
+	test("asks also when no file is counted", async () => {
+		const h = await synced({ "a.md": "A" });
+		const run = startingOver(h);
+
+		const result = await run.pull();
+
+		expect(h.asked).toEqual([
+			{
+				losses: null,
+				recordCount: 0,
+				firstFetch: { files: { localOnly: [], different: [], atSymlinks: [] }, discardsState: true },
+			},
+		]);
+		expect(run.discards).toBe(1);
+		expect(result.outcome).toBe("completed");
+		expect(result.counts.fetched).toBe(0);
+		expect(await isFirstFetchConfirmed(h.store)).toBe(true);
+	});
+
+	test("with an empty remote: asked, discarded, and the answer is remembered", async () => {
+		const h = await synced({ "a.md": "A" });
+		h.backend.emptied = true;
+		const run = startingOver(h);
+
+		const result = await run.pull();
+
+		expect(result.outcome).toBe("remote-empty");
+		expect(h.asked[0]?.firstFetch).toEqual({
+			files: { localOnly: ["a.md"], different: [], atSymlinks: [] },
+			discardsState: true,
+		});
+		expect(run.discards).toBe(1);
+		expect(await h.records()).toEqual({});
+		expect(h.vault.snapshot()).toEqual({ "a.md": "A" });
+		expect(await isFirstFetchConfirmed(h.store)).toBe(true);
+		// Not the question about a rewritten history: there is no base any more.
+		expect((await h.pull()).outcome).toBe("remote-empty");
+		expect(h.asked).toHaveLength(1);
+	});
+
+	test("a discard that fails fails the pull: no file is touched and nothing is remembered", async () => {
+		const h = harness();
+		h.backend.commit({ "a.md": "theirs", "new.md": "N" });
+		const mine = { "a.md": "mine", "only-here.md": "O" };
+		h.vault.putAll(mine);
+		const store = h.store;
+
+		await expect(
+			h.pull({
+				discardState: async () => {
+					throw new Error("the sync state could not be removed");
+				},
+			}),
+		).rejects.toThrow("the sync state could not be removed");
+
+		expect(h.asked).toHaveLength(1);
+		expect(h.vault.snapshot()).toEqual(mine);
+		expect(h.vault.log).toEqual([]);
+		expect(h.views).toEqual([]);
+		// The yes is not remembered anywhere: the state that was to be
+		// discarded is as it was, and no other was made.
+		expect(h.store).toBe(store);
+		expect(await isFirstFetchConfirmed(store)).toBe(false);
+		expect(await store.getListing()).toBeNull();
+		expect(await h.records()).toEqual({});
+		expect(await h.base()).toBeNull();
+	});
+
+	test("stopped right after the discard: the empty state has the listing and the answer, and no file is touched", async () => {
+		const h = await used();
+		const head = (await h.store.getListing())?.revision;
+		const before = h.vault.snapshot();
+		const old = h.store;
+		const stop = new AbortController();
+
+		const result = await h.pull({
+			signal: stop.signal,
+			discardState: async () => {
+				await h.store.close();
+				h.store = new MemoryStateStore();
+				// As a change of the connection that came while the state was removed.
+				stop.abort();
+				return h.store;
+			},
+		});
+
+		expect(result.outcome).toBe("cancelled");
+		expect(result.counts).toEqual({ fetched: 0, deleted: 0, renamed: 0, conflicts: 0 });
+		expect(h.vault.snapshot()).toEqual(before);
+		expect(h.vault.log).toEqual([]);
+		expect(h.views).toEqual([]);
+		expect(h.store).not.toBe(old);
+		expect((await h.store.getListing())?.revision).toBe(head);
+		expect(await isFirstFetchConfirmed(h.store)).toBe(true);
+		expect(await h.records()).toEqual({});
+		expect(await h.base()).toBeNull();
+
+		// The pull that follows is the first fetch that was said yes to.
+		expect((await h.pull()).outcome).toBe("completed");
+		expect(h.asked).toHaveLength(1);
+		expect(await h.records()).toEqual(hashes({ "a.md": "A", "b.md": "B", "c.md": "C" }));
+	});
+
+	test("stopped while the question is open: nothing is discarded", async () => {
+		const h = await used();
+		const base = await h.base();
+		const stop = new AbortController();
+		h.answer = () => {
+			stop.abort();
+			return "proceed";
+		};
+		const run = startingOver(h);
+
+		const result = await run.pull({ signal: stop.signal });
+
+		expect(result.outcome).toBe("cancelled");
+		expect(run.discards).toBe(0);
+		expect(await h.base()).toBe(base);
+		expect(h.vault.log).toEqual([]);
 	});
 });

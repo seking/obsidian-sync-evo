@@ -18,6 +18,7 @@ import {
 	capList,
 	clockTime,
 	failureReason,
+	firstFetchQuestion,
 	listText,
 	pullFailureText,
 	pullProgressText,
@@ -570,5 +571,148 @@ describe("stateProblemText", () => {
 			expect(new Set(texts).size).toBe(problems.length);
 			for (const text of texts) expect(text.trim()).not.toBe("");
 		}
+	});
+});
+
+describe("the question before a first fetch", () => {
+	const target = { repository: "octo/notes", branch: "main" };
+	const none = { localOnly: [], different: [], atSymlinks: [] };
+
+	test("names the repository and the branch, and says what becomes of each kind of file", () => {
+		const question = firstFetchQuestion(t, target, {
+			files: { localOnly: ["mine.md", "notes/too.md"], different: ["a.md"], atSymlinks: ["link"] },
+			discardsState: false,
+		});
+		expect(question).toEqual({
+			title: "Confirm the first fetch",
+			parts: [
+				{ text: "This is the first pull from octo/notes, branch main, and this vault already has files." },
+				{
+					text: "1 file has other content than the remote. It gets the content of the remote, and the content on this device is kept beside it under another name:",
+					paths: { shown: ["a.md"], more: 0 },
+				},
+				{
+					text: "2 files are only on this device. They stay on this device as they are:",
+					paths: { shown: ["mine.md", "notes/too.md"], more: 0 },
+				},
+				{
+					text: "1 file is at a path that is a symbolic link on the remote. It is not compared and stays as it is:",
+					paths: { shown: ["link"], more: 0 },
+				},
+			],
+			note: "If you cancel, nothing is pulled and nothing is changed.",
+		});
+	});
+
+	test("a kind without files is left out", () => {
+		const question = firstFetchQuestion(t, target, {
+			files: { ...none, localOnly: ["mine.md"] },
+			discardsState: false,
+		});
+		expect(question.parts.map((part) => part.paths?.shown)).toEqual([undefined, ["mine.md"]]);
+	});
+
+	test("lists fifty paths, and counts the rest", () => {
+		const paths = Array.from({ length: 53 }, (_, index) => `f${index}.md`);
+		const question = firstFetchQuestion(t, target, { files: { ...none, localOnly: paths }, discardsState: false });
+		expect(question.parts[1]?.text).toContain("53 files are only on this device");
+		expect(question.parts[1]?.paths?.shown).toHaveLength(50);
+		expect(question.parts[1]?.paths?.more).toBe(3);
+	});
+
+	test("when the sync state is discarded, that is said first, and what is lost with it", () => {
+		const question = firstFetchQuestion(t, target, {
+			files: { ...none, different: ["a.md"] },
+			discardsState: true,
+		});
+		expect(question.title).toBe("Discard the sync state and start over");
+		expect(question.parts[0]?.text).toBe(
+			"This discards the sync state of this device and builds it again by pulling from octo/notes, branch main. The sync state is only Sync Evo's own record of what has been synced: no file is deleted, on this device or on the remote.",
+		);
+		expect(question.parts[1]?.paths?.shown).toEqual(["a.md"]);
+		expect(question.note).toBe("If you cancel, the sync state is kept and nothing is changed.");
+	});
+
+	test("when the sync state is discarded and no file is counted, it says so", () => {
+		const question = firstFetchQuestion(t, target, { files: none, discardsState: true });
+		expect(question.parts.map((part) => part.text)).toEqual([
+			expect.stringContaining("octo/notes, branch main"),
+			"No file on this device has other content than the remote, and none is only on this device.",
+		]);
+	});
+
+	test("in Japanese", () => {
+		const question = firstFetchQuestion(ja, target, {
+			files: { localOnly: ["mine.md"], different: ["a.md"], atSymlinks: [] },
+			discardsState: false,
+		});
+		expect(question.title).toBe("初回取得の確認");
+		expect(question.parts.map((part) => part.text)).toEqual([
+			"octo/notes のブランチ main から、この保管庫に初めて取り込みます。この保管庫には、すでにファイルがあります。",
+			"保存先と中身が違うファイル：1 件。保存先の内容に書き換えます。このデバイスの内容は、同じ場所に別名で残します。",
+			"このデバイスにだけあるファイル：1 件。このデバイスに、そのまま残します。",
+		]);
+	});
+});
+
+describe("the question before starting over, in Japanese", () => {
+	const target = { repository: "octo/notes", branch: "main" };
+
+	test("says that the sync state is discarded, and that no file is deleted", () => {
+		const question = firstFetchQuestion(ja, target, {
+			files: { localOnly: ["mine.md"], different: ["a.md"], atSymlinks: ["link"] },
+			discardsState: true,
+		});
+		expect(question).toEqual({
+			title: "同期の状態を捨ててやり直す",
+			parts: [
+				{
+					text: "このデバイスの同期の状態を捨てて、octo/notes のブランチ main から取り込み直して作り直します。同期の状態は、何を同期したかを Sync Evo が覚えておくための記録です。ファイルは、このデバイスでも保存先でも削除しません。",
+				},
+				{
+					text: "保存先と中身が違うファイル：1 件。保存先の内容に書き換えます。このデバイスの内容は、同じ場所に別名で残します。",
+					paths: { shown: ["a.md"], more: 0 },
+				},
+				{
+					text: "このデバイスにだけあるファイル：1 件。このデバイスに、そのまま残します。",
+					paths: { shown: ["mine.md"], more: 0 },
+				},
+				{
+					text: "保存先でシンボリックリンクになっているパスにあるファイル：1 件。比べずに、そのまま残します。",
+					paths: { shown: ["link"], more: 0 },
+				},
+			],
+			note: "やめた場合は、同期の状態を捨てず、何も変更しません。",
+		});
+	});
+
+	test("when no file is counted, it says so", () => {
+		const question = firstFetchQuestion(ja, target, {
+			files: { localOnly: [], different: [], atSymlinks: [] },
+			discardsState: true,
+		});
+		expect(question.parts.map((part) => part.text)).toEqual([
+			expect.stringContaining("octo/notes のブランチ main"),
+			"保存先と中身が違うファイルも、このデバイスにだけあるファイルも、ありません。",
+		]);
+	});
+});
+
+describe("a pull stopped by a change of the connection", () => {
+	test("says why, in place of the text for a pull that goes on later", () => {
+		const stopped = "The pull was stopped because the connection was changed. The next pull starts with the new connection.";
+		expect(pullReport(t, result({ outcome: "cancelled" }), { ...options, connectionChanged: true }).summary).toBe(
+			stopped,
+		);
+		expect(pullFailureText(t, settings, new BackendError("cancelled", "x"), true)).toBe(stopped);
+	});
+
+	test("a pull that ended otherwise is reported as it ended", () => {
+		expect(pullReport(t, result(), { ...options, connectionChanged: true }).summary).toBe(
+			"Nothing to pull. This device is up to date.",
+		);
+		expect(pullFailureText(t, settings, new BackendError("unauthorized", "x"), true)).toBe(
+			pullFailureText(t, settings, new BackendError("unauthorized", "x")),
+		);
 	});
 });

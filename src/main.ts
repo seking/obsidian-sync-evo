@@ -68,11 +68,16 @@ export default class SyncEvoPlugin extends Plugin implements SettingsHost, PullH
 		this.deviceSettings = loaded.status === "ok" ? loaded.settings : null;
 		this.addSettingTab(new SyncEvoSettingTab(this.app, this, this));
 
-		// The only thing that starts a pull.
+		// The only things that start a pull.
 		this.addCommand({
 			id: "pull",
 			name: this.t("command.pull"),
 			callback: () => void this.pulls.run(),
+		});
+		this.addCommand({
+			id: "first-fetch",
+			name: this.t("command.firstFetch"),
+			callback: () => void this.pulls.run("first-fetch"),
 		});
 	}
 
@@ -99,7 +104,12 @@ export default class SyncEvoPlugin extends Plugin implements SettingsHost, PullH
 		// outlives the app, so no stop in between can leave the new
 		// connection with the old state. The removal itself ends later, and
 		// `syncState.open()` waits for it.
-		if (change === "set" || change === "changed") this.syncState.requestDiscard();
+		//
+		// A pull that is running is stopped first, and the removal waits for
+		// it to end. Removed under the pull, the state would lose the marker
+		// of the file being written before that file is whole, and the next
+		// sync would take the half of it for a file of the user's.
+		if (change === "set" || change === "changed") this.syncState.requestDiscard(this.pulls.interrupt());
 		this.deviceSettings = next;
 		this.store.save(next);
 		return change;
