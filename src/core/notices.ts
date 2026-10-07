@@ -22,10 +22,38 @@ import type { StateStore } from "./state";
  *   is never synced.
  * - "git-at-root": the vault root has a `.git`, so this device should be
  *   synced with git instead.
+ * - "remote-path-collision": the remote holds this path beside another that
+ *   differs only in upper and lower case, or only in normalization. Neither
+ *   is written. One notice per spelling.
+ * - "too-large": a file over the size limit, which is not fetched or sent.
+ * - "lfs-pointer": the file is a Git LFS pointer. It is synced as it is;
+ *   what it points to is not fetched.
+ * - "invalid-path": a path of the remote that is not a path below the root.
+ * - "plugin-not-listed": the `community-plugins.json` a pull just wrote
+ *   does not list this plugin, so the app will not load it the next time it
+ *   starts. The one kind that is never remembered: it is about a write,
+ *   not about a state, and is told every time such a file is written.
+ * - "unwritable-path": the vault refuses to write a path of the remote (a
+ *   name the device does not allow, for one), or to take away a file the
+ *   remote deleted; the path is then the vault's. It is tried again by
+ *   every pull, and told once for as long as it keeps failing.
+ * - "blocked-path": a file of the remote is not written because files that
+ *   are only in the vault are in its place. Told once for as long as that
+ *   is so.
  *
  * A new kind is a new name here and a text in the catalog.
  */
-export const NOTICE_KINDS = ["own-folder-on-remote", "git-at-root"] as const;
+export const NOTICE_KINDS = [
+	"own-folder-on-remote",
+	"git-at-root",
+	"remote-path-collision",
+	"too-large",
+	"lfs-pointer",
+	"invalid-path",
+	"plugin-not-listed",
+	"unwritable-path",
+	"blocked-path",
+] as const;
 
 export type NoticeKind = (typeof NOTICE_KINDS)[number];
 

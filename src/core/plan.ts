@@ -83,10 +83,33 @@ export type SkipReason =
 	| "invalid-path"
 	/** More than one path on one side maps to the same key. */
 	| "duplicate-path"
-	/** A symlink or a submodule; only regular files are handled so far. */
-	| "not-a-file"
+	/**
+	 * Another path of the remote differs from this one only in upper and
+	 * lower case, in its own name or in the name of a folder on the way
+	 * (`notes/a.md` beside `Notes/b.md`). On a file system that does not tell
+	 * the cases apart the two are one file or one folder, so whichever was
+	 * written last would look like the other one deleted. Everything at or
+	 * below such a name is left alone.
+	 */
+	| "case-collision"
+	/**
+	 * The remote or a record holds the path as a symlink. It is never
+	 * written, sent, or deleted here; what a pull does about it (the record
+	 * it keeps, and a file the remote turned into a symlink) is decided from
+	 * this entry.
+	 */
+	| "symlink"
+	/** The remote or a record holds the path as a submodule. */
+	| "submodule"
 	/** Below a path that the remote or a record holds as a symlink or a submodule. */
 	| "under-non-file"
+	/**
+	 * A file larger than the limit, on the remote or in the vault. It is not
+	 * fetched, sent, or deleted, and its record stays as it is. The side
+	 * that is too large has not been read, so nothing is known about it that
+	 * could justify overwriting the other.
+	 */
+	| "too-large"
 	/**
 	 * One of the two things that are never synced: a `.git` ("dot-git") or
 	 * the plugin's own folder ("own-folder"). An "own-folder" skip that lists
@@ -122,7 +145,12 @@ export interface PlanInput {
 	 * synced cannot be forgotten.
 	 */
 	readonly exclusion: Exclusion;
+	/** The largest file that is synced, in bytes. `DEFAULT_SIZE_LIMIT` when absent. */
+	readonly sizeLimit?: number;
 }
+
+/** 50 MB. A phone holds a whole file in memory to fetch or send it. */
+export const DEFAULT_SIZE_LIMIT = 50 * 1024 * 1024;
 
 export interface SyncPlan {
 	/** Sorted by key. Paths that need nothing are not listed. */
@@ -136,12 +164,17 @@ export function planSync(input: PlanInput): SyncPlan {
 	const records = indexByKey(input.records);
 
 	// Keys that the remote or a record holds as something other than a file.
-	const nonFiles = new Set<string>();
-	for (const index of [remote, records]) {
+	// Where the two disagree, what the remote holds now is the reason given.
+	const nonFiles = new Map<string, "symlink" | "submodule">();
+	for (const index of [records, remote]) {
 		for (const [key, entries] of index) {
-			if (entries.some((entry) => entry.kind !== "file")) nonFiles.add(key);
+			const kind = entries.find((entry) => entry.kind !== "file")?.kind;
+			if (kind !== undefined && kind !== "file") nonFiles.set(key, kind);
 		}
 	}
+
+	const collided = new Set(caseCollisions(input.remote).map((collision) => collision.folded));
+	const sizeLimit = input.sizeLimit ?? DEFAULT_SIZE_LIMIT;
 
 	const known = knownPaths(input.remote, input.records);
 	const keys = new Set([...remote.keys(), ...local.keys(), ...records.keys()]);
@@ -155,12 +188,13 @@ export function planSync(input: PlanInput): SyncPlan {
 
 		// Paths that must not be touched on either side, whatever the three
 		// sides hold, are turned away here, before the three-way comparison.
-		// Reasons of the same nature (unwritable paths, size limits) join this
-		// step. Of the exclusion, only the two fixed ones are of that nature.
+		// Of the exclusion, only the two fixed ones are of that nature.
 		// A path that is not one comes first: the exclusion refuses it.
-		const reason = !isPathFromRoot(key)
+		const reason: SkipReason | undefined = !isPathFromRoot(key)
 			? "invalid-path"
-			: (input.exclusion.hardExclusionOf(key) ?? skipReason(key, [onRemote, onLocal, onRecords], nonFiles));
+			: (input.exclusion.hardExclusionOf(key) ??
+				skipReason(key, [onRemote, onLocal, onRecords], collided, nonFiles) ??
+				(isTooLarge(onRemote, sizeLimit) || isTooLarge(onLocal, sizeLimit) ? "too-large" : undefined));
 		if (reason !== undefined) {
 			skipped.push({ key, reason, remote: onRemote, local: onLocal, records: onRecords });
 			continue;
@@ -196,18 +230,92 @@ function indexByKey<T extends { readonly path: string }>(entries: readonly T[]):
 function skipReason(
 	key: string,
 	sides: readonly (readonly unknown[])[],
-	nonFiles: ReadonlySet<string>,
+	collided: ReadonlySet<string>,
+	nonFiles: ReadonlyMap<string, "symlink" | "submodule">,
 ): SkipReason | undefined {
 	if (sides.some((entries) => entries.length > 1)) return "duplicate-path";
-	if (nonFiles.has(key)) return "not-a-file";
+	if (isAtOrUnderCollision(key, collided)) return "case-collision";
+	const kind = nonFiles.get(key);
+	if (kind !== undefined) return kind;
 	if (isUnderAnyOf(key, nonFiles)) return "under-non-file";
 	return undefined;
+}
+
+function isTooLarge(entries: readonly { readonly size?: number }[], limit: number): boolean {
+	return entries.some((entry) => entry.size !== undefined && entry.size > limit);
+}
+
+/**
+ * Names the remote spells in more than one way that differ only in upper
+ * and lower case. `spellings` are the paths down to that name, as the remote
+ * has them, in NFC.
+ */
+export interface CaseCollision {
+	/** The path down to the name, without the difference between the cases. */
+	readonly folded: string;
+	readonly spellings: readonly string[];
+}
+
+/**
+ * Every name of a remote listing, of a file or of a folder on the way to
+ * one, that the listing spells in more than one case. Only the topmost name
+ * of each is given: below `notes` and `Notes` everything differs.
+ *
+ * Spellings that differ only in normalization are not listed here. Two
+ * files of that kind share a key and are a "duplicate-path"; two spellings
+ * of a folder lead to files with different keys, which are matched and
+ * recorded each under its own, on any file system.
+ */
+export function caseCollisions(remote: readonly { readonly path: string }[]): CaseCollision[] {
+	const spellings = new Map<string, Set<string>>();
+	const seen = new Set<string>();
+	for (const entry of remote) {
+		const key = pathKey(entry.path);
+		if (!isPathFromRoot(key)) continue;
+		// From the whole path up. A name that was seen was seen with
+		// everything above it.
+		for (let end = key.length; end !== -1; end = key.lastIndexOf("/", end - 1)) {
+			const name = key.slice(0, end);
+			if (seen.has(name)) break;
+			seen.add(name);
+			const folded = name.toLowerCase();
+			const group = spellings.get(folded);
+			if (group === undefined) spellings.set(folded, new Set([name]));
+			else group.add(name);
+		}
+	}
+
+	const collisions: CaseCollision[] = [];
+	for (const [folded, group] of spellings) {
+		if (group.size < 2) continue;
+		// Listed under the name above when that one collides too. The name
+		// above is taken from a spelling, not from the folded form: folding
+		// can change the length of a name.
+		const [first = ""] = group;
+		let below = false;
+		for (let slash = first.lastIndexOf("/"); slash !== -1 && !below; slash = first.lastIndexOf("/", slash - 1)) {
+			below = (spellings.get(first.slice(0, slash).toLowerCase())?.size ?? 0) > 1;
+		}
+		if (!below) collisions.push({ folded, spellings: [...group].sort() });
+	}
+	return collisions.sort((a, b) => (a.folded < b.folded ? -1 : a.folded > b.folded ? 1 : 0));
+}
+
+// The key is folded piece by piece, the way `caseCollisions` folded the
+// names: folding can change the length of a name, so a prefix of the folded
+// key is not always the folded prefix.
+function isAtOrUnderCollision(key: string, collided: ReadonlySet<string>): boolean {
+	if (collided.size === 0) return false;
+	for (let slash = key.indexOf("/"); slash !== -1; slash = key.indexOf("/", slash + 1)) {
+		if (collided.has(key.slice(0, slash).toLowerCase())) return true;
+	}
+	return collided.has(key.toLowerCase());
 }
 
 // A symlink or a submodule has no files of its own in the listing, so a path
 // below one on any side is a leftover or a mistake. Sending it would replace
 // the symlink or submodule with a folder.
-function isUnderAnyOf(key: string, parents: ReadonlySet<string>): boolean {
+function isUnderAnyOf(key: string, parents: { readonly size: number; has(key: string): boolean }): boolean {
 	if (parents.size === 0) return false;
 	for (let slash = key.indexOf("/"); slash !== -1; slash = key.indexOf("/", slash + 1)) {
 		if (parents.has(key.slice(0, slash))) return true;

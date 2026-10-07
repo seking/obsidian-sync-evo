@@ -12,6 +12,7 @@
 import { type App, Notice, type Plugin, PluginSettingTab, SecretComponent, Setting } from "obsidian";
 import { type CheckOutcome, connectionCheckText, isSuccess } from "../core/connection-check";
 import type { Translate } from "../core/i18n";
+import type { SymlinkTarget } from "../core/pull";
 import { branchToStore, type DeviceSettings, deviceNameProblem, repositoryToStore } from "../core/settings";
 
 /** What the screen needs from the plugin. */
@@ -23,6 +24,8 @@ export interface SettingsHost {
 	/** Discards what is stored and starts from the defaults. */
 	resetSettings(): void;
 	testConnection(settings: DeviceSettings): Promise<CheckOutcome>;
+	/** The symlinks of the remote that are skipped, with where they point. Never rejects. */
+	skippedSymlinks(): Promise<readonly SymlinkTarget[]>;
 }
 
 /**
@@ -34,6 +37,8 @@ export class SyncEvoSettingTab extends PluginSettingTab {
 	private readonly host: SettingsHost;
 	/** Takes over what is typed in the fields that are not saved while typing. */
 	private commits: (() => void)[] = [];
+	/** Counts the times the screen was drawn, so that an answer that comes late is not put on a newer one. */
+	private drawn = 0;
 
 	constructor(app: App, plugin: Plugin, host: SettingsHost) {
 		super(app, plugin);
@@ -45,6 +50,7 @@ export class SyncEvoSettingTab extends PluginSettingTab {
 		const t = host.t;
 		containerEl.empty();
 		this.commits = [];
+		this.drawn += 1;
 
 		const stored = host.deviceSettings;
 		if (stored === null) {
@@ -179,6 +185,24 @@ export class SyncEvoSettingTab extends PluginSettingTab {
 				}
 			});
 		});
+
+		void this.showSymlinks(containerEl.createDiv(), this.drawn);
+	}
+
+	/**
+	 * The list of the symlinks that are skipped, when there are any. It is
+	 * read from the sync state, which answers later than the screen is
+	 * drawn, so it is filled in below everything else.
+	 */
+	private async showSymlinks(el: HTMLElement, drawn: number): Promise<void> {
+		const t = this.host.t;
+		const links = await this.host.skippedSymlinks();
+		if (links.length === 0 || drawn !== this.drawn) return;
+		new Setting(el).setName(t("settings.symlinks.name")).setDesc(t("settings.symlinks.desc")).setHeading();
+		const list = el.createEl("ul");
+		for (const link of links) {
+			list.createEl("li", { text: t("settings.symlinks.item", { path: link.path, target: link.target }) });
+		}
 	}
 
 	override hide(): void {

@@ -4,13 +4,20 @@ Sync Evo is a plugin for [Obsidian](https://obsidian.md) that is being built to 
 
 ## Status
 
-Under development. The current version has a settings screen where you enter the repository, the branch, the token, and a name for the device, and can test the connection. It does not sync anything yet.
+Under development. The current version has a settings screen where you enter the repository, the branch, the token, and a name for the device, and can test the connection. It has one command, "Pull", which brings the vault in line with the repository: it fetches the files that are new or changed there, and deletes the ones that were deleted there. It does not send anything to the repository yet, and nothing runs on its own.
 
-The settings are kept on the device, outside the vault. The token is kept in Obsidian's Keychain; the settings hold only the name it is saved under.
+A file that was changed both in the vault and in the repository is not overwritten: the repository's version takes the name, and the vault's version is kept beside it as `<name>.conflict-from-<device>-<date>-<time>.<extension>`. Before a pull deletes many files, or follows a history that was rewritten, it stops and asks.
+
+The settings and the record of what was synced are kept on the device, outside the vault. The token is kept in Obsidian's Keychain; the settings hold only the name it is saved under.
 
 ## Network use
 
-Sync Evo makes a network request only when you press "Test connection" in its settings. It then asks GitHub (`api.github.com`) for the branch you entered, and for the repository when the branch is not found, to tell you whether the token can reach them. The request carries the token and the names of the repository and the branch. Nothing from the vault is sent.
+Sync Evo makes network requests only when you press "Test connection" in its settings or run the "Pull" command. All of them go to GitHub (`api.github.com`) and carry the token and the names of the repository and the branch.
+
+- "Test connection" asks for the branch you entered, and for the repository when the branch is not found, to tell you whether the token can reach them.
+- "Pull" asks for the branch (and, like the test, for the repository when the branch is not found), for the list of files in its latest commit, and for the content of each file that is new or changed. For a symbolic link, which is not written to the vault, it reads where the link points: one small request per link that is new or changed. When the branch has moved since the last pull, it also asks whether the new commit builds on the old one.
+
+Nothing from the vault is sent: no file, no file name, and no content.
 
 This section will list each service the plugin contacts, and what is sent and why, as more features are added.
 

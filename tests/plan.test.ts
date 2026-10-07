@@ -262,6 +262,69 @@ describe("spelling of paths", () => {
 	});
 });
 
+describe("remote paths that differ only in case", () => {
+	test("neither is fetched, and the one missing from the vault is not deleted on the remote", async () => {
+		const backend = new MemoryBackend();
+		backend.commit({ "a.md": "one", "A.md": "two" });
+		const remote = await listRemote(backend);
+		// What a device that does not tell the cases apart is left with
+		// after writing both: one file, and a record for each.
+		const plan = planOf({ remote, local: [{ path: "A.md", hash: blobHash("two") }], records: remote });
+		expect(plan.actions).toEqual([]);
+		expect(skips(plan)).toEqual(["case-collision A.md", "case-collision a.md"]);
+	});
+
+	test("a folder spelled two ways shields every path below both, on every side", () => {
+		const x = blobHash("X");
+		const plan = planOf({
+			remote: [
+				{ path: "notes/a.md", kind: "file", hash: x },
+				{ path: "Notes/b.md", kind: "file", hash: x },
+				{ path: "other/c.md", kind: "file", hash: x },
+			],
+			local: [{ path: "notes/mine.md", hash: x }],
+			records: [{ path: "Notes/gone.md", kind: "file", hash: x }],
+		});
+		expect(summary(plan)).toEqual(["download other/c.md"]);
+		expect(skips(plan)).toEqual([
+			"case-collision Notes/b.md",
+			"case-collision Notes/gone.md",
+			"case-collision notes/a.md",
+			"case-collision notes/mine.md",
+		]);
+	});
+
+	test("one spelling on the remote and another in the vault is no collision", async () => {
+		const plan = await planFor({ remote: { "Notes/a.md": "A" }, local: { "notes/a.md": "A" } });
+		expect(plan.skipped).toEqual([]);
+	});
+});
+
+describe("files over the size limit", () => {
+	const small = blobHash("small");
+
+	test("a remote file over the limit is not fetched, and a vault file there is not sent over it", () => {
+		const remote: RemoteEntry[] = [{ path: "big.bin", kind: "file", hash: blobHash("big"), size: 11 }];
+		const withFile = planOf({ remote, local: [{ path: "big.bin", hash: small, size: 5 }], records: [], sizeLimit: 10 });
+		expect(withFile.actions).toEqual([]);
+		expect(skips(withFile)).toEqual(["too-large big.bin"]);
+		expect(skips(planOf({ remote, local: [], records: [], sizeLimit: 10 }))).toEqual(["too-large big.bin"]);
+	});
+
+	test("a vault file over the limit is not sent, and not deleted when the remote deleted it", () => {
+		const local: LocalEntry[] = [{ path: "big.bin", hash: small, size: 11 }];
+		expect(planOf({ remote: [], local, records: [], sizeLimit: 10 }).actions).toEqual([]);
+		const record: SyncRecord = { path: "big.bin", kind: "file", hash: small };
+		expect(planOf({ remote: [], local, records: [record], sizeLimit: 10 }).actions).toEqual([]);
+	});
+
+	test("the limit is 50 MB unless given, and a file of exactly that size is synced", () => {
+		const at = (size: number): RemoteEntry[] => [{ path: "big.bin", kind: "file", hash: small, size }];
+		expect(summary(planOf({ remote: at(50 * 1024 * 1024), local: [], records: [] }))).toEqual(["download big.bin"]);
+		expect(skips(planOf({ remote: at(50 * 1024 * 1024 + 1), local: [], records: [] }))).toEqual(["too-large big.bin"]);
+	});
+});
+
 describe("across every combination of the three sides", () => {
 	const contents = [undefined, "A", "B"] as const;
 	const remote: RemoteEntry[] = [];
@@ -326,7 +389,7 @@ describe("entries that are not regular files", () => {
 			records: [],
 		});
 		expect(plan.actions).toEqual([]);
-		expect(plan.skipped.map((skip) => skip.reason)).toEqual(["not-a-file", "not-a-file"]);
+		expect(plan.skipped.map((skip) => skip.reason)).toEqual(["symlink", "submodule"]);
 	});
 
 	test("a path recorded as a symlink is left alone even when both sides now hold a file", () => {
@@ -337,13 +400,13 @@ describe("entries that are not regular files", () => {
 			records: [{ path: "link", kind: "symlink", hash }],
 		});
 		expect(plan.actions).toEqual([]);
-		expect(skips(plan)).toEqual(["not-a-file link"]);
+		expect(skips(plan)).toEqual(["symlink link"]);
 	});
 
 	test("a path recorded as a symlink and gone from both sides keeps its record", () => {
 		const plan = planOf({ remote: [], local: [], records: [{ path: "link", kind: "symlink", hash }] });
 		expect(plan.actions).toEqual([]);
-		expect(skips(plan)).toEqual(["not-a-file link"]);
+		expect(skips(plan)).toEqual(["symlink link"]);
 	});
 
 	test("a recorded symlink that is absent from the vault is not deleted on the remote", () => {
@@ -371,7 +434,7 @@ describe("entries that are not regular files", () => {
 			records: [],
 		});
 		expect(plan.actions).toEqual([]);
-		expect(skips(plan)).toEqual(["not-a-file sub", "under-non-file sub/x.md"]);
+		expect(skips(plan)).toEqual(["submodule sub", "under-non-file sub/x.md"]);
 		expect(plan.skipped[1]?.local.map((entry) => entry.path)).toEqual(["sub/x.md"]);
 	});
 
@@ -394,7 +457,7 @@ describe("entries that are not regular files", () => {
 		});
 		expect(plan.actions).toEqual([]);
 		expect(skips(plan)).toEqual([
-			"not-a-file link",
+			"symlink link",
 			"under-non-file link/deep/er.md",
 			"under-non-file link/deleted-here.md",
 			"under-non-file link/deleted-there.md",
@@ -415,7 +478,7 @@ describe("entries that are not regular files", () => {
 		});
 		expect(plan.actions).toEqual([]);
 		expect(skips(plan)).toEqual([
-			"not-a-file link",
+			"symlink link",
 			"under-non-file link/gone.md",
 			"under-non-file link/in-vault.md",
 			"under-non-file link/on-remote.md",
@@ -433,7 +496,7 @@ describe("entries that are not regular files", () => {
 			records: [],
 		});
 		expect(summary(plan)).toEqual(["upload が.md", "upload がく/x.md"]);
-		expect(skips(plan)).toEqual(["not-a-file が", "under-non-file が/x.md"]);
+		expect(skips(plan)).toEqual(["submodule が", "under-non-file が/x.md"]);
 	});
 });
 

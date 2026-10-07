@@ -126,6 +126,6 @@ export async function scanVault(input: ScanInput): Promise<ScanResult> {
 
 // A lister may put the root in front of what it returns (`/a.md`, `./a.md`).
 // The exclusion takes paths from the root and refuses anything else.
-function fromRoot(path: string): string {
+export function fromRoot(path: string): string {
 	return path.replace(/^(?:\.?\/)+/, "");
 }

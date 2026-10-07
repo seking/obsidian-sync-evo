@@ -78,14 +78,13 @@ export interface SyncStateDeps {
 	readonly onDiscardBlocked?: () => void;
 }
 
-export function syncStateDepsOf(app: App): SyncStateDeps {
+/** `onDiscardBlocked` is given by whoever waits on `open` and can show that wait. */
+export function syncStateDepsOf(app: App, onDiscardBlocked?: () => void): SyncStateDeps {
 	return {
 		appId: () => readAppId(app),
 		note: discardNoteOf(app),
 		indexedDb: () => (globalThis as { indexedDB?: IDBFactory }).indexedDB,
-		// `onDiscardBlocked` is left out. Nothing in the plugin logs or shows
-		// progress yet; the sync entry point (T023) is the caller that waits
-		// on `open`, and passes it to show that wait.
+		...(onDiscardBlocked === undefined ? {} : { onDiscardBlocked }),
 	};
 }
 

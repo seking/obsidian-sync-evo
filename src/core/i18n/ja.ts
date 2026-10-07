@@ -55,6 +55,10 @@ export const ja = completeTranslation(en, {
 	"settings.reset.desc":
 		"このデバイスにある、この保管庫の設定を破棄します。破棄すると、このバージョンで設定を入力し直せます。トークンは、Obsidian のキーチェーンに残ります。",
 	"settings.reset.button": "設定を破棄",
+	"settings.symlinks.name": "飛ばしているシンボリックリンク",
+	"settings.symlinks.desc":
+		"保存先のシンボリックリンクは、このデバイスに書き込まず、保存先でもそのままにします。最後に取り込んだ時点のリンクと、そのリンク先です。",
+	"settings.symlinks.item": "{path} → {target}",
 
 	"check.connected": "{repository} のブランチ {branch} に接続できました。",
 	"check.empty": "{repository} に接続できました。保存先は空で、コミットがまだありません。",
@@ -78,4 +82,90 @@ export const ja = completeTranslation(en, {
 		"保存先に Sync Evo 自身のフォルダ（{path}）があります。Sync Evo はこのフォルダを同期しません。保存先でも、このデバイスでも、そのままにします。ほかのファイルは、通常どおり同期されます。",
 	"notice.gitAtRoot":
 		"この保管庫のルートに .git があり、git のリポジトリになっています。このデバイスでは、git か Obsidian Git プラグインで同期してください。Sync Evo が送った内容を git は知らないため、次の git pull が止まります。Sync Evo は、その間も同期を続けます。",
+
+	"notice.remotePathCollision":
+		"保存先に、大文字と小文字だけ、または Unicode の正規化（NFC と NFD）だけが違うパスがあります。区別できないデバイスがあるため、このデバイスにはどれも書き込みません。保存先で名前を変えてください：\n{list}",
+	"notice.tooLarge":
+		"{limit}MB を超えるファイルは同期しません。飛ばし、保存先でもこのデバイスでもそのままにします：\n{list}",
+	"notice.lfsPointer":
+		"保存先に Git LFS のポインターファイルがあります。Sync Evo はポインターをそのまま同期し、本体は取得しません。そのため、このデバイスでは開けません：\n{list}",
+	"notice.invalidPath": "保存先に、ファイルのパスとして扱えないパスがあります。飛ばします：\n{list}",
+	"notice.pluginNotListed":
+		"取り込んだ「アクティブなコミュニティプラグインのリスト」（{path}）に Sync Evo がありません。次に Obsidian を起動すると Sync Evo が無効になり、同期が止まります。設定の「コミュニティプラグイン」で、もう一度有効にしてください。",
+	"notice.unwritablePath":
+		"このデバイスで書き込めない、または削除できないファイルがあったため、飛ばしました。保存先では何も変更していません。取り込みのたびに、もう一度試します：\n{list}",
+	"notice.blockedPath":
+		"保存先のファイル {path} を書き込めませんでした。その場所に、このデバイスにだけあるファイルがあります。移動するか名前を変えると、次の取り込みで書き込みます：\n{list}",
+
+	"list.separator": "、",
+	"list.more": "…ほか {count} 件",
+
+	"command.pull": "保存先から取り込む（pull）",
+
+	"pull.alreadyRunning": "取り込みは、すでに実行中です。",
+	"pull.progress.starting": "取り込み：始めています…",
+	"pull.progress.listing": "取り込み：保存先を確認中…",
+	"pull.progress.scanning": "取り込み：保管庫を確認中…",
+	"pull.progress.hashing": "取り込み：ファイルを比較中（{done}/{total}）…",
+	"pull.progress.applyingStart": "取り込み：ファイルを更新中…",
+	"pull.progress.applying": "取り込み：ファイルを更新中（{done}/{total}）…",
+	"pull.progress.graphClosed":
+		"ファイルを書き込む間、グラフビューを閉じています。取り込みが終わると、開き直します。",
+	"pull.count.fetched": "取得 {count} 件",
+	"pull.count.deleted": "削除 {count} 件",
+	"pull.count.renamed": "名前の変更 {count} 件",
+	"pull.count.conflicts": "競合 {count} 件",
+	"pull.summary": "取り込みが終わりました：{details}",
+	"pull.done": "取り込みが終わりました。",
+	"pull.upToDate": "取り込むものはありません。このデバイスは最新です。",
+	"pull.remoteEmpty": "保存先は空で、コミットがまだありません。取り込むものはありません。",
+	"pull.declined": "取り込みをやめました。何も変更していません。",
+	"pull.cancelled": "取り込みを中止しました。次の取り込みで、続きから進みます。",
+	"pull.failed": "取り込みに失敗しました。{reason}",
+	"pull.error.incompleteListing":
+		"リポジトリのファイルが多く、GitHub が1回で一覧を返せません（10万件を超えるか、一覧が 7MB を超えています）。そのため、Sync Evo では同期できません。",
+	"pull.error.other": "詳細：{detail}",
+	"pull.incomplete": "{count} 件のファイルを取り込めませんでした。次の同期で、もう一度試します。{reason}",
+	"pull.incompleteSome": "一部のファイルを取り込めませんでした。次の同期で、もう一度試します。{reason}",
+	"pull.reason.hashMismatch": "GitHub から受け取った内容が、GitHub の一覧と合いませんでした。",
+	"pull.reason.unreadable": "このデバイスのファイルを読めませんでした。",
+	"pull.conflicts": "このデバイスのファイル {count} 件の内容を、別名で残しました：\n{list}",
+	"pull.conflict.conflict": "{copy}（競合。{path} は保存先の内容になりました）",
+	"pull.conflict.becameSymlink":
+		"{copy}（{path} は保存先でシンボリックリンクになりました。リンクは、このデバイスに書き込みません）",
+	"pull.conflict.becameFolder": "{copy}（{path} は保存先でフォルダになりました）",
+	"pull.conflict.nameTaken": "{copy}（保存先で、別のファイルの名前が {path} に変わりました）",
+	"pull.trashed":
+		"{count} 件のファイルを、置き換える前または削除する前に、この保管庫の .trash/ へ移しました。そこから戻せます：\n{list}",
+	"pull.symlinks":
+		"保存先にシンボリックリンクが {count} 件あります。Sync Evo は、このデバイスに書き込まず、保存先でもそのままにします。飛ばしているリンクは、設定画面で確認できます：\n{list}",
+
+	"state.waiting": "前の接続先の同期の状態を削除し終えるまで待っています…",
+	"state.newerVersion":
+		"この保管庫の同期の状態は、新しいバージョンの Sync Evo で保存されたものです。同期するには、プラグインを更新してください。何も変更していません。",
+	"state.noAppId":
+		"Obsidian からこの保管庫の ID を取得できないため、同期の状態を保存する場所がありません。同期していません。",
+	"state.noIndexedDb":
+		"このデバイスでは、Sync Evo が同期の状態を保存する IndexedDB を使えません。同期していません。",
+	"state.openFailed":
+		"同期の状態を開けなかったため、同期していません。Obsidian を再起動して、もう一度試してください。",
+	"state.discardFailed":
+		"前の接続先の同期の状態を削除できなかったため、同期していません。Obsidian を再起動して、もう一度試してください。",
+
+	"confirm.proceed": "進める",
+	"confirm.keepLocal": "このデバイスのファイルを残す",
+	"confirm.cancel": "やめる",
+	"confirm.delete.title": "このデバイスからファイルを削除しますか？",
+	"confirm.delete.body":
+		"このデバイスにあるファイル {count} 件が、保存先で削除されたか、シンボリックリンクに変わっています。取り込むと、このデバイスから削除されます。",
+	"confirm.delete.note": "やめた場合は、何も取り込まず、何も変更しません。",
+	"confirm.rewritten.title": "保存先の履歴が書き換えられています",
+	"confirm.rewritten.body":
+		"保存先の履歴が、このデバイスが最後に同期した時点から続いていません（force push の後など）。このデバイスから送った変更が、保存先から消えている可能性があります。保存先に合わせると、下のファイルがこのデバイスから失われます。",
+	"confirm.rewritten.deletions": "削除するファイル：{count} 件",
+	"confirm.rewritten.overwrites": "保存先の内容で上書きするファイル：{count} 件",
+	"confirm.rewritten.trashNote":
+		"「進める」を選ぶと、保存先に合わせます。これらのファイルは、先にこの保管庫の .trash/ へ移すので、後から戻せます。",
+	"confirm.rewritten.keepNote":
+		"「このデバイスのファイルを残す」を選ぶと、これらのファイルをそのままにして、ほかの変更だけを取り込みます。「やめる」を選ぶと、何も取り込みません。",
 });

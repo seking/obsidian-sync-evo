@@ -1,0 +1,279 @@
+/*
+ * Sync Evo
+ * Copyright (C) 2026 seking
+ *
+ * This file is part of Sync Evo, which is free software licensed under the
+ * GNU Affero General Public License, version 3. It comes with ABSOLUTELY NO
+ * WARRANTY. See the LICENSE file for the full text.
+ *
+ * Source: https://github.com/seking/obsidian-sync-evo
+ */
+
+import { describe, expect, test } from "vitest";
+import { BackendError, type BackendErrorKind, type FetchedFile, type RemoteEntry } from "../src/core/backend";
+import { entryOfTreeItem, GitHubBackend, type GitHubBackendClient } from "../src/core/github/backend";
+import type { GitCommit, GitTreeItem, HeadResult } from "../src/core/github/client";
+import { blobHash } from "./support/memory-backend";
+
+const A = "a".repeat(40);
+const B = "b".repeat(40);
+const C = "c".repeat(40);
+const T = "d".repeat(40);
+
+/** A client that answers from what the test sets, and notes every call. */
+class FakeClient implements GitHubBackendClient {
+	readonly calls: string[] = [];
+	head: HeadResult | BackendError = { status: "commit", sha: A };
+	tree: GitTreeItem[] | BackendError = [];
+	blobs = new Map<string, Uint8Array | BackendError>();
+	ancestor: boolean | BackendError = true;
+
+	async resolveHead(): Promise<HeadResult> {
+		this.calls.push("resolveHead");
+		if (this.head instanceof BackendError) throw this.head;
+		return this.head;
+	}
+
+	async getCommit(sha: string): Promise<GitCommit> {
+		this.calls.push(`getCommit ${sha}`);
+		return { sha, treeSha: T, parents: [] };
+	}
+
+	async getTree(sha: string): Promise<GitTreeItem[]> {
+		this.calls.push(`getTree ${sha}`);
+		if (this.tree instanceof BackendError) throw this.tree;
+		return this.tree;
+	}
+
+	async getBlob(sha: string, size?: number): Promise<Uint8Array> {
+		this.calls.push(`getBlob ${sha} ${String(size)}`);
+		const blob = this.blobs.get(sha);
+		if (blob === undefined) throw new BackendError("not-found", "no such blob");
+		if (blob instanceof BackendError) throw blob;
+		return blob;
+	}
+
+	async isAncestor(base: string, head: string): Promise<boolean> {
+		this.calls.push(`isAncestor ${base} ${head}`);
+		if (this.ancestor instanceof BackendError) throw this.ancestor;
+		return this.ancestor;
+	}
+}
+
+async function kindOf(promise: Promise<unknown>): Promise<BackendErrorKind | "resolved" | "not a BackendError"> {
+	try {
+		await promise;
+		return "resolved";
+	} catch (error) {
+		return error instanceof BackendError ? error.kind : "not a BackendError";
+	}
+}
+
+async function collect(files: AsyncIterable<FetchedFile>): Promise<FetchedFile[]> {
+	const out: FetchedFile[] = [];
+	for await (const file of files) out.push(file);
+	return out;
+}
+
+describe("entryOfTreeItem", () => {
+	test("a blob is a file, and keeps its size", () => {
+		expect(entryOfTreeItem({ path: "a.md", mode: "100644", type: "blob", sha: B, size: 3 })).toEqual({
+			path: "a.md",
+			kind: "file",
+			hash: B,
+			size: 3,
+		});
+	});
+
+	test("an executable is a file like any other", () => {
+		expect(entryOfTreeItem({ path: "run.sh", mode: "100755", type: "blob", sha: B, size: 9 })?.kind).toBe("file");
+	});
+
+	test("mode 120000 is a symlink", () => {
+		expect(entryOfTreeItem({ path: "link", mode: "120000", type: "blob", sha: B, size: 6 })).toEqual({
+			path: "link",
+			kind: "symlink",
+			hash: B,
+			size: 6,
+		});
+	});
+
+	test("a commit is a submodule, without a size", () => {
+		expect(entryOfTreeItem({ path: "lib", mode: "160000", type: "commit", sha: C })).toEqual({
+			path: "lib",
+			kind: "submodule",
+			hash: C,
+		});
+	});
+
+	test("a tree is not an entry", () => {
+		expect(entryOfTreeItem({ path: "notes", mode: "040000", type: "tree", sha: C })).toBeNull();
+	});
+});
+
+describe("list", () => {
+	test("lists the tree of the commit the branch points at", async () => {
+		const client = new FakeClient();
+		client.tree = [
+			{ path: "notes", mode: "040000", type: "tree", sha: C },
+			{ path: "notes/a.md", mode: "100644", type: "blob", sha: B, size: 3 },
+			{ path: "link", mode: "120000", type: "blob", sha: C, size: 5 },
+			{ path: "lib", mode: "160000", type: "commit", sha: A },
+		];
+		const listed = await new GitHubBackend(client).list(null);
+		expect(listed).toEqual({
+			changed: true,
+			listing: {
+				revision: A,
+				entries: [
+					{ path: "notes/a.md", kind: "file", hash: B, size: 3 },
+					{ path: "link", kind: "symlink", hash: C, size: 5 },
+					{ path: "lib", kind: "submodule", hash: A },
+				],
+			},
+		});
+		expect(client.calls).toEqual(["resolveHead", `getCommit ${A}`, `getTree ${T}`]);
+	});
+
+	test("a head that is the known revision is answered without listing", async () => {
+		const client = new FakeClient();
+		expect(await new GitHubBackend(client).list(A)).toEqual({ changed: false });
+		expect(client.calls).toEqual(["resolveHead"]);
+	});
+
+	test("a head that moved is listed", async () => {
+		const client = new FakeClient();
+		client.head = { status: "commit", sha: B };
+		const listed = await new GitHubBackend(client).list(A);
+		expect(listed.changed && listed.listing.revision).toBe(B);
+	});
+
+	test("a repository without commits has no revision and no entries", async () => {
+		const client = new FakeClient();
+		client.head = { status: "empty" };
+		expect(await new GitHubBackend(client).list(null)).toEqual({
+			changed: true,
+			listing: { revision: null, entries: [] },
+		});
+		expect(client.calls).toEqual(["resolveHead"]);
+	});
+
+	test("a repository that became empty is a change, not the known revision", async () => {
+		const client = new FakeClient();
+		client.head = { status: "empty" };
+		const listed = await new GitHubBackend(client).list(A);
+		expect(listed.changed).toBe(true);
+	});
+
+	test("a tree that was cut short fails the listing", async () => {
+		const client = new FakeClient();
+		client.tree = new BackendError("incomplete-listing", "too large");
+		expect(await kindOf(new GitHubBackend(client).list(null))).toBe("incomplete-listing");
+	});
+
+	test("a missing branch fails the listing", async () => {
+		const client = new FakeClient();
+		client.head = new BackendError("branch-not-found", "no such branch");
+		expect(await kindOf(new GitHubBackend(client).list(null))).toBe("branch-not-found");
+	});
+});
+
+describe("hashContent", () => {
+	test("is the hash git gives the blob", async () => {
+		const content = new TextEncoder().encode("hello\n");
+		expect(await new GitHubBackend(new FakeClient()).hashContent(content)).toBe(blobHash(content));
+	});
+
+	test("yields between the pieces of a large file", async () => {
+		let yields = 0;
+		const backend = new GitHubBackend(new FakeClient(), {
+			yieldControl: async () => {
+				yields += 1;
+			},
+		});
+		const content = new Uint8Array(4 * 1024 * 1024 + 1);
+		expect(await backend.hashContent(content)).toBe(blobHash(content));
+		expect(yields).toBe(1);
+	});
+});
+
+describe("checkBase", () => {
+	test("an ancestor continues", async () => {
+		const client = new FakeClient();
+		expect(await new GitHubBackend(client).checkBase(A, B)).toBe("continues");
+		expect(client.calls).toEqual([`isAncestor ${A} ${B}`]);
+	});
+
+	test("GitHub's no is a rewritten history", async () => {
+		const client = new FakeClient();
+		client.ancestor = false;
+		expect(await new GitHubBackend(client).checkBase(A, B)).toBe("rewritten");
+	});
+
+	test("a failure to find out is thrown, not read as rewritten", async () => {
+		const client = new FakeClient();
+		client.ancestor = new BackendError("unreachable", "timeout");
+		expect(await kindOf(new GitHubBackend(client).checkBase(A, B))).toBe("unreachable");
+	});
+});
+
+describe("fetch", () => {
+	const file = (path: string, hash: string, size?: number): RemoteEntry => ({
+		path,
+		kind: "file",
+		hash,
+		...(size === undefined ? {} : { size }),
+	});
+
+	test("one blob per entry, in order, with the size the tree gave", async () => {
+		const client = new FakeClient();
+		client.blobs.set(B, new Uint8Array([1]));
+		client.blobs.set(C, new Uint8Array([2, 3]));
+		const entries = [file("a.md", B, 1), file("b.md", C)];
+		const fetched = await collect(new GitHubBackend(client).fetch(A, entries));
+		expect(fetched).toEqual([
+			{ entry: entries[0], content: new Uint8Array([1]) },
+			{ entry: entries[1], content: new Uint8Array([2, 3]) },
+		]);
+		expect(client.calls).toEqual([`getBlob ${B} 1`, `getBlob ${C} undefined`]);
+	});
+
+	test("the next blob is only asked for when the one before was taken", async () => {
+		const client = new FakeClient();
+		client.blobs.set(B, new Uint8Array([1]));
+		client.blobs.set(C, new Uint8Array([2]));
+		const iterator = new GitHubBackend(client).fetch(A, [file("a.md", B), file("b.md", C)])[Symbol.asyncIterator]();
+		await iterator.next();
+		expect(client.calls).toHaveLength(1);
+	});
+
+	test("the blob of a symlink is fetched like a file's", async () => {
+		const client = new FakeClient();
+		client.blobs.set(B, new TextEncoder().encode("../x"));
+		const entry: RemoteEntry = { path: "link", kind: "symlink", hash: B, size: 4 };
+		expect(await collect(new GitHubBackend(client).fetch(A, [entry]))).toHaveLength(1);
+	});
+
+	test("a failure ends the fetch after what was already yielded", async () => {
+		const client = new FakeClient();
+		client.blobs.set(B, new Uint8Array([1]));
+		client.blobs.set(C, new BackendError("cancelled", "get blob: cancelled"));
+		const got: string[] = [];
+		const run = (async () => {
+			for await (const { entry } of new GitHubBackend(client).fetch(A, [file("a.md", B), file("b.md", C)])) {
+				got.push(entry.path);
+			}
+		})();
+		expect(await kindOf(run)).toBe("cancelled");
+		expect(got).toEqual(["a.md"]);
+	});
+
+	test("a submodule has no content to fetch", async () => {
+		const entry: RemoteEntry = { path: "lib", kind: "submodule", hash: C };
+		expect(await kindOf(collect(new GitHubBackend(new FakeClient()).fetch(A, [entry])))).toBe("other");
+	});
+});
+
+test("push is not there yet, and says so", async () => {
+	expect(await kindOf(new GitHubBackend(new FakeClient()).push())).toBe("other");
+});
