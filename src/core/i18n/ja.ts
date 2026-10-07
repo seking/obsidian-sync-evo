@@ -157,11 +157,11 @@ export const ja = completeTranslation(en, {
 	"confirm.proceed": "進める",
 	"confirm.keepLocal": "このデバイスのファイルを残す",
 	"confirm.cancel": "やめる",
-	"confirm.delete.title": "このデバイスからファイルを削除しますか？",
+	"confirm.delete.title": "ファイル削除の確認",
 	"confirm.delete.body":
 		"このデバイスにあるファイル {count} 件が、保存先で削除されたか、シンボリックリンクに変わっています。取り込むと、このデバイスから削除されます。",
 	"confirm.delete.note": "やめた場合は、何も取り込まず、何も変更しません。",
-	"confirm.rewritten.title": "保存先の履歴が書き換えられています",
+	"confirm.rewritten.title": "保存先の履歴の書き換え",
 	"confirm.rewritten.body":
 		"保存先の履歴が、このデバイスが最後に同期した時点から続いていません（force push の後など）。このデバイスから送った変更が、保存先から消えている可能性があります。保存先に合わせると、下のファイルがこのデバイスから失われます。",
 	"confirm.rewritten.deletions": "削除するファイル：{count} 件",

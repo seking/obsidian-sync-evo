@@ -182,13 +182,13 @@ export const en = baseCatalog({
 	"confirm.proceed": "Proceed",
 	"confirm.keepLocal": "Keep my files",
 	"confirm.cancel": "Cancel",
-	"confirm.delete.title": "Delete these files from this device?",
+	"confirm.delete.title": "Confirm deletions",
 	"confirm.delete.body": {
 		one: "{count} file on this device was deleted on the remote or turned into a symbolic link there. The pull deletes it from this device.",
 		other: "{count} files on this device were deleted on the remote or turned into symbolic links there. The pull deletes them from this device.",
 	},
 	"confirm.delete.note": "If you cancel, nothing is pulled and nothing is changed.",
-	"confirm.rewritten.title": "The history of the remote was rewritten",
+	"confirm.rewritten.title": "Remote history rewritten",
 	"confirm.rewritten.body":
 		"The remote no longer builds on what this device last synced with, as happens after a force push. Changes that came from this device may be gone from it. Following the remote takes the files below away from this device.",
 	"confirm.rewritten.deletions": { one: "{count} file to delete:", other: "{count} files to delete:" },

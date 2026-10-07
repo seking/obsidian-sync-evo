@@ -114,7 +114,20 @@ export class PullRunner {
 				pluginId: host.manifest.id,
 				deviceName: settings.deviceName,
 				now: Date.now,
-				confirm: confirmPullIn(host.app, t),
+				confirm: async (request) => {
+					// The line of progress stays on top of everything, a dialog
+					// included: on a phone it covered the title of the question.
+					// It is taken away while the user answers and put back after.
+					this.progress?.hide();
+					this.progress = null;
+					const answer = await confirmPullIn(host.app, t)(request);
+					// Not after a "no": nothing is updated then.
+					if (!this.stopped && answer !== "cancel") {
+						this.progress = new Notice(t("pull.progress.applyingStart"), 0);
+						this.progressPhase = "";
+					}
+					return answer;
+				},
 				beginBulkWrite: graphViewPause(host.app),
 				onProgress: (progress) => this.showProgress(progress),
 				signal: controller.signal,

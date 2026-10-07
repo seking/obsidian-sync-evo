@@ -9,7 +9,7 @@
  * Source: https://github.com/seking/obsidian-sync-evo
  */
 
-import { type App, ButtonComponent, Modal } from "obsidian";
+import { type App, ButtonComponent, Modal, Platform } from "obsidian";
 import type { Translate } from "../core/i18n";
 import type { ConfirmPull, PullAnswer, PullConfirmRequest } from "../core/pull-io";
 import type { PullLoss } from "../core/pull-plan";
@@ -94,9 +94,15 @@ class PullConfirmModal extends Modal {
 	private list(losses: readonly PullLoss[]): void {
 		const { shown, more } = capList(losses, CONFIRM_LIST_LIMIT);
 		const list = this.contentEl.createEl("ul");
-		// Fifty paths are taller than a phone.
-		list.style.maxHeight = "30vh";
-		list.style.overflowY = "auto";
+		// Fifty paths are tall, so on a desktop the list scrolls by itself.
+		// Not on a phone: there the dialog scrolls as a whole, and with two
+		// lists that scrolled inside it no path was shown at all (seen on an
+		// iPhone; likely the lists shrank to nothing, or were not painted, as
+		// scrolling boxes inside a scrolling box). A plain list can do neither.
+		if (!Platform.isPhone) {
+			list.style.maxHeight = "30vh";
+			list.style.overflowY = "auto";
+		}
 		for (const loss of shown) list.createEl("li", { text: loss.path });
 		if (more > 0) list.createEl("li", { text: this.t("list.more", { count: more }) });
 	}
