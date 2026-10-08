@@ -21,6 +21,10 @@
 // 2. Whether the history still builds on the base revision. Asked before
 //    anything is touched, since it decides how carefully files are written
 //    over; a failure to find out ends the pull.
+//    Then what a pull that stopped left half done (`settleMarkers`), so
+//    that everything after sees the vault as a pull may take it. A pull
+//    that starts over does this later: once the user said yes, and before
+//    the sync state is discarded.
 // 3. The text the root `.gitignore` will have once the pull is done, worked
 //    out without writing it. The rules decide what the scan looks at, so
 //    they have to be the ones the remote has now; the file itself is
@@ -32,8 +36,9 @@
 // 6. The plan, step by step.
 // 7. The base revision, when nothing was put off.
 
-import { type ArchiveDownload, archiveContentSource, isArchiveDisabled } from "./archive-fetch";
-import type { RemoteEntry, RemoteListing } from "./backend";
+import { type ArchiveDownload, archiveContentSource, isArchiveDisabled, untilAborted } from "./archive-fetch";
+import { BackendError, type RemoteEntry, type RemoteListing } from "./backend";
+import { originalPathOfConflictCopy } from "./conflict-name";
 import { createExclusion } from "./exclusion";
 import { firstFetchFiles, hasFirstFetchQuestion, isFirstFetchConfirmed, markFirstFetchConfirmed } from "./first-fetch";
 import { HASH_CHUNK_BYTES } from "./hash";
@@ -44,6 +49,8 @@ import { type ApplyEnv, applyPlan, isLfsPointer, type Seen, Tally } from "./pull
 import type {
 	BulkWriteSession,
 	ContentSource,
+	DeferReason,
+	PullConflict,
 	PullDeps,
 	PullOutcome,
 	PullPhase,
@@ -66,11 +73,15 @@ import { fromRoot, type ScanResult, scanVault } from "./scan";
 import {
 	BASE_REVISION_KEY,
 	isUnchangedByStat,
+	makeRecord,
 	RecordBatcher,
 	readBaseRevision,
 	refreshStat,
+	type FileStat,
+	type StateSeed,
 	type StateStore,
 	type StoredRecord,
+	type WriteMarker,
 	writeBaseRevision,
 } from "./state";
 
@@ -82,19 +93,80 @@ export const PULL_CONFIRMATION_KEY = "pull-confirmation";
 /** The key of the symlinks of the remote and where they point. */
 export const SYMLINK_TARGETS_KEY = "symlink-targets";
 
+/**
+ * The key of what a resuming pull found and no pull has answered with yet
+ * (`Unsaid`): the paths it moved to the `.trash/` of the vault
+ * (`PullResult.halfWritten` and `halfCopies`), and the conflicts it tells
+ * of a pull that made them and told nothing (`tellAwaited`). Stored before
+ * each is moved or stops waiting, so that the user is told also when the
+ * pull that did it is killed. Kept when a pull rejects; it goes when a pull
+ * has answered, or with a sync state that is discarded.
+ */
+export const HALF_WRITTEN_KEY = "half-written";
+
+/** The value under `HALF_WRITTEN_KEY`. */
+interface Unsaid {
+	/** `PullResult.halfWritten`. */
+	readonly files: readonly string[];
+	/** `PullResult.halfCopies`. */
+	readonly copies: readonly string[];
+	/** Conflicts of the cause "conflict" that were made by a pull that told nothing. */
+	readonly conflicts: readonly Pick<PullConflict, "path" | "copyPath">[];
+}
+
+/**
+ * The key of the conflicts that are yet to be told (`AwaitedConflict`).
+ * Unlike what is under `HALF_WRITTEN_KEY`, a pull that has answered does not
+ * end them: each stays until its file holds the content of the remote.
+ */
+export const AWAITED_CONFLICTS_KEY = "awaited-conflicts";
+
+/**
+ * A conflict whose copy a pull that stopped wrote in full, and which no pull
+ * has told. Whether it got as far as the file is not kept anywhere, and the
+ * content it was to write is not either. So it is told when `path` holds
+ * what the remote has by then: found so, or written by the plan. Until
+ * then it waits, across pulls.
+ */
+interface AwaitedConflict {
+	readonly path: string;
+	readonly copyPath: string;
+	/** The hash of what the copy was written with. */
+	readonly hash: string;
+}
+
+/** What is at the path of a marker. */
+interface MarkedContent {
+	readonly hash: string;
+	readonly stat: FileStat;
+}
+
+/** The vault as the plan is made from it, and the plan. */
+interface Survey {
+	readonly scan: ScanResult;
+	readonly local: { readonly entries: LocalEntry[]; readonly seen: Map<string, Seen>; readonly lfsPointers: string[] };
+	readonly plan: PullPlan;
+}
+
 const GITIGNORE = ".gitignore";
 
 /**
  * Pulls. Resolves with what happened, also when the pull did not get to the
  * end. Rejects when it could not be carried out at all or the sync state
- * failed: the listing, the check of the history, the scan. The vault is
- * consistent with the records either way, and the base revision has only
- * moved when everything was done.
+ * failed: the listing, the check of the history, the scan; with a
+ * "cancelled" failure when it was stopped while the listing or the check of
+ * the history was on its way, since nothing is known of the remote then.
+ * What it found half done and moved away by then stays remembered, for the
+ * next pull to tell.
+ * The vault is consistent with the records either way, and the base
+ * revision has only moved when everything was done.
  */
 export async function runPull(deps: PullDeps): Promise<PullResult> {
 	const run = new PullRun(deps);
 	try {
-		return await run.pull();
+		const result = await run.pull();
+		await run.forgetUnsaid();
+		return result;
 	} finally {
 		await run.restoreViews();
 	}
@@ -114,6 +186,17 @@ class PullRun {
 	private download: ArchiveDownload | null = null;
 	/** The steps of the plan as last reported, for reporting them again when only `download` changed. */
 	private applied = { done: 0, total: 0 };
+	/**
+	 * The paths the plan leaves alone (`PlanInput.held`), without the cases:
+	 * those of the markers that could not be settled.
+	 */
+	private readonly held = new Set<string>();
+	/** The markers that could not be settled, and are left for the next pull. */
+	private readonly unsettled: WriteMarker[] = [];
+	/** The conflicts of `awaited` that this pull tells. They are in the tally too. */
+	private readonly resumedConflicts: PullConflict[] = [];
+	/** The conflicts that are yet to be told, as they are stored (`AWAITED_CONFLICTS_KEY`). */
+	private awaited: AwaitedConflict[] = [];
 
 	constructor(private readonly deps: PullDeps) {
 		this.store = deps.store;
@@ -146,12 +229,327 @@ class PullRun {
 		return this.deps.signal?.aborted === true;
 	}
 
+	/**
+	 * What was asked of the remote before anything is changed, or a
+	 * "cancelled" failure as soon as the pull is stopped: a request that is
+	 * on its way cannot be taken back, and can take a minute to time out.
+	 * Only around the request itself. Nothing may follow it that changes the
+	 * sync state after the pull has ended.
+	 *
+	 * A pull that was stopped before it asked gets what the remote answers:
+	 * a remote that sends requests refuses that one itself.
+	 */
+	private asked<T>(request: Promise<T>): Promise<T> {
+		return this.aborted() ? request : untilAborted(request, this.deps.signal);
+	}
+
+	// -----------------------------------------------------------------------
+	// What a pull that stopped left half done
+
+	/**
+	 * Settles every write marker that is left. A marker is stored before a
+	 * file is written and removed with the storing of its record, so one
+	 * that is found is of a write that did not get that far: not begun,
+	 * broken off, or done but for the record. Which, is read from the file.
+	 *
+	 * A path of the remote:
+	 *
+	 * - The content that was to be written: it was written. The record is
+	 *   made with that hash, and not with the one the remote has now: the
+	 *   remote may have changed the file since, which is then an ordinary
+	 *   fetch for the plan to find.
+	 * - The content from before the write, or no file: nothing was begun, or
+	 *   the user deleted it. Only the marker goes. The record stays as it
+	 *   is: a marker of the second half of a conflict has a "before" that is
+	 *   not the record's, and the conflict is still one.
+	 * - Anything else: half written, or edited since the pull stopped, and
+	 *   the content cannot tell which. The file goes to the `.trash/` of the
+	 *   vault and its record goes too, so that the plan fetches the remote's
+	 *   content like a file that is new. No copy is made of it: half a file
+	 *   would stay as a copy, and be sent.
+	 *
+	 * Whether the remote still has the path plays no part: with the record
+	 * made, or gone with the file, the plan decides the same as for any
+	 * other path the remote deleted or spells otherwise now.
+	 *
+	 * The copy of a conflict, which has no record and is no path of the
+	 * remote: one that holds what was to be written stays, and so does its
+	 * conflict, which is told once the file holds what the remote has
+	 * (`tellAwaited`). The plan goes on to the file where there is something
+	 * left to do: it finds the copy again (`existingCopy`), or fetches a
+	 * file that was moved away. A copy that holds anything else is half a
+	 * copy and goes to the `.trash/`; the file it is a copy of was not
+	 * written yet, and its conflict is handled from the start. The copies
+	 * come after the files, because a copy waits with a file that could not
+	 * be settled (`settleCopy`).
+	 *
+	 * Every step can be made again: killed after any of them, the next pull
+	 * finds the marker and a file that reads as one of the cases above.
+	 *
+	 * What the vault refuses for one marker does not stop the pull: an
+	 * editor that cannot save, a file that cannot be read, a file that
+	 * cannot be moved away. That marker is left for the next pull, the path
+	 * is put off (`deferred`, so that the base revision stays), and the plan
+	 * of this pull leaves the path alone (`held`): it may be half written,
+	 * and must not be compared, written over, sent, or kept as a copy. A
+	 * failure of the sync state is thrown, and ends the pull.
+	 *
+	 * Answers how many markers and conflicts it looked at, or "stopped" when
+	 * the signal stopped it.
+	 */
+	private async settleMarkers(listing: RemoteListing): Promise<number | "stopped"> {
+		const { store, tally } = this;
+		// What a pull found and was killed before it could tell.
+		const unsaid = storedUnsaid(await store.getMeta(HALF_WRITTEN_KEY));
+		tally.halfWritten.push(...unsaid.files);
+		tally.halfCopies.push(...unsaid.copies);
+		for (const conflict of unsaid.conflicts) this.tellResumed({ ...conflict, cause: "conflict" });
+		this.awaited = storedAwaited(await store.getMeta(AWAITED_CONFLICTS_KEY));
+
+		const markers = await store.readMarkers();
+		const ordered = [
+			...markers.filter((marker) => !marker.conflictCopy),
+			...markers.filter((marker) => marker.conflictCopy),
+		];
+		for (const marker of ordered) {
+			if (this.aborted()) return "stopped";
+			const { key, path } = marker;
+			const there = await this.contentAt(path);
+			if (there === "save-failed" || there === "unreadable") {
+				this.hold(marker, there);
+			} else if (marker.conflictCopy) {
+				await this.settleCopy(marker, there);
+			} else if (there !== null && there.hash === marker.writing) {
+				// Removes the marker in the same transaction.
+				const written = { path, kind: "file", hash: marker.writing } as const;
+				await store.commitWrite(makeRecord(written, there.stat, this.startedAt));
+			} else if (there === null || there.hash === marker.before) {
+				await store.deleteMarker(key);
+			} else {
+				// The record first, and the marker last. Killed after the
+				// record went, the file is found like this again. Killed
+				// after the file went, there is no file and no record, which
+				// is a fetch; with the record left, a remote that has its
+				// content again would read as "deleted on this device".
+				await store.deleteRecord(key);
+				if (!(await this.trashHalf(path, tally.halfWritten))) {
+					this.hold(marker, "trash-failed");
+					continue;
+				}
+				await store.deleteMarker(key);
+			}
+		}
+		// With the files as the markers left them: a conflict that was
+		// finished but for telling it is told by this pull whatever becomes
+		// of its plan.
+		const waiting = this.awaited.length;
+		await this.tellAwaited(listing);
+		return markers.length + waiting;
+	}
+
+	/** The marker of the copy of a conflict (`settleMarkers`). */
+	private async settleCopy(marker: WriteMarker, there: MarkedContent | null): Promise<void> {
+		const { key, path } = marker;
+		if (there !== null && there.hash !== marker.writing) {
+			if (!(await this.trashHalf(path, this.tally.halfCopies))) {
+				this.hold(marker, "trash-failed");
+				return;
+			}
+		} else if (there !== null) {
+			const original = originalPathOfConflictCopy(path);
+			if (original !== null) {
+				// The file could not be settled. The copy waits with it, marker
+				// and all: without the marker it would be a file like any
+				// other to the plan, which moves it with its folder or lists
+				// it as one that is only here, and its conflict would be
+				// forgotten with a sync state that is discarded. The file is
+				// put off already, which says all there is to say.
+				const originalKey = pathKey(original);
+				if (this.unsettled.some((left) => !left.conflictCopy && left.key === originalKey)) {
+					this.leave(marker);
+					return;
+				}
+				// Remembered before the marker goes, like what is moved away.
+				const told = (other: AwaitedConflict): boolean => other.path === original && other.copyPath === path;
+				if (!this.awaited.some(told)) {
+					this.awaited.push({ path: original, copyPath: path, hash: marker.writing });
+					await this.rememberAwaited();
+				}
+			}
+		}
+		await this.store.deleteMarker(key);
+	}
+
+	/**
+	 * Tells every conflict that waits (`AwaitedConflict`) and whose file
+	 * holds what the remote has now, and forgets the ones that are over.
+	 * Called once the markers are settled, and again once the plan was
+	 * carried out, which may have written the file.
+	 *
+	 * Over, with nothing to tell: the remote has no file at the path, or has
+	 * what the copy holds; or the copy is gone. One the plan has told itself
+	 * (`conflict` in `pull-apply.ts`, which found the copy) is over too.
+	 *
+	 * Left waiting: everything else. The file is not there, holds another
+	 * content, or cannot be looked at. "Now has the content of the remote",
+	 * which is how a conflict is worded, would not be true of it.
+	 */
+	private async tellAwaited(listing: RemoteListing): Promise<void> {
+		if (this.awaited.length === 0) return;
+		const remote = new Map<string, string>();
+		for (const entry of listing.entries) {
+			if (entry.kind === "file") remote.set(pathKey(entry.path), entry.hash);
+		}
+		const left: AwaitedConflict[] = [];
+		let told = false;
+		for (const conflict of this.awaited) {
+			const { path, copyPath } = conflict;
+			const state = await this.stateOfAwaited(conflict, remote.get(pathKey(path)));
+			if (state === "waiting") left.push(conflict);
+			else if (state === "finished" && this.tellResumed({ path, copyPath, cause: "conflict" })) told = true;
+		}
+		if (left.length === this.awaited.length) return;
+		// What is told first, and then what waits: killed in between, the
+		// conflict is in both lists, and told once (`tellResumed`).
+		if (told) await this.rememberUnsaid();
+		this.awaited = left;
+		await this.rememberAwaited();
+	}
+
+	private async stateOfAwaited(
+		conflict: AwaitedConflict,
+		remoteHash: string | undefined,
+	): Promise<"finished" | "waiting" | "over"> {
+		const { path, copyPath } = conflict;
+		const tells = (other: PullConflict): boolean => other.path === path && other.copyPath === copyPath;
+		if (this.tally.conflicts.some(tells)) return "finished";
+		// May be half written: not looked at.
+		if (this.held.has(foldedKey(path)) || this.held.has(foldedKey(copyPath))) return "waiting";
+		if (remoteHash === undefined || remoteHash === conflict.hash) return "over";
+		try {
+			const copy = await this.deps.vault.stat(copyPath);
+			if (copy === null || copy.type !== "file") return "over";
+		} catch {
+			return "waiting";
+		}
+		const now = await this.contentAt(path);
+		return now !== null && typeof now !== "string" && now.hash === remoteHash ? "finished" : "waiting";
+	}
+
+	/** Answers whether it is this call that tells it: not when the plan or the list of a pull that was killed has. */
+	private tellResumed(conflict: PullConflict): boolean {
+		const told = (other: PullConflict): boolean =>
+			other.path === conflict.path && other.copyPath === conflict.copyPath;
+		if (this.tally.conflicts.some(told)) return false;
+		this.resumedConflicts.push(conflict);
+		this.tally.conflicts.push(conflict);
+		return true;
+	}
+
+	/**
+	 * Leaves a marker for the next pull: what is at its path could not be
+	 * looked at or moved away. For the copy of a conflict the file it is a
+	 * copy of is held as well, so that its conflict is not handled beside a
+	 * copy that may be half one.
+	 */
+	private hold(marker: WriteMarker, reason: DeferReason): void {
+		this.tally.deferred.push({ path: marker.path, reason });
+		this.leave(marker);
+	}
+
+	/** `hold`, without putting the path off: for a marker that waits for another one that is. */
+	private leave(marker: WriteMarker): void {
+		this.unsettled.push(marker);
+		this.held.add(foldedKey(marker.path));
+		if (!marker.conflictCopy) return;
+		const original = originalPathOfConflictCopy(marker.path);
+		if (original !== null) this.held.add(foldedKey(original));
+	}
+
+	/**
+	 * The hash of the file at the path of a marker, or `null` when no file
+	 * is there. An editor that has it open saves first: what was typed and
+	 * not saved would be gone with a file that is moved away. Answers the
+	 * reason instead when the vault could not tell.
+	 */
+	private async contentAt(path: string): Promise<MarkedContent | null | "save-failed" | "unreadable"> {
+		const { vault, backend } = this.deps;
+		try {
+			if ((await vault.saveOpenEditors(path)) === "failed") return "save-failed";
+		} catch {
+			return "save-failed";
+		}
+		try {
+			const stat = await vault.stat(path);
+			if (stat === null || stat.type !== "file") return null;
+			// Not read: a pull writes nothing of that size, so it is neither
+			// content a marker knows.
+			if (stat.size > this.sizeLimit) return { hash: "", stat };
+			return { hash: await backend.hashContent(await vault.read(path)), stat };
+		} catch {
+			return "unreadable";
+		}
+	}
+
+	/**
+	 * To the `.trash/` of the vault, whatever the setting: the content may
+	 * be the user's and nowhere else. Listed in `list`, which is remembered
+	 * before the file is moved. Answers `false` when the vault refused; the
+	 * path is not listed then.
+	 */
+	private async trashHalf(path: string, list: string[]): Promise<boolean> {
+		const added = !list.includes(path);
+		if (added) {
+			list.push(path);
+			await this.rememberUnsaid();
+		}
+		try {
+			await this.deps.vault.trash(path, "vault-trash");
+			return true;
+		} catch {
+			if (added) {
+				list.splice(list.indexOf(path), 1);
+				await this.rememberUnsaid();
+			}
+			return false;
+		}
+	}
+
+	private hasUnsaid(): boolean {
+		return this.tally.halfWritten.length + this.tally.halfCopies.length + this.resumedConflicts.length > 0;
+	}
+
+	private unsaid(): Unsaid {
+		return {
+			files: [...this.tally.halfWritten],
+			copies: [...this.tally.halfCopies],
+			conflicts: this.resumedConflicts.map(({ path, copyPath }) => ({ path, copyPath })),
+		};
+	}
+
+	/** Stores what this pull has to tell of the markers, in the sync state it has now. */
+	private async rememberUnsaid(): Promise<void> {
+		if (this.hasUnsaid()) await this.store.setMeta(HALF_WRITTEN_KEY, this.unsaid());
+		else await this.store.deleteMeta(HALF_WRITTEN_KEY);
+	}
+
+	private async rememberAwaited(): Promise<void> {
+		if (this.awaited.length > 0) await this.store.setMeta(AWAITED_CONFLICTS_KEY, this.awaited);
+		else await this.store.deleteMeta(AWAITED_CONFLICTS_KEY);
+	}
+
+	/** Called once the pull has answered: what it found of the markers is in its answer. */
+	async forgetUnsaid(): Promise<void> {
+		if (this.hasUnsaid()) await this.store.deleteMeta(HALF_WRITTEN_KEY);
+	}
+
 	async pull(): Promise<PullResult> {
 		const { deps } = this;
 		let store = this.store;
 		// The "first fetch" command. Everything up to the question is decided
 		// as if there were no sync state, and the one there is, which is only
-		// discarded once the user said yes, is neither read nor changed.
+		// discarded once the user said yes, is neither read nor changed
+		// before that.
 		const startOver = deps.discardState !== undefined;
 		const base = startOver ? null : await readBaseRevision(store);
 		this.firstFetch = base === null;
@@ -178,7 +576,7 @@ class PullRun {
 			if (base !== null) rewritten = true;
 			else if (!unconfirmed) return this.result("remote-empty", head, false, {});
 		} else if (base !== null && head !== base) {
-			rewritten = (await deps.backend.checkBase(base, head)) === "rewritten";
+			rewritten = (await this.asked(deps.backend.checkBase(base, head))) === "rewritten";
 		}
 		const finish = (outcome: PullOutcome, extra: Partial<PullResult> = {}): PullResult =>
 			this.result(outcome, head, rewritten, extra);
@@ -190,31 +588,17 @@ class PullRun {
 		const confirmed = startOver ? undefined : readConfirmation(await store.getMeta(PULL_CONFIRMATION_KEY));
 		const protect = rewritten || confirmed?.rewritten === true;
 
-		// T024: write markers a pull left behind when it stopped are dealt
-		// with here, before any file is compared: each one settles what its
-		// file is (written, not begun, or half written) so that the scan
-		// below sees the vault as the plan may take it. Until then a marker
-		// that is left is only ever replaced or removed by a later write of
-		// the same path.
+		// Before any file is compared, so that the scan below sees the vault
+		// as the plan may take it. Not yet when the pull starts over: neither
+		// the sync state nor the vault is touched before the user said yes.
+		// A file left half written is until then one of the files that
+		// differ, which the question lists.
+		if (!startOver && (await this.settleMarkers(listing)) === "stopped") return finish("cancelled");
 
 		const records = startOver ? [] : await store.readRecords();
-		const gitignore = await this.gitignoreAfter(listing, records, protect);
-		if (this.aborted()) return finish("cancelled");
-
-		const exclusion = createExclusion({ ...deps.paths, gitignore });
-
-		this.progress("scanning");
-		const scan = await scanVault({ lister: deps.vault, exclusion, remote: listing.entries, records });
-		const local = await this.readLocal(scan, records, listing);
-		if (local === null) return finish("cancelled");
-
-		let plan = planPull({
-			remote: listing.entries,
-			local: local.entries,
-			records,
-			exclusion,
-			sizeLimit: this.sizeLimit,
-		});
+		const first = await this.survey(listing, records, protect);
+		if (first === null) return finish("cancelled");
+		let { scan, local, plan } = first;
 		// `tried`: whether every write of the plan was attempted.
 		const notices = (tried: boolean): Promise<NoticeRef[]> =>
 			this.updateNotices(plan, scan, listing, local.lfsPointers, tried);
@@ -245,16 +629,35 @@ class PullRun {
 				if (lossesDue) await store.deleteMeta(PULL_CONFIRMATION_KEY);
 				declined = true;
 			} else {
+				// Whether the markers of the old sync state were settled, which
+				// may have changed the vault since it was planned from.
+				let settled = false;
 				if (deps.discardState !== undefined) {
+					// With the sync state that is about to go, since it alone
+					// knows what a pull that stopped was writing. Discarded
+					// unread, its markers would leave half a file to be taken
+					// for the user's: kept as a copy of a conflict, and sent.
+					const looked = await this.settleMarkers(listing);
+					if (looked === "stopped") return finish("cancelled");
+					settled = looked > 0;
 					// Looked at right before, with nothing awaited in between:
 					// a change of the connection stops this pull and waits
 					// for it to end before it discards the state itself, and
 					// must not find this pull waiting for the state in turn.
 					if (this.aborted()) return finish("cancelled");
-					store = await deps.discardState();
+					// What the old state knew and the new one has to: the
+					// listing this pull goes by, the markers that could not be
+					// settled and the conflicts that wait, for the next pull,
+					// and what this pull has yet to tell, should it be killed.
+					// Handed over rather than stored afterwards: killed between
+					// the two, a file left half written would have no marker,
+					// and the next pull would take it for the user's.
+					const meta: [string, unknown][] = [];
+					if (this.hasUnsaid()) meta.push([HALF_WRITTEN_KEY, this.unsaid()]);
+					if (this.awaited.length > 0) meta.push([AWAITED_CONFLICTS_KEY, this.awaited]);
+					const seed: StateSeed = { listing, markers: this.unsettled, meta };
+					store = await deps.discardState(seed);
 					this.store = store;
-					// The listing this pull goes by, for the next one.
-					await store.putListing(listing);
 				}
 				// Before anything is changed, so that a first fetch that stops
 				// halfway goes on without asking again. When there was nothing
@@ -274,6 +677,17 @@ class PullRun {
 					// Before anything is changed, so that a pull that stops
 					// halfway goes on without asking again.
 					await store.setMeta(PULL_CONFIRMATION_KEY, confirmationOf(losses));
+				}
+				if (settled) {
+					// The vault is no longer the one the plan was made from: a
+					// file was moved away, an editor saved, a path is held.
+					// Planned again, and not asked again: the answer was to
+					// starting over, and what changed is told by the result.
+					// A pull that starts over has no records, so nothing was
+					// taken out of the plan above that would have to be again.
+					const again = await this.survey(listing, [], protect);
+					if (again === null) return finish("cancelled");
+					({ scan, local, plan } = again);
 				}
 			}
 		}
@@ -303,6 +717,8 @@ class PullRun {
 			this.applyEnv(listing, protect, local.seen, scan.paths.map((scanned) => scanned.path)),
 			plan,
 		);
+		// A file the plan wrote may be the one a conflict waited for.
+		await this.tellAwaited(listing);
 		// The record changes are made whatever the signal says, so every
 		// symlink has its record by now and is not told a second time.
 		const newSymlinks = plan.symlinks.filter((link) => link.firstSeen).map((link) => link.remote.path);
@@ -368,6 +784,8 @@ class PullRun {
 			},
 			conflicts: tally.conflicts,
 			trashed: tally.trashed,
+			halfWritten: tally.halfWritten,
+			halfCopies: tally.halfCopies,
 			deferred: tally.deferred,
 			unwritable,
 			keptLocal: [],
@@ -380,11 +798,51 @@ class PullRun {
 		};
 	}
 
+	/**
+	 * Steps 3 and 4: the rules, the scan, the hashing, and the plan. `null`
+	 * when the signal stopped it.
+	 */
+	private async survey(
+		listing: RemoteListing,
+		records: readonly StoredRecord[],
+		protect: boolean,
+	): Promise<Survey | null> {
+		const { deps } = this;
+		let gitignore: string | null;
+		try {
+			gitignore = await this.gitignoreAfter(listing, records, protect);
+		} catch (error) {
+			// Stopped while the `.gitignore` of the remote was on its way.
+			// Unlike a stop during the listing, this is a pull that ends:
+			// the markers are settled, and the result tells what of.
+			if (this.aborted() && error instanceof BackendError && error.kind === "cancelled") return null;
+			throw error;
+		}
+		if (this.aborted()) return null;
+
+		const exclusion = createExclusion({ ...deps.paths, gitignore });
+
+		this.progress("scanning");
+		const scan = await scanVault({ lister: deps.vault, exclusion, remote: listing.entries, records });
+		const local = await this.readLocal(scan, records, listing);
+		if (local === null) return null;
+
+		const plan = planPull({
+			remote: listing.entries,
+			local: local.entries,
+			records,
+			exclusion,
+			sizeLimit: this.sizeLimit,
+			...(this.held.size === 0 ? {} : { held: this.held }),
+		});
+		return { scan, local, plan };
+	}
+
 	/** The listing of the head: the stored one when the remote has not moved past it. */
 	private async currentListing(): Promise<RemoteListing> {
 		const stored = await this.store.getListing();
 		// Without a listing to fall back on, "unchanged" would be of no use.
-		const listed = await this.deps.backend.list(stored === null ? null : stored.revision);
+		const listed = await this.asked(this.deps.backend.list(stored === null ? null : stored.revision));
 		if (!listed.changed) {
 			if (stored !== null) return stored;
 			throw new Error("The remote answered that nothing changed since a listing that was never taken.");
@@ -395,7 +853,7 @@ class PullRun {
 
 	/** The listing of the head, asked of the remote without looking at the stored one. */
 	private async freshListing(): Promise<RemoteListing> {
-		const listed = await this.deps.backend.list(null);
+		const listed = await this.asked(this.deps.backend.list(null));
 		if (!listed.changed) throw new Error("The remote answered that nothing changed since no listing.");
 		return listed.listing;
 	}
@@ -447,6 +905,7 @@ class PullRun {
 			perFile: deps.fetchContents ?? ((revision, entries) => deps.backend.fetch(revision, entries)),
 			...(deps.signal === undefined ? {} : { signal: deps.signal }),
 			...(deps.log === undefined ? {} : { log: deps.log }),
+			...(deps.archiveGate === undefined ? {} : { gate: deps.archiveGate }),
 			onDownload: (download) => {
 				this.download = download;
 				this.progress("applying", this.applied.done, this.applied.total);
@@ -487,7 +946,8 @@ class PullRun {
 	 *   That one blob is fetched here, from the backend itself and not from
 	 *   whatever the contents of the pull come from, which may be an archive
 	 *   that is fetched once. A failure to fetch it fails the pull, before
-	 *   anything is changed.
+	 *   anything of the plan is carried out. A stop is not kept waiting for
+	 *   it (`asked`).
 	 * - Everywhere else the text is the vault's: the two are the same, the
 	 *   remote did not change it or has none, or the step takes something
 	 *   away (a deletion, writing over the file after the history was
@@ -504,6 +964,16 @@ class PullRun {
 		protect: boolean,
 	): Promise<string | null> {
 		const { deps } = this;
+		// May be half written, and is not read as content: the rules are the
+		// ones it has as far as it can be read at all, and nothing is
+		// planned for the path (`held`).
+		if (this.held.has(GITIGNORE)) {
+			try {
+				return await this.rootGitignore();
+			} catch {
+				return null;
+			}
+		}
 		const remote = listing.entries.filter((entry) => foldedKey(entry.path) === GITIGNORE);
 		const [entry] = remote;
 		// Anything but one plain file of exactly that name is not written
@@ -541,10 +1011,19 @@ class PullRun {
 			plan.deletes.length + plan.asides.length + losses.deletions.length + losses.overwrites.length > 0;
 		if (takesAway || !plan.writes.some((write) => write.key === GITIGNORE)) return this.rootGitignore();
 
-		for await (const file of deps.backend.fetch(listing.revision, [entry])) {
-			if (file.entry.path !== entry.path) continue;
-			if ((await deps.backend.hashContent(file.content)) !== entry.hash) break;
-			return new TextDecoder().decode(file.content);
+		const contents = deps.backend.fetch(listing.revision, [entry])[Symbol.asyncIterator]();
+		try {
+			for (;;) {
+				const next = await this.asked(contents.next());
+				if (next.done === true) break;
+				const file = next.value;
+				if (file.entry.path !== entry.path) continue;
+				if ((await deps.backend.hashContent(file.content)) !== entry.hash) break;
+				return new TextDecoder().decode(file.content);
+			}
+		} finally {
+			// Not awaited: it would wait for the request that is on its way.
+			void Promise.resolve(contents.return?.()).catch(() => {});
 		}
 		throw new Error("The .gitignore of the remote could not be fetched as it is listed.");
 	}
@@ -587,6 +1066,13 @@ class PullRun {
 				return null;
 			}
 			const { path, key } = scanned;
+			// Listed, so that the plan knows a file is there, and not looked
+			// at: the plan turns the path away before it reads the hash, and
+			// the file may be one that cannot be read.
+			if (this.held.has(foldedKey(path))) {
+				entries.push({ path, hash: "" });
+				continue;
+			}
 			const stat = await deps.vault.stat(path);
 			// Gone since it was listed.
 			if (stat === null || stat.type !== "file") continue;
@@ -802,6 +1288,34 @@ export async function readSymlinkTargets(store: Pick<StateStore, "getMeta">): Pr
 	return storedTargets(await store.getMeta(SYMLINK_TARGETS_KEY))
 		.map(({ path, target }) => ({ path, target }))
 		.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+}
+
+function storedAwaited(value: unknown): AwaitedConflict[] {
+	const awaited: AwaitedConflict[] = [];
+	for (const item of Array.isArray(value) ? (value as unknown[]) : []) {
+		if (typeof item !== "object" || item === null) continue;
+		const { path, copyPath, hash } = item as Record<string, unknown>;
+		if (typeof path === "string" && typeof copyPath === "string" && typeof hash === "string") {
+			awaited.push({ path, copyPath, hash });
+		}
+	}
+	return awaited;
+}
+
+function storedUnsaid(value: unknown): Unsaid {
+	const { files, copies, conflicts } = (typeof value === "object" && value !== null ? value : {}) as Record<
+		string,
+		unknown
+	>;
+	const paths = (list: unknown): string[] =>
+		Array.isArray(list) ? list.filter((item): item is string => typeof item === "string") : [];
+	const pairs: Pick<PullConflict, "path" | "copyPath">[] = [];
+	for (const item of Array.isArray(conflicts) ? (conflicts as unknown[]) : []) {
+		if (typeof item !== "object" || item === null) continue;
+		const { path, copyPath } = item as Record<string, unknown>;
+		if (typeof path === "string" && typeof copyPath === "string") pairs.push({ path, copyPath });
+	}
+	return { files: paths(files), copies: paths(copies), conflicts: pairs };
 }
 
 function readConfirmation(value: unknown): PullConfirmation | undefined {

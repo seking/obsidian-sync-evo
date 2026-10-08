@@ -14,14 +14,14 @@
 // are all behind what is declared here, so that it runs the same in the app
 // and in a test.
 
-import type { ArchiveDownload } from "./archive-fetch";
+import type { ArchiveDownload, ArchiveGate } from "./archive-fetch";
 import type { Backend, FetchedFile, RemoteEntry } from "./backend";
 import type { ExclusionPaths } from "./exclusion";
 import type { FirstFetchFiles } from "./first-fetch";
 import type { NoticeRef } from "./notices";
 import type { PullLosses } from "./pull-plan";
 import type { FolderLister } from "./scan";
-import type { FileStat, StateStore } from "./state";
+import type { FileStat, StateSeed, StateStore } from "./state";
 
 /**
  * Where a file goes that the pull takes out of the vault.
@@ -222,11 +222,16 @@ export interface PullDeps {
 	 * Set for the "first fetch" command: the pull starts over. It decides as
 	 * if there were no sync state, without reading or changing the one given
 	 * as `store`, and always asks first (`FirstFetchRequest.discardsState`).
-	 * Once the user said yes, this is called: it discards the sync state and
-	 * answers the empty one that takes its place, which the pull goes on
-	 * with. Never called when the user said no.
+	 * Once the user said yes, what a pull that stopped left half written is
+	 * settled with the markers of `store`, which nothing else would know
+	 * of; then this is called: it discards the sync state and answers the
+	 * one that takes its place, which the pull goes on with. That one holds
+	 * `seed` and nothing else, from the moment the old one is gone: the
+	 * markers that could not be settled and what is yet to be told must not
+	 * be lost to the app being stopped in between. Never called when the
+	 * user said no, and nothing is settled then.
 	 */
-	readonly discardState?: () => Promise<StateStore>;
+	readonly discardState?: (seed: StateSeed) => Promise<StateStore>;
 	readonly beginBulkWrite?: BeginBulkWrite;
 	/**
 	 * Yields files one at a time; `backend.fetch` when absent. The pull uses
@@ -235,10 +240,19 @@ export interface PullDeps {
 	 * the two means is used is decided in `archive-fetch.ts`.
 	 */
 	readonly fetchContents?: ContentSource;
+	/**
+	 * Kept by whoever starts the pulls, and handed to each: so that the
+	 * archive of the remote is not asked for while one a stopped pull asked
+	 * for is still on its way (`ArchiveGate`).
+	 */
+	readonly archiveGate?: ArchiveGate;
 	/** For the record of how the fetching went, in English. Nothing a user has to read. */
 	readonly log?: (message: string) => void;
 	readonly onProgress?: (progress: PullProgress) => void;
-	/** Stops the pull between two files. */
+	/**
+	 * Stops the pull between two files: after the one being written is
+	 * written and recorded. A request that is on its way is not waited for.
+	 */
 	readonly signal?: AbortSignal;
 	/** Awaited now and then while the vault is hashed, so that the screen does not stand still. */
 	readonly yieldControl?: () => Promise<void>;
@@ -253,12 +267,15 @@ export interface PullDeps {
  * - "remote-empty": the remote has no content and there is no base revision.
  *   Nothing was changed, but for the answer to the question before a first
  *   fetch, when the vault has files and it was asked.
- * - "declined": the user was asked and said no. Nothing was changed: no
- *   file, no record, and every count is zero. The paths the plan cannot
- *   write ("blocked" in `unwritable`) are listed all the same, since their
- *   notice is told by this pull too; not when the pull was to start over
- *   (`PullDeps.discardState`), which leaves the sync state alone down to
- *   what it remembers of notices.
+ * - "declined": the user was asked and said no. Nothing of the plan was
+ *   carried out: no file, no record. What a pull that stopped had left half
+ *   done is the exception, since it is settled before anything is asked:
+ *   `halfWritten` and `halfCopies` list what was moved away, and
+ *   `conflicts` a conflict that pull had finished and not told. The paths
+ *   the plan cannot write ("blocked" in `unwritable`) are listed all the
+ *   same, since their notice is told by this pull too. Not when the pull was
+ *   to start over (`PullDeps.discardState`): that one leaves the sync state
+ *   and the vault alone altogether, down to what is remembered of notices.
  * - "cancelled": stopped through the signal. What was done is recorded; the
  *   base revision is where it was. The "blocked" paths are listed here too,
  *   also when the stop came before anything was done.
@@ -298,6 +315,10 @@ export interface PullConflict {
  *   said it would be.
  * - "fetch-failed": the content could not be fetched (see `fetchError`).
  * - "unreadable": the vault could not tell what is at the path.
+ * - "trash-failed": a pull that stopped left it half written, and it could
+ *   not be moved to the `.trash/` of the vault. Unlike the "trash-failed" of
+ *   an unwritable path, the file is not known to hold anything that may be
+ *   compared, so the pull is not done while it is there.
  * - "depends-on-deferred": a step it comes after was put off.
  */
 export type DeferReason =
@@ -306,6 +327,7 @@ export type DeferReason =
 	| "hash-mismatch"
 	| "fetch-failed"
 	| "unreadable"
+	| "trash-failed"
 	| "depends-on-deferred";
 
 export interface DeferredFile {
@@ -375,9 +397,33 @@ export interface PullResult {
 		readonly renamed: number;
 		readonly conflicts: number;
 	};
+	/**
+	 * With the conflicts a pull that stopped had made the copy of and not
+	 * told: each is listed once, by the pull that finds the file with the
+	 * content of the remote, or that writes it. That is also so when the
+	 * file itself was left half written and is listed in `halfWritten`: what
+	 * the user had is in the copy then, and not in the `.trash/`.
+	 */
 	readonly conflicts: readonly PullConflict[];
 	/** Files moved to the `.trash/` of the vault to protect their content, as they were spelled. */
 	readonly trashed: readonly string[];
+	/**
+	 * Files a pull that stopped was writing, found with a content that is
+	 * neither the one before the write nor the one written: half written, or
+	 * edited since. They were moved to the `.trash/` of the vault before
+	 * anything was compared or asked, also by a pull that then did nothing
+	 * else. The plan takes each for a file that is not there; whether this
+	 * pull fetched it is not said here. Listed by every pull until one has
+	 * answered: a pull that was killed after moving one has told nothing.
+	 */
+	readonly halfWritten: readonly string[];
+	/**
+	 * The same for the copies of conflicts: a copy a pull that stopped was
+	 * writing, found with another content than the one it was to get. Moved
+	 * to the `.trash/` of the vault; the file it is a copy of was not
+	 * written yet, and its conflict is handled from the start.
+	 */
+	readonly halfCopies: readonly string[];
 	readonly deferred: readonly DeferredFile[];
 	readonly unwritable: readonly UnwritablePath[];
 	/** Files the user chose to keep when the history was rewritten. */

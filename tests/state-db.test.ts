@@ -177,6 +177,45 @@ describe("a database written by a newer version", () => {
 	});
 });
 
+describe("starting over", () => {
+	const seed = {
+		listing: { revision: "rev-2", entries: [{ path: "c.md", kind: "file", hash: HASH }] },
+		markers: [makeMarker("half.md", null, HASH, false)],
+		meta: [["half-written", { files: ["x.md"], copies: [], conflicts: [] }]],
+	} as const;
+
+	test("what was stored is gone and the seed is there, in the same database", async () => {
+		const factory = new IDBFactory();
+		const store = await open("vault-id", factory);
+		await fill(store);
+
+		await store.startOver(seed);
+
+		expect(store.closed).toBe(false);
+		expect(await store.readRecords()).toEqual([]);
+		expect(await store.readMarkers()).toEqual(seed.markers);
+		expect(await store.getListing()).toEqual(seed.listing);
+		expect(await readBaseRevision(store)).toBeNull();
+		expect(await store.getMeta("half-written")).toEqual(seed.meta[0][1]);
+		await store.close();
+	});
+
+	test("a seed that cannot be stored leaves everything as it was", async () => {
+		const factory = new IDBFactory();
+		const store = await open("vault-id", factory);
+		await fill(store);
+
+		await expect(store.startOver({ ...seed, meta: [...seed.meta, ["bad", () => {}]] })).rejects.toThrow();
+
+		expect((await store.readRecords()).map((record) => record.path)).toEqual(["a.md"]);
+		expect((await store.readMarkers()).map((marker) => marker.path)).toEqual(["b.md"]);
+		expect((await store.getListing())?.revision).toBe("rev-1");
+		expect(await readBaseRevision(store)).toBe("rev-1");
+		expect(await store.getMeta("half-written")).toBeUndefined();
+		await store.close();
+	});
+});
+
 describe("discarding", () => {
 	test("removes everything, and the state opened next is empty", async () => {
 		const factory = new IDBFactory();

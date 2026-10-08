@@ -891,3 +891,29 @@ describe("paths that are not paths", () => {
 		expect(skips(plan)).toEqual(["invalid-path が/"]);
 	});
 });
+
+describe("paths that are held", () => {
+	test("are left alone on every side, whatever their case, and whatever the three sides hold", () => {
+		const remote: RemoteEntry[] = [
+			{ path: "notes/a.md", kind: "file", hash: blobHash("theirs"), size: 6 },
+			{ path: "b.md", kind: "file", hash: blobHash("B2"), size: 2 },
+		];
+		// The hash of a held file is not known, and not looked at.
+		const local: LocalEntry[] = [
+			{ path: "Notes/A.md", hash: "" },
+			{ path: "b.md", hash: blobHash("B") },
+		];
+		const records: SyncRecord[] = [
+			{ path: "Notes/A.md", kind: "file", hash: blobHash("A") },
+			{ path: "b.md", kind: "file", hash: blobHash("B") },
+		];
+		const plan = planOf({ remote, local, records, held: new Set(["notes/a.md"]) });
+		expect(plan.actions.map((action) => `${action.type} ${action.key}`)).toEqual(["download b.md"]);
+		expect(plan.skipped.map((skip) => `${skip.reason} ${skip.key}`)).toEqual(["held Notes/A.md", "held notes/a.md"]);
+
+		// Without it, the same input is a rename the remote made and a conflict.
+		const free = planOf({ remote, local, records });
+		expect(free.skipped).toEqual([]);
+		expect(free.actions.length).toBe(3);
+	});
+});

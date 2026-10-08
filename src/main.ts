@@ -68,7 +68,8 @@ export default class SyncEvoPlugin extends Plugin implements SettingsHost, PullH
 		this.deviceSettings = loaded.status === "ok" ? loaded.settings : null;
 		this.addSettingTab(new SyncEvoSettingTab(this.app, this, this));
 
-		// The only things that start a pull.
+		// The only things that start a pull. Each is started by the user, and
+		// keeps the screen on while it runs (`PullRunner.run`).
 		this.addCommand({
 			id: "pull",
 			name: this.t("command.pull"),
@@ -78,6 +79,11 @@ export default class SyncEvoPlugin extends Plugin implements SettingsHost, PullH
 			id: "first-fetch",
 			name: this.t("command.firstFetch"),
 			callback: () => void this.pulls.run("first-fetch"),
+		});
+		this.addCommand({
+			id: "stop",
+			name: this.t("command.stop"),
+			callback: () => this.pulls.requestStop(),
 		});
 	}
 

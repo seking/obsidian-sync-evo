@@ -166,11 +166,46 @@ export async function isArchiveDisabled(store: Pick<StateStore, "getMeta">): Pro
  * What is shown while the archive is on its way. No count moves then: the
  * download is one request that tells nothing until it is over.
  *
+ * - "waiting": nothing is asked for yet. An archive that a pull which was
+ *   stopped had asked for is still on its way (`ArchiveGate`).
  * - "downloading": a first attempt.
  * - "retrying": the attempt before this one did not end. The user is told
  *   to keep the app in front.
  */
-export type ArchiveDownload = "downloading" | "retrying";
+export type ArchiveDownload = "waiting" | "downloading" | "retrying";
+
+/**
+ * Keeps the request for an archive that is on its way, across pulls. A pull
+ * that is stopped does not wait for the archive it asked for, and the
+ * request cannot be taken back: it goes on, and what it answers is in
+ * memory until it is dropped. A pull started meanwhile waits for it to end
+ * before it asks for an archive itself. Two archives at once are more than
+ * a device can be expected to hold, and an app killed over them would leave
+ * the mark of the second attempt, which had no part in it.
+ *
+ * One of these is kept by whoever starts the pulls, and lives as long as
+ * the app does: a request does not outlive the app.
+ */
+export class ArchiveGate {
+	private request: Promise<void> | null = null;
+
+	/** Resolves when the request that is on its way has ended, however it ends; `null` when none is. */
+	get pending(): Promise<void> | null {
+		return this.request;
+	}
+
+	hold(request: Promise<unknown>): void {
+		const ended: Promise<void> = request
+			.then(
+				() => {},
+				() => {},
+			)
+			.then(() => {
+				if (this.request === ended) this.request = null;
+			});
+		this.request = ended;
+	}
+}
 
 export interface ArchiveSourceDeps {
 	readonly store: MetaStore;
@@ -181,9 +216,15 @@ export interface ArchiveSourceDeps {
 	readonly perFile: ContentSource;
 	/** Aborted when the user stops the sync. */
 	readonly signal?: AbortSignal;
+	/** Where the request for the archive is kept while it is on its way. Without one, nothing is waited for. */
+	readonly gate?: ArchiveGate;
 	/** For the record: the estimate and the real size, to see later whether the estimate holds. */
 	readonly log?: (message: string) => void;
-	/** Called when the download of the archive starts, and with `null` when it is over, however it ends. */
+	/**
+	 * Called when the download of the archive starts, and with `null` when
+	 * it is over, however it ends. In the same way around the wait for a
+	 * request of a pull before this one ("waiting").
+	 */
 	readonly onDownload?: (download: ArchiveDownload | null) => void;
 	/**
 	 * Called with the number of files that were asked of the archive and
@@ -201,7 +242,10 @@ export interface ArchiveSourceDeps {
  *
  * With the archive, in this order:
  *
- * 1. The attempt is marked in the sync state, then the archive is fetched.
+ * 1. An archive that a stopped pull asked for and that is still on its way
+ *    is waited for (`ArchiveGate`). Then the attempt is marked in the sync
+ *    state, and the archive is fetched. In that order: an app that is
+ *    killed during the wait leaves no mark.
  * 2. Each entry asked for is taken out of it, one at a time, hashed, and
  *    yielded when it has the hash the listing gave. The hash goes along
  *    (`SourcedFile.hash`), so that it is not computed a second time where
@@ -268,6 +312,18 @@ async function* fetchByMeans(
 		return;
 	}
 
+	const earlier = deps.gate?.pending ?? null;
+	if (earlier !== null) {
+		log("archive: waiting for the request of a pull that was stopped to end");
+		deps.onDownload?.("waiting");
+		try {
+			// Thrown when the user stops this pull as well: nothing was begun.
+			await untilAborted(earlier, signal);
+		} finally {
+			deps.onDownload?.(null);
+		}
+	}
+
 	await store.setMeta(ARCHIVE_ATTEMPT_KEY, { retries: left === null ? 0 : left.retries + 1 });
 	let marked = true;
 	const unmark = async (): Promise<void> => {
@@ -292,7 +348,9 @@ async function* fetchByMeans(
 		} else {
 			deps.onDownload?.(left === null ? "downloading" : "retrying");
 			try {
-				archive = await untilAborted(fetchArchive(revision), signal);
+				const request = fetchArchive(revision);
+				deps.gate?.hold(request);
+				archive = await untilAborted(request, signal);
 			} catch (error) {
 				failure = { error };
 			} finally {
@@ -407,10 +465,10 @@ function saysDeviceCannot(error: unknown): boolean {
 }
 
 /**
- * `work`, or a "cancelled" failure as soon as the signal is set. A download
+ * `work`, or a "cancelled" failure as soon as the signal is set. A request
  * cannot be taken back; what it answers afterwards is dropped.
  */
-function untilAborted<T>(work: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
+export function untilAborted<T>(work: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
 	if (signal === undefined) return work;
 	return new Promise<T>((resolve, reject) => {
 		const cancel = (): void => reject(new BackendError("cancelled", "fetch: cancelled"));

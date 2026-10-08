@@ -14,6 +14,8 @@
 // in `core/`; everything that is worded is in `core/pull-report.ts`.
 
 import { type App, Notice, type PluginManifest } from "obsidian";
+import { ArchiveGate } from "../core/archive-fetch";
+import { BackendError } from "../core/backend";
 import { connectionCheckText, prepareCheck } from "../core/connection-check";
 import { type FetchLimitState, FetchLimitWatch, NO_FETCH_LIMIT, sameFetchLimit } from "../core/fetch-quota";
 import { GitHubBackend } from "../core/github/backend";
@@ -26,18 +28,17 @@ import {
 	pullFailureText,
 	pullProgressText,
 	pullReport,
-	type StateProblem,
 	stateProblemText,
 	stoppedText,
 } from "../core/pull-report";
 import type { DeviceSettings } from "../core/settings";
-import type { StateStore } from "../core/state";
 import { exclusionPathsOf } from "./exclusion-paths";
 import { graphViewPause } from "./graph-views";
 import { obsidianHttp } from "./http";
 import { confirmPullIn, type PullTarget } from "./pull-confirm";
 import { pullVaultOf } from "./pull-vault";
 import type { SyncState } from "./sync-state";
+import { ScreenWakeLock } from "./wake-lock";
 
 /** What a pull needs from the plugin. Read when a pull starts, so that it runs with the settings of that moment. */
 export interface PullHost {
@@ -57,14 +58,6 @@ export interface PullHost {
  */
 export type PullMode = "pull" | "first-fetch";
 
-/** There is no sync state to go on with, after the one there was has been discarded. */
-class StateUnavailable extends Error {
-	constructor(readonly problem: StateProblem) {
-		super(`The sync state is not available: ${problem}`);
-		this.name = "StateUnavailable";
-	}
-}
-
 // The line of progress is rewritten at most this often. A pull reports
 // every file, thousands of them in a second.
 const PROGRESS_INTERVAL_MS = 200;
@@ -77,6 +70,8 @@ export class PullRunner {
 	private ended: Promise<void> | null = null;
 	/** Whether the running pull was stopped because the connection it runs with was changed. */
 	private connectionChanged = false;
+	/** Whether the user asked the running pull to stop. The line of progress says so until it has. */
+	private stopping = false;
 	/** Whether the running pull is waiting for the sync state to open. */
 	private opening = false;
 	private progress: Notice | null = null;
@@ -91,12 +86,23 @@ export class PullRunner {
 	private shownLimit: FetchLimitState = NO_FETCH_LIMIT;
 	/** The plugin is going away: nothing more is shown. */
 	private stopped = false;
+	/** Across pulls: a pull that is stopped leaves the request for the zip of the commit on its way. */
+	private readonly archiveGate = new ArchiveGate();
+	private readonly wakeLock = new ScreenWakeLock();
 
 	constructor(host: PullHost) {
 		this.host = host;
 	}
 
-	/** Pulls once, and shows how it went. One pull at a time: a second call only says that one is running. */
+	/**
+	 * Pulls once, and shows how it went. One pull at a time: a second call
+	 * only says that one is running.
+	 *
+	 * Called from the handler of a command, and nothing is awaited before
+	 * the screen is asked to stay on, which a phone only grants so. Every
+	 * pull is started by the user for now. A sync that starts by itself
+	 * (T033) must not keep the screen on.
+	 */
 	async run(mode: PullMode = "pull"): Promise<void> {
 		const { host } = this;
 		const t = host.t;
@@ -121,6 +127,7 @@ export class PullRunner {
 
 		const controller = new AbortController();
 		this.controller = controller;
+		this.wakeLock.hold();
 		let end = (): void => {};
 		this.ended = new Promise((resolve) => {
 			end = resolve;
@@ -131,7 +138,7 @@ export class PullRunner {
 			const opened = await host.syncState.open();
 			this.opening = false;
 			if (controller.signal.aborted) {
-				if (this.connectionChanged) this.show(stoppedText(t, true));
+				if (this.connectionChanged || this.stopping) this.show(stoppedText(t, this.connectionChanged));
 				return;
 			}
 			if (opened.status !== "ok") {
@@ -176,7 +183,8 @@ export class PullRunner {
 					const answer = await confirmPullIn(host.app, t, target)(request);
 					// Not after a "no": nothing is updated then.
 					if (!this.stopped && answer !== "cancel") {
-						this.progress = new Notice(t("pull.progress.applyingStart"), 0);
+						const line = this.stopping ? "pull.progress.stopping" : "pull.progress.applyingStart";
+						this.progress = new Notice(t(line), 0);
 						this.progressPhase = "";
 						// The new line shows nothing of the limit yet.
 						this.lastProgress = null;
@@ -184,7 +192,18 @@ export class PullRunner {
 					}
 					return answer;
 				},
-				...(mode === "first-fetch" ? { discardState: () => this.discardState() } : {}),
+				...(mode === "first-fetch"
+					? {
+							// With it go what the device remembers of the zip of the
+							// commit (that it gave up on it, and a download left
+							// unfinished), so that the first fetch tries the zip again.
+							// Emptied in place and not removed: see `startOver`.
+							discardState: async (seed) => {
+								await opened.store.startOver(seed);
+								return opened.store;
+							},
+						}
+					: {}),
 				beginBulkWrite: graphViewPause(host.app),
 				// Only the files that are fetched one at a time come through
 				// here: the pull takes many files from the zip of the commit
@@ -197,6 +216,7 @@ export class PullRunner {
 					this.showLimit();
 					return contents;
 				},
+				archiveGate: this.archiveGate,
 				// The estimate of the zip beside its real size, to see later
 				// whether the estimate holds.
 				log: (message) => console.info(`Sync Evo: ${message}`),
@@ -207,14 +227,18 @@ export class PullRunner {
 			});
 			this.report(result, settings);
 		} catch (error) {
-			if (!this.stopped) console.error("Sync Evo: the pull failed", error);
-			if (error instanceof StateUnavailable) this.show(stateProblemText(t, error.problem), 0);
-			else this.show(pullFailureText(t, settings, error, this.connectionChanged), 0);
+			// A pull that was stopped while the remote was asked ends by
+			// throwing too, and did not fail.
+			const cancelled = error instanceof BackendError && error.kind === "cancelled";
+			if (!this.stopped && !cancelled) console.error("Sync Evo: the pull failed", error);
+			this.show(pullFailureText(t, settings, error, this.connectionChanged), 0);
 		} finally {
+			this.wakeLock.release();
 			this.opening = false;
 			this.controller = null;
 			this.ended = null;
 			this.connectionChanged = false;
+			this.stopping = false;
 			this.progress?.hide();
 			this.progress = null;
 			this.progressPhase = "";
@@ -224,32 +248,6 @@ export class PullRunner {
 			this.shownLimit = NO_FETCH_LIMIT;
 			// Last: whoever waited for the pull to end may start the next.
 			end();
-		}
-	}
-
-	/**
-	 * For `PullDeps.discardState`: discards the sync state and opens the
-	 * empty one. With it go what the device remembers of the zip of the
-	 * commit (that it gave up on it, and a download left unfinished), so
-	 * that the first fetch tries the zip again.
-	 *
-	 * Nothing is awaited before the open is asked for. A change of the
-	 * connection that came first would wait for this pull to end, and the
-	 * open would wait behind it; the pull looks at its signal right before
-	 * it calls this, and nothing can come in between.
-	 */
-	private async discardState(): Promise<StateStore> {
-		const { syncState } = this.host;
-		syncState.requestDiscard();
-		// As in `run`: while this waits, `stateBlocked` tells that the removal
-		// is held up, which is by another window more often than not.
-		this.opening = true;
-		try {
-			const opened = await syncState.open();
-			if (opened.status === "ok") return opened.store;
-			throw new StateUnavailable(opened.status === "unavailable" ? opened.reason : opened.status);
-		} finally {
-			this.opening = false;
 		}
 	}
 
@@ -267,11 +265,31 @@ export class PullRunner {
 		return this.ended;
 	}
 
-	/** Stops a running pull between two files. For when the plugin is unloaded. */
+	/**
+	 * Stops a running pull because the user said so. The line of progress
+	 * says at once that it is stopping; the pull ends after the file being
+	 * written is written and recorded, without waiting for a request that
+	 * is on its way, and then tells that it was stopped. The next pull goes
+	 * on from there.
+	 */
+	requestStop(): void {
+		const t = this.host.t;
+		if (this.controller === null) {
+			new Notice(t("pull.notRunning"));
+			return;
+		}
+		this.stopping = true;
+		this.controller.abort();
+		// None while a question is open; the line that comes back says it.
+		this.progress?.setMessage(t("pull.progress.stopping"));
+	}
+
+	/** Stops a running pull between two files, and tells nothing. For when the plugin is unloaded. */
 	stop(): void {
 		this.stopped = true;
 		this.controller?.abort();
 		this.progress?.hide();
+		this.wakeLock.release();
 	}
 
 	/**
@@ -280,11 +298,12 @@ export class PullRunner {
 	 * can be another window or nothing but a moment.
 	 */
 	stateBlocked(): void {
-		if (this.opening) this.progress?.setMessage(this.host.t("state.waiting"));
+		if (this.opening && !this.stopping) this.progress?.setMessage(this.host.t("state.waiting"));
 	}
 
 	private showProgress(progress: PullProgress): void {
-		if (this.stopped || this.progress === null) return;
+		// A pull that is stopping still reports the file it finishes.
+		if (this.stopped || this.stopping || this.progress === null) return;
 		// After the guard: while a question is open there is no line, and
 		// what `showLimit` passes in place of a report must not be kept.
 		this.lastProgress = progress;

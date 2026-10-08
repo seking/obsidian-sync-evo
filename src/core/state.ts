@@ -253,6 +253,19 @@ export interface StateStore {
 	close(): Promise<void>;
 }
 
+/**
+ * What a sync state that takes the place of a discarded one starts with:
+ * what the old one knew and the new one has to know too. Stored as one step
+ * with the discarding where the storage can do that, so that the app being
+ * stopped leaves either the old state or the new one with all of this.
+ */
+export interface StateSeed {
+	readonly listing: RemoteListing;
+	readonly markers: readonly WriteMarker[];
+	/** The other values (`setMeta`), each with its key. */
+	readonly meta: readonly (readonly [key: string, value: unknown])[];
+}
+
 /** The base revision, or `null` when there is none: nothing has been pulled to the end yet. */
 export async function readBaseRevision(store: StateStore): Promise<string | null> {
 	const value = await store.getMeta(BASE_REVISION_KEY);

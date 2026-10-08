@@ -15,6 +15,7 @@ import {
 	isStatUpdateOf,
 	plainMarker,
 	plainRecord,
+	type StateSeed,
 	type StateStore,
 	type StoredRecord,
 	type WriteMarker,
@@ -114,6 +115,18 @@ export class MemoryStateStore implements StateStore {
 
 	async close(): Promise<void> {
 		this.closed = true;
+	}
+
+	/** As on a device: emptied, and then holding `seed`, in one step. Not part of `StateStore`. */
+	async startOver(seed: StateSeed): Promise<void> {
+		this.expectOpen();
+		const markers = structuredClone(seed.markers.map(plainMarker));
+		const meta = structuredClone(seed.meta);
+		const listing = structuredClone({ revision: seed.listing.revision, entries: seed.listing.entries });
+		this.clear();
+		for (const marker of markers) this.markers.set(marker.key, marker);
+		for (const [key, value] of meta) this.meta.set(key, value);
+		this.listing = listing;
 	}
 
 	/** Empties the store, as discarding the sync state leaves it. Not part of `StateStore`. */

@@ -48,6 +48,8 @@ const result = (over: Partial<PullResult> = {}): PullResult => ({
 	counts: { fetched: 0, deleted: 0, renamed: 0, conflicts: 0 },
 	conflicts: [],
 	trashed: [],
+	halfWritten: [],
+	halfCopies: [],
 	deferred: [],
 	unwritable: [],
 	keptLocal: [],
@@ -93,6 +95,9 @@ describe("pullProgressText", () => {
 	test("while everything is downloaded at once, that is told in place of a count", () => {
 		const downloading = { phase: "applying", done: 2, total: 6655, closedViews: false, archive: "downloading" } as const;
 		expect(pullProgressText(t, downloading)).toBe("Pull: downloading all files at once…");
+		const waiting = { ...downloading, archive: "waiting" } as const;
+		expect(pullProgressText(t, waiting)).toBe("Pull: waiting for the download of the stopped pull to end…");
+		expect(pullProgressText(ja, waiting)).toBe("取り込み：中止した取り込みの取得が終わるのを待っています…");
 		expect(pullProgressText(ja, downloading)).toBe("取り込み：全ファイルをまとめて取得中…");
 	});
 
@@ -234,10 +239,73 @@ describe("the summary", () => {
 		);
 	});
 
-	test("cancelled, whatever was done before", () => {
-		const counts = { fetched: 5, deleted: 0, renamed: 0, conflicts: 0 };
-		expect(pullReport(t, result({ outcome: "cancelled", counts }), options).summary).toBe(
+	test("cancelled: what was done before is counted on a second line", () => {
+		expect(pullReport(t, result({ outcome: "cancelled" }), options).summary).toBe(
 			"The pull was stopped. The next pull continues from there.",
+		);
+		const counts = { fetched: 5, deleted: 1, renamed: 0, conflicts: 0 };
+		expect(pullReport(t, result({ outcome: "cancelled", counts }), options).summary).toBe(
+			"The pull was stopped. The next pull continues from there.\nDone before it stopped: 5 files fetched, 1 file deleted.",
+		);
+		expect(pullReport(ja, result({ outcome: "cancelled", counts }), options).summary).toBe(
+			"取り込みを中止しました。次の取り込みで、続きから進みます。\n中止するまでに済んだ分：取得 5 件、削除 1 件",
+		);
+		// Nothing goes on from a pull that a change of the connection stopped.
+		const changed = { ...options, connectionChanged: true };
+		expect(pullReport(t, result({ outcome: "cancelled", counts }), changed).summary).toBe(
+			"The pull was stopped because the connection was changed. The next pull starts with the new connection.",
+		);
+	});
+
+	test("files a resuming pull moved to the trash are listed, whatever the outcome", () => {
+		for (const outcome of ["completed", "cancelled", "declined", "incomplete"] as const) {
+			const report = pullReport(t, result({ outcome, halfWritten: ["notes/a.md"] }), options);
+			// Nothing in it says that this pull fetched the file: one that
+			// was declined or stopped did not.
+			expect(report.details).toEqual([
+				"An earlier pull stopped while it was writing 1 file. What was left of it was moved to .trash/ in this vault. A pull fetches the content of the remote. If you had edited the file since, you can get your edit back from there:\nnotes/a.md",
+			]);
+		}
+		expect(pullReport(t, result({ halfWritten: ["a.md", "b.md"] }), options).details).toEqual([
+			"An earlier pull stopped while it was writing 2 files. What was left of them was moved to .trash/ in this vault. A pull fetches the content of the remote. If you had edited them since, you can get your edits back from there:\na.md\nb.md",
+		]);
+		expect(pullReport(ja, result({ halfWritten: ["a.md", "b.md"] }), options).details).toEqual([
+			"前の取り込みが、2 件のファイルを書いている途中で止まっていました。残っていた内容は、この保管庫の .trash/ へ移しました。保存先の内容は、取り込みで取得します。その後に編集していた時は、そこから戻せます：\na.md\nb.md",
+		]);
+	});
+
+	test("a half copy of a conflict that was moved to the trash has a text of its own", () => {
+		const copy = "a.conflict-from-iPhone-20261003-120100.md";
+		for (const outcome of ["completed", "cancelled", "declined", "incomplete"] as const) {
+			expect(pullReport(t, result({ outcome, halfCopies: [copy] }), options).details).toEqual([
+				`1 conflict copy that an earlier pull left unfinished was moved to .trash/ in this vault. A complete copy is made again. If you had edited the copy, your edit is there:\n${copy}`,
+			]);
+		}
+		expect(pullReport(t, result({ halfCopies: [copy, "b.md"] }), options).details).toEqual([
+			`2 conflict copies that an earlier pull left unfinished were moved to .trash/ in this vault. Complete copies are made again. If you had edited the copies, your edits are there:\n${copy}\nb.md`,
+		]);
+		expect(pullReport(ja, result({ halfCopies: [copy] }), options).details).toEqual([
+			`前の取り込みが作りかけていた競合の別名 1 件を、この保管庫の .trash/ へ移しました。別名は作り直します。別名を編集していた時は、編集した内容がそこにあります：\n${copy}`,
+		]);
+		// Each list under its own text, the files first.
+		const both = pullReport(t, result({ halfWritten: ["a.md"], halfCopies: [copy] }), options).details;
+		expect(both).toHaveLength(2);
+		expect(both[0]).toContain("while it was writing 1 file");
+		expect(both[1]).toContain("1 conflict copy");
+	});
+
+	test("declined after a resuming pull moved files to the trash: not called unchanged", () => {
+		const copy = "a.conflict-from-iPhone-20261003-120100.md";
+		for (const moved of [{ halfWritten: ["a.md"] }, { halfCopies: [copy] }]) {
+			expect(pullReport(t, result({ outcome: "declined", ...moved }), options).summary).toBe(
+				"The pull was cancelled. Only the files listed below were moved to .trash/ in this vault. Nothing else was changed.",
+			);
+			expect(pullReport(ja, result({ outcome: "declined", ...moved }), options).summary).toBe(
+				"取り込みをやめました。下に示すファイルだけを、この保管庫の .trash/ へ移しました。ほかは何も変更していません。",
+			);
+		}
+		expect(pullReport(t, result({ outcome: "declined" }), options).summary).toBe(
+			"The pull was cancelled. Nothing was changed.",
 		);
 	});
 
@@ -296,6 +364,16 @@ describe("files left for the next sync", () => {
 		expect(report.summary).toBe("Pull finished: 2 files fetched.");
 		expect(report.details).toEqual([
 			"3 files could not be pulled and are left for the next sync. Could not reach GitHub. Check the network connection and try again.",
+		]);
+	});
+
+	test("a half-written file that could not be moved away", () => {
+		const deferred = [{ path: "a.md", reason: "trash-failed" }] as const;
+		expect(pullReport(t, result({ outcome: "incomplete", deferred }), options).details).toEqual([
+			"1 file could not be pulled and is left for the next sync. A file on this device could not be moved to .trash/ in this vault.",
+		]);
+		expect(pullReport(ja, result({ outcome: "incomplete", deferred }), options).details).toEqual([
+			"1 件のファイルを取り込めませんでした。次の同期で、もう一度試します。このデバイスのファイルを、この保管庫の .trash/ へ移せませんでした。",
 		]);
 	});
 

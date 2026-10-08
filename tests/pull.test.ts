@@ -10,15 +10,25 @@
  */
 
 import { describe, expect, test } from "vitest";
-import { ARCHIVE_DISABLED_KEY } from "../src/core/archive-fetch";
-import { BackendError, type BaseRelation, type FetchedFile, type ListResult } from "../src/core/backend";
+import { ARCHIVE_ATTEMPT_KEY, ARCHIVE_DISABLED_KEY } from "../src/core/archive-fetch";
+import {
+	type ArchiveContents,
+	BackendError,
+	type BaseRelation,
+	type FetchedFile,
+	type ListResult,
+} from "../src/core/backend";
 import { conflictCopyPath, originalPathOfConflictCopy } from "../src/core/conflict-name";
 import { FIRST_FETCH_CONFIRMED_KEY, isFirstFetchConfirmed } from "../src/core/first-fetch";
+import { translatorFor } from "../src/core/i18n";
 import { readNotices } from "../src/core/notices";
 import { applyPlan, type Seen, Tally } from "../src/core/pull-apply";
 import { planPull } from "../src/core/pull-plan";
+import { pullReport } from "../src/core/pull-report";
 import { createExclusion } from "../src/core/exclusion";
 import {
+	AWAITED_CONFLICTS_KEY,
+	HALF_WRITTEN_KEY,
 	PULL_CONFIRMATION_KEY,
 	type PullAnswer,
 	type PullConfirmRequest,
@@ -34,6 +44,12 @@ import { MemoryPullVault, type VaultOp } from "./support/memory-pull-vault";
 import { MemoryStateStore } from "./support/memory-state-store";
 
 const paths = { configDir: ".obsidian", pluginDir: ".obsidian/plugins/sync-evo" };
+
+/** For wording a result the way the app does. */
+const reportOptions = {
+	settings: { backend: "github", repository: "octo/notes", branch: "main", tokenSecret: "t", deviceName: "iPhone" },
+	sizeLimit: 50 * 1024 * 1024,
+} as const;
 
 /** A remote a test can bend: symlinks, no content at all, a history that cannot be checked. */
 class TestBackend extends MemoryBackend {
@@ -2277,8 +2293,10 @@ describe("stopping and failing", () => {
 		const result = await h.pull();
 		expect(result.outcome).toBe("completed");
 		expect(h.vault.text("a.md")).toBe("A2");
-		// The marker of the path that was written is gone with its record.
-		expect((await h.store.readMarkers()).map((marker) => marker.key)).toEqual(["x.md"]);
+		// Neither write was begun: both markers are gone, and nothing was moved away.
+		expect(await h.store.readMarkers()).toEqual([]);
+		expect(result.halfWritten).toEqual([]);
+		expect(h.vault.trashed).toEqual([]);
 	});
 });
 
@@ -2614,10 +2632,11 @@ describe("starting over: the first fetch command", () => {
 			discards: 0,
 			pull: (overrides: Partial<PullDeps> = {}) =>
 				h.pull({
-					discardState: async () => {
+					discardState: async (seed) => {
 						run.discards += 1;
 						await h.store.close();
 						h.store = new MemoryStateStore();
+						await h.store.startOver(seed);
 						return h.store;
 					},
 					...overrides,
@@ -2777,7 +2796,7 @@ describe("starting over: the first fetch command", () => {
 
 		await expect(
 			h.pull({
-				discardState: async () => {
+				discardState: async (): Promise<StateStore> => {
 					throw new Error("the sync state could not be removed");
 				},
 			}),
@@ -2805,9 +2824,10 @@ describe("starting over: the first fetch command", () => {
 
 		const result = await h.pull({
 			signal: stop.signal,
-			discardState: async () => {
+			discardState: async (seed) => {
 				await h.store.close();
 				h.store = new MemoryStateStore();
+				await h.store.startOver(seed);
 				// As a change of the connection that came while the state was removed.
 				stop.abort();
 				return h.store;
@@ -2847,5 +2867,1609 @@ describe("starting over: the first fetch command", () => {
 		expect(run.discards).toBe(0);
 		expect(await h.base()).toBe(base);
 		expect(h.vault.log).toEqual([]);
+	});
+});
+
+describe("going on after a pull that stopped while writing", () => {
+	const isCopy = (path: string): boolean => originalPathOfConflictCopy(path) !== null;
+
+	/**
+	 * The app is killed right before the vault writes the first path that
+	 * matches. `leave` stands in for what a write that was cut short left.
+	 */
+	function killBeforeWrite(h: Harness, matches: (path: string) => boolean, leave?: (path: string) => void): void {
+		h.vault.before = (op, path) => {
+			h.crash.gate(false);
+			if (op !== "write" || !matches(path)) return;
+			leave?.(path);
+			h.crash.dead = true;
+			throw new Error("the app is gone");
+		};
+	}
+
+	/** A store that kills the app right before `method` is called for `path`. */
+	function killingStore(h: Harness, method: keyof StateStore, path: string): StateStore {
+		return new Proxy(h.store, {
+			get(target, name) {
+				const value: unknown = Reflect.get(target, name, target);
+				if (typeof value !== "function") return value;
+				return (...args: unknown[]): unknown => {
+					h.crash.gate(false);
+					const subject = args[0] as { path?: string } | string | undefined;
+					if (name === method && (typeof subject === "string" ? subject : subject?.path) === path) {
+						h.crash.dead = true;
+						throw new Error("the app is gone");
+					}
+					return (value as (...rest: unknown[]) => unknown).apply(target, args);
+				};
+			},
+		});
+	}
+
+	/** The app is started again. */
+	function restart(h: Harness): void {
+		h.crash.revive();
+		h.vault.before = (op) => h.crash.gate(VAULT_CHANGES.has(op));
+		h.vault.log.length = 0;
+	}
+
+	const markerPaths = async (h: Harness): Promise<string[]> =>
+		(await h.store.readMarkers()).map((marker) => marker.path);
+
+	test("stopped after many files, with the remote changed since: no conflict, and only the rest is fetched", async () => {
+		const h = harness();
+		const files: Record<string, string> = {};
+		for (let i = 0; i < 30; i++) files[`n${String(i).padStart(2, "0")}.md`] = `v1 ${i}`;
+		h.backend.commit(files);
+		const stop = new AbortController();
+		let writes = 0;
+		h.vault.before = (op) => {
+			if (op === "write" && ++writes === 10) stop.abort();
+		};
+		const first = await h.pull({ signal: stop.signal });
+		expect(first.outcome).toBe("cancelled");
+		expect(first.counts.fetched).toBe(10);
+		expect(Object.keys(await h.records()).length).toBe(10);
+		expect(await h.base()).toBeNull();
+		expect(await h.store.readMarkers()).toEqual([]);
+
+		// The Mac pushes: a file this device has, one it has not, and a new one.
+		const head = h.backend.commit({ "n03.md": "v2 3", "n20.md": "v2 20", "new.md": "N" });
+		h.vault.before = undefined;
+		const asked: string[] = [];
+		const second = await h.pull({
+			fetchContents: (revision, entries) => {
+				asked.push(...entries.map((entry) => entry.path));
+				return h.backend.fetch(revision, entries);
+			},
+		});
+
+		expect(second.outcome).toBe("completed");
+		expect(second.conflicts).toEqual([]);
+		expect(second.halfWritten).toEqual([]);
+		expect(h.copies()).toEqual([]);
+		expect(h.vault.trashed).toEqual([]);
+		// The 20 that were left, the one that changed, and the new one.
+		expect(second.counts.fetched).toBe(22);
+		expect(asked).toContain("n03.md");
+		expect(asked).not.toContain("n04.md");
+		expect(h.vault.snapshot()).toEqual({ ...files, "n03.md": "v2 3", "n20.md": "v2 20", "new.md": "N" });
+		expect(await h.base()).toBe(head);
+	});
+
+	test("killed right after a file was written, and the remote changed it again: an ordinary fetch", async () => {
+		for (const existed of [false, true]) {
+			const h = existed ? await synced({ "a.md": "A", "b.md": "B" }) : harness();
+			h.backend.commit({ "a.md": "A2", "b.md": "B" });
+			await expect(h.pull({ store: killingStore(h, "commitWrite", "a.md") })).rejects.toThrow("the app is gone");
+			expect(h.vault.text("a.md")).toBe("A2");
+			expect(await markerPaths(h)).toEqual(["a.md"]);
+			expect((await h.records())["a.md"]).toBe(existed ? blobHash("A") : undefined);
+
+			restart(h);
+			const head = h.backend.commit({ "a.md": "A3" });
+			const result = await h.pull();
+
+			expect(result.outcome).toBe("completed");
+			expect(result.conflicts).toEqual([]);
+			expect(result.halfWritten).toEqual([]);
+			expect(h.vault.trashed).toEqual([]);
+			expect(h.copies()).toEqual([]);
+			expect(h.vault.text("a.md")).toBe("A3");
+			expect(h.vault.log).toContain("write a.md");
+			expect(await h.records()).toEqual(hashes({ "a.md": "A3", "b.md": "B" }));
+			expect(await h.store.readMarkers()).toEqual([]);
+			expect(await h.base()).toBe(head);
+		}
+	});
+
+	test("killed right after a file was written, and the remote did not change: only its record is made", async () => {
+		const h = await synced({ "a.md": "A" });
+		const head = h.backend.commit({ "a.md": "A2" });
+		await expect(h.pull({ store: killingStore(h, "commitWrite", "a.md") })).rejects.toThrow("the app is gone");
+		restart(h);
+
+		const result = await h.pull();
+		expect(result.outcome).toBe("completed");
+		expect(result.counts).toEqual({ fetched: 0, deleted: 0, renamed: 0, conflicts: 0 });
+		expect(h.vault.log).toEqual([]);
+		expect(await h.records()).toEqual(hashes({ "a.md": "A2" }));
+		expect(await h.store.readMarkers()).toEqual([]);
+		expect(await h.base()).toBe(head);
+	});
+
+	test("killed in the middle of a write: the half file is replaced by the remote's content, with no conflict and no copy", async () => {
+		for (const existed of [false, true]) {
+			const h = existed ? await synced({ "a.md": "A", "b.md": "B" }) : harness();
+			const head = h.backend.commit({ "a.md": "A2 in full", "b.md": "B" });
+			killBeforeWrite(
+				h,
+				(path) => path === "a.md",
+				() => h.vault.put("a.md", "A2 in"),
+			);
+			await expect(h.pull()).rejects.toThrow("the app is gone");
+			expect(h.vault.text("a.md")).toBe("A2 in");
+			expect(await markerPaths(h)).toEqual(["a.md"]);
+
+			restart(h);
+			const result = await h.pull();
+
+			expect(result.outcome).toBe("completed");
+			expect(result.conflicts).toEqual([]);
+			expect(h.copies()).toEqual([]);
+			expect(h.vault.snapshot()).toEqual({ "a.md": "A2 in full", "b.md": "B" });
+			// Whatever the app's setting for deleted files.
+			expect(h.vault.trashed).toEqual([{ path: "a.md", mode: "vault-trash", content: "A2 in" }]);
+			expect(result.halfWritten).toEqual(["a.md"]);
+			// Not among the files moved away because the history was rewritten.
+			expect(result.trashed).toEqual([]);
+			expect(await h.records()).toEqual(hashes({ "a.md": "A2 in full", "b.md": "B" }));
+			expect(await h.store.readMarkers()).toEqual([]);
+			expect(await h.base()).toBe(head);
+			// Told once.
+			expect((await h.pull()).halfWritten).toEqual([]);
+		}
+	});
+
+	test("killed in the middle of a write, then the note was edited: the edit is in the trash and told, the name has the remote's content", async () => {
+		const h = await synced({ "a.md": "A" });
+		h.backend.commit({ "a.md": "A2 in full" });
+		killBeforeWrite(
+			h,
+			(path) => path === "a.md",
+			() => h.vault.put("a.md", "A2 in"),
+		);
+		await expect(h.pull()).rejects.toThrow("the app is gone");
+		restart(h);
+		h.vault.put("a.md", "A2 in, and what I typed");
+
+		const result = await h.pull();
+
+		expect(result.outcome).toBe("completed");
+		expect(h.vault.snapshot()).toEqual({ "a.md": "A2 in full" });
+		expect(h.vault.trashed).toEqual([{ path: "a.md", mode: "vault-trash", content: "A2 in, and what I typed" }]);
+		expect(result.halfWritten).toEqual(["a.md"]);
+		expect(result.conflicts).toEqual([]);
+		expect(h.copies()).toEqual([]);
+		expect(await h.records()).toEqual(hashes({ "a.md": "A2 in full" }));
+	});
+
+	test("an edit that an editor has not saved yet goes to the trash with the file", async () => {
+		const h = await synced({ "a.md": "A" });
+		h.backend.commit({ "a.md": "A2 in full" });
+		await h.store.putMarker(makeMarker("a.md", blobHash("A"), blobHash("A2 in full"), false));
+		h.vault.put("a.md", "A2 in");
+		h.vault.open("a.md", "A2 in, typed");
+
+		const result = await h.pull();
+		expect(h.vault.trashed).toEqual([{ path: "a.md", mode: "vault-trash", content: "A2 in, typed" }]);
+		expect(result.halfWritten).toEqual(["a.md"]);
+		expect(h.vault.text("a.md")).toBe("A2 in full");
+	});
+
+	test("killed after the marker and before the write: nothing goes to the trash", async () => {
+		for (const existed of [false, true]) {
+			const h = existed ? await synced({ "a.md": "A" }) : harness();
+			const head = h.backend.commit({ "a.md": "A2" });
+			killBeforeWrite(h, (path) => path === "a.md");
+			await expect(h.pull()).rejects.toThrow("the app is gone");
+			expect(h.vault.text("a.md")).toBe(existed ? "A" : undefined);
+			expect(await markerPaths(h)).toEqual(["a.md"]);
+
+			restart(h);
+			const result = await h.pull();
+
+			expect(result.outcome).toBe("completed");
+			expect(h.vault.trashed).toEqual([]);
+			expect(result.halfWritten).toEqual([]);
+			expect(result.conflicts).toEqual([]);
+			expect(h.vault.snapshot()).toEqual({ "a.md": "A2" });
+			expect(await h.store.readMarkers()).toEqual([]);
+			expect(await h.base()).toBe(head);
+		}
+	});
+
+	test("killed after the copy of a conflict and before the file: the copy is neither lost nor made twice", async () => {
+		// With the marker of the file stored already, and without.
+		for (const atMarker of [false, true]) {
+			const h = await synced({ "a.md": "A" });
+			const head = h.backend.commit({ "a.md": "theirs" });
+			h.vault.put("a.md", "mine");
+			if (atMarker) {
+				await expect(h.pull({ store: killingStore(h, "putMarker", "a.md") })).rejects.toThrow("the app is gone");
+			} else {
+				killBeforeWrite(h, (path) => path === "a.md");
+				await expect(h.pull()).rejects.toThrow("the app is gone");
+			}
+			const copy = h.copyName("a.md");
+			expect(h.vault.snapshot()).toEqual({ "a.md": "mine", [copy]: "mine" });
+			expect(await markerPaths(h)).toEqual(atMarker ? [copy] : [copy, "a.md"]);
+
+			restart(h);
+			const result = await h.pull();
+
+			expect(result.outcome).toBe("completed");
+			expect(h.vault.snapshot()).toEqual({ "a.md": "theirs", [copy]: "mine" });
+			expect(h.vault.log).toEqual(["write a.md"]);
+			expect(result.conflicts).toEqual([{ path: "a.md", copyPath: copy, cause: "conflict" }]);
+			expect(h.vault.trashed).toEqual([]);
+			expect(result.halfWritten).toEqual([]);
+			// The copy has no record.
+			expect(await h.records()).toEqual(hashes({ "a.md": "theirs" }));
+			expect(await h.store.readMarkers()).toEqual([]);
+			expect(await h.base()).toBe(head);
+		}
+	});
+
+	test("killed after the copy, and the remote changed the file again: the newer content is written, beside the one copy", async () => {
+		const h = await synced({ "a.md": "A" });
+		h.backend.commit({ "a.md": "theirs" });
+		h.vault.put("a.md", "mine");
+		killBeforeWrite(h, (path) => path === "a.md");
+		await expect(h.pull()).rejects.toThrow("the app is gone");
+		const copy = h.copyName("a.md");
+
+		restart(h);
+		h.backend.commit({ "a.md": "theirs, again" });
+		const result = await h.pull();
+
+		expect(result.outcome).toBe("completed");
+		expect(h.vault.snapshot()).toEqual({ "a.md": "theirs, again", [copy]: "mine" });
+		expect(h.vault.trashed).toEqual([]);
+	});
+
+	test("killed in the middle of the file of a conflict: the half file goes to the trash, and the copy keeps the content", async () => {
+		const h = await synced({ "a.md": "A" });
+		h.backend.commit({ "a.md": "theirs" });
+		h.vault.put("a.md", "mine");
+		killBeforeWrite(
+			h,
+			(path) => path === "a.md",
+			() => h.vault.put("a.md", "the"),
+		);
+		await expect(h.pull()).rejects.toThrow("the app is gone");
+		const copy = h.copyName("a.md");
+
+		restart(h);
+		const result = await h.pull();
+
+		expect(result.outcome).toBe("completed");
+		expect(h.vault.snapshot()).toEqual({ "a.md": "theirs", [copy]: "mine" });
+		expect(h.vault.trashed).toEqual([{ path: "a.md", mode: "vault-trash", content: "the" }]);
+		expect(result.halfWritten).toEqual(["a.md"]);
+		expect(await h.store.readMarkers()).toEqual([]);
+		// What the user had is in the copy, which the line about the file
+		// that was moved away does not name: told as the conflict it is.
+		expect(result.conflicts).toEqual([{ path: "a.md", copyPath: copy, cause: "conflict" }]);
+		expect(pullReport(translatorFor("en"), result, reportOptions).details).toEqual([
+			`The content of 1 file on this device was kept under another name:\n${copy} (a conflict: a.md now has the content of the remote)`,
+			"An earlier pull stopped while it was writing 1 file. What was left of it was moved to .trash/ in this vault. A pull fetches the content of the remote. If you had edited the file since, you can get your edit back from there:\na.md",
+		]);
+		expect(await h.store.getMeta(AWAITED_CONFLICTS_KEY)).toBeUndefined();
+		// Told once.
+		const next = await h.pull();
+		expect(next.conflicts).toEqual([]);
+		expect(next.halfWritten).toEqual([]);
+	});
+
+	test("killed in the middle of the file of a conflict, and the next pull does not get to the file: the conflict is told by the pull that writes it", async () => {
+		const h = await synced({ "a.md": "A" });
+		h.backend.commit({ "a.md": "theirs" });
+		h.vault.put("a.md", "mine");
+		killBeforeWrite(
+			h,
+			(path) => path === "a.md",
+			() => h.vault.put("a.md", "the"),
+		);
+		await expect(h.pull()).rejects.toThrow("the app is gone");
+		const copy = h.copyName("a.md");
+		restart(h);
+
+		const stop = new AbortController();
+		const stopped = await h.pull({
+			signal: stop.signal,
+			onProgress: (event) => event.phase === "scanning" && stop.abort(),
+		});
+		expect(stopped.outcome).toBe("cancelled");
+		expect(stopped.halfWritten).toEqual(["a.md"]);
+		// `a.md` does not have the content of the remote: it is not there.
+		expect(stopped.conflicts).toEqual([]);
+		expect(h.vault.snapshot()).toEqual({ [copy]: "mine" });
+		expect(await h.store.readMarkers()).toEqual([]);
+		expect(await h.store.getMeta(AWAITED_CONFLICTS_KEY)).toEqual([
+			{ path: "a.md", copyPath: copy, hash: blobHash("mine") },
+		]);
+
+		const result = await h.pull();
+		expect(result.outcome).toBe("completed");
+		expect(result.halfWritten).toEqual([]);
+		expect(result.conflicts).toEqual([{ path: "a.md", copyPath: copy, cause: "conflict" }]);
+		expect(h.vault.snapshot()).toEqual({ "a.md": "theirs", [copy]: "mine" });
+		expect(await h.store.getMeta(AWAITED_CONFLICTS_KEY)).toBeUndefined();
+		expect((await h.pull()).conflicts).toEqual([]);
+	});
+
+	test("killed in the middle of the copy of a conflict: the half copy goes to the trash, and one whole copy is made", async () => {
+		const h = await synced({ "a.md": "A" });
+		const head = h.backend.commit({ "a.md": "theirs" });
+		h.vault.put("a.md", "mine");
+		killBeforeWrite(h, isCopy, (path) => h.vault.put(path, "mi"));
+		await expect(h.pull()).rejects.toThrow("the app is gone");
+		const half = h.copyName("a.md");
+		expect(h.vault.snapshot()).toEqual({ "a.md": "mine", [half]: "mi" });
+		expect(await markerPaths(h)).toEqual([half]);
+
+		restart(h);
+		const result = await h.pull();
+
+		const copy = h.copyName("a.md");
+		expect(copy).not.toBe(half);
+		expect(result.outcome).toBe("completed");
+		expect(h.vault.snapshot()).toEqual({ "a.md": "theirs", [copy]: "mine" });
+		expect(h.vault.trashed).toEqual([{ path: half, mode: "vault-trash", content: "mi" }]);
+		// Told as a copy, and not as a file that is fetched again.
+		expect(result.halfCopies).toEqual([half]);
+		expect(result.halfWritten).toEqual([]);
+		expect(result.conflicts).toEqual([{ path: "a.md", copyPath: copy, cause: "conflict" }]);
+		expect(await h.records()).toEqual(hashes({ "a.md": "theirs" }));
+		expect(await h.store.readMarkers()).toEqual([]);
+		expect(await h.base()).toBe(head);
+	});
+
+	test("killed before the copy of a conflict was begun: the conflict is handled from the start", async () => {
+		const h = await synced({ "a.md": "A" });
+		h.backend.commit({ "a.md": "theirs" });
+		h.vault.put("a.md", "mine");
+		killBeforeWrite(h, isCopy);
+		await expect(h.pull()).rejects.toThrow("the app is gone");
+		expect(h.copies()).toEqual([]);
+		expect((await h.store.readMarkers()).map((marker) => marker.conflictCopy)).toEqual([true]);
+
+		restart(h);
+		const result = await h.pull();
+		expect(h.vault.snapshot()).toEqual({ "a.md": "theirs", [h.copyName("a.md")]: "mine" });
+		expect(h.vault.trashed).toEqual([]);
+		expect(result.halfWritten).toEqual([]);
+		expect(await h.store.readMarkers()).toEqual([]);
+	});
+
+	test("killed after the record of a conflict and before the marker of its copy went: only the marker goes, and the conflict is told", async () => {
+		const h = await synced({ "a.md": "A" });
+		h.backend.commit({ "a.md": "theirs" });
+		h.vault.put("a.md", "mine");
+		let copy = "";
+		const store = new Proxy(h.store, {
+			get(target, name) {
+				const value: unknown = Reflect.get(target, name, target);
+				if (typeof value !== "function") return value;
+				return (...args: unknown[]): unknown => {
+					h.crash.gate(false);
+					if (name === "deleteMarker" && isCopy(String(args[0]))) {
+						copy = String(args[0]);
+						h.crash.dead = true;
+						throw new Error("the app is gone");
+					}
+					return (value as (...rest: unknown[]) => unknown).apply(target, args);
+				};
+			},
+		});
+		await expect(h.pull({ store })).rejects.toThrow("the app is gone");
+		expect(await markerPaths(h)).toEqual([copy]);
+
+		restart(h);
+		const result = await h.pull();
+		expect(result.outcome).toBe("completed");
+		expect(h.vault.log).toEqual([]);
+		expect(h.vault.snapshot()).toEqual({ "a.md": "theirs", [copy]: "mine" });
+		expect(h.vault.trashed).toEqual([]);
+		expect(await h.store.readMarkers()).toEqual([]);
+		// The pull that made the copy was killed before it told.
+		expect(result.conflicts).toEqual([{ path: "a.md", copyPath: copy, cause: "conflict" }]);
+		expect((await h.pull()).conflicts).toEqual([]);
+	});
+
+	test("killed between the file of a conflict and its record: one copy, the record of the remote, and the conflict is told", async () => {
+		const h = await synced({ "a.md": "A" });
+		const head = h.backend.commit({ "a.md": "theirs" });
+		h.vault.put("a.md", "mine");
+		await expect(h.pull({ store: killingStore(h, "commitWrite", "a.md") })).rejects.toThrow("the app is gone");
+		const copy = h.copyName("a.md");
+		expect(h.vault.snapshot()).toEqual({ "a.md": "theirs", [copy]: "mine" });
+		expect((await markerPaths(h)).sort()).toEqual([copy, "a.md"].sort());
+		expect((await h.records())["a.md"]).toBe(blobHash("A"));
+
+		restart(h);
+		const result = await h.pull();
+
+		expect(result.outcome).toBe("completed");
+		// Nothing was left to do but the record, so no step of the plan
+		// would have told it.
+		expect(h.vault.log).toEqual([]);
+		expect(result.counts).toEqual({ fetched: 0, deleted: 0, renamed: 0, conflicts: 1 });
+		expect(result.conflicts).toEqual([{ path: "a.md", copyPath: copy, cause: "conflict" }]);
+		expect(pullReport(translatorFor("en"), result, reportOptions).details).toEqual([
+			`The content of 1 file on this device was kept under another name:\n${copy} (a conflict: a.md now has the content of the remote)`,
+		]);
+		expect(h.vault.snapshot()).toEqual({ "a.md": "theirs", [copy]: "mine" });
+		expect(h.copies()).toEqual([copy]);
+		expect(h.vault.trashed).toEqual([]);
+		expect(result.halfWritten).toEqual([]);
+		expect(result.halfCopies).toEqual([]);
+		expect(await h.records()).toEqual(hashes({ "a.md": "theirs" }));
+		expect(await h.store.readMarkers()).toEqual([]);
+		expect(await h.store.getMeta(HALF_WRITTEN_KEY)).toBeUndefined();
+		expect(await h.base()).toBe(head);
+		// Told once.
+		expect((await h.pull()).conflicts).toEqual([]);
+	});
+
+	test("a conflict found finished is told also when the pull that found it was killed", async () => {
+		const h = await synced({ "a.md": "A" });
+		h.backend.commit({ "a.md": "theirs" });
+		h.vault.put("a.md", "mine");
+		await expect(h.pull({ store: killingStore(h, "commitWrite", "a.md") })).rejects.toThrow("the app is gone");
+		const copy = h.copyName("a.md");
+		restart(h);
+
+		// Settled, and then the scan fails.
+		h.vault.before = (op) => {
+			if (op === "list") throw new Error("the disk is gone");
+		};
+		await expect(h.pull()).rejects.toThrow("the disk is gone");
+		expect(await h.store.readMarkers()).toEqual([]);
+
+		h.vault.before = undefined;
+		const result = await h.pull();
+		expect(result.conflicts).toEqual([{ path: "a.md", copyPath: copy, cause: "conflict" }]);
+		expect((await h.pull()).conflicts).toEqual([]);
+	});
+
+	test("killed after the marker of the file of a conflict, and the file was changed since: it is moved away like half a file, and the conflict is told", async () => {
+		// The user put the file back to what was synced. With its marker
+		// stored, a content that is neither the one before the write nor the
+		// one written cannot be told from half a file.
+		const h = await synced({ "a.md": "A" });
+		h.backend.commit({ "a.md": "theirs" });
+		h.vault.put("a.md", "mine");
+		killBeforeWrite(h, (path) => path === "a.md");
+		await expect(h.pull()).rejects.toThrow("the app is gone");
+		const copy = h.copyName("a.md");
+		expect((await markerPaths(h)).sort()).toEqual([copy, "a.md"].sort());
+		restart(h);
+		h.vault.put("a.md", "A");
+
+		const result = await h.pull();
+		expect(result.outcome).toBe("completed");
+		expect(result.halfWritten).toEqual(["a.md"]);
+		expect(h.vault.trashed).toEqual([{ path: "a.md", mode: "vault-trash", content: "A" }]);
+		expect(result.conflicts).toEqual([{ path: "a.md", copyPath: copy, cause: "conflict" }]);
+		expect(h.vault.snapshot()).toEqual({ "a.md": "theirs", [copy]: "mine" });
+		expect(h.copies()).toEqual([copy]);
+		expect(await h.records()).toEqual(hashes({ "a.md": "theirs" }));
+		expect(await h.store.readMarkers()).toEqual([]);
+		expect((await h.pull()).conflicts).toEqual([]);
+	});
+
+	test("killed after the copy and before the marker of the file, and the file was put back since: no conflict is told while the file does not have the remote's content", async () => {
+		// No marker of the file, a record that is not the copy's content,
+		// and a file that is as its record says: all of that is also true
+		// of a conflict that was finished, but this file was never written.
+		const h = await synced({ "a.md": "A" });
+		h.backend.commit({ "a.md": "theirs" });
+		h.vault.put("a.md", "mine");
+		await expect(h.pull({ store: killingStore(h, "putMarker", "a.md") })).rejects.toThrow("the app is gone");
+		const copy = h.copyName("a.md");
+		expect(await markerPaths(h)).toEqual([copy]);
+		restart(h);
+		h.vault.put("a.md", "A");
+
+		// A pull that settles the markers and does not get to the file.
+		const stop = new AbortController();
+		const stopped = await h.pull({
+			signal: stop.signal,
+			onProgress: (event) => event.phase === "scanning" && stop.abort(),
+		});
+		expect(stopped.outcome).toBe("cancelled");
+		expect(stopped.conflicts).toEqual([]);
+		expect(h.vault.snapshot()).toEqual({ "a.md": "A", [copy]: "mine" });
+		expect(await h.store.readMarkers()).toEqual([]);
+		expect(await h.store.getMeta(HALF_WRITTEN_KEY)).toBeUndefined();
+
+		// An ordinary fetch: the file is as its record says. Only now does
+		// it have the content of the remote, beside a copy nobody was told of.
+		const result = await h.pull();
+		expect(result.outcome).toBe("completed");
+		expect(result.counts).toEqual({ fetched: 1, deleted: 0, renamed: 0, conflicts: 1 });
+		expect(result.conflicts).toEqual([{ path: "a.md", copyPath: copy, cause: "conflict" }]);
+		expect(result.halfWritten).toEqual([]);
+		expect(h.vault.trashed).toEqual([]);
+		expect(h.vault.log).toEqual(["write a.md"]);
+		expect(h.vault.snapshot()).toEqual({ "a.md": "theirs", [copy]: "mine" });
+		expect(h.copies()).toEqual([copy]);
+		expect(await h.store.getMeta(AWAITED_CONFLICTS_KEY)).toBeUndefined();
+		expect((await h.pull()).conflicts).toEqual([]);
+	});
+
+	test("a conflict that was finished but for telling it, and the remote changed the file again: told once the newer content is written", async () => {
+		const h = await synced({ "a.md": "A" });
+		h.backend.commit({ "a.md": "theirs" });
+		h.vault.put("a.md", "mine");
+		expect((await h.pull()).conflicts).toHaveLength(1);
+		const copy = h.copyName("a.md");
+		// As if killed before the marker of the copy went.
+		await h.store.putMarker(makeMarker(copy, null, blobHash("mine"), true));
+		h.backend.commit({ "a.md": "theirs, again" });
+		h.vault.log.length = 0;
+
+		const result = await h.pull();
+		expect(result.outcome).toBe("completed");
+		expect(result.conflicts).toEqual([{ path: "a.md", copyPath: copy, cause: "conflict" }]);
+		expect(h.vault.log).toEqual(["write a.md"]);
+		expect(h.vault.snapshot()).toEqual({ "a.md": "theirs, again", [copy]: "mine" });
+		expect(await h.store.readMarkers()).toEqual([]);
+		expect((await h.pull()).conflicts).toEqual([]);
+	});
+
+	test("a conflict that waits is forgotten when its copy is gone, or the remote has no file at the path any more", async () => {
+		for (const gone of ["copy", "remote"] as const) {
+			const h = await synced({ "a.md": "A", "b.md": "B" });
+			const copy = "a.conflict-from-iPhone-20261003-110000.md";
+			h.vault.put(copy, "mine");
+			await h.store.setMeta(AWAITED_CONFLICTS_KEY, [{ path: "a.md", copyPath: copy, hash: blobHash("mine") }]);
+			h.vault.put("a.md", "typed since");
+			if (gone === "copy") h.vault.remove(copy);
+			else h.backend.commit({ "a.md": null });
+
+			const result = await h.pull();
+			expect(result.conflicts.filter((conflict) => conflict.copyPath === copy)).toEqual([]);
+			expect(await h.store.getMeta(AWAITED_CONFLICTS_KEY)).toBeUndefined();
+			expect(h.vault.text("a.md")).toBe("typed since");
+		}
+	});
+
+	describe("a marker of a path the remote has deleted since", () => {
+		async function left(device: string | null): Promise<Harness> {
+			const h = await synced({ "a.md": "A", "b.md": "B" });
+			await h.store.putMarker(makeMarker("a.md", blobHash("A"), blobHash("A2"), false));
+			if (device === null) h.vault.remove("a.md");
+			else h.vault.put("a.md", device);
+			h.backend.commit({ "a.md": null });
+			return h;
+		}
+
+		test("the file is as it was before the write: an ordinary deletion", async () => {
+			const h = await left("A");
+			const result = await h.pull();
+			expect(result.outcome).toBe("completed");
+			expect(result.counts.deleted).toBe(1);
+			expect(h.vault.trashed).toEqual([{ path: "a.md", mode: "user-setting", content: "A" }]);
+			expect(result.halfWritten).toEqual([]);
+			expect(await h.records()).toEqual(hashes({ "b.md": "B" }));
+			expect(await h.store.readMarkers()).toEqual([]);
+		});
+
+		test("the file is neither: it goes to the trash of the vault, and its record and marker go", async () => {
+			const h = await left("A2 in ha");
+			const result = await h.pull();
+			expect(result.outcome).toBe("completed");
+			expect(result.counts.deleted).toBe(0);
+			expect(h.vault.trashed).toEqual([{ path: "a.md", mode: "vault-trash", content: "A2 in ha" }]);
+			expect(result.halfWritten).toEqual(["a.md"]);
+			expect(h.vault.snapshot()).toEqual({ "b.md": "B" });
+			expect(await h.records()).toEqual(hashes({ "b.md": "B" }));
+			expect(await h.store.readMarkers()).toEqual([]);
+		});
+
+		test("the file was written in full: it is the remote's own content, and is deleted like any other", async () => {
+			const h = await left("A2");
+			const result = await h.pull();
+			expect(result.outcome).toBe("completed");
+			expect(result.counts.deleted).toBe(1);
+			expect(h.vault.trashed).toEqual([{ path: "a.md", mode: "user-setting", content: "A2" }]);
+			expect(result.halfWritten).toEqual([]);
+			expect(await h.records()).toEqual(hashes({ "b.md": "B" }));
+			expect(await h.store.readMarkers()).toEqual([]);
+		});
+
+		test("no file: the marker and the record go", async () => {
+			const h = await left(null);
+			const result = await h.pull();
+			expect(result.outcome).toBe("completed");
+			expect(h.vault.trashed).toEqual([]);
+			expect(await h.records()).toEqual(hashes({ "b.md": "B" }));
+			expect(await h.store.readMarkers()).toEqual([]);
+		});
+	});
+
+	test("no file at the path of a marker, whether there was one before the write or not: fetched like any other", async () => {
+		const h = await synced({ "a.md": "A" });
+		h.backend.commit({ "a.md": "A2", "x.md": "X" });
+		await h.store.putMarker(makeMarker("a.md", blobHash("A"), blobHash("A2"), false));
+		await h.store.putMarker(makeMarker("x.md", null, blobHash("X"), false));
+		// The user deleted it after the pull stopped.
+		h.vault.remove("a.md");
+
+		const result = await h.pull();
+		expect(result.outcome).toBe("completed");
+		expect(h.vault.snapshot()).toEqual({ "a.md": "A2", "x.md": "X" });
+		expect(h.vault.trashed).toEqual([]);
+		expect(result.halfWritten).toEqual([]);
+		expect(await h.store.readMarkers()).toEqual([]);
+	});
+
+	test("a folder at the path of a marker counts as no file", async () => {
+		const h = await synced({ "b.md": "B" });
+		await h.store.putMarker(makeMarker("a", null, blobHash("X"), false));
+		h.vault.put("a/inside.md", "mine");
+		const result = await h.pull();
+		expect(result.outcome).toBe("completed");
+		expect(h.vault.trashed).toEqual([]);
+		expect(h.vault.text("a/inside.md")).toBe("mine");
+		expect(await h.store.readMarkers()).toEqual([]);
+	});
+
+	test("killed at any point while a half file is settled, and run again: moved away once, told, and fetched", async () => {
+		let stops = 0;
+		for (let after = 0; ; after++) {
+			const h = await synced({ "a.md": "A", "b.md": "B" });
+			const head = h.backend.commit({ "a.md": "A2 in full" });
+			await h.store.putMarker(makeMarker("a.md", blobHash("A"), blobHash("A2 in full"), false));
+			h.vault.put("a.md", "A2 in");
+
+			h.crash.after(after);
+			const told: string[] = [];
+			await h.pull().then(
+				(result) => told.push(...result.halfWritten),
+				() => undefined,
+			);
+			const stopped = h.crash.dead;
+			h.crash.revive();
+			if (stopped) {
+				const result = await h.pull();
+				expect(result.outcome).toBe("completed");
+				told.push(...result.halfWritten);
+			}
+
+			expect(told).toEqual(["a.md"]);
+			expect(h.vault.snapshot()).toEqual({ "a.md": "A2 in full", "b.md": "B" });
+			expect(h.vault.trashed).toEqual([{ path: "a.md", mode: "vault-trash", content: "A2 in" }]);
+			expect(h.copies()).toEqual([]);
+			expect(await h.records()).toEqual(hashes({ "a.md": "A2 in full", "b.md": "B" }));
+			expect(await h.store.readMarkers()).toEqual([]);
+			expect(await h.base()).toBe(head);
+			expect((await h.pull()).halfWritten).toEqual([]);
+			if (!stopped) break;
+			stops += 1;
+		}
+		// The listing, the list of what is told, the record, the file, the marker, and more.
+		expect(stops).toBeGreaterThan(5);
+	});
+
+	test("settling the markers twice changes nothing the second time", async () => {
+		const h = await synced({ "a.md": "A", "w.md": "W", "u.md": "U" });
+		h.backend.commit({ "a.md": "A2", "w.md": "W2", "u.md": "U2" });
+		const marks = async (): Promise<void> => {
+			await h.store.putMarker(makeMarker("a.md", blobHash("A"), blobHash("A2"), false));
+			await h.store.putMarker(makeMarker("w.md", blobHash("W"), blobHash("W2"), false));
+			await h.store.putMarker(makeMarker("u.md", blobHash("U"), blobHash("U2"), false));
+		};
+		await marks();
+		h.vault.put("a.md", "A2 ha");
+		h.vault.put("w.md", "W2");
+		// Stopped right after the markers were settled.
+		const stop = new AbortController();
+		const first = await h.pull({ signal: stop.signal, onProgress: (event) => event.phase === "scanning" && stop.abort() });
+		expect(first.outcome).toBe("cancelled");
+		expect(first.halfWritten).toEqual(["a.md"]);
+		expect(await h.store.readMarkers()).toEqual([]);
+		expect(await h.records()).toEqual(hashes({ "w.md": "W2", "u.md": "U" }));
+		expect(h.vault.snapshot()).toEqual({ "w.md": "W2", "u.md": "U" });
+
+		const second = await h.pull();
+		expect(second.outcome).toBe("completed");
+		expect(second.halfWritten).toEqual([]);
+		expect(h.vault.trashed.length).toBe(1);
+		expect(h.vault.snapshot()).toEqual({ "a.md": "A2", "w.md": "W2", "u.md": "U2" });
+	});
+
+	test("a pull that is stopped while the markers are settled leaves the rest for the next", async () => {
+		const h = await synced({ "a.md": "A", "b.md": "B" });
+		h.backend.commit({ "a.md": "A2", "b.md": "B2" });
+		await h.store.putMarker(makeMarker("a.md", blobHash("A"), blobHash("A2"), false));
+		await h.store.putMarker(makeMarker("b.md", blobHash("B"), blobHash("B2"), false));
+		h.vault.put("a.md", "A2 h");
+		h.vault.put("b.md", "B2 h");
+		const stop = new AbortController();
+		h.vault.before = (op) => {
+			if (op === "trash") stop.abort();
+		};
+		const first = await h.pull({ signal: stop.signal });
+		expect(first.outcome).toBe("cancelled");
+		expect(first.halfWritten).toEqual(["a.md"]);
+		expect(await markerPaths(h)).toEqual(["b.md"]);
+
+		h.vault.before = undefined;
+		const second = await h.pull();
+		expect(second.outcome).toBe("completed");
+		expect(second.halfWritten).toEqual(["b.md"]);
+		expect(h.vault.snapshot()).toEqual({ "a.md": "A2", "b.md": "B2" });
+	});
+
+	describe("a marker the vault does not let the pull settle", () => {
+		/** Three files in sync, a pull that stopped in the middle of `a.md`, and the remote changed two. */
+		async function halfA(): Promise<{ h: Harness; base: string | null; head: string }> {
+			const h = await synced({ "a.md": "A", "b.md": "B", "c.md": "C" });
+			const base = await h.base();
+			const head = h.backend.commit({ "a.md": "A2", "b.md": "B2" });
+			await h.store.putMarker(makeMarker("a.md", blobHash("A"), blobHash("A2"), false));
+			h.vault.put("a.md", "A2 h");
+			return { h, base, head };
+		}
+
+		test("a file that cannot be read: put off and left alone, the rest is pulled, and the next pull settles it", async () => {
+			const { h, base, head } = await halfA();
+			const touched: string[] = [];
+			h.vault.before = (op, path) => {
+				if (path !== "a.md") return;
+				if (op === "read") throw new Error("the disk does not answer");
+				if (VAULT_CHANGES.has(op)) touched.push(op);
+			};
+
+			// Every pull, for as long as it lasts.
+			for (let attempt = 0; attempt < 2; attempt++) {
+				const result = await h.pull();
+				expect(result.outcome).toBe("incomplete");
+				expect(result.deferred).toEqual([{ path: "a.md", reason: "unreadable" }]);
+				expect(result.halfWritten).toEqual([]);
+				expect(result.conflicts).toEqual([]);
+				expect(result.counts.fetched).toBe(attempt === 0 ? 1 : 0);
+				expect(h.vault.snapshot()).toEqual({ "a.md": "A2 h", "b.md": "B2", "c.md": "C" });
+				expect(touched).toEqual([]);
+				expect(h.vault.trashed).toEqual([]);
+				expect(h.copies()).toEqual([]);
+				expect(await markerPaths(h)).toEqual(["a.md"]);
+				expect(await h.records()).toEqual(hashes({ "a.md": "A", "b.md": "B2", "c.md": "C" }));
+				expect(await h.base()).toBe(base);
+				expect(pullReport(translatorFor("en"), result, reportOptions).details).toEqual([
+					"1 file could not be pulled and is left for the next sync. A file on this device could not be read.",
+				]);
+			}
+
+			h.vault.before = undefined;
+			const result = await h.pull();
+			expect(result.outcome).toBe("completed");
+			expect(result.halfWritten).toEqual(["a.md"]);
+			expect(h.vault.trashed).toEqual([{ path: "a.md", mode: "vault-trash", content: "A2 h" }]);
+			expect(h.vault.snapshot()).toEqual({ "a.md": "A2", "b.md": "B2", "c.md": "C" });
+			expect(await h.store.readMarkers()).toEqual([]);
+			expect(await h.base()).toBe(head);
+		});
+
+		test("a file that cannot be moved away: put off and left alone, the rest is pulled, and the next pull settles it", async () => {
+			const { h, base, head } = await halfA();
+			const written: string[] = [];
+			h.vault.before = (op, path) => {
+				if (op === "trash" && path === "a.md") throw new Error("the trash is full");
+				if (op === "write" || op === "rename") written.push(path);
+			};
+
+			for (let attempt = 0; attempt < 2; attempt++) {
+				const result = await h.pull();
+				expect(result.outcome).toBe("incomplete");
+				expect(result.deferred).toEqual([{ path: "a.md", reason: "trash-failed" }]);
+				// Not told as moved away: it was not.
+				expect(result.halfWritten).toEqual([]);
+				expect(await h.store.getMeta(HALF_WRITTEN_KEY)).toBeUndefined();
+				expect(h.vault.snapshot()).toEqual({ "a.md": "A2 h", "b.md": "B2", "c.md": "C" });
+				expect(written).toEqual(["b.md"]);
+				expect(h.vault.trashed).toEqual([]);
+				expect(h.copies()).toEqual([]);
+				expect(await markerPaths(h)).toEqual(["a.md"]);
+				// The record went before the move was tried; the marker
+				// stands for the path until the move is made.
+				expect(await h.records()).toEqual(hashes({ "b.md": "B2", "c.md": "C" }));
+				expect(await h.base()).toBe(base);
+				expect(pullReport(translatorFor("en"), result, reportOptions).details).toEqual([
+					"1 file could not be pulled and is left for the next sync. A file on this device could not be moved to .trash/ in this vault.",
+				]);
+			}
+
+			h.vault.before = undefined;
+			const result = await h.pull();
+			expect(result.outcome).toBe("completed");
+			expect(result.halfWritten).toEqual(["a.md"]);
+			expect(h.vault.trashed).toEqual([{ path: "a.md", mode: "vault-trash", content: "A2 h" }]);
+			expect(h.vault.snapshot()).toEqual({ "a.md": "A2", "b.md": "B2", "c.md": "C" });
+			expect(await h.store.readMarkers()).toEqual([]);
+			expect(await h.base()).toBe(head);
+		});
+
+		test("an editor that cannot save: put off, and nothing is done to the file it has open", async () => {
+			const { h, base } = await halfA();
+			h.vault.openFailing("a.md");
+
+			const result = await h.pull();
+			expect(result.outcome).toBe("incomplete");
+			expect(result.deferred).toEqual([{ path: "a.md", reason: "save-failed" }]);
+			expect(h.vault.snapshot()).toEqual({ "a.md": "A2 h", "b.md": "B2", "c.md": "C" });
+			expect(h.vault.trashed).toEqual([]);
+			expect(h.copies()).toEqual([]);
+			expect(await markerPaths(h)).toEqual(["a.md"]);
+			expect(await h.base()).toBe(base);
+
+			h.vault.close("a.md");
+			expect((await h.pull()).halfWritten).toEqual(["a.md"]);
+			expect(h.vault.text("a.md")).toBe("A2");
+			expect(await h.store.readMarkers()).toEqual([]);
+		});
+
+		test("a failure of the sync state still fails the pull", async () => {
+			const { h } = await halfA();
+			const store = new Proxy(h.store, {
+				get(target, name) {
+					const value: unknown = Reflect.get(target, name, target);
+					if (typeof value !== "function") return value;
+					return (...args: unknown[]): unknown => {
+						if (name === "deleteRecord") throw new Error("the sync state is gone");
+						return (value as (...rest: unknown[]) => unknown).apply(target, args);
+					};
+				},
+			});
+			await expect(h.pull({ store })).rejects.toThrow("the sync state is gone");
+			expect(h.vault.text("a.md")).toBe("A2 h");
+			expect(await markerPaths(h)).toEqual(["a.md"]);
+		});
+
+		test("the path is held whatever its case, where the remote spells it otherwise by now", async () => {
+			const h = await synced({ "Notes/A.md": "A", "b.md": "B" }, { caseSensitive: false });
+			await h.store.putMarker(makeMarker("Notes/A.md", blobHash("A"), blobHash("A2"), false));
+			h.vault.put("Notes/A.md", "A2 h");
+			h.backend.commit({ "Notes/A.md": null, "notes/a.md": "A3", "b.md": "B2" });
+			h.vault.before = (op, path) => {
+				if (op === "read" && path.toLowerCase() === "notes/a.md") throw new Error("the disk does not answer");
+			};
+
+			const result = await h.pull();
+			expect(result.outcome).toBe("incomplete");
+			expect(result.deferred).toEqual([{ path: "Notes/A.md", reason: "unreadable" }]);
+			// Neither renamed, nor written under the other spelling, nor kept as a copy.
+			expect(h.vault.snapshot()).toEqual({ "Notes/A.md": "A2 h", "b.md": "B2" });
+			expect(h.vault.log).toEqual(["write b.md"]);
+			expect(result.unwritable).toEqual([]);
+			expect(await markerPaths(h)).toEqual(["Notes/A.md"]);
+
+			h.vault.before = undefined;
+			const next = await h.pull();
+			expect(next.outcome).toBe("completed");
+			expect(next.halfWritten).toEqual(["Notes/A.md"]);
+			expect(h.vault.trashed).toEqual([{ path: "Notes/A.md", mode: "vault-trash", content: "A2 h" }]);
+			expect(h.vault.text("notes/a.md")).toBe("A3");
+			expect(h.copies()).toEqual([]);
+		});
+
+		test("half a copy that cannot be moved away: the copy and the file it is a copy of are both left alone", async () => {
+			const h = await synced({ "a.md": "A", "b.md": "B" });
+			h.backend.commit({ "a.md": "theirs", "b.md": "B2" });
+			h.vault.put("a.md", "mine");
+			const half = "a.conflict-from-iPhone-20261003-110000.md";
+			await h.store.putMarker(makeMarker(half, null, blobHash("mine"), true));
+			h.vault.put(half, "mi");
+			h.vault.before = (op) => {
+				if (op === "trash") throw new Error("the trash is full");
+			};
+
+			const result = await h.pull();
+			expect(result.outcome).toBe("incomplete");
+			expect(result.deferred).toEqual([{ path: half, reason: "trash-failed" }]);
+			expect(result.halfCopies).toEqual([]);
+			expect(result.conflicts).toEqual([]);
+			// No second copy beside the half one, and the file is not written.
+			expect(h.vault.snapshot()).toEqual({ "a.md": "mine", [half]: "mi", "b.md": "B2" });
+			expect(await markerPaths(h)).toEqual([half]);
+			expect((await h.records())["a.md"]).toBe(blobHash("A"));
+
+			h.vault.before = undefined;
+			const next = await h.pull();
+			const copy = h.copyName("a.md");
+			expect(next.outcome).toBe("completed");
+			expect(next.halfCopies).toEqual([half]);
+			expect(next.halfWritten).toEqual([]);
+			expect(next.conflicts).toEqual([{ path: "a.md", copyPath: copy, cause: "conflict" }]);
+			expect(h.vault.snapshot()).toEqual({ "a.md": "theirs", [copy]: "mine", "b.md": "B2" });
+			expect(h.vault.trashed).toEqual([{ path: half, mode: "vault-trash", content: "mi" }]);
+		});
+
+		/**
+		 * Killed in the middle of the file of a conflict, below `folder`:
+		 * half a file, and a whole copy of what the user had there.
+		 */
+		async function halfOfConflict(folder = "", options: { caseSensitive?: boolean } = {}) {
+			const path = `${folder}a.md`;
+			const h = await synced({ [path]: "A", [`${folder}b.md`]: "B" }, options);
+			const copy = `${folder}a.conflict-from-iPhone-20261003-110000.md`;
+			await h.store.putMarker(makeMarker(copy, null, blobHash("mine"), true));
+			h.vault.put(copy, "mine");
+			await h.store.putMarker(makeMarker(path, blobHash("mine"), blobHash("theirs"), false));
+			h.vault.put(path, "the");
+			return { h, path, copy };
+		}
+
+		test("half the file of a conflict that cannot be moved away: its whole copy waits with it, marker and all, and is told once the file is fetched", async () => {
+			const { h, path, copy } = await halfOfConflict();
+			h.backend.commit({ "a.md": "theirs", "b.md": "B2" });
+			h.vault.before = (op, at) => {
+				if (op === "trash" && at === path) throw new Error("the trash is full");
+			};
+
+			for (let attempt = 0; attempt < 2; attempt++) {
+				const result = await h.pull();
+				expect(result.outcome).toBe("incomplete");
+				// Put off once: the copy waits for the file, and has no failure of its own.
+				expect(result.deferred).toEqual([{ path, reason: "trash-failed" }]);
+				expect(result.conflicts).toEqual([]);
+				expect(result.halfCopies).toEqual([]);
+				expect(h.vault.snapshot()).toEqual({ "a.md": "the", [copy]: "mine", "b.md": "B2" });
+				expect((await markerPaths(h)).sort()).toEqual([copy, path].sort());
+				expect(await h.store.getMeta(AWAITED_CONFLICTS_KEY)).toBeUndefined();
+			}
+
+			h.vault.before = undefined;
+			const result = await h.pull();
+			expect(result.outcome).toBe("completed");
+			expect(result.halfWritten).toEqual([path]);
+			expect(result.conflicts).toEqual([{ path, copyPath: copy, cause: "conflict" }]);
+			expect(h.vault.snapshot()).toEqual({ "a.md": "theirs", [copy]: "mine", "b.md": "B2" });
+			expect(h.vault.trashed).toEqual([{ path, mode: "vault-trash", content: "the" }]);
+			expect(await h.store.readMarkers()).toEqual([]);
+			expect((await h.pull()).conflicts).toEqual([]);
+		});
+
+		test("a whole copy that waits with its file is no file of the plan: it does not follow the other files of a folder the remote spells otherwise now", async () => {
+			const { h, path, copy } = await halfOfConflict("notes/", { caseSensitive: true });
+			h.backend.commit({ "notes/a.md": null, "notes/b.md": null, "Notes/a.md": "theirs", "Notes/b.md": "B" });
+			h.vault.put("notes/unsent.md", "U");
+			h.vault.before = (op, at) => {
+				if (op === "trash" && at === path) throw new Error("the trash is full");
+			};
+
+			const result = await h.pull();
+
+			expect(result.outcome).toBe("incomplete");
+			expect(result.deferred).toEqual([{ path, reason: "trash-failed" }]);
+			// A file the plan knew nothing of would have gone along, as
+			// `unsent.md` does, and its marker would name a path with no file.
+			expect(h.vault.log).toEqual([
+				"rename notes/b.md -> Notes/b.md",
+				"rename notes/unsent.md -> Notes/unsent.md",
+			]);
+			expect(h.vault.snapshot()).toEqual({
+				"notes/a.md": "the",
+				[copy]: "mine",
+				"Notes/b.md": "B",
+				"Notes/unsent.md": "U",
+			});
+			expect((await markerPaths(h)).sort()).toEqual([copy, path].sort());
+			expect(result.conflicts).toEqual([]);
+			expect(h.vault.trashed).toEqual([]);
+		});
+
+		test("a folder the remote spells otherwise now is not renamed as a whole over a file that is held: the file stays at the path of its marker", async () => {
+			const h = await synced({ "notes/x.md": "X", "notes/y.md": "Y" }, { caseSensitive: true });
+			const head = h.backend.commit({
+				"notes/x.md": null,
+				"notes/y.md": null,
+				"Notes/x.md": "X2",
+				"Notes/y.md": "Y",
+			});
+			await h.store.putMarker(makeMarker("notes/x.md", blobHash("X"), blobHash("X2"), false));
+			h.vault.put("notes/x.md", "X2 h");
+			h.vault.before = (op, at) => {
+				if (op === "trash" && at === "notes/x.md") throw new Error("the trash is full");
+			};
+
+			const result = await h.pull();
+
+			expect(result.outcome).toBe("incomplete");
+			expect(result.deferred).toEqual([{ path: "notes/x.md", reason: "trash-failed" }]);
+			expect(h.vault.log).toEqual(["rename notes/y.md -> Notes/y.md"]);
+			expect(h.vault.snapshot()).toEqual({ "notes/x.md": "X2 h", "Notes/y.md": "Y" });
+			expect(await markerPaths(h)).toEqual(["notes/x.md"]);
+			expect(h.copies()).toEqual([]);
+
+			// The marker still finds the file, so it is not taken for the user's.
+			h.vault.before = undefined;
+			const next = await h.pull();
+			expect(next.outcome).toBe("completed");
+			expect(next.halfWritten).toEqual(["notes/x.md"]);
+			expect(next.conflicts).toEqual([]);
+			expect(h.vault.trashed).toEqual([{ path: "notes/x.md", mode: "vault-trash", content: "X2 h" }]);
+			expect(h.vault.snapshot()).toEqual({ "Notes/x.md": "X2", "Notes/y.md": "Y" });
+			expect(h.copies()).toEqual([]);
+			expect(await h.records()).toEqual(hashes({ "Notes/x.md": "X2", "Notes/y.md": "Y" }));
+			expect(await h.store.readMarkers()).toEqual([]);
+			expect(await h.base()).toBe(head);
+		});
+
+		test("a `.gitignore` that cannot be read holds only itself", async () => {
+			const h = await synced({ ".gitignore": "*.log\n", "a.md": "A" });
+			h.backend.commit({ ".gitignore": "*.tmp\n", "a.md": "A2" });
+			await h.store.putMarker(makeMarker(".gitignore", blobHash("*.log\n"), blobHash("*.tmp\n"), false));
+			h.vault.put(".gitignore", "*.t");
+			h.vault.before = (op, path) => {
+				if (op === "read" && path === ".gitignore") throw new Error("the disk does not answer");
+			};
+			const result = await h.pull();
+			expect(result.outcome).toBe("incomplete");
+			expect(result.deferred).toEqual([{ path: ".gitignore", reason: "unreadable" }]);
+			expect(h.vault.snapshot()).toEqual({ ".gitignore": "*.t", "a.md": "A2" });
+		});
+	});
+
+	describe("what was moved away before a pull that then did nothing else", () => {
+		const many = Object.fromEntries(
+			Array.from({ length: 12 }, (_, i) => [`f${String(i).padStart(2, "0")}.md`, `F${i}`]),
+		);
+
+		/** Ten files deleted on the remote, which is asked about, and one left half written. */
+		async function halfAndAsked(): Promise<Harness> {
+			const h = await synced(many);
+			const gone = Object.fromEntries(Object.keys(many).slice(0, 10).map((path) => [path, null]));
+			h.backend.commit({ ...gone, "f11.md": "F11 in full" });
+			await h.store.putMarker(makeMarker("f11.md", blobHash("F11"), blobHash("F11 in full"), false));
+			h.vault.put("f11.md", "F11 in");
+			return h;
+		}
+
+		test("declined: the file is in the trash, its record is gone, the texts say so, and a later pull fetches it", async () => {
+			const h = await halfAndAsked();
+			h.answer = "cancel";
+
+			const result = await h.pull();
+
+			expect(result.outcome).toBe("declined");
+			expect(h.asked).toHaveLength(1);
+			expect(result.halfWritten).toEqual(["f11.md"]);
+			expect(result.counts).toEqual({ fetched: 0, deleted: 0, renamed: 0, conflicts: 0 });
+			expect(h.vault.trashed).toEqual([{ path: "f11.md", mode: "vault-trash", content: "F11 in" }]);
+			const { "f11.md": _moved, ...rest } = many;
+			expect(h.vault.snapshot()).toEqual(rest);
+			expect(await h.records()).toEqual(hashes(rest));
+			expect(await h.store.readMarkers()).toEqual([]);
+			expect(pullReport(translatorFor("ja"), result, reportOptions).summary).toBe(
+				"取り込みをやめました。下に示すファイルだけを、この保管庫の .trash/ へ移しました。ほかは何も変更していません。",
+			);
+			expect(pullReport(translatorFor("en"), result, reportOptions)).toEqual({
+				summary:
+					"The pull was cancelled. Only the files listed below were moved to .trash/ in this vault. Nothing else was changed.",
+				details: [
+					"An earlier pull stopped while it was writing 1 file. What was left of it was moved to .trash/ in this vault. A pull fetches the content of the remote. If you had edited the file since, you can get your edit back from there:\nf11.md",
+				],
+			});
+
+			h.answer = "proceed";
+			const next = await h.pull();
+			expect(next.outcome).toBe("completed");
+			// Told once.
+			expect(next.halfWritten).toEqual([]);
+			expect(h.vault.snapshot()).toEqual({ "f10.md": "F10", "f11.md": "F11 in full" });
+		});
+
+		test("stopped before the plan: the file is in the trash and told, and a later pull fetches it", async () => {
+			const h = await halfAndAsked();
+			const stop = new AbortController();
+			const result = await h.pull({
+				signal: stop.signal,
+				onProgress: (event) => event.phase === "scanning" && stop.abort(),
+			});
+			expect(result.outcome).toBe("cancelled");
+			expect(result.halfWritten).toEqual(["f11.md"]);
+			expect(h.vault.text("f11.md")).toBeUndefined();
+			expect((await h.pull()).outcome).toBe("completed");
+			expect(h.vault.text("f11.md")).toBe("F11 in full");
+		});
+
+		test("a path the plan does not fetch: moved away and told all the same", async () => {
+			// Over the size limit on the remote by now.
+			const h = await synced({ "a.md": "A" });
+			h.backend.commit({ "a.md": "x".repeat(40) });
+			await h.store.putMarker(makeMarker("a.md", blobHash("A"), blobHash("A2"), false));
+			h.vault.put("a.md", "A2 h");
+			const result = await h.pull({ sizeLimit: 20 });
+			expect(result.halfWritten).toEqual(["a.md"]);
+			expect(result.counts.fetched).toBe(0);
+			expect(h.vault.text("a.md")).toBeUndefined();
+			expect(h.vault.trashed).toEqual([{ path: "a.md", mode: "vault-trash", content: "A2 h" }]);
+		});
+
+		test("what is to be told is kept when the pull fails, and told by the next", async () => {
+			const h = await synced({ "a.md": "A" });
+			h.backend.commit({ "a.md": "A2" });
+			await h.store.putMarker(makeMarker("a.md", blobHash("A"), blobHash("A2"), false));
+			h.vault.put("a.md", "A2 h");
+			const half = "b.conflict-from-iPhone-20261003-110000.md";
+			await h.store.putMarker(makeMarker(half, null, blobHash("mine"), true));
+			h.vault.put(half, "mi");
+			h.vault.before = (op) => {
+				if (op === "list") throw new Error("the disk is gone");
+			};
+
+			await expect(h.pull()).rejects.toThrow("the disk is gone");
+			expect(await h.store.getMeta(HALF_WRITTEN_KEY)).toEqual({ files: ["a.md"], copies: [half], conflicts: [] });
+			expect(h.vault.trashed.map((file) => file.path)).toEqual(["a.md", half]);
+
+			h.vault.before = undefined;
+			const result = await h.pull();
+			expect(result.halfWritten).toEqual(["a.md"]);
+			expect(result.halfCopies).toEqual([half]);
+			expect(await h.store.getMeta(HALF_WRITTEN_KEY)).toBeUndefined();
+			expect((await h.pull()).halfWritten).toEqual([]);
+		});
+	});
+
+	test("the remote deleted the path, the file was written in full, and the history was rewritten: deleted through the trash of the vault", async () => {
+		const h = await synced({ "a.md": "A", "b.md": "B" });
+		await h.store.putMarker(makeMarker("a.md", blobHash("A"), blobHash("A2"), false));
+		h.vault.put("a.md", "A2");
+		h.backend.rewriteHistory({ "b.md": "B" });
+
+		const result = await h.pull();
+
+		// The record is made from the marker, so the deletion is one of a
+		// file that was not changed here: asked about, as every deletion is
+		// after a rewrite, and protected like every other.
+		expect(h.asked.map((request) => request.losses?.deletions)).toEqual([[{ key: "a.md", path: "a.md" }]]);
+		expect(result).toMatchObject({ outcome: "completed", rewritten: true });
+		expect(result.counts.deleted).toBe(1);
+		expect(h.vault.trashed).toEqual([{ path: "a.md", mode: "vault-trash", content: "A2" }]);
+		expect(result.trashed).toEqual(["a.md"]);
+		expect(result.halfWritten).toEqual([]);
+		expect(await h.records()).toEqual(hashes({ "b.md": "B" }));
+		expect(await h.store.readMarkers()).toEqual([]);
+	});
+
+	test("killed in the middle of a write whose content came out of the archive: the next pull settles the marker and the mark of the attempt", async () => {
+		const h = harness();
+		const files: Record<string, string> = {};
+		for (let i = 0; i < 1001; i++) files[`n${String(i).padStart(4, "0")}.md`] = `content ${i}`;
+		const head = h.backend.commit(files);
+		let downloads = 0;
+		Object.assign(h.backend, {
+			fetchArchive: async (): Promise<ArchiveContents> => {
+				downloads += 1;
+				return {
+					byteLength: 1,
+					sizeOf: (path) => (files[path] === undefined ? null : bytes(files[path]).length),
+					read: (path) => bytes(files[path] ?? ""),
+				};
+			},
+		});
+		killBeforeWrite(
+			h,
+			(path) => path === "n0000.md",
+			() => h.vault.put("n0000.md", "cont"),
+		);
+		await expect(h.pull()).rejects.toThrow("the app is gone");
+		expect(downloads).toBe(1);
+		expect(await markerPaths(h)).toEqual(["n0000.md"]);
+		expect(await h.store.getMeta(ARCHIVE_ATTEMPT_KEY)).toEqual({ retries: 0 });
+
+		restart(h);
+		h.progress.length = 0;
+		const result = await h.pull();
+
+		expect(result.outcome).toBe("completed");
+		expect(result.halfWritten).toEqual(["n0000.md"]);
+		expect(h.vault.trashed).toEqual([{ path: "n0000.md", mode: "vault-trash", content: "cont" }]);
+		expect(result.counts.fetched).toBe(1001);
+		expect(h.vault.snapshot()).toEqual(files);
+		expect(h.copies()).toEqual([]);
+		// The archive again, as a second attempt, and this one ended.
+		expect(downloads).toBe(2);
+		expect(h.progress.some((event) => event.archive === "retrying")).toBe(true);
+		expect(await h.store.readMarkers()).toEqual([]);
+		expect(await h.store.getMeta(ARCHIVE_ATTEMPT_KEY)).toBeUndefined();
+		expect(await h.store.getMeta(ARCHIVE_DISABLED_KEY)).toBeUndefined();
+		expect(await h.base()).toBe(head);
+	});
+
+	test("a file over the size limit at the path of a marker is moved away without being read", async () => {
+		const h = await synced({ "a.md": "A" });
+		h.backend.commit({ "a.md": "A2" });
+		await h.store.putMarker(makeMarker("a.md", blobHash("A"), blobHash("A2"), false));
+		h.vault.put("a.md", "x".repeat(40));
+		const read: string[] = [];
+		h.vault.before = (op, path) => {
+			if (op === "read") read.push(path);
+		};
+		const result = await h.pull({ sizeLimit: 20 });
+		expect(result.halfWritten).toEqual(["a.md"]);
+		expect(h.vault.trashed.map((file) => file.mode)).toEqual(["vault-trash"]);
+		expect(h.vault.text("a.md")).toBe("A2");
+		expect(read).toEqual([]);
+	});
+
+	describe("where the cases are not told apart, and the remote spells the path otherwise by now", () => {
+		async function left(device: string): Promise<Harness> {
+			const h = await synced({ "Notes/A.md": "A", "b.md": "B" }, { caseSensitive: false });
+			await h.store.putMarker(makeMarker("Notes/A.md", blobHash("A"), blobHash("A2"), false));
+			h.vault.put("Notes/A.md", device);
+			h.backend.commit({ "Notes/A.md": null, "notes/a.md": "A3" });
+			return h;
+		}
+
+		test("a file that was written in full follows the new spelling, with no conflict", async () => {
+			const h = await left("A2");
+			const result = await h.pull();
+			expect(result.outcome).toBe("completed");
+			expect(result.conflicts).toEqual([]);
+			expect(result.halfWritten).toEqual([]);
+			expect(h.vault.trashed).toEqual([]);
+			expect(h.vault.snapshot()).toEqual({ "notes/a.md": "A3", "b.md": "B" });
+			expect(await h.records()).toEqual(hashes({ "notes/a.md": "A3", "b.md": "B" }));
+			expect(await h.store.readMarkers()).toEqual([]);
+		});
+
+		test("a half file is moved away and fetched under the new spelling", async () => {
+			const h = await left("A2 h");
+			const result = await h.pull();
+			expect(result.outcome).toBe("completed");
+			expect(result.conflicts).toEqual([]);
+			expect(result.halfWritten).toEqual(["Notes/A.md"]);
+			expect(h.vault.trashed).toEqual([{ path: "Notes/A.md", mode: "vault-trash", content: "A2 h" }]);
+			expect(h.vault.text("notes/a.md")).toBe("A3");
+			expect(h.copies()).toEqual([]);
+			expect(await h.records()).toEqual(hashes({ "notes/a.md": "A3", "b.md": "B" }));
+			expect(await h.store.readMarkers()).toEqual([]);
+		});
+
+		test("a marker stored under another case than the file has finds the file", async () => {
+			const h = await synced({ "Notes/A.md": "A" }, { caseSensitive: false });
+			h.backend.commit({ "Notes/A.md": null, "notes/a.md": "A2" });
+			// The pull that stopped was writing under the new spelling.
+			await h.store.putMarker(makeMarker("notes/a.md", blobHash("A"), blobHash("A2"), false));
+			h.vault.put("Notes/A.md", "A2 h");
+			const result = await h.pull();
+			expect(result.outcome).toBe("completed");
+			expect(h.vault.trashed.map((file) => file.content)).toEqual(["A2 h"]);
+			expect(h.vault.text("notes/a.md")).toBe("A2");
+			expect(h.copies()).toEqual([]);
+			expect(await h.store.readMarkers()).toEqual([]);
+		});
+	});
+
+	describe("the first fetch command", () => {
+		/** As on a device: the store that was open is closed, and another one, empty, takes its place. */
+		function startingOver(h: Harness): Partial<PullDeps> {
+			return {
+				discardState: async (seed) => {
+					await h.store.close();
+					h.store = new MemoryStateStore();
+					await h.store.startOver(seed);
+					return h.store;
+				},
+			};
+		}
+
+		/** Killed in the middle of writing `a.md`. */
+		async function killedMidWrite(): Promise<Harness> {
+			const h = await synced({ "a.md": "A", "b.md": "B" });
+			h.backend.commit({ "a.md": "A2 in full" });
+			killBeforeWrite(
+				h,
+				(path) => path === "a.md",
+				() => h.vault.put("a.md", "A2 in"),
+			);
+			await expect(h.pull()).rejects.toThrow("the app is gone");
+			restart(h);
+			return h;
+		}
+
+		test("a no leaves the markers, the vault and the sync state alone", async () => {
+			const h = await killedMidWrite();
+			const old = h.store;
+			await old.setMeta(HALF_WRITTEN_KEY, { files: ["x.md"], copies: [], conflicts: [] });
+			h.answer = "cancel";
+
+			const result = await h.pull(startingOver(h));
+
+			expect(result.outcome).toBe("declined");
+			expect(result.halfWritten).toEqual([]);
+			expect(h.vault.trashed).toEqual([]);
+			expect(h.vault.log).toEqual([]);
+			expect(h.vault.text("a.md")).toBe("A2 in");
+			expect(h.store).toBe(old);
+			expect(await markerPaths(h)).toEqual(["a.md"]);
+			expect(await old.getMeta(HALF_WRITTEN_KEY)).toEqual({ files: ["x.md"], copies: [], conflicts: [] });
+			expect(pullReport(translatorFor("en"), result, reportOptions).summary).toBe(
+				"The pull was cancelled. Nothing was changed.",
+			);
+		});
+
+		test("a yes: the half file is no conflict copy; it is in the trash and told, and the name gets the remote's content", async () => {
+			for (const edited of [false, true]) {
+				const h = await killedMidWrite();
+				if (edited) h.vault.put("a.md", "A2 in, and what I typed");
+				const left = edited ? "A2 in, and what I typed" : "A2 in";
+
+				const result = await h.pull(startingOver(h));
+
+				// Asked once, from the vault as it was: the file differs.
+				expect(h.asked).toHaveLength(1);
+				expect(h.asked[0]?.firstFetch?.files.different).toEqual(["a.md"]);
+				expect(result.outcome).toBe("completed");
+				expect(result.conflicts).toEqual([]);
+				expect(h.copies()).toEqual([]);
+				expect(h.vault.trashed).toEqual([{ path: "a.md", mode: "vault-trash", content: left }]);
+				expect(result.halfWritten).toEqual(["a.md"]);
+				expect(result.counts.fetched).toBe(1);
+				expect(h.vault.snapshot()).toEqual({ "a.md": "A2 in full", "b.md": "B" });
+				expect(await h.records()).toEqual(hashes({ "a.md": "A2 in full", "b.md": "B" }));
+				expect(await h.store.readMarkers()).toEqual([]);
+				expect(await h.store.getMeta(HALF_WRITTEN_KEY)).toBeUndefined();
+				// Told once, and nothing is left to send as a change of this device.
+				const next = await h.pull();
+				expect(next.outcome).toBe("completed");
+				expect(next.halfWritten).toEqual([]);
+				expect(h.asked).toHaveLength(1);
+			}
+		});
+
+		test("a yes: what an earlier pull moved away and did not tell is told, and does not outlive the state", async () => {
+			const h = await synced({ "a.md": "A" });
+			await h.store.setMeta(HALF_WRITTEN_KEY, { files: ["x.md"], copies: ["y.md"], conflicts: [] });
+
+			const result = await h.pull(startingOver(h));
+
+			expect(result.outcome).toBe("completed");
+			expect(result.halfWritten).toEqual(["x.md"]);
+			expect(result.halfCopies).toEqual(["y.md"]);
+			expect(await h.store.getMeta(HALF_WRITTEN_KEY)).toBeUndefined();
+			expect((await h.pull()).halfWritten).toEqual([]);
+		});
+
+		test("a yes, and killed right after the state was discarded: what was moved away is told by the next pull", async () => {
+			const h = await killedMidWrite();
+			const stop = new AbortController();
+			const result = await h.pull({
+				signal: stop.signal,
+				discardState: async (seed) => {
+					await h.store.close();
+					h.store = new MemoryStateStore();
+					await h.store.startOver(seed);
+					stop.abort();
+					return h.store;
+				},
+			});
+			expect(result.outcome).toBe("cancelled");
+			expect(result.halfWritten).toEqual(["a.md"]);
+			expect(h.vault.text("a.md")).toBeUndefined();
+
+			const next = await h.pull();
+			expect(next.outcome).toBe("completed");
+			expect(h.vault.snapshot()).toEqual({ "a.md": "A2 in full", "b.md": "B" });
+			expect(h.copies()).toEqual([]);
+		});
+
+		test("a yes, with a file that cannot be moved away: its marker goes on to the new state, and the file is left alone", async () => {
+			const h = await killedMidWrite();
+			h.vault.before = (op, path) => {
+				if (op === "trash" && path === "a.md") throw new Error("the trash is full");
+			};
+
+			const result = await h.pull(startingOver(h));
+
+			expect(result.outcome).toBe("incomplete");
+			expect(result.deferred).toEqual([{ path: "a.md", reason: "trash-failed" }]);
+			expect(result.halfWritten).toEqual([]);
+			expect(h.vault.snapshot()).toEqual({ "a.md": "A2 in", "b.md": "B" });
+			expect(h.copies()).toEqual([]);
+			expect(await markerPaths(h)).toEqual(["a.md"]);
+			expect(await h.records()).toEqual(hashes({ "b.md": "B" }));
+			expect(await h.base()).toBeNull();
+
+			h.vault.before = undefined;
+			const next = await h.pull();
+			expect(next.outcome).toBe("completed");
+			expect(next.halfWritten).toEqual(["a.md"]);
+			expect(h.vault.snapshot()).toEqual({ "a.md": "A2 in full", "b.md": "B" });
+			expect(h.copies()).toEqual([]);
+			expect(h.asked).toHaveLength(1);
+		});
+
+		test("a yes, with half the file of a conflict that cannot be moved away: the marker of its whole copy goes on to the new state too", async () => {
+			const h = await synced({ "a.md": "A", "b.md": "B" });
+			h.backend.commit({ "a.md": "theirs" });
+			h.vault.put("a.md", "mine");
+			killBeforeWrite(
+				h,
+				(path) => path === "a.md",
+				() => h.vault.put("a.md", "the"),
+			);
+			await expect(h.pull()).rejects.toThrow("the app is gone");
+			const copy = h.copyName("a.md");
+			restart(h);
+			h.vault.before = (op, path) => {
+				if (op === "trash" && path === "a.md") throw new Error("the trash is full");
+			};
+			const old = h.store;
+
+			const result = await h.pull(startingOver(h));
+
+			expect(h.store).not.toBe(old);
+			expect(result.outcome).toBe("incomplete");
+			expect(result.deferred).toEqual([{ path: "a.md", reason: "trash-failed" }]);
+			// The copy is left as it is: not counted, not moved, not told yet.
+			expect(result.counts).toEqual({ fetched: 0, deleted: 0, renamed: 0, conflicts: 0 });
+			expect(result.conflicts).toEqual([]);
+			expect(h.vault.log).toEqual([]);
+			expect(h.vault.snapshot()).toEqual({ "a.md": "the", [copy]: "mine", "b.md": "B" });
+			expect((await markerPaths(h)).sort()).toEqual([copy, "a.md"].sort());
+			expect(await h.records()).toEqual(hashes({ "b.md": "B" }));
+
+			h.vault.before = undefined;
+			const next = await h.pull();
+			expect(next.outcome).toBe("completed");
+			expect(next.halfWritten).toEqual(["a.md"]);
+			expect(next.conflicts).toEqual([{ path: "a.md", copyPath: copy, cause: "conflict" }]);
+			expect(h.vault.snapshot()).toEqual({ "a.md": "theirs", [copy]: "mine", "b.md": "B" });
+			expect(h.copies()).toEqual([copy]);
+			expect(await h.store.readMarkers()).toEqual([]);
+			expect((await h.pull()).conflicts).toEqual([]);
+		});
+
+		test("a yes, and killed right after the state was discarded: the new state already has the markers and what is to be told", async () => {
+			// `a.md` is moved away; `b.md` is half written too and cannot be,
+			// and a conflict of `b.md` waits for it.
+			const h = await killedMidWrite();
+			await h.store.putMarker(makeMarker("b.md", blobHash("B"), blobHash("B2"), false));
+			h.vault.put("b.md", "B h");
+			const copy = "b.conflict-from-iPhone-20261003-110000.md";
+			h.vault.put(copy, "mine");
+			const awaited = [{ path: "b.md", copyPath: copy, hash: blobHash("mine") }];
+			await h.store.setMeta(AWAITED_CONFLICTS_KEY, awaited);
+			h.vault.before = (op, path) => {
+				h.crash.gate(VAULT_CHANGES.has(op));
+				if (op === "trash" && path === "b.md") throw new Error("the trash is full");
+			};
+			const head = (await h.store.getListing())?.revision;
+
+			await expect(
+				h.pull({
+					discardState: async (seed) => {
+						await h.store.close();
+						h.store = new MemoryStateStore();
+						await h.store.startOver(seed);
+						// Nothing runs after the step that discards.
+						h.crash.dead = true;
+						return h.store;
+					},
+				}),
+			).rejects.toThrow("the app is gone");
+
+			expect(await markerPaths(h)).toEqual(["b.md"]);
+			expect(await h.store.getMeta(HALF_WRITTEN_KEY)).toEqual({ files: ["a.md"], copies: [], conflicts: [] });
+			expect(await h.store.getMeta(AWAITED_CONFLICTS_KEY)).toEqual(awaited);
+			expect((await h.store.getListing())?.revision).toBe(head);
+			expect(await h.records()).toEqual({});
+			expect(h.vault.snapshot()).toEqual({ "b.md": "B h", [copy]: "mine" });
+
+			// The half file is still known for one: moved away, and not kept
+			// as a copy of a conflict or sent.
+			restart(h);
+			const next = await h.pull();
+			expect(next.outcome).toBe("completed");
+			expect(next.halfWritten).toEqual(["a.md", "b.md"]);
+			expect(next.conflicts).toEqual([{ path: "b.md", copyPath: copy, cause: "conflict" }]);
+			expect(h.vault.trashed.map((file) => file.content)).toEqual(["A2 in", "B h"]);
+			expect(h.vault.snapshot()).toEqual({ "a.md": "A2 in full", "b.md": "B", [copy]: "mine" });
+			expect(h.copies()).toEqual([copy]);
+			expect(await h.store.readMarkers()).toEqual([]);
+		});
+
+		test("a yes, and stopped while the markers are settled: nothing is discarded", async () => {
+			const h = await killedMidWrite();
+			const old = h.store;
+			const stop = new AbortController();
+			h.answer = () => {
+				stop.abort();
+				return "proceed";
+			};
+			const result = await h.pull({ signal: stop.signal, ...startingOver(h) });
+			expect(result.outcome).toBe("cancelled");
+			expect(h.store).toBe(old);
+			expect(await markerPaths(h)).toEqual(["a.md"]);
+			expect(h.vault.text("a.md")).toBe("A2 in");
+		});
+	});
+});
+
+describe("stopping a pull while the remote is asked", () => {
+	test("the listing is not waited for: the pull ends at once, and nothing is changed", async () => {
+		const h = await synced({ "a.md": "A" });
+		const base = await h.base();
+		h.backend.commit({ "a.md": "A2" });
+		const stop = new AbortController();
+		const real = h.backend.list.bind(h.backend);
+		let answered = false;
+		h.backend.list = (known) => {
+			queueMicrotask(() => stop.abort());
+			// The request cannot be taken back, and never answers here.
+			return new Promise<ListResult>(() => {}).finally(() => {
+				answered = true;
+			});
+		};
+		await expect(h.pull({ signal: stop.signal })).rejects.toMatchObject({ kind: "cancelled" });
+		expect(answered).toBe(false);
+		expect(h.vault.text("a.md")).toBe("A");
+		expect(await h.base()).toBe(base);
+
+		h.backend.list = real;
+		expect((await h.pull()).outcome).toBe("completed");
+		expect(h.vault.text("a.md")).toBe("A2");
+	});
+
+	test("the check of the history is not waited for either", async () => {
+		const h = await synced({ "a.md": "A" });
+		h.backend.commit({ "a.md": "A2" });
+		const stop = new AbortController();
+		h.backend.checkBase = () => {
+			queueMicrotask(() => stop.abort());
+			return new Promise<BaseRelation>(() => {});
+		};
+		await expect(h.pull({ signal: stop.signal })).rejects.toMatchObject({ kind: "cancelled" });
+		expect(h.vault.text("a.md")).toBe("A");
+	});
+
+	test("the `.gitignore` of the remote is not waited for: the pull ends as stopped", async () => {
+		const h = await synced({ ".gitignore": "*.log\n", "a.md": "A" });
+		const base = await h.base();
+		h.backend.commit({ ".gitignore": "*.tmp\n", "a.md": "A2" });
+		const stop = new AbortController();
+		const real = h.backend.fetch.bind(h.backend);
+		let returned = false;
+		h.backend.fetch = () => ({
+			[Symbol.asyncIterator]: () => ({
+				next: () => {
+					queueMicrotask(() => stop.abort());
+					// The request cannot be taken back, and never answers here.
+					return new Promise<IteratorResult<FetchedFile>>(() => {});
+				},
+				return: async () => {
+					returned = true;
+					return { done: true, value: undefined };
+				},
+			}),
+		});
+
+		const result = await h.pull({ signal: stop.signal });
+
+		expect(result.outcome).toBe("cancelled");
+		expect(returned).toBe(true);
+		expect(h.vault.snapshot()).toEqual({ ".gitignore": "*.log\n", "a.md": "A" });
+		expect(await h.base()).toBe(base);
+
+		h.backend.fetch = real;
+		expect((await h.pull()).outcome).toBe("completed");
+		expect(h.vault.snapshot()).toEqual({ ".gitignore": "*.tmp\n", "a.md": "A2" });
 	});
 });

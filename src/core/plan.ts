@@ -15,7 +15,7 @@
 
 import type { EntryKind, RemoteEntry } from "./backend";
 import { type Exclusion, type HardExclusion, type KnownPaths, knownPaths } from "./exclusion";
-import { isPathFromRoot, pathKey } from "./paths";
+import { foldedKey, isPathFromRoot, pathKey } from "./paths";
 
 export interface LocalEntry {
 	/** Path from the vault root, spelled as the scan returned it. */
@@ -117,6 +117,11 @@ export type SkipReason =
 	 */
 	| HardExclusion
 	/**
+	 * Named by `PlanInput.held`: what is at the path could not be looked at
+	 * safely just now, so nothing is decided about it.
+	 */
+	| "held"
+	/**
 	 * Only in the vault, never synced, and matched by a rule of `.gitignore`.
 	 * Not every such file is listed: the scan already leaves most of them out.
 	 */
@@ -147,6 +152,16 @@ export interface PlanInput {
 	readonly exclusion: Exclusion;
 	/** The largest file that is synced, in bytes. `DEFAULT_SIZE_LIMIT` when absent. */
 	readonly sizeLimit?: number;
+	/**
+	 * Paths to leave alone on every side, as `foldedKey` gives them: every
+	 * path that could be the same file where the cases are not told apart is
+	 * turned away with the reason "held". For a file that may be half
+	 * written and could not be put right (`settleMarkers` in `pull.ts`): its
+	 * content must not be compared, written over, sent, or kept as a copy.
+	 * The hash of a vault entry at such a path is not looked at, and may be
+	 * empty.
+	 */
+	readonly held?: ReadonlySet<string>;
 }
 
 /** 50 MB. A phone holds a whole file in memory to fetch or send it. */
@@ -193,6 +208,7 @@ export function planSync(input: PlanInput): SyncPlan {
 		const reason: SkipReason | undefined = !isPathFromRoot(key)
 			? "invalid-path"
 			: (input.exclusion.hardExclusionOf(key) ??
+				(input.held?.has(foldedKey(key)) === true ? "held" : undefined) ??
 				skipReason(key, [onRemote, onLocal, onRecords], collided, nonFiles) ??
 				(isTooLarge(onRemote, sizeLimit) || isTooLarge(onLocal, sizeLimit) ? "too-large" : undefined));
 		if (reason !== undefined) {

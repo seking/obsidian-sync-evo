@@ -746,6 +746,12 @@ interface FolderPlan {
 // holds both folders; the files are then moved one by one into the folder
 // that is there, and the files of the old folder that the remote does not
 // have follow them.
+//
+// Not in one call either when a file below it is held (`PlanInput.held`): it
+// would go along, away from the path its write marker names. Where the cases
+// are told apart, the next pull would find no file there, drop the marker,
+// and take what may be half a file for the user's. The other files are moved
+// one by one then, and the held one stays where it is.
 function planFolderRenames(state: Draft): FolderPlan {
 	// Folder as the vault spells it (as a key) → the same folder as the
 	// remote spells it. Within one listing a folder has one spelling, or the
@@ -770,6 +776,9 @@ function planFolderRenames(state: Draft): FolderPlan {
 	// vault folders (`notes` and `NOTES`) can lead to one remote folder; the
 	// second finds it there, though the scan did not.
 	const claimed = new Set<string>();
+	const held = state.input.local.filter((entry) => state.skipReasons.get(pathKey(entry.path)) === "held");
+	const holdsBelow = (folder: string): boolean =>
+		held.some((entry) => pathKey(entry.path).startsWith(`${folder}/`));
 	const byDepth = [...respelled].sort(([a], [b]) => depthOf(a) - depthOf(b) || compare(a, b));
 	for (const [key, { was, to }] of byDepth) {
 		const above = respelled.get(parentOf(key));
@@ -791,7 +800,8 @@ function planFolderRenames(state: Draft): FolderPlan {
 		const free =
 			!state.localFolders.has(pathKey(to)) &&
 			!(above !== undefined && state.localFolders.has(carried)) &&
-			!claimed.has(pathKey(to));
+			!claimed.has(pathKey(to)) &&
+			!holdsBelow(key);
 		whole.set(key, free);
 		if (!free) continue;
 		claimed.add(pathKey(to));

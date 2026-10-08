@@ -104,8 +104,10 @@ export const ja = completeTranslation(en, {
 
 	"command.pull": "保存先から取り込む（pull）",
 	"command.firstFetch": "初回取得（同期の状態を捨ててやり直す）",
+	"command.stop": "同期を中止する",
 
 	"pull.alreadyRunning": "取り込みは、すでに実行中です。",
+	"pull.notRunning": "同期は実行していません。",
 	"pull.progress.starting": "取り込み：始めています…",
 	"pull.progress.listing": "取り込み：保存先を確認中…",
 	"pull.progress.scanning": "取り込み：保管庫を確認中…",
@@ -113,6 +115,8 @@ export const ja = completeTranslation(en, {
 	"pull.progress.applyingStart": "取り込み：ファイルを更新中…",
 	"pull.progress.applying": "取り込み：ファイルを更新中（{done}/{total}）…",
 	"pull.progress.downloadingArchive": "取り込み：全ファイルをまとめて取得中…",
+	"pull.progress.archiveWaiting": "取り込み：中止した取り込みの取得が終わるのを待っています…",
+	"pull.progress.stopping": "取り込み：中止しています…",
 	"pull.progress.archiveRetry":
 		"前回は、取得が終わりませんでした。終わるまで、Obsidian を前に出したまま待ってください。",
 	"pull.progress.graphClosed":
@@ -132,7 +136,10 @@ export const ja = completeTranslation(en, {
 	"pull.upToDate": "取り込むものはありません。このデバイスは最新です。",
 	"pull.remoteEmpty": "保存先は空で、コミットがまだありません。取り込むものはありません。",
 	"pull.declined": "取り込みをやめました。何も変更していません。",
+	"pull.declinedAfterTrash":
+		"取り込みをやめました。下に示すファイルだけを、この保管庫の .trash/ へ移しました。ほかは何も変更していません。",
 	"pull.cancelled": "取り込みを中止しました。次の取り込みで、続きから進みます。",
+	"pull.cancelledAfter": "中止するまでに済んだ分：{details}",
 	"pull.connectionChanged":
 		"接続先が変わったため、取り込みを中止しました。次の取り込みは、新しい接続先で始めます。",
 	"pull.failed": "取り込みに失敗しました。{reason}",
@@ -143,6 +150,7 @@ export const ja = completeTranslation(en, {
 	"pull.incompleteSome": "一部のファイルを取り込めませんでした。次の同期で、もう一度試します。{reason}",
 	"pull.reason.hashMismatch": "GitHub から受け取った内容が、GitHub の一覧と合いませんでした。",
 	"pull.reason.unreadable": "このデバイスのファイルを読めませんでした。",
+	"pull.reason.trashFailed": "このデバイスのファイルを、この保管庫の .trash/ へ移せませんでした。",
 	"pull.conflicts": "このデバイスのファイル {count} 件の内容を、別名で残しました：\n{list}",
 	"pull.conflict.conflict": "{copy}（競合。{path} は保存先の内容になりました）",
 	"pull.conflict.becameSymlink":
@@ -151,6 +159,10 @@ export const ja = completeTranslation(en, {
 	"pull.conflict.nameTaken": "{copy}（保存先で、別のファイルの名前が {path} に変わりました）",
 	"pull.trashed":
 		"{count} 件のファイルを、置き換える前または削除する前に、この保管庫の .trash/ へ移しました。そこから戻せます：\n{list}",
+	"pull.halfWritten":
+		"前の取り込みが、{count} 件のファイルを書いている途中で止まっていました。残っていた内容は、この保管庫の .trash/ へ移しました。保存先の内容は、取り込みで取得します。その後に編集していた時は、そこから戻せます：\n{list}",
+	"pull.halfCopies":
+		"前の取り込みが作りかけていた競合の別名 {count} 件を、この保管庫の .trash/ へ移しました。別名は作り直します。別名を編集していた時は、編集した内容がそこにあります：\n{list}",
 	"pull.keptLocal":
 		"選んだとおり、このデバイスのファイル {count} 件をそのまま残しました。保存先の内容とは異なります：\n{list}",
 	"pull.symlinks":

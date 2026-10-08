@@ -14,6 +14,7 @@ import {
 	ARCHIVE_ATTEMPT_KEY,
 	ARCHIVE_DISABLED_KEY,
 	ARCHIVE_FILE_THRESHOLD,
+	ArchiveGate,
 	chooseFetchMeans,
 	COMPRESSED_EXTENSIONS,
 	estimateArchiveSize,
@@ -1171,5 +1172,102 @@ describe("what a pull by archive shows and records", () => {
 		expect(result.outcome).toBe("incomplete");
 		expect(result.deferred).toEqual([{ path: "a.md", reason: "hash-mismatch" }]);
 		expect(h.vault.snapshot()).toEqual({ "b.md": "B" });
+	});
+});
+
+describe("an archive a stopped pull left on its way", () => {
+	/** A pull that is stopped while its archive is on its way; `answer` lets that request end. */
+	async function stoppedMidDownload(h: Harness, archiveGate: ArchiveGate): Promise<{ answer: () => void }> {
+		let answer = (): void => {};
+		const stop = new AbortController();
+		h.backend.beforeZip = () => {
+			stop.abort();
+			return new Promise<void>((resolve) => {
+				answer = resolve;
+			});
+		};
+		const result = await h.pull({ signal: stop.signal, archiveGate });
+		expect(result.outcome).toBe("cancelled");
+		h.backend.beforeZip = undefined;
+		return { answer: () => answer() };
+	}
+
+	const settle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
+
+	test("the next pull waits for it to end before it asks for an archive, and says so", async () => {
+		const h = harness();
+		h.backend.commit(notes(1001));
+		const archiveGate = new ArchiveGate();
+		const { answer } = await stoppedMidDownload(h, archiveGate);
+		expect(archiveGate.pending).not.toBeNull();
+
+		const second = h.pull({ archiveGate });
+		await settle();
+		// Nothing was asked for, and nothing marked: killed here, the attempt
+		// that had not begun is not counted as one that did not end.
+		expect(h.backend.zipRequests.length).toBe(1);
+		expect(await h.attempt()).toBeUndefined();
+		expect(last(h.progress)?.archive).toBe("waiting");
+		expect(h.vault.paths()).toEqual([]);
+
+		answer();
+		const result = await second;
+		expect(result.outcome).toBe("completed");
+		expect(h.backend.zipRequests.length).toBe(2);
+		expect(h.perFile).toEqual([]);
+		expect(h.vault.paths().length).toBe(1001);
+		expect(archiveGate.pending).toBeNull();
+		expect(await h.attempt()).toBeUndefined();
+		// The line of the wait is taken away before the download has its own.
+		const shown = h.progress.map((event) => event.archive);
+		expect(shown.indexOf("downloading", shown.indexOf("waiting"))).toBeGreaterThan(shown.indexOf("waiting"));
+	});
+
+	test("a request that failed is over as well", async () => {
+		const h = harness();
+		h.backend.commit(notes(1001));
+		const archiveGate = new ArchiveGate();
+		const { answer } = await stoppedMidDownload(h, archiveGate);
+		h.backend.zipFailure = new BackendError("unreachable", "timed out");
+		answer();
+		await settle();
+		expect(archiveGate.pending).toBeNull();
+		h.backend.zipFailure = undefined;
+
+		expect((await h.pull({ archiveGate })).outcome).toBe("completed");
+		expect(h.progress.some((event) => event.archive === "waiting")).toBe(false);
+	});
+
+	test("stopping during the wait ends the pull at once, with nothing asked for and no mark", async () => {
+		const h = harness();
+		h.backend.commit(notes(1001));
+		const archiveGate = new ArchiveGate();
+		await stoppedMidDownload(h, archiveGate);
+
+		const stop = new AbortController();
+		const second = h.pull({ signal: stop.signal, archiveGate });
+		await settle();
+		stop.abort();
+		const result = await second;
+		expect(result.outcome).toBe("cancelled");
+		expect(h.backend.zipRequests.length).toBe(1);
+		expect(await h.attempt()).toBeUndefined();
+		expect(await h.disabled()).toBe(false);
+		expect(last(h.progress)?.archive).toBeUndefined();
+		// The first request is still the one that is waited for.
+		expect(archiveGate.pending).not.toBeNull();
+	});
+
+	test("a pull that fetches one file at a time does not wait", async () => {
+		const h = harness();
+		h.backend.commit(notes(1001));
+		const archiveGate = new ArchiveGate();
+		await stoppedMidDownload(h, archiveGate);
+		h.vault.putAll(notes(1000));
+
+		const result = await h.pull({ archiveGate });
+		expect(result.outcome).toBe("completed");
+		expect(h.perFile).toEqual([["notes/1001.md"]]);
+		expect(h.progress.some((event) => event.archive === "waiting")).toBe(false);
 	});
 });

@@ -199,11 +199,10 @@ export class SyncState {
 			this.close();
 			const result = await discardStateDb(this.deps.appId(), this.deps.indexedDb(), this.deps.onDiscardBlocked);
 			// A request whose turn is still to come keeps the discard due. An
-			// open may be queued ahead of it (the "first fetch" command asks
-			// for a discard and an open, and a change of the connection can
-			// come while they run): what that open makes is what the later
-			// request is about, and it must be removed in its turn, or after
-			// a restart. With no request waiting, nothing was opened since the
+			// open may be queued ahead of it (a sync that starts between two
+			// changes of the connection): what that open makes is what the
+			// later request is about, and it must be removed in its turn, or
+			// after a restart. With no request waiting, nothing was opened since the
 			// removal, and clearing is right.
 			if (result.status === "ok" && this.discardsWaiting === 0) {
 				this.discardRequested = false;

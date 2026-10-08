@@ -114,9 +114,11 @@ export const en = baseCatalog({
 	// The commands.
 	"command.pull": "Pull",
 	"command.firstFetch": "First fetch (discard the sync state and start over)",
+	"command.stop": "Stop the sync",
 
 	// A pull: its progress, its outcome, and what the user has to know of it.
 	"pull.alreadyRunning": "A pull is already running.",
+	"pull.notRunning": "No sync is running.",
 	"pull.progress.starting": "Pull: starting…",
 	"pull.progress.listing": "Pull: checking the remote…",
 	"pull.progress.scanning": "Pull: looking through the vault…",
@@ -124,6 +126,8 @@ export const en = baseCatalog({
 	"pull.progress.applyingStart": "Pull: updating files…",
 	"pull.progress.applying": "Pull: updating files ({done}/{total})…",
 	"pull.progress.downloadingArchive": "Pull: downloading all files at once…",
+	"pull.progress.archiveWaiting": "Pull: waiting for the download of the stopped pull to end…",
+	"pull.progress.stopping": "Pull: stopping…",
 	"pull.progress.archiveRetry":
 		"The last download did not finish. Keep Obsidian in front and wait until this one is done.",
 	"pull.progress.graphClosed":
@@ -147,7 +151,10 @@ export const en = baseCatalog({
 	"pull.upToDate": "Nothing to pull. This device is up to date.",
 	"pull.remoteEmpty": "The remote is empty: it has no commits yet. There is nothing to pull.",
 	"pull.declined": "The pull was cancelled. Nothing was changed.",
+	"pull.declinedAfterTrash":
+		"The pull was cancelled. Only the files listed below were moved to .trash/ in this vault. Nothing else was changed.",
 	"pull.cancelled": "The pull was stopped. The next pull continues from there.",
+	"pull.cancelledAfter": "Done before it stopped: {details}.",
 	"pull.connectionChanged":
 		"The pull was stopped because the connection was changed. The next pull starts with the new connection.",
 	"pull.failed": "The pull failed. {reason}",
@@ -161,6 +168,7 @@ export const en = baseCatalog({
 	"pull.incompleteSome": "Some files could not be pulled and are left for the next sync. {reason}",
 	"pull.reason.hashMismatch": "The content GitHub sent did not match its own listing.",
 	"pull.reason.unreadable": "A file on this device could not be read.",
+	"pull.reason.trashFailed": "A file on this device could not be moved to .trash/ in this vault.",
 	"pull.conflicts": {
 		one: "The content of {count} file on this device was kept under another name:\n{list}",
 		other: "The content of {count} files on this device was kept under another name:\n{list}",
@@ -173,6 +181,14 @@ export const en = baseCatalog({
 	"pull.trashed": {
 		one: "{count} file was moved to .trash/ in this vault before the pull replaced or removed it. You can get it back from there:\n{list}",
 		other: "{count} files were moved to .trash/ in this vault before the pull replaced or removed them. You can get them back from there:\n{list}",
+	},
+	"pull.halfWritten": {
+		one: "An earlier pull stopped while it was writing {count} file. What was left of it was moved to .trash/ in this vault. A pull fetches the content of the remote. If you had edited the file since, you can get your edit back from there:\n{list}",
+		other: "An earlier pull stopped while it was writing {count} files. What was left of them was moved to .trash/ in this vault. A pull fetches the content of the remote. If you had edited them since, you can get your edits back from there:\n{list}",
+	},
+	"pull.halfCopies": {
+		one: "{count} conflict copy that an earlier pull left unfinished was moved to .trash/ in this vault. A complete copy is made again. If you had edited the copy, your edit is there:\n{list}",
+		other: "{count} conflict copies that an earlier pull left unfinished were moved to .trash/ in this vault. Complete copies are made again. If you had edited the copies, your edits are there:\n{list}",
 	},
 	"pull.keptLocal": {
 		one: "{count} file was left as it is on this device, as you chose. It differs from the remote:\n{list}",

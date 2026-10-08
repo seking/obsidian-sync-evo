@@ -21,6 +21,7 @@ import {
 	isStatUpdateOf,
 	plainMarker,
 	plainRecord,
+	type StateSeed,
 	type StateStore,
 	type StoredRecord,
 	type WriteMarker,
@@ -312,6 +313,29 @@ export class IdbStateStore implements StateStore {
 	deleteMeta(key: string): Promise<void> {
 		return this.write([META], (transaction) => {
 			transaction.objectStore(META).delete(key);
+		});
+	}
+
+	/**
+	 * Empties the sync state and stores `seed` in it, in one transaction:
+	 * for the "first fetch" command, which starts over with the connection
+	 * it has. Stopped at any moment, the app finds the state as it was or
+	 * the new one with all of `seed`, and never an empty one that has
+	 * forgotten which files were left half written. Removing the database
+	 * and opening another cannot give that.
+	 *
+	 * Not for a change of the connection (`discardStateDb`): that has to
+	 * work on a database that cannot be opened, and has to close it under
+	 * the other windows of the vault.
+	 */
+	startOver(seed: StateSeed): Promise<void> {
+		const markers = seed.markers.map(plainMarker);
+		return this.write([RECORDS, MARKERS, LISTING, META], (transaction) => {
+			for (const name of [RECORDS, MARKERS, LISTING, META] as const) transaction.objectStore(name).clear();
+			for (const marker of markers) transaction.objectStore(MARKERS).put(marker);
+			const { revision, entries } = seed.listing;
+			transaction.objectStore(LISTING).put({ revision, entries }, LISTING_KEY);
+			for (const [key, value] of seed.meta) transaction.objectStore(META).put(value, key);
 		});
 	}
 

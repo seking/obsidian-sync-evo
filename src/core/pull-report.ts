@@ -125,7 +125,8 @@ export function pullProgressText(
 			text = total > 0 ? t("pull.progress.hashing", { done, total }) : t("pull.progress.scanning");
 			break;
 		case "applying":
-			if (progress.archive !== undefined) text = t("pull.progress.downloadingArchive");
+			if (progress.archive === "waiting") text = t("pull.progress.archiveWaiting");
+			else if (progress.archive !== undefined) text = t("pull.progress.downloadingArchive");
 			else text = total > 0 ? t("pull.progress.applying", { done, total }) : t("pull.progress.applyingStart");
 			break;
 	}
@@ -260,7 +261,7 @@ export interface PullReportOptions {
 // The reasons a file is put off that say something went wrong. The others
 // are an editor in the middle of typing: the next sync takes the file, and
 // there is nothing for the user to do or to know.
-const FAILURES: readonly DeferReason[] = ["fetch-failed", "hash-mismatch", "unreadable"];
+const FAILURES: readonly DeferReason[] = ["fetch-failed", "hash-mismatch", "unreadable", "trash-failed"];
 
 /** Words what a pull answered. */
 export function pullReport(t: Translate, result: PullResult, options: PullReportOptions): PullReport {
@@ -272,6 +273,14 @@ export function pullReport(t: Translate, result: PullResult, options: PullReport
 	}
 	if (result.trashed.length > 0) {
 		details.push(t("pull.trashed", { count: result.trashed.length, list: listText(t, result.trashed) }));
+	}
+	if (result.halfWritten.length > 0) {
+		const { halfWritten } = result;
+		details.push(t("pull.halfWritten", { count: halfWritten.length, list: listText(t, halfWritten) }));
+	}
+	if (result.halfCopies.length > 0) {
+		const { halfCopies } = result;
+		details.push(t("pull.halfCopies", { count: halfCopies.length, list: listText(t, halfCopies) }));
 	}
 	if (result.keptLocal.length > 0) {
 		details.push(t("pull.keptLocal", { count: result.keptLocal.length, list: listText(t, result.keptLocal) }));
@@ -291,16 +300,28 @@ export function pullReport(t: Translate, result: PullResult, options: PullReport
 
 function summaryText(t: Translate, result: PullResult, connectionChanged: boolean): string {
 	if (result.outcome === "remote-empty") return t("pull.remoteEmpty");
-	if (result.outcome === "declined") return t("pull.declined");
-	if (result.outcome === "cancelled" || isCancellation(result.fetchError)) return stoppedText(t, connectionChanged);
-
+	if (result.outcome === "declined") {
+		// What a pull that stopped left half written is moved away before
+		// the question, so a "no" does not mean that nothing was changed.
+		const moved = result.halfWritten.length + result.halfCopies.length > 0;
+		return t(moved ? "pull.declinedAfterTrash" : "pull.declined");
+	}
 	const { fetched, deleted, renamed, conflicts } = result.counts;
 	const parts: string[] = [];
 	if (fetched > 0) parts.push(t("pull.count.fetched", { count: fetched }));
 	if (deleted > 0) parts.push(t("pull.count.deleted", { count: deleted }));
 	if (renamed > 0) parts.push(t("pull.count.renamed", { count: renamed }));
 	if (conflicts > 0) parts.push(t("pull.count.conflicts", { count: conflicts }));
-	if (parts.length > 0) return t("pull.summary", { details: parts.join(t("list.separator")) });
+	const details = parts.join(t("list.separator"));
+
+	if (result.outcome === "cancelled" || isCancellation(result.fetchError)) {
+		const stopped = stoppedText(t, connectionChanged);
+		// How far it got, for a pull the next one goes on from. After a
+		// change of the connection there is nothing to go on from.
+		if (connectionChanged || parts.length === 0) return stopped;
+		return `${stopped}\n${t("pull.cancelledAfter", { details })}`;
+	}
+	if (parts.length > 0) return t("pull.summary", { details });
 	// "Up to date" would not be true of a pull that left files for later,
 	// or of one that kept files which differ from the remote.
 	return result.outcome === "completed" && result.keptLocal.length === 0 ? t("pull.upToDate") : t("pull.done");
@@ -329,7 +350,8 @@ function incompleteText(t: Translate, result: PullResult, settings: DeviceSettin
 	let reason: string;
 	if (result.fetchError !== undefined) reason = failureReason(t, settings, result.fetchError);
 	else if (failures.some((file) => file.reason === "hash-mismatch")) reason = t("pull.reason.hashMismatch");
-	else reason = t("pull.reason.unreadable");
+	else if (failures.some((file) => file.reason === "unreadable")) reason = t("pull.reason.unreadable");
+	else reason = t("pull.reason.trashFailed");
 
 	// With the files that only wait for one of these, which no step of
 	// theirs failed for.

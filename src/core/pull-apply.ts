@@ -80,6 +80,10 @@ export class Tally {
 	renamed = 0;
 	readonly conflicts: PullConflict[] = [];
 	readonly trashed: string[] = [];
+	/** `PullResult.halfWritten`. */
+	readonly halfWritten: string[] = [];
+	/** `PullResult.halfCopies`. */
+	readonly halfCopies: string[] = [];
 	readonly deferred: DeferredFile[] = [];
 	readonly unwritable: Omit<UnwritablePath, "isNew">[] = [];
 	/**
