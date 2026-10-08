@@ -30,15 +30,18 @@
 // 5. Asking the user: before the first push of a sync state, when the plan
 //    deletes too much, and when it sends a large file. One question, also
 //    when more than one is a reason.
-// 6. Sending. Each file is read when it is sent, and recorded as it was
+// 6. For a remote without commits, its first: the `.gitignore` alone
+//    (`start`). The rest is sent on top of it.
+// 7. Sending. Each file is read when it is sent, and recorded as it was
 //    read. The commit is remembered before the branch is moved.
-// 7. The records, the listing as the remote gives it for the new commit,
+// 8. The records, the listing as the remote gives it for the new commit,
 //    and the base revision (`finishPush`).
 
 import { untilAborted } from "./archive-fetch";
 import { type Backend, BackendError, type PushFile, type RemoteEntry, type RemoteListing } from "./backend";
 import { originalPathOfConflictCopy } from "./conflict-name";
 import { createExclusion, type ExclusionPaths } from "./exclusion";
+import { isFirstFetchConfirmed, markFirstFetchConfirmed } from "./first-fetch";
 import { readLocal, saved } from "./local-read";
 import { type NoticeRef, PUSH_NOTICE_KINDS, readNotices, reconcileNotices, writeNotices } from "./notices";
 import { foldedKey, pathKey } from "./paths";
@@ -57,10 +60,21 @@ import {
 import { clearPushFailure, markPushFailure, readPushFailure, restorePushFailure } from "./push-failure";
 import { type HeldRename, needsPushConfirmation, type PushPlan, type PushRefusal, planPush } from "./push-plan";
 import { scanVault } from "./scan";
-import { currentListing, type FileStat, makeRecord, readBaseRevision, type StateStore } from "./state";
+import {
+	currentListing,
+	type FileStat,
+	makeRecord,
+	readBaseRevision,
+	type StateStore,
+	writeBaseRevision,
+} from "./state";
 
-/** The vault, as far as a push needs it: it reads, and changes nothing. */
-export type PushVault = Pick<PullVault, "list" | "stat" | "read" | "saveOpenEditors">;
+/**
+ * The vault, as far as a push needs it: it reads. The one thing it ever
+ * writes is an empty `.gitignore`, for the first commit of a remote that
+ * has none, in a vault that has none either.
+ */
+export type PushVault = Pick<PullVault, "list" | "stat" | "read" | "saveOpenEditors" | "write">;
 
 /** Everything the first push of a sync state sends, as the remote will spell it. Each list is sorted. */
 export interface FirstPushFiles {
@@ -98,6 +112,13 @@ export interface PushConfirmRequest {
 	/** Set when no push of this sync state has gone through yet. */
 	readonly firstPush: FirstPushFiles | null;
 	/**
+	 * Whether the remote has no commit yet. The push then makes two
+	 * commits: the `.gitignore` alone, and the rest. Told with `firstPush`,
+	 * which is set unless this sync state has pushed before, to a remote
+	 * that has lost its commits since.
+	 */
+	readonly remoteEmpty: boolean;
+	/**
 	 * The files the push deletes on the remote that count toward the
 	 * threshold, when they are past it; `null` when they are not.
 	 */
@@ -129,7 +150,7 @@ export interface PushProgress {
 export interface PushDeps {
 	/** The sync state, opened. */
 	readonly store: StateStore;
-	readonly backend: Pick<Backend, "hashContent" | "list" | "checkBase" | "push">;
+	readonly backend: Pick<Backend, "hashContent" | "list" | "checkBase" | "push" | "start">;
 	readonly vault: PushVault;
 	/** The configuration folder and the plugin's own folder. */
 	readonly paths: ExclusionPaths;
@@ -160,7 +181,8 @@ export interface PushDeps {
 }
 
 /**
- * - "pushed": one commit was made and the branch points at it.
+ * - "pushed": one commit was made and the branch points at it. Two for a
+ *   remote that had none: the `.gitignore` alone, and the rest.
  * - "nothing-to-push": the remote already holds what the vault has, as far
  *   as a push may send it. No commit was made.
  * - "pull-first": nothing was sent, and a pull has to come first
@@ -174,15 +196,30 @@ export type PushOutcome = "pushed" | "nothing-to-push" | "pull-first" | "decline
 /**
  * - "no-base": this device has not pulled to the end yet, so what the vault
  *   holds is not known to belong to the remote.
- * - "remote-empty": the remote has no commit to build on.
+ * - "remote-empty": the remote has no commit to build on, and none can be
+ *   made: this device has synced with it before, when it had commits, or
+ *   the remote is of a kind that cannot be started (`Backend.start`).
+ * - "not-default-branch": the remote has no commit, and its first one can
+ *   only be made on its default branch, which is not the configured one
+ *   (`PushRunResult.defaultBranch`).
  * - "remote-moved": another device has pushed since the remote was listed:
  *   found before anything was sent, or when the branch was to be moved.
  *   The branch is never forced.
  * - "gitignore-unsettled": the root `.gitignore` could not be relied on: a
  *   pull that stopped was writing it, or an editor that has it open could
  *   not save. Its rules decide what is sent, so nothing is.
+ * - "gitignore-unreadable": the root `.gitignore` is there and cannot be
+ *   read as the file it is: a cloud drive has taken it off the device, it
+ *   is a folder, or (before the first commit of a remote, which is this
+ *   file) the vault spells it in another case.
  */
-export type PullFirstReason = "no-base" | "remote-empty" | "remote-moved" | "gitignore-unsettled";
+export type PullFirstReason =
+	| "no-base"
+	| "remote-empty"
+	| "not-default-branch"
+	| "remote-moved"
+	| "gitignore-unsettled"
+	| "gitignore-unreadable";
 
 /**
  * Why a file was left out: when its turn to be sent came, or ("unreadable"
@@ -205,6 +242,8 @@ export interface PushRunResult {
 	readonly outcome: PushOutcome;
 	/** Only for "pull-first". */
 	readonly reason?: PullFirstReason;
+	/** Only for "not-default-branch": the branch the first commit of the remote would go to. */
+	readonly defaultBranch?: string;
 	/** The commit that was made; `null` when none was. */
 	readonly revision: string | null;
 	/** What the commit changed, as its description counts it. All 0 unless "pushed". */
@@ -295,10 +334,14 @@ class PushRun {
 			// Quietly: the push has ended as it has, whatever becomes of this.
 			if (result.outcome === "pushed" || result.outcome === "nothing-to-push") {
 				await this.quietly(() => clearPushFailure(store));
-			} else if (result.outcome !== "pull-first" || result.reason === "remote-empty") {
+			} else if (
+				result.outcome !== "pull-first" ||
+				result.reason === "remote-empty" ||
+				result.reason === "not-default-branch"
+			) {
 				// A "no" and a stop are the user's, and no failure. Nor is
-				// a remote without commits: nothing can be sent to it, so
-				// no later push would ever take the note away.
+				// a remote without commits that nothing can be sent to: no
+				// later push would ever take the note away.
 				await this.quietly(() => restorePushFailure(store, before));
 			}
 			return result;
@@ -377,12 +420,23 @@ class PushRun {
 		this.recovered = await settlePendingPush(store, listing.revision, (base, head) =>
 			this.asked(() => deps.backend.checkBase(base, head)),
 		);
-		const parent = listing.revision;
-		if (parent === null) return this.result("pull-first", { reason: "remote-empty" });
-		// Without a pull that got to the end, nothing in the vault is known
-		// to belong to this remote. Looked at after the listing, so that a
-		// remote without commits is told as what it is.
-		if ((await readBaseRevision(store)) === null) return this.result("pull-first", { reason: "no-base" });
+		const base = await readBaseRevision(store);
+		const records = await store.readRecords();
+		// A remote without commits is given its first one by this push,
+		// further down. Not when this device has synced with it before:
+		// the commits it had are gone, and what the vault holds is not all
+		// new to it. That is a pull's to look at.
+		const starting = listing.revision === null;
+		if (starting) {
+			if (deps.backend.start === undefined || base !== null || records.length > 0) {
+				return this.result("pull-first", { reason: "remote-empty" });
+			}
+		} else if (base === null) {
+			// Without a pull that got to the end, nothing in the vault is
+			// known to belong to this remote. Looked at after the listing,
+			// so that a remote without commits is told as what it is.
+			return this.result("pull-first", { reason: "no-base" });
+		}
 		if (this.aborted()) return this.result("cancelled");
 
 		// What a pull that stopped was writing may be half a file. A pull
@@ -402,7 +456,6 @@ class PushRun {
 		if (this.held.has(GITIGNORE) || !(await saved(vault, GITIGNORE))) {
 			return this.result("pull-first", { reason: "gitignore-unsettled" });
 		}
-		const records = await store.readRecords();
 		const exclusion = createExclusion({ ...deps.paths, gitignore: await this.rootGitignore() });
 
 		this.progress("scanning");
@@ -439,6 +492,20 @@ class PushRun {
 			this.quiet.add(foldedKey(path));
 			this.leftOut.push({ path, reason: "unreadable" });
 		}
+		// The rules of a `.gitignore` that is not on the device are not
+		// known, and a push without them would send what they exclude.
+		if (local.placeholders.some((path) => foldedKey(path) === GITIGNORE)) {
+			return this.result("pull-first", { reason: "gitignore-unreadable" });
+		}
+		if (starting) {
+			// The first commit is the `.gitignore`, as a file of that very
+			// name. Looked at before the question, so that no "yes" ends here.
+			const stat = await vault.stat(GITIGNORE);
+			const respelled = local.entries.some((entry) => entry.path !== GITIGNORE && foldedKey(entry.path) === GITIGNORE);
+			if (stat === null ? respelled : stat.type !== "file") {
+				return this.result("pull-first", { reason: "gitignore-unreadable" });
+			}
+		}
 		const known = new Set([...records.map((record) => record.key), ...listing.entries.map((entry) => pathKey(entry.path))]);
 		for (const path of local.placeholders) {
 			this.held.add(foldedKey(path));
@@ -472,13 +539,19 @@ class PushRun {
 		// The reasons to ask, in one question. For the first two, no answer
 		// is remembered here: a push that fails is counted and asked again,
 		// and the first push counts as asked once one has gone through.
-		const firstDue = (await store.getMeta(FIRST_PUSH_CONFIRMED_KEY)) !== true;
+		// Before anything goes to a remote without commits, the question is
+		// also the one a first fetch would have asked (`first-fetch.ts`),
+		// which a push alone never comes by: everything in the vault is
+		// about to be sent to the repository it names.
+		const firstDue =
+			(await store.getMeta(FIRST_PUSH_CONFIRMED_KEY)) !== true || (starting && !(await isFirstFetchConfirmed(store)));
 		const guardDue = needsPushConfirmation(plan);
 		const approved = await readApprovedLargeFiles(store);
 		const large = largeFiles(plan, listing, approved);
 		if (firstDue || guardDue || large.length > 0) {
 			const answer = await deps.confirm({
 				firstPush: firstDue ? firstPushFiles(plan) : null,
+				remoteEmpty: starting,
 				deletions: guardDue ? plan.countedDeletions : null,
 				largeFiles: large.length > 0 ? large.map((file) => file.shown) : null,
 				recordCount: plan.recordCount,
@@ -501,9 +574,28 @@ class PushRun {
 		// edit that lands in between then shows as a time that is not the
 		// record's, and the file is hashed again.
 		const stats = new Map<string, FileStat>();
-		const total = plan.sends.length;
+		let total = 0;
 		let done = 0;
-		const writes = plan.sends.map((send): PushFile => {
+		// The first commit of a remote without commits holds the
+		// `.gitignore` alone; the rest is sent on top of it, like any push.
+		let parent = listing.revision;
+		let started = 0;
+		if (parent === null) {
+			const first = await this.start();
+			if ("outcome" in first) return first;
+			parent = first.revision;
+			started = 1;
+		}
+		const onto = parent;
+		const sends = started === 0 ? plan.sends : plan.sends.filter((send) => send.key !== GITIGNORE);
+		if (started === 1 && sends.length === 0) {
+			// The vault held nothing else to send.
+			await tell();
+			await store.setMeta(FIRST_PUSH_CONFIRMED_KEY, true);
+			return this.result("pushed", { revision: onto, counts: { ...NO_COUNTS, added: 1 } });
+		}
+
+		const writes = sends.map((send): PushFile => {
 			const { path } = send.local;
 			const leave = (reason: LeftOutReason): null => {
 				this.leftOut.push({ path, reason });
@@ -534,14 +626,15 @@ class PushRun {
 			};
 		});
 
+		total = writes.length;
 		this.progress("sending", 0, total);
 		const pushed = await deps.backend.push({
-			baseRevision: parent,
+			baseRevision: onto,
 			writes,
 			deletes: plan.deletes.map((entry) => entry.remote),
 			deviceName: deps.deviceName,
 			beforePublish: async ({ revision, written }) => {
-				await rememberPendingPush(store, this.pendingOf(plan, parent, revision, written, stats));
+				await rememberPendingPush(store, this.pendingOf(plan, onto, revision, written, stats));
 				this.remembered = true;
 				this.progress("finishing");
 			},
@@ -557,13 +650,18 @@ class PushRun {
 			if (this.remembered) await forgetPendingPush(store);
 			return this.result("pull-first", { reason: "remote-moved" });
 		}
-		if (pushed.status === "unchanged") return this.result("nothing-to-push");
+		if (pushed.status === "unchanged") {
+			if (started === 0) return this.result("nothing-to-push");
+			// The first commit was made, and nothing could be read of the rest.
+			await store.setMeta(FIRST_PUSH_CONFIRMED_KEY, true);
+			return this.result("pushed", { revision: onto, counts: { ...NO_COUNTS, added: 1 } });
+		}
 		const { revision, written } = pushed;
 		if (revision === null) throw new Error("The remote answered a push without a revision.");
 
 		// From here on the push has happened, and is recorded whatever the
 		// signal says. Stopped in between, the next push or pull does it.
-		const pending = this.pendingOf(plan, parent, revision, written, stats);
+		const pending = this.pendingOf(plan, onto, revision, written, stats);
 		// The listing of the new commit is the remote's own, or none at
 		// all: the next sync then lists the remote again.
 		const stored = pushed.listing ?? null;
@@ -582,7 +680,51 @@ class PushRun {
 		if (storedOtherwise.length > 0) {
 			deps.log?.(`push: GitHub stored other content than was sent: ${storedOtherwise.join(", ")}`);
 		}
-		return this.result("pushed", { revision, counts: pending.counts, storedOtherwise });
+		// The two commits are told as the one push they are.
+		const counts = { ...pending.counts, added: pending.counts.added + started };
+		return this.result("pushed", { revision, counts, storedOtherwise });
+	}
+
+	/**
+	 * Makes the first commit of a remote that has none: the `.gitignore`
+	 * of the vault, or an empty one. An empty one is written to the vault
+	 * once the remote has it, and not before: a file the remote did not
+	 * take would be one the user never made. Recorded as a pull of that
+	 * one file would be: the commit is the base revision from here on, and
+	 * the push that follows is one like any other. Answers how the push
+	 * ends instead when no commit was made.
+	 *
+	 * Stopped or failed after the commit was made and before it is
+	 * recorded, the remote is no longer empty and this device has no base
+	 * revision: the next push asks for a pull first, which finds the
+	 * `.gitignore` the same on both sides, or writes it.
+	 */
+	private async start(): Promise<{ readonly revision: string } | PushRunResult> {
+		const { store, vault, backend } = this.deps;
+		if (backend.start === undefined) return this.result("pull-first", { reason: "remote-empty" });
+		const start = backend.start.bind(backend);
+		const before = await vault.stat(GITIGNORE);
+		if (before !== null && before.type !== "file") return this.result("pull-first", { reason: "gitignore-unreadable" });
+		const content = before === null ? new Uint8Array() : await vault.read(GITIGNORE);
+		const first = await this.asked(() => start({ path: GITIGNORE, content, deviceName: this.deps.deviceName }));
+		if (first.status === "stale") return this.result("pull-first", { reason: "remote-moved" });
+		if (first.status === "other-branch") {
+			return this.result("pull-first", { reason: "not-default-branch", defaultBranch: first.defaultBranch });
+		}
+		const { revision, entry } = first;
+		let stat = before;
+		if (stat === null) {
+			await vault.write(GITIGNORE, content);
+			stat = await vault.stat(GITIGNORE);
+		}
+		const record = { path: entry.path, kind: "file", hash: entry.hash } as const;
+		await store.commitWrite(
+			makeRecord(record, stat === null ? undefined : { mtime: stat.mtime, size: stat.size }, this.startedAt),
+		);
+		await store.putListing({ revision, entries: [entry] });
+		await writeBaseRevision(store, revision);
+		await markFirstFetchConfirmed(store);
+		return { revision };
 	}
 
 	/** What is recorded once the commit is the head of the remote. */

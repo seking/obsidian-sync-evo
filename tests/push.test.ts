@@ -372,9 +372,10 @@ describe("when a pull has to come first", () => {
 		expect(h.backend.revision).toBe(head);
 	});
 
-	test("a remote without commits is told as that", async () => {
-		const h = harness();
+	test("a remote whose commits are gone, with which this device has synced before, is a pull's to look at", async () => {
+		const h = await synced({ "a.md": "A" });
 		h.vault.put("mine.md", "M");
+		h.backend.emptied = true;
 		expect(await h.push()).toMatchObject({ outcome: "pull-first", reason: "remote-empty" });
 		expect(h.backend.pushes).toBe(0);
 	});
@@ -492,7 +493,7 @@ describe("the question before the first push", () => {
 				firstPush: { added: [".obsidian/graph.json", "notes/new.md"], modified: ["edit.md"], deleted: ["old.md"] },
 				deletions: null,
 				largeFiles: null,
-				recordCount: 3,
+				remoteEmpty: false, recordCount: 3,
 			},
 		]);
 
@@ -547,7 +548,7 @@ describe("the question before the first push", () => {
 			firstPush: { added: ["new.md"], modified: [], deleted: gone },
 			deletions: gone,
 			largeFiles: null,
-			recordCount: 10,
+			remoteEmpty: false, recordCount: 10,
 		});
 	});
 });
@@ -571,7 +572,7 @@ describe("the deletion guard", () => {
 				firstPush: null,
 				deletions: ["n/00.md", "n/01.md", "n/02.md", "n/03.md", "n/04.md", "n/05.md"],
 				largeFiles: null,
-				recordCount: 30,
+				remoteEmpty: false, recordCount: 30,
 			},
 		]);
 		expect(h.backend.revision).toBe(before);
@@ -1497,14 +1498,15 @@ describe("a sync: a pull, and then a push", () => {
 		expect(h.backend.pushes).toBe(0);
 	});
 
-	test("no push to a remote without commits", async () => {
+	test("after a pull that found a remote without commits, the push gives it its first", async () => {
 		const h = harness();
 		h.vault.put("mine.md", "M");
 
 		const { pull, push } = await h.sync();
 
 		expect(pull.outcome).toBe("remote-empty");
-		expect(push).toBeNull();
+		expect(push).toMatchObject({ outcome: "pushed", counts: { added: 2, modified: 0, deleted: 0 } });
+		expect(await h.remote()).toEqual({ ".gitignore": "", "mine.md": "M" });
 	});
 
 	test("after a pull that put a file off, the push sends the rest and keeps away from that file", async () => {
@@ -1694,6 +1696,230 @@ describe("what a pull leaves for the push that follows", () => {
 	});
 });
 
+describe("a .gitignore that is not on the device", () => {
+	test("a push to a remote that has commits sends nothing either: its rules are not known", async () => {
+		const h = await synced({ ".gitignore": "private/\n", "a.md": "A" });
+		h.vault.remove(".gitignore");
+		h.vault.put("..gitignore.icloud", "");
+		h.vault.put("private/x.md", "X");
+		const head = h.backend.revision;
+
+		expect(await h.push()).toMatchObject({ outcome: "pull-first", reason: "gitignore-unreadable" });
+
+		expect(h.backend.revision).toBe(head);
+	});
+});
+
+describe("the first push to a remote without commits", () => {
+	/** A vault with notes, connected to a repository that was just created. */
+	function fresh(files: Record<string, string>): Harness {
+		const h = harness();
+		for (const [path, content] of Object.entries(files)) h.vault.put(path, content);
+		return h;
+	}
+
+	test("makes two revisions: the .gitignore alone, and the rest on top of it", async () => {
+		const files = { ".gitignore": "private/\n", "a.md": "A", "notes/b.md": "B", "private/x.md": "X" };
+		const h = fresh(files);
+		const before = h.backend.revisionCount;
+
+		const result = await h.push();
+
+		expect(result).toMatchObject({ outcome: "pushed", counts: { added: 3, modified: 0, deleted: 0 } });
+		expect(h.backend.revisionCount).toBe(before + 2);
+		expect(await h.remote()).toEqual({ ".gitignore": "private/\n", "a.md": "A", "notes/b.md": "B" });
+		expect(result.revision).toBe(h.backend.revision);
+		expect(h.backend.lastDeviceName).toBe("iPhone");
+		expect(h.vault.snapshot()).toEqual(files);
+		await expectNothingToPull(h);
+		expect((await h.push()).outcome).toBe("nothing-to-push");
+	});
+
+	test("asks first, naming everything that is sent and that the remote is empty; and only once", async () => {
+		const h = fresh({ ".gitignore": "", "a.md": "A" });
+
+		expect((await h.push()).outcome).toBe("pushed");
+
+		expect(h.asked).toEqual([
+			{
+				firstPush: { added: [".gitignore", "a.md"], modified: [], deleted: [] },
+				remoteEmpty: true,
+				deletions: null,
+				largeFiles: null,
+				recordCount: 0,
+			},
+		]);
+		h.vault.put("b.md", "B");
+		expect((await h.sync()).push).toMatchObject({ outcome: "pushed" });
+		expect(h.asked).toHaveLength(1);
+		expect(h.pullAsked).toEqual([]);
+	});
+
+	test("a no sends nothing, and makes no revision and no .gitignore", async () => {
+		const h = fresh({ "a.md": "A" });
+		h.answer = "cancel";
+
+		expect((await h.push()).outcome).toBe("declined");
+
+		expect(h.backend.revision).toBeNull();
+		expect(h.vault.snapshot()).toEqual({ "a.md": "A" });
+		expect(await h.base()).toBeNull();
+		// Asked again by the next push.
+		expect((await h.push()).outcome).toBe("declined");
+		expect(h.asked).toHaveLength(2);
+	});
+
+	test("a vault without a .gitignore gets an empty one, which is the first revision", async () => {
+		const h = fresh({ "a.md": "A" });
+
+		expect(await h.push()).toMatchObject({ outcome: "pushed", counts: { added: 2 } });
+
+		expect(h.vault.text(".gitignore")).toBe("");
+		expect(await h.remote()).toEqual({ ".gitignore": "", "a.md": "A" });
+		await expectNothingToPull(h);
+	});
+
+	test("a vault that holds the .gitignore alone is done with the first revision", async () => {
+		const h = fresh({ ".gitignore": "x\n" });
+		const before = h.backend.revisionCount;
+
+		const result = await h.push();
+
+		expect(result).toMatchObject({ outcome: "pushed", counts: { added: 1, modified: 0, deleted: 0 } });
+		expect(result.revision).toBe(h.backend.revision);
+		expect(h.backend.revisionCount).toBe(before + 1);
+		expect(await h.remote()).toEqual({ ".gitignore": "x\n" });
+		await expectNothingToPull(h);
+		h.vault.put("a.md", "A");
+		expect((await h.push()).outcome).toBe("pushed");
+		expect(h.asked).toHaveLength(1);
+	});
+
+	test("a vault with nothing to send makes no revision", async () => {
+		const h = harness();
+		expect((await h.push()).outcome).toBe("nothing-to-push");
+		expect(h.backend.revision).toBeNull();
+		expect(h.vault.snapshot()).toEqual({});
+	});
+
+	test("the first revision can only be made on the default branch: nothing is made on another", async () => {
+		const h = fresh({ "a.md": "A" });
+		h.backend.defaultBranch = "trunk";
+
+		const result = await h.push();
+
+		expect(result).toMatchObject({ outcome: "pull-first", reason: "not-default-branch", defaultBranch: "trunk" });
+		expect(h.backend.revision).toBeNull();
+		expect(await h.base()).toBeNull();
+	});
+
+	test("another device made the first revision meanwhile: nothing is sent, and a pull comes first", async () => {
+		const h = fresh({ "a.md": "A" });
+		h.answer = () => {
+			h.backend.commit({ "theirs.md": "T" });
+			return "proceed";
+		};
+
+		expect(await h.push()).toMatchObject({ outcome: "pull-first", reason: "remote-moved" });
+
+		expect(await h.remote()).toEqual({ "theirs.md": "T" });
+		expect(await h.base()).toBeNull();
+	});
+
+	test("the rest fails after the first revision was made: the next push sends it, without asking again", async () => {
+		const h = fresh({ ".gitignore": "", "a.md": "A" });
+		h.backend.publishFault = "lost-request";
+
+		await expect(h.push()).rejects.toMatchObject({ kind: "unreachable" });
+
+		expect(await h.remote()).toEqual({ ".gitignore": "" });
+		expect(await h.base()).toBe(h.backend.revision);
+		h.backend.publishFault = null;
+		expect(await h.push()).toMatchObject({ outcome: "pushed", counts: { added: 1 } });
+		expect(await h.remote()).toEqual({ ".gitignore": "", "a.md": "A" });
+		await expectNothingToPull(h);
+	});
+
+	test("the answer to the first revision is lost: the next push asks for a pull, which finds the .gitignore the same", async () => {
+		const h = fresh({ ".gitignore": "x\n", "a.md": "A" });
+		h.backend.startFault = true;
+
+		await expect(h.push()).rejects.toMatchObject({ kind: "unreachable" });
+
+		h.backend.startFault = false;
+		expect(await h.remote()).toEqual({ ".gitignore": "x\n" });
+		expect(await h.base()).toBeNull();
+		expect(await h.push()).toMatchObject({ outcome: "pull-first", reason: "no-base" });
+		const { pull, push } = await h.sync();
+		expect(pull).toMatchObject({ outcome: "completed", counts: { fetched: 0, deleted: 0, conflicts: 0 } });
+		expect(push).toMatchObject({ outcome: "pushed", counts: { added: 1 } });
+		expect(await h.remote()).toEqual({ ".gitignore": "x\n", "a.md": "A" });
+		expect(h.vault.trashed).toEqual([]);
+	});
+
+	test("no empty .gitignore is left in the vault when the remote did not take it", async () => {
+		const h = fresh({ "a.md": "A" });
+		h.answer = () => {
+			h.backend.commit({ ".gitignore": "private/\n", "theirs.md": "T" });
+			return "proceed";
+		};
+		expect(await h.push()).toMatchObject({ outcome: "pull-first", reason: "remote-moved" });
+		expect(h.vault.snapshot()).toEqual({ "a.md": "A" });
+
+		const other = fresh({ "a.md": "A" });
+		other.backend.defaultBranch = "trunk";
+		expect(await other.push()).toMatchObject({ outcome: "pull-first", reason: "not-default-branch" });
+		expect(other.vault.snapshot()).toEqual({ "a.md": "A" });
+	});
+
+	test("a .gitignore a cloud drive has taken off the device: nothing is sent, and no empty one is made beside it", async () => {
+		const files = { "..gitignore.icloud": "", "a.md": "A", "private/x.md": "X" };
+		const h = fresh(files);
+
+		expect(await h.push()).toMatchObject({ outcome: "pull-first", reason: "gitignore-unreadable" });
+
+		expect(h.asked).toEqual([]);
+		expect(h.backend.revision).toBeNull();
+		expect(h.vault.snapshot()).toEqual(files);
+	});
+
+	test("a .gitignore spelled in another case, where the cases are told apart: nothing is sent", async () => {
+		const h = harness({ caseSensitive: true });
+		h.vault.put(".GITIGNORE", "private/\n");
+		h.vault.put("a.md", "A");
+
+		expect(await h.push()).toMatchObject({ outcome: "pull-first", reason: "gitignore-unreadable" });
+
+		expect(h.asked).toEqual([]);
+		expect(h.backend.revision).toBeNull();
+		expect(h.vault.snapshot()).toEqual({ ".GITIGNORE": "private/\n", "a.md": "A" });
+	});
+
+	test("a sync asks once about a vault that has files: the pull has nothing to ask of an empty remote", async () => {
+		const h = fresh({ "a.md": "A" });
+
+		const { pull, push } = await h.sync();
+
+		expect(pull.outcome).toBe("remote-empty");
+		expect(push).toMatchObject({ outcome: "pushed" });
+		expect(h.pullAsked).toEqual([]);
+		expect(h.asked).toMatchObject([{ firstPush: { added: ["a.md"] }, remoteEmpty: true }]);
+	});
+
+	test("the question a first fetch would have asked is asked here, though a push has gone through before", async () => {
+		const h = fresh({ "a.md": "A" });
+		// A push is remembered, and no first fetch: not what a sync leaves
+		// behind, and still nothing goes to an empty repository unasked.
+		await h.store.setMeta(FIRST_PUSH_CONFIRMED_KEY, true);
+		h.answer = "cancel";
+
+		expect((await h.push()).outcome).toBe("declined");
+
+		expect(h.asked).toMatchObject([{ firstPush: { added: ["a.md"] }, remoteEmpty: true }]);
+		expect(h.backend.revision).toBeNull();
+	});
+});
+
 describe("a push that did not get to its end is remembered", () => {
 	/** A remote that cannot be reached. */
 	function offline(h: Harness): TestBackend {
@@ -1744,13 +1970,14 @@ describe("a push that did not get to its end is remembered", () => {
 		expect(await readPushFailure(h.store)).toEqual({ at: h.now() });
 	});
 
-	test("a remote without commits is none: nothing can be sent to it, by a push or by a sync", async () => {
+	test("a remote without commits that nothing can be sent to is none: no later push would take it away", async () => {
 		const h = harness();
 		h.vault.put("mine.md", "M");
+		h.backend.defaultBranch = "trunk";
 
-		expect(await h.push()).toMatchObject({ outcome: "pull-first", reason: "remote-empty" });
+		expect(await h.push()).toMatchObject({ outcome: "pull-first", reason: "not-default-branch" });
 		expect(await readPushFailure(h.store)).toBeNull();
-		expect((await h.sync()).pull.outcome).toBe("remote-empty");
+		expect((await h.sync()).push).toMatchObject({ outcome: "pull-first", reason: "not-default-branch" });
 		expect(await readPushFailure(h.store)).toBeNull();
 	});
 
@@ -2265,7 +2492,7 @@ describe("the question before a large file is sent", () => {
 				firstPush: null,
 				deletions: null,
 				largeFiles: [{ path: "video.mov", size: LARGE_FILE_BYTES + 1, conflictCopy: false }],
-				recordCount: 1,
+				remoteEmpty: false, recordCount: 1,
 			},
 		]);
 		expect(h.backend.pushes).toBe(0);
@@ -2331,7 +2558,7 @@ describe("the question before a large file is sent", () => {
 				firstPush: { added: ["video.mov"], modified: [], deleted: gone },
 				deletions: gone,
 				largeFiles: [{ path: "video.mov", size: LARGE_FILE_BYTES + 1, conflictCopy: false }],
-				recordCount: 10,
+				remoteEmpty: false, recordCount: 10,
 			},
 		]);
 	});

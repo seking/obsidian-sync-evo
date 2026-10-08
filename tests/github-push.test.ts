@@ -912,3 +912,72 @@ describe("a push of a vault against GitHub, where it does not go as planned", ()
 		expect(await store.getListing()).toBeNull();
 	});
 });
+
+describe("the first commit of a repository without commits", () => {
+	test("is one file on the default branch, made with the one request that works there", async () => {
+		const { github, backend } = setup();
+		const content = bytes("private/\n");
+
+		const started = await backend.start({ path: ".gitignore", content, deviceName: "iPhone" });
+
+		expect(github.writes()).toEqual(["PUT /contents/.gitignore"]);
+		const sent = github.requests.find((request) => request.method === "PUT")?.body as Record<string, unknown>;
+		expect(sent).toMatchObject({ branch: "main", message: commitMessage("iPhone", [{ kind: "added", path: ".gitignore" }]) });
+		expect(started).toEqual({
+			status: "started",
+			revision: github.head,
+			entry: { path: ".gitignore", kind: "file", hash: blobHash(content), size: content.length },
+		});
+		expect(github.text(".gitignore")).toBe("private/\n");
+		expect(github.headCommit()?.message.split("\n")[0]).toBe("Sync Evo: iPhone (1 added)");
+
+		// And the rest goes on top of it, like any push.
+		const pushed = await backend.push({ baseRevision: github.head, writes: [file("a.md", "A")], deletes: [] });
+		expect(pushed.status).toBe("pushed");
+		expect([...github.files().keys()].sort()).toEqual([".gitignore", "a.md"]);
+	});
+
+	test("an empty file can be the one", async () => {
+		const { github, backend } = setup();
+		const started = await backend.start({ path: ".gitignore", content: new Uint8Array() });
+		expect(started.status).toBe("started");
+		expect(github.text(".gitignore")).toBe("");
+	});
+
+	test("nothing is made on a branch that is not the default one", async () => {
+		const { github, backend } = setup();
+		github.defaultBranch = "trunk";
+
+		expect(await backend.start({ path: ".gitignore", content: bytes("") })).toEqual({
+			status: "other-branch",
+			defaultBranch: "trunk",
+		});
+
+		expect(github.writes()).toEqual([]);
+		expect(github.head).toBeNull();
+	});
+
+	test("another device made the first commit between the look at the head and the request: nothing is answered of it", async () => {
+		const made: Record<string, string>[] = [{ "theirs.md": "T" }, { ".gitignore": "theirs\n" }];
+		for (const theirs of made) {
+			const { github, backend } = setup();
+			github.before = (request) => {
+				if (request.method === "PUT" && github.head === null) github.commit(theirs);
+			};
+
+			expect(await backend.start({ path: ".gitignore", content: bytes("mine\n") })).toEqual({ status: "stale" });
+
+			// Their files are all there, whatever became of this one.
+			for (const [path, content] of Object.entries(theirs)) expect(github.text(path)).toBe(content);
+		}
+	});
+
+	test("nor in a repository that has a commit by now", async () => {
+		const { github, backend } = setup();
+		github.commit({ "theirs.md": "T" });
+
+		expect(await backend.start({ path: ".gitignore", content: bytes("") })).toEqual({ status: "stale" });
+
+		expect(github.writes()).toEqual([]);
+	});
+});

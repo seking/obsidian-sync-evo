@@ -600,9 +600,11 @@ class PullRun {
 		const unconfirmed = base === null && (startOver || !(await isFirstFetchConfirmed(store)));
 
 		// A remote without content. With nothing pulled before, there is
-		// nothing to do and nothing to compare; the vault is only looked at
-		// while the user has yet to be asked about the files it holds, which
-		// are all "only on this device" then. With a base revision, the
+		// nothing to do and nothing to compare, and nothing to ask: the
+		// files of the vault are all "only on this device", and it is the
+		// push that sends them which asks about them (`push.ts`). The
+		// vault is only looked at when the pull starts over, whose question
+		// is also about the sync state it discards. With a base revision, the
 		// content that was there is gone: no history holds the base any
 		// more, which is what a rewritten history is, and nothing can be
 		// asked of the remote about a head it does not have.
@@ -610,7 +612,7 @@ class PullRun {
 		let rewritten = false;
 		if (head === null) {
 			if (base !== null) rewritten = true;
-			else if (!unconfirmed) return this.result("remote-empty", head, false, {});
+			else if (!startOver) return this.result("remote-empty", head, false, {});
 		} else if (base !== null && head !== base) {
 			rewritten = (await this.asked(deps.backend.checkBase(base, head))) === "rewritten";
 		}

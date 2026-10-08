@@ -246,7 +246,11 @@ export const en = baseCatalog({
 	"push.pullFirst.noBase":
 		"Nothing was sent. This device has not finished its first pull from the remote yet. Pull first, then push.",
 	"push.pullFirst.remoteEmpty":
-		"Nothing was sent. The remote is empty: it has no commits yet. This version of Sync Evo cannot send to an empty repository.",
+		"Nothing was sent. The remote has no commits. This device has synced with this remote before, and the commits it had are gone. Pull first to look at that.",
+	"push.pullFirst.notDefaultBranch":
+		"Nothing was sent. The remote is empty: it has no commits yet. GitHub makes the first commit of an empty repository on its default branch, {branch}. Set the branch in the settings of Sync Evo to {branch}, or change the default branch of the repository on GitHub, then sync again.",
+	"push.pullFirst.gitignoreUnreadable":
+		"Nothing was sent. The .gitignore of this vault decides what is sent, and it cannot be read on this device: a cloud drive has not downloaded it, there is a folder named .gitignore, or its name differs in upper and lower case (.GITIGNORE, say). Put that right, then push again.",
 	"push.pullFirst.remoteMoved":
 		"Nothing was sent. The remote was changed from another device after this push began. Pull first, then push again.",
 	"push.pullFirst.gitignore":
@@ -327,6 +331,8 @@ export const en = baseCatalog({
 	"confirm.firstPush.title": "Confirm the first push",
 	"confirm.firstPush.body":
 		"This is the first push from this device to {repository}, branch {branch}. It changes the remote as listed below. Once a push has gone through, later pushes do not show this list.",
+	"confirm.firstPush.remoteEmpty":
+		"The remote is empty: it has no commits yet. A first commit with the .gitignore alone is made, and the rest is sent after it. If this vault has no .gitignore, an empty one is created.",
 	"confirm.firstPush.added": { one: "{count} file to add:", other: "{count} files to add:" },
 	"confirm.firstPush.modified": { one: "{count} file to modify:", other: "{count} files to modify:" },
 	"confirm.firstPush.deleted": { one: "{count} file to delete:", other: "{count} files to delete:" },

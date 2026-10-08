@@ -2339,8 +2339,8 @@ describe("a remote without content", () => {
 		expect(h.vault.log).toEqual([]);
 		expect(await h.records()).toEqual({});
 		expect(await h.base()).toBeNull();
-		// The file is only on this device: see "the question before a first fetch".
-		expect(h.asked).toHaveLength(1);
+		// The file is only on this device. It is the push that sends it which asks.
+		expect(h.asked).toEqual([]);
 	});
 
 	test("with nothing pulled before and an empty vault: nothing is asked", async () => {
@@ -3176,52 +3176,24 @@ describe("the question before a first fetch", () => {
 		expect(h.vault.snapshot()).toMatchObject({ "different.md": "theirs", "only-here.md": "O", "new.md": "N" });
 	});
 
-	test("an empty remote: the files of the vault are asked about once, and not at every sync", async () => {
+	test("an empty remote: nothing is asked, the vault is not looked through, and nothing is remembered", async () => {
 		const h = harness();
 		h.backend.emptied = true;
 		h.vault.putAll({ "a.md": "A", "notes/b.md": "B" });
-
-		const first = await h.pull();
-
-		expect(first.outcome).toBe("remote-empty");
-		expect(h.asked).toEqual([
-			{
-				losses: null,
-				recordCount: 0,
-				firstFetch: {
-					files: { localOnly: ["a.md", "notes/b.md"], different: [], differentSettings: [], atSymlinks: [] },
-					discardsState: false,
-				},
-			},
-		]);
-		expect(await isFirstFetchConfirmed(h.store)).toBe(true);
-		// There is still no base, and there never will be while it is empty.
-		expect(await h.base()).toBeNull();
-
 		const read: string[] = [];
 		h.vault.before = (op, path) => {
 			if (op === "read") read.push(path);
 		};
-		h.vault.put("c.md", "C");
+
 		expect((await h.pull()).outcome).toBe("remote-empty");
 		expect((await h.pull()).outcome).toBe("remote-empty");
-		expect(h.asked).toHaveLength(1);
-		// Nor is the vault looked through for a question that was answered.
+
+		// Nothing comes from an empty remote. What goes there is asked
+		// about by the push that sends it, which still finds it unasked.
+		expect(h.asked).toEqual([]);
 		expect(read).toEqual([]);
-	});
-
-	test("an empty remote, and a no: nothing is remembered, and the next sync asks again", async () => {
-		const h = harness();
-		h.backend.emptied = true;
-		h.vault.put("a.md", "A");
-		h.answer = "cancel";
-
-		expect((await h.pull()).outcome).toBe("declined");
 		expect(await isFirstFetchConfirmed(h.store)).toBe(false);
-		expect(h.vault.log).toEqual([]);
-
-		await h.pull();
-		expect(h.asked).toHaveLength(2);
+		expect(await h.base()).toBeNull();
 	});
 
 	test("the answer goes with the sync state: after a discard it is asked again", async () => {

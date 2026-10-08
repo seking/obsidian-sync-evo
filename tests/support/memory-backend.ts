@@ -19,6 +19,8 @@ import {
 	type PushRequest,
 	type PushResult,
 	type RemoteEntry,
+	type StartRequest,
+	type StartResult,
 } from "../../src/core/backend";
 
 export type FileContent = string | Uint8Array;
@@ -135,6 +137,23 @@ export class MemoryBackend implements Backend {
 		if (this.publishFault === "lost-answer") throw new BackendError("unreachable", "timed out");
 		if (this.listingFault) return { status: "pushed", revision, written };
 		return { status: "pushed", revision, written, listing: { revision, entries: this.entries() } };
+	}
+
+	/** The branch a remote without revisions gets its first one on; `null`: the configured one. */
+	defaultBranch: string | null = null;
+	/** Fails `start` after the revision was made, like an answer that never arrives. */
+	startFault = false;
+
+	async start(request: StartRequest): Promise<StartResult> {
+		if (this.revision !== null) return { status: "stale" };
+		if (this.defaultBranch !== null) return { status: "other-branch", defaultBranch: this.defaultBranch };
+		this.store(request.path, request.content);
+		this.lastDeviceName = request.deviceName;
+		const revision = this.nextRevision();
+		this.advance(revision);
+		if (this.startFault) throw new BackendError("unreachable", "timed out");
+		const entry: RemoteEntry = { path: request.path, kind: "file", hash: blobHash(request.content), size: request.content.length };
+		return { status: "started", revision, entry };
 	}
 
 	/** Another device pushes: sets the given paths, or removes them with `null`. */

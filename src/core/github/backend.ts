@@ -25,6 +25,8 @@ import {
 	type PushResult,
 	type RemoteEntry,
 	type RemoteListing,
+	type StartRequest,
+	type StartResult,
 } from "../backend";
 import { type CommitChange, commitMessage } from "../commit-message";
 import { fetchConcurrently } from "../concurrent-fetch";
@@ -46,6 +48,9 @@ export type GitHubBackendClient = Pick<
 	| "createTree"
 	| "createCommit"
 	| "updateRef"
+	| "branch"
+	| "defaultBranch"
+	| "createFile"
 >;
 
 export interface GitHubBackendOptions {
@@ -168,6 +173,38 @@ export class GitHubBackend implements Backend {
 	 */
 	async fetchArchive(revision: string): Promise<ArchiveContents> {
 		return openZip(new Uint8Array(await this.client.getZip(revision)), { stripTopFolder: true });
+	}
+
+	/**
+	 * The first commit of a repository without commits, made with the one
+	 * API that works on such a repository. GitHub puts that commit on the
+	 * default branch of the repository, so the configured branch has to be
+	 * that one: asked first, and nothing is created when it is not.
+	 */
+	async start(request: StartRequest): Promise<StartResult> {
+		const head = await this.client.resolveHead();
+		if (head.status !== "empty") return { status: "stale" };
+		const defaultBranch = await this.client.defaultBranch();
+		if (defaultBranch !== this.client.branch) return { status: "other-branch", defaultBranch };
+
+		this.throwIfStopped();
+		const { path, content } = request;
+		const message = commitMessage(request.deviceName ?? "", [{ kind: "added", path }]);
+		const created = await this.client.createFile(path, content, message);
+		// Another device made the first commit between the look at the head
+		// and this. With a parent, the commit is in the branch, on top of
+		// that device's; nothing is answered of it, and the pull that has
+		// to come first lists what the branch holds.
+		if (created === "exists" || created.parents > 0) return { status: "stale" };
+		// The record of the file is made with the hash.
+		if (created.blobSha !== (await this.hashContent(content))) {
+			throw new BackendError("other", `start: the blob is not the content that was sent: ${path}`);
+		}
+		return {
+			status: "started",
+			revision: created.commitSha,
+			entry: { path, kind: "file", hash: created.blobSha, size: content.length },
+		};
 	}
 
 	/**

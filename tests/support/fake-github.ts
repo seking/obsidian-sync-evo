@@ -69,6 +69,8 @@ export class FakeGitHub {
 	readonly trees = new Map<string, ReadonlyMap<string, FakeTreeFile>>();
 	readonly commits = new Map<string, FakeCommit>();
 	head: string | null = null;
+	/** The branch the repository names as its default. */
+	defaultBranch = "main";
 	before: ((request: SentRequest) => HttpResponse | Error | undefined | void) | undefined;
 	/**
 	 * What the fake makes of a content that is sent inside a tree, before
@@ -130,6 +132,20 @@ export class FakeGitHub {
 
 	private answer({ method, path, body }: SentRequest): HttpResponse {
 		const data = (body ?? {}) as Record<string, unknown>;
+		if (method === "GET" && path === "") return respond(200, { default_branch: this.defaultBranch });
+		if (method === "PUT" && path.startsWith("/contents/")) {
+			// A path that is there is only replaced when its sha is named;
+			// a new one goes on top of the head, when there is one.
+			const filePath = decodeURIComponent(path.slice("/contents/".length));
+			const files = this.files();
+			if (files.has(filePath)) return respond(422, { message: "Invalid request.\n\n\"sha\" wasn't supplied." });
+			const sha = this.blob(Uint8Array.from(atob(String(data.content)), (c) => c.charCodeAt(0)));
+			files.set(filePath, { mode: "100644", sha });
+			const parents = this.head === null ? [] : [this.head];
+			const commit = this.makeCommit(this.tree(files), parents, String(data.message));
+			this.head = commit;
+			return respond(201, { content: { path: filePath, sha }, commit: { sha: commit, parents: parents.map((parent) => ({ sha: parent })) } });
+		}
 		if (method === "GET" && path === "/git/ref/heads/main") {
 			if (this.head === null) return respond(409, { message: "Git Repository is empty." });
 			return respond(200, { object: { type: "commit", sha: this.head } });

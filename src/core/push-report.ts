@@ -88,6 +88,7 @@ export function pushQuestion(
 	if (firstPush !== null) {
 		const target = { repository: connection.repository, branch: connection.branch };
 		parts.push({ text: t("confirm.firstPush.body", target) });
+		if (request.remoteEmpty) parts.push({ text: t("confirm.firstPush.remoteEmpty") });
 		const { added, modified, deleted } = firstPush;
 		if (added.length > 0) listed(t("confirm.firstPush.added", { count: added.length }), added);
 		if (modified.length > 0) listed(t("confirm.firstPush.modified", { count: modified.length }), modified);
@@ -202,10 +203,14 @@ function summaryText(t: Translate, result: PushRunResult, connectionChanged: boo
 			switch (result.reason) {
 				case "remote-empty":
 					return t("push.pullFirst.remoteEmpty");
+				case "not-default-branch":
+					return t("push.pullFirst.notDefaultBranch", { branch: result.defaultBranch ?? "" });
 				case "remote-moved":
 					return t("push.pullFirst.remoteMoved");
 				case "gitignore-unsettled":
 					return t("push.pullFirst.gitignore");
+				case "gitignore-unreadable":
+					return t("push.pullFirst.gitignoreUnreadable");
 				default:
 					return t("push.pullFirst.noBase");
 			}

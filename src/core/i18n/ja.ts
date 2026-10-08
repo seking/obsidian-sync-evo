@@ -204,7 +204,11 @@ export const ja = completeTranslation(en, {
 	"push.pullFirst.noBase":
 		"何も送信していません。このデバイスは、保存先からの最初の取り込みをまだ終えていません。先に取り込み（pull）を行ってから、送信してください。",
 	"push.pullFirst.remoteEmpty":
-		"何も送信していません。保存先は空で、コミットがまだありません。このバージョンの Sync Evo は、空のリポジトリには送信できません。",
+		"何も送信していません。保存先にコミットがありません。このデバイスは、前にこの保存先と同期しています。保存先のコミットが無くなったので、先に取り込みを実行して確かめてください。",
+	"push.pullFirst.notDefaultBranch":
+		"何も送信していません。保存先は空で、コミットがまだありません。GitHub は、空のリポジトリの最初のコミットを、既定のブランチ {branch} に作ります。Sync Evo の設定のブランチを {branch} にするか、GitHub でリポジトリの既定のブランチを変えてから、もう一度同期してください。",
+	"push.pullFirst.gitignoreUnreadable":
+		"何も送信していません。何を送信するかは、この保管庫の .gitignore で決まりますが、このデバイスで読めません。クラウドドライブからダウンロードされていないか、.gitignore という名前のフォルダがあるか、大文字と小文字だけが違う名前（.GITIGNORE など）になっています。直してから、もう一度送信してください。",
 	"push.pullFirst.remoteMoved":
 		"何も送信していません。この送信を始めた後に、保存先がほかのデバイスから変更されました。先に取り込み（pull）を行ってから、もう一度送信してください。",
 	"push.pullFirst.gitignore":
@@ -263,6 +267,8 @@ export const ja = completeTranslation(en, {
 	"confirm.firstPush.title": "最初の送信の確認",
 	"confirm.firstPush.body":
 		"このデバイスから {repository} のブランチ {branch} へ、初めて送信します。保存先を、下のとおりに変更します。送信が1回済むと、次からの送信では、この一覧を出しません。",
+	"confirm.firstPush.remoteEmpty":
+		"保存先は空で、コミットがまだありません。最初に .gitignore だけのコミットを作り、続けて残りを送信します。この保管庫に .gitignore が無い時は、空の .gitignore を作ります。",
 	"confirm.firstPush.added": "追加するファイル：{count} 件",
 	"confirm.firstPush.modified": "変更するファイル：{count} 件",
 	"confirm.firstPush.deleted": "削除するファイル：{count} 件",

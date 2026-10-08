@@ -14,7 +14,7 @@ import { describe, expect, test } from "vitest";
 import { BackendError, type BackendErrorKind, type FetchedFile, type RemoteEntry } from "../src/core/backend";
 import { MAX_CONCURRENT_FETCH_BYTES, MAX_CONCURRENT_FETCHES } from "../src/core/concurrent-fetch";
 import { entryOfTreeItem, GitHubBackend, type GitHubBackendClient } from "../src/core/github/backend";
-import type { GitCommit, GitTreeItem, HeadResult } from "../src/core/github/client";
+import type { CreatedFile, GitCommit, GitTreeItem, HeadResult } from "../src/core/github/client";
 import { blobHash } from "./support/memory-backend";
 
 const A = "a".repeat(40);
@@ -30,6 +30,18 @@ class FakeClient implements GitHubBackendClient {
 	blobs = new Map<string, Uint8Array | BackendError>();
 	ancestor: boolean | BackendError = true;
 	zip: Uint8Array | BackendError = new Uint8Array();
+
+	readonly branch = "main";
+
+	async defaultBranch(): Promise<string> {
+		this.calls.push("defaultBranch");
+		return "main";
+	}
+
+	async createFile(path: string): Promise<CreatedFile> {
+		this.calls.push(`createFile ${path}`);
+		return { commitSha: A, blobSha: T, parents: 0 };
+	}
 
 	async resolveHead(): Promise<HeadResult> {
 		this.calls.push("resolveHead");

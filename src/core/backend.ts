@@ -169,6 +169,31 @@ export type PushResult =
 	/** The remote moved past `baseRevision`. Nothing was changed. */
 	| { readonly status: "stale" };
 
+/** The first file of a remote that has no revision yet. */
+export interface StartRequest {
+	readonly path: string;
+	readonly content: Uint8Array;
+	/** The name of this device, for a remote that keeps a description of each change. */
+	readonly deviceName?: string;
+}
+
+export type StartResult =
+	| {
+			readonly status: "started";
+			/** The revision that was made, which holds the one file. */
+			readonly revision: string;
+			/** The file as the remote now holds it. */
+			readonly entry: RemoteEntry;
+	  }
+	/** The remote has a revision by now. Nothing was changed. */
+	| { readonly status: "stale" }
+	/**
+	 * The first revision of this remote can only be made on another branch
+	 * than the configured one, and none is made on a branch the user did
+	 * not name. Nothing was changed.
+	 */
+	| { readonly status: "other-branch"; readonly defaultBranch: string };
+
 export interface Backend {
 	/** Hashes local content the same way the listing's `hash` is computed. */
 	hashContent(content: Uint8Array): Promise<string>;
@@ -229,6 +254,17 @@ export interface Backend {
 	 * `PushRequest.beforePublish`.
 	 */
 	push(request: PushRequest): Promise<PushResult>;
+
+	/**
+	 * Makes the first revision of a remote that has none, with one file in
+	 * it; everything else is then sent with `push`, on top of it. Absent on
+	 * a remote that cannot: nothing is sent to it while it is empty.
+	 *
+	 * A failure does not always mean that nothing changed. The caller
+	 * records nothing then, and the next sync finds a remote that is not
+	 * empty, which a pull has to look at first.
+	 */
+	start?(request: StartRequest): Promise<StartResult>;
 }
 
 export type BackendErrorKind =

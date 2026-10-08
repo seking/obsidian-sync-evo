@@ -31,14 +31,15 @@ import { markPushFailure } from "./push-failure";
  * device with one file that cannot be written would otherwise never send
  * anything.
  *
- * Not to a remote without commits: nothing can be built on it yet.
+ * After a pull that found a remote without commits, it does: the push
+ * gives the remote its first commit.
  */
 export function pushFollows(pull: PullResult): boolean {
 	switch (pull.outcome) {
 		case "completed":
 		case "incomplete":
-			return true;
 		case "remote-empty":
+			return true;
 		case "declined":
 		case "cancelled":
 			return false;

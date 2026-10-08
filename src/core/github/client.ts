@@ -114,6 +114,14 @@ export type HeadResult =
 	/** The repository has no commit yet. Not a failure: a new repository starts like this. */
 	| { readonly status: "empty" };
 
+/** What `createFile` made. */
+export interface CreatedFile {
+	readonly commitSha: string;
+	readonly blobSha: string;
+	/** How many parents the commit has. */
+	readonly parents: number;
+}
+
 export interface GitCommit {
 	readonly sha: string;
 	readonly treeSha: string;
@@ -346,6 +354,51 @@ export class GitHubClient {
 		return response.body;
 	}
 
+	/** The configured branch. */
+	get branch(): string {
+		return this.options.branch;
+	}
+
+	/**
+	 * The branch the repository names as its default: the one its first
+	 * commit goes to while it has none.
+	 */
+	async defaultBranch(): Promise<string> {
+		const what = "get repository";
+		const json = await this.json(what, this.get(""), 200);
+		if (typeof json.default_branch !== "string" || json.default_branch === "") throw this.malformed(what);
+		return json.default_branch;
+	}
+
+	/**
+	 * Creates one file on the configured branch, as a commit of its own.
+	 * The one way to write to a repository without commits, which the Git
+	 * Data API refuses. Answers with the sha of the commit and of the blob,
+	 * and with the number of parents the commit has: not 0 when the
+	 * repository had a commit after all. Answers "exists" when the path is
+	 * taken, which is only so in a repository that has a commit.
+	 *
+	 * Like `updateRef`, an "unreachable" failure does not mean that nothing
+	 * was created.
+	 */
+	async createFile(path: string, content: Uint8Array, message: string): Promise<CreatedFile | "exists"> {
+		const what = "create file";
+		const encoded = path.split("/").map(encodeURIComponent).join("/");
+		const body = { message, content: encodeBase64(content), branch: this.options.branch };
+		const request = this.write("PUT", `/contents/${encoded}`, body);
+		const response = await this.send(what, request, this.transferTimeout(utf8Length(request.body ?? "")));
+		// A file that is there is only replaced when its sha is named.
+		if (response.status === 422 && /sha/i.test(messageOf(response))) return "exists";
+		if (response.status !== 201) throw this.writeFailure(what, response);
+		const json = parseJson(response.body);
+		const commit = isRecord(json) && isRecord(json.commit) ? json.commit : undefined;
+		const blob = isRecord(json) && isRecord(json.content) ? json.content.sha : undefined;
+		if (commit === undefined || !isSha(commit.sha) || !isSha(blob) || !Array.isArray(commit.parents)) {
+			throw this.malformed(what);
+		}
+		return { commitSha: commit.sha, blobSha: blob, parents: commit.parents.length };
+	}
+
 	/** Stores content and answers with its sha. */
 	async createBlob(content: Uint8Array): Promise<string> {
 		const what = "create blob";
@@ -453,7 +506,7 @@ export class GitHubClient {
 		};
 	}
 
-	private write(method: "POST" | "PATCH", path: string, body: unknown): HttpRequest {
+	private write(method: "POST" | "PATCH" | "PUT", path: string, body: unknown): HttpRequest {
 		return {
 			url: this.repoUrl + path,
 			method,

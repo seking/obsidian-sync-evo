@@ -77,7 +77,7 @@ describe("the question a push stops with", () => {
 			firstPush: { added: [".obsidian/graph.json", "new.md"], modified: ["edit.md"], deleted: [] },
 			deletions: null,
 			largeFiles: null,
-			recordCount: 3,
+			remoteEmpty: false, recordCount: 3,
 		});
 		expect(question).toEqual({
 			title: "Confirm the first push",
@@ -94,13 +94,13 @@ describe("the question a push stops with", () => {
 
 	test("the lists stop at fifty paths", () => {
 		const added = Array.from({ length: 53 }, (_, i) => `n${i}.md`);
-		const question = pushQuestion(t, target, { firstPush: { added, modified: [], deleted: [] }, deletions: null, largeFiles: null, recordCount: 0 });
+		const question = pushQuestion(t, target, { firstPush: { added, modified: [], deleted: [] }, deletions: null, largeFiles: null, remoteEmpty: false, recordCount: 0 });
 		expect(question.parts[1]?.paths?.shown.length).toBe(50);
 		expect(question.parts[1]?.paths?.more).toBe(3);
 	});
 
 	test("too many deletions: how many, which, and what follows on the other devices", () => {
-		const question = pushQuestion(t, target, { firstPush: null, deletions: ["a.md", "b.md"], largeFiles: null, recordCount: 3 });
+		const question = pushQuestion(t, target, { firstPush: null, deletions: ["a.md", "b.md"], largeFiles: null, remoteEmpty: false, recordCount: 3 });
 		expect(question).toEqual({
 			title: "Confirm deletions",
 			parts: [
@@ -118,7 +118,7 @@ describe("the question a push stops with", () => {
 			firstPush: { added: [], modified: [], deleted: ["a.md", "b.md"] },
 			deletions: ["a.md", "b.md"],
 			largeFiles: null,
-			recordCount: 3,
+			remoteEmpty: false, recordCount: 3,
 		});
 		expect(question.title).toBe("Confirm the first push");
 		expect(question.parts.map((part) => part.paths?.shown)).toEqual([undefined, ["a.md", "b.md"], undefined]);
@@ -130,7 +130,7 @@ describe("the question a push stops with", () => {
 			firstPush: { added: ["new.md"], modified: ["edit.md"], deleted: ["old.md"] },
 			deletions: ["old.md"],
 			largeFiles: null,
-			recordCount: 3,
+			remoteEmpty: false, recordCount: 3,
 		});
 		expect(question.title).toBe("最初の送信の確認");
 		expect(question.parts.map((part) => part.text)).toEqual([
@@ -141,6 +141,27 @@ describe("the question a push stops with", () => {
 			"このデバイスで削除したファイル 1 件を、保存先からも削除します。ほかのデバイスでも、取り込むと削除されます。",
 		]);
 		expect(question.note).toBe("やめた場合は、何も送信せず、何も変更しません。");
+	});
+});
+
+describe("the question before the first push to a remote without commits", () => {
+	test("says that the remote is empty, and that two commits are made", () => {
+		const request = {
+			firstPush: { added: [".gitignore", "a.md"], modified: [], deleted: [] },
+			remoteEmpty: true,
+			deletions: null,
+			largeFiles: null,
+			recordCount: 0,
+		};
+		const texts = pushQuestion(t, target, request).parts.map((part) => part.text);
+		expect(texts[0]).toContain("octo/notes");
+		expect(texts[1]).toBe(
+			"The remote is empty: it has no commits yet. A first commit with the .gitignore alone is made, and the rest is sent after it. If this vault has no .gitignore, an empty one is created.",
+		);
+		expect(texts[2]).toBe("2 files to add:");
+		expect(pushQuestion(ja, target, request).parts[1]?.text).toContain("保存先は空で");
+		// Not when the remote has commits.
+		expect(pushQuestion(t, target, { ...request, remoteEmpty: false }).parts).toHaveLength(2);
 	});
 });
 
@@ -172,10 +193,11 @@ describe("how a push ended", () => {
 			pushReport(t, result({ outcome: "pull-first", revision: null, ...(reason === undefined ? {} : { reason }) }), options)
 				.summary;
 		expect(summary("no-base")).toContain("has not finished its first pull");
-		expect(summary("remote-empty")).toContain("The remote is empty");
+		expect(summary("remote-empty")).toContain("The remote has no commits");
+		expect(summary("not-default-branch")).toContain("The remote is empty");
 		expect(summary("remote-moved")).toContain("changed from another device after this push began");
 		expect(summary("gitignore-unsettled")).toContain(".gitignore");
-		for (const reason of ["no-base", "remote-empty", "remote-moved", "gitignore-unsettled"] as const) {
+		for (const reason of ["no-base", "remote-empty", "not-default-branch", "remote-moved", "gitignore-unsettled"] as const) {
 			expect(summary(reason).startsWith("Nothing was sent. ")).toBe(true);
 		}
 	});
@@ -311,7 +333,7 @@ describe("the question before large files are sent", () => {
 			firstPush: null,
 			deletions: null,
 			largeFiles: [video, { path: "scan.pdf", size: 10 * MB + 1, conflictCopy: false }],
-			recordCount: 3,
+			remoteEmpty: false, recordCount: 3,
 		});
 		expect(question).toEqual({
 			title: "Confirm large files",
@@ -331,7 +353,7 @@ describe("the question before large files are sent", () => {
 			firstPush: null,
 			deletions: null,
 			largeFiles: [{ path: "video.conflict-iPhone-20261003-120000.mov", size: 11 * MB, conflictCopy: true }],
-			recordCount: 3,
+			remoteEmpty: false, recordCount: 3,
 		});
 		expect(question.parts.map((part) => part.text)).toEqual([
 			"1 file to send is larger than 10 MB. A file that was sent stays in the history of the repository, also after it is deleted:",
@@ -344,14 +366,14 @@ describe("the question before large files are sent", () => {
 			firstPush: { added: ["media/video.mov"], modified: [], deleted: ["a.md"] },
 			deletions: ["a.md"],
 			largeFiles: [video],
-			recordCount: 3,
+			remoteEmpty: false, recordCount: 3,
 		});
 		expect(question.title).toBe("Confirm the first push");
 		expect(question.parts.length).toBe(5);
 		expect(question.parts[4]?.paths?.shown).toEqual(["media/video.mov (12.0 MB)"]);
 		expect(question.buttons).toEqual({ proceed: "Send", cancel: "Cancel the push" });
 		// Without large files, the usual buttons.
-		const usual = pushQuestion(t, target, { firstPush: null, deletions: ["a.md"], largeFiles: null, recordCount: 3 });
+		const usual = pushQuestion(t, target, { firstPush: null, deletions: ["a.md"], largeFiles: null, remoteEmpty: false, recordCount: 3 });
 		expect(usual.buttons).toBeUndefined();
 	});
 
@@ -360,7 +382,7 @@ describe("the question before large files are sent", () => {
 			firstPush: null,
 			deletions: null,
 			largeFiles: [{ ...video, conflictCopy: true }],
-			recordCount: 3,
+			remoteEmpty: false, recordCount: 3,
 		});
 		expect(question.title).toBe("大きなファイルの確認");
 		expect(question.parts.map((part) => part.text)).toEqual([
