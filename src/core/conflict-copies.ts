@@ -89,6 +89,15 @@ function copyFamily(parts: CopyParts): string {
 }
 
 /**
+ * What a copy shares with the other names its content can go to (the same
+ * name, but for the number), or `null` when `path` is not named like a copy.
+ */
+export function copyFamilyOf(path: string): string | null {
+	const parts = copyParts(path);
+	return parts === null ? null : copyFamily(parts);
+}
+
+/**
  * The copies among a list of paths, by the file they keep content of. Asked
  * when a conflict is about to make a copy: one that is already there with
  * the same content is used instead, so that a pull that is carried out twice

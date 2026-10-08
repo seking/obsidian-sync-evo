@@ -25,6 +25,7 @@
 // this file.
 
 import ignore from "ignore";
+import { copyFamilyOf } from "./conflict-copies";
 import { originalPathOfConflictCopy } from "./conflict-name";
 import { foldedKey, isPathFromRoot, pathKey } from "./paths";
 
@@ -89,6 +90,11 @@ export interface Exclusion {
 	 * copy is like any other new file a rule matches. For a copy of a copy
 	 * it is the first file that is asked about, as for the rule.
 	 *
+	 * A copy that was itself in conflict leaves its content under its own
+	 * name with another number (`copyCandidate`). That one is synced while
+	 * the remote holds a copy of that name, the one it was in conflict with,
+	 * though the first file may be gone from the remote by then.
+	 *
 	 * A copy of a file inside the configuration folder is left out, unless
 	 * it is known itself. No pull makes such a copy (`isInConfigDir`); one
 	 * that an earlier version made stays on the device, and is not sent.
@@ -108,6 +114,11 @@ export interface KnownPaths {
 	has(key: string, type: PathType): boolean;
 	/** Whether the remote holds this file. A record does not count. */
 	onRemote(key: string): boolean;
+	/**
+	 * For a path named like a copy kept from a conflict: whether the remote
+	 * holds another copy of the same name but for the number at its end.
+	 */
+	copyOnRemote(key: string): boolean;
 }
 
 /**
@@ -125,6 +136,8 @@ export function knownPaths(
 	records: readonly { readonly path: string }[],
 ): KnownPaths {
 	const onRemote = new Set<string>();
+	// The name the copies of one conflict share → the copies the remote holds.
+	const copies = new Map<string, Set<string>>();
 	const files = new Set<string>();
 	const folders = new Set<string>();
 	for (const [entries, isRemote] of [
@@ -133,7 +146,15 @@ export function knownPaths(
 	] as const) {
 		for (const entry of entries) {
 			const key = foldedKey(entry.path);
-			if (isRemote) onRemote.add(key);
+			if (isRemote) {
+				onRemote.add(key);
+				const family = copyFamilyOf(entry.path);
+				if (family !== null) {
+					const group = copies.get(family);
+					if (group === undefined) copies.set(family, new Set([key]));
+					else group.add(key);
+				}
+			}
 			files.add(key);
 			for (let slash = key.indexOf("/"); slash !== -1; slash = key.indexOf("/", slash + 1)) {
 				folders.add(key.slice(0, slash));
@@ -143,6 +164,14 @@ export function knownPaths(
 	return {
 		has: (key, type) => (type === "folder" ? folders : files).has(foldedKey(key)),
 		onRemote: (key) => onRemote.has(foldedKey(key)),
+		copyOnRemote: (key) => {
+			const family = copyFamilyOf(key);
+			const group = family === null ? undefined : copies.get(family);
+			if (group === undefined) return false;
+			// Itself does not count: the remote may hold the very name
+			// in another case, and no other copy.
+			return group.size > 1 || !group.has(foldedKey(key));
+		},
 	};
 }
 
@@ -187,7 +216,7 @@ export function createExclusion(input: ExclusionInput): Exclusion {
 				const original = withoutConflictNames(key);
 				if (original !== key) {
 					if (isInConfigDir(original, input.configDir)) return true;
-					if (known.onRemote(original)) return false;
+					if (known.onRemote(original) || known.copyOnRemote(key)) return false;
 				}
 			}
 			return matchesRule(path, type);

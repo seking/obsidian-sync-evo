@@ -216,6 +216,10 @@ export const en = baseCatalog({
 		one: "{count} file was left as it is on this device, as you chose. It differs from the remote:\n{list}",
 		other: "{count} files were left as they are on this device, as you chose. They differ from the remote:\n{list}",
 	},
+	"pull.keptUnsent": {
+		one: "{count} of the files you chose to keep on this device is not sent back to the remote, because a rule in .gitignore excludes it. It stays on this device only:\n{list}",
+		other: "{count} of the files you chose to keep on this device are not sent back to the remote, because a rule in .gitignore excludes them. They stay on this device only:\n{list}",
+	},
 	"pull.symlinks": {
 		one: "The remote has {count} symbolic link. Sync Evo does not write it to this device and leaves it as it is on the remote. The settings list the links that are skipped:\n{list}",
 		other: "The remote has {count} symbolic links. Sync Evo does not write them to this device and leaves them as they are on the remote. The settings list the links that are skipped:\n{list}",

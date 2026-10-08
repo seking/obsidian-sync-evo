@@ -54,6 +54,7 @@ const result = (over: Partial<PullResult> = {}): PullResult => ({
 	deferred: [],
 	unwritable: [],
 	keptLocal: [],
+	keptUnsent: [],
 	newSymlinks: [],
 	notices: [],
 	closedViews: false,
@@ -637,6 +638,17 @@ describe("what the user has to know", () => {
 			...kept.slice(0, 5),
 			"…and 3 more",
 		]);
+	});
+
+	test("the kept files that a rule keeps from being sent back are listed apart", () => {
+		const kept = result({ keptLocal: ["a.md", "drafts/c.md"], keptUnsent: ["drafts/c.md"] });
+		expect(pullReport(t, kept, options).details).toEqual([
+			"2 files were left as they are on this device, as you chose. They differ from the remote:\na.md\ndrafts/c.md",
+			"1 of the files you chose to keep on this device is not sent back to the remote, because a rule in .gitignore excludes it. It stays on this device only:\ndrafts/c.md",
+		]);
+		expect(pullReport(ja, kept, options).details[1]).toBe(
+			"選んだとおりに残したファイルのうち 1 件は、.gitignore の規則に当たるため、保存先へは送信しません。このデバイスにだけ残ります：\ndrafts/c.md",
+		);
 	});
 
 	test("symlinks seen for the first time", () => {

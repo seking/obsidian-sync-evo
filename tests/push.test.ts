@@ -1546,6 +1546,220 @@ describe("a sync: a pull, and then a push", () => {
 	});
 });
 
+describe("what a pull leaves for the push that follows", () => {
+	test("a note edited on both sides: the copy is sent as a new file, beside the note as the remote has it", async () => {
+		const h = await synced({ "notes/k.md": "K", "b.md": "B" });
+		h.backend.commit({ "notes/k.md": "K from the Mac" });
+		h.vault.put("notes/k.md", "K from here");
+
+		const { pull, push } = await h.sync();
+
+		expect(pull).toMatchObject({ outcome: "completed", counts: { conflicts: 1 } });
+		const copy = pull.conflicts[0]?.copyPath ?? "";
+		expect(copy).toBe(conflictCopyPath("notes/k.md", "iPhone", new Date(h.now())));
+		expect(push).toMatchObject({ outcome: "pushed", counts: { added: 1, modified: 0, deleted: 0 } });
+		expect(await h.remote()).toEqual({ "notes/k.md": "K from the Mac", [copy]: "K from here", "b.md": "B" });
+		await expectNothingToPull(h);
+		// The copy is a file like any other from here on: no conflict comes of it.
+		expect((await h.sync()).push).toMatchObject({ outcome: "nothing-to-push" });
+	});
+
+	test("the copy of a file a rule matches is sent while the file is on the remote; a new file beside it is not", async () => {
+		const rules = "/drafts/\n*.png\n";
+		const h = await synced({ "drafts/a.md": "A", "img.png": "P", ".gitignore": rules });
+		h.backend.commit({ "drafts/a.md": "A from the Mac", "img.png": "P from the Mac" });
+		h.vault.put("drafts/a.md", "A from here");
+		h.vault.put("img.png", "P from here");
+		h.vault.put("drafts/new.md", "N");
+
+		const { pull, push } = await h.sync();
+
+		expect(pull).toMatchObject({ outcome: "completed", counts: { conflicts: 2 } });
+		const copies = Object.fromEntries(pull.conflicts.map((conflict) => [conflict.path, conflict.copyPath]));
+		expect(push).toMatchObject({ outcome: "pushed", counts: { added: 2, modified: 0, deleted: 0 } });
+		expect(await h.remote()).toEqual({
+			"drafts/a.md": "A from the Mac",
+			[copies["drafts/a.md"] ?? ""]: "A from here",
+			"img.png": "P from the Mac",
+			[copies["img.png"] ?? ""]: "P from here",
+			".gitignore": rules,
+		});
+		expect(h.vault.text("drafts/new.md")).toBe("N");
+	});
+
+	test("the copies that gathered before this device ever pushed are listed by the first question, and sent", async () => {
+		const h = await synced({ "a.md": "A", "b.md": "B" }, { firstPush: true });
+		h.backend.commit({ "a.md": "A from the Mac" });
+		h.vault.put("a.md", "A from here");
+		const first = await h.pull();
+		h.backend.commit({ "b.md": "B from the Mac" });
+		h.vault.put("b.md", "B from here");
+		const second = await h.pull();
+		const copies = [first.conflicts[0]?.copyPath ?? "", second.conflicts[0]?.copyPath ?? ""];
+		expect(h.backend.pushes).toBe(0);
+
+		expect(await h.push()).toMatchObject({ outcome: "pushed", counts: { added: 2, modified: 0, deleted: 0 } });
+
+		expect(h.asked).toMatchObject([{ firstPush: { added: [...copies].sort(), modified: [], deleted: [] } }]);
+		expect(await h.remote()).toEqual({
+			"a.md": "A from the Mac",
+			"b.md": "B from the Mac",
+			[copies[0] ?? ""]: "A from here",
+			[copies[1] ?? ""]: "B from here",
+		});
+		await expectNothingToPull(h);
+	});
+
+	test("a file the remote deleted and this device edited stays, and is sent back", async () => {
+		const h = await synced({ "a.md": "A", "b.md": "B" });
+		h.backend.commit({ "a.md": null });
+		h.vault.put("a.md", "A edited here");
+
+		const { pull, push } = await h.sync();
+
+		expect(pull).toMatchObject({ outcome: "completed", counts: { deleted: 0, conflicts: 0 } });
+		expect(h.vault.text("a.md")).toBe("A edited here");
+		expect(h.vault.trashed).toEqual([]);
+		expect(push).toMatchObject({ outcome: "pushed", counts: { added: 1, modified: 0, deleted: 0 } });
+		expect(await h.remote()).toEqual({ "a.md": "A edited here", "b.md": "B" });
+		await expectNothingToPull(h);
+	});
+
+	test("a push alone sends such a file back too, and the pull after it has nothing to do", async () => {
+		const h = await synced({ "a.md": "A", "b.md": "B" });
+		h.backend.commit({ "a.md": null });
+		h.vault.put("a.md", "A edited here");
+
+		expect(await h.push()).toMatchObject({ outcome: "pushed", counts: { added: 1, modified: 0, deleted: 0 } });
+
+		expect(await h.remote()).toEqual({ "a.md": "A edited here", "b.md": "B" });
+		await expectNothingToPull(h);
+	});
+
+	test("the copy of a file a rule matches is not sent once the remote has deleted the file, and stays in the vault", async () => {
+		const rules = "*.png\n";
+		const h = await synced({ "img.png": "P", ".gitignore": rules });
+		h.backend.commit({ "img.png": "P from the Mac" });
+		h.vault.put("img.png", "P from here");
+		const pull = await h.pull();
+		const copy = pull.conflicts[0]?.copyPath ?? "";
+		// The Mac deletes the image between the pull and the push.
+		const head = h.backend.commit({ "img.png": null });
+
+		expect(await h.push()).toMatchObject({ outcome: "nothing-to-push" });
+
+		expect(h.backend.revision).toBe(head);
+		expect(await h.remote()).toEqual({ ".gitignore": rules });
+		expect(h.vault.text(copy)).toBe("P from here");
+	});
+
+	test("a file the remote stopped tracking and this device edited stays, and is not sent back", async () => {
+		const h = await synced({ "drafts/a.md": "A", "b.md": "B" });
+		// On the Mac: `git rm --cached drafts/a.md`, and a rule for the folder.
+		const head = h.backend.commit({ "drafts/a.md": null, ".gitignore": "/drafts/\n" });
+		h.vault.put("drafts/a.md", "A edited here");
+
+		const { pull, push } = await h.sync();
+
+		expect(pull).toMatchObject({ outcome: "completed", counts: { deleted: 0, conflicts: 0 } });
+		expect(push).toMatchObject({ outcome: "nothing-to-push" });
+		expect(h.backend.revision).toBe(head);
+		expect(h.vault.text("drafts/a.md")).toBe("A edited here");
+		expect(h.vault.trashed).toEqual([]);
+		expect(await h.records()).toEqual(hashes({ "b.md": "B", ".gitignore": "/drafts/\n" }));
+
+		// And it stays that way: the file is excluded like any other in the folder.
+		h.vault.put("drafts/a.md", "A edited again");
+		expect((await h.sync()).push).toMatchObject({ outcome: "nothing-to-push" });
+		expect(h.backend.revision).toBe(head);
+	});
+
+	test("after a rewritten history, the files the user kept are sent back by the push", async () => {
+		const h = await synced({ "a.md": "A1", "b.md": "B" });
+		h.backend.commit({ "a.md": "A2", "c.md": "C" });
+		await h.pull();
+		// A force push that takes back the edit of `a.md` and drops `c.md`.
+		h.backend.rewriteHistory({ "a.md": "A1", "b.md": "B", "d.md": "D" });
+		h.pullAnswer = "keep-local";
+
+		const { pull, push } = await h.sync();
+
+		expect(pull).toMatchObject({ outcome: "completed", rewritten: true, keptLocal: ["c.md", "a.md"] });
+		expect(push).toMatchObject({ outcome: "pushed", counts: { added: 1, modified: 1, deleted: 0 } });
+		expect(await h.remote()).toEqual({ "a.md": "A2", "b.md": "B", "c.md": "C", "d.md": "D" });
+		expect(h.vault.snapshot()).toEqual(await h.remote());
+		expect(h.vault.trashed).toEqual([]);
+		await expectNothingToPull(h);
+	});
+});
+
+describe("a copy that is itself in conflict", () => {
+	test("its content goes to the same name with a number, and is sent though the first file is gone from the remote", async () => {
+		const rules = "*.png\n";
+		const h = await synced({ "img.png": "P", ".gitignore": rules });
+		h.backend.commit({ "img.png": "P from the Mac" });
+		h.vault.put("img.png", "P from here");
+		const first = (await h.sync()).pull.conflicts[0]?.copyPath ?? "";
+		expect(await h.remote()).toMatchObject({ [first]: "P from here" });
+
+		// The Mac deletes the image and edits the copy; so does this device.
+		h.backend.commit({ "img.png": null, [first]: "copy edited on the Mac" });
+		h.vault.put(first, "copy edited here");
+
+		const { pull, push } = await h.sync();
+
+		const second = first.replace(/\.png$/, "-2.png");
+		expect(pull).toMatchObject({ outcome: "completed", conflicts: [{ path: first, copyPath: second }] });
+		expect(push).toMatchObject({ outcome: "pushed", counts: { added: 1, modified: 0, deleted: 0 } });
+		expect(await h.remote()).toEqual({
+			[first]: "copy edited on the Mac",
+			[second]: "copy edited here",
+			".gitignore": rules,
+		});
+		await expectNothingToPull(h);
+	});
+});
+
+describe("a kept file that a rule excludes", () => {
+	test("dropped by a rewritten history: it stays here, the pull says that it is not sent back, and no push sends it", async () => {
+		const rules = "/drafts/\n";
+		const h = await synced({ "a.md": "A1", ".gitignore": rules });
+		// Tracked though the rule matches it, as after a `git add -f`.
+		h.backend.commit({ "a.md": "A2", "drafts/c.md": "C", "c.md": "C" });
+		await h.pull();
+		const head = h.backend.rewriteHistory({ "a.md": "A1", ".gitignore": rules });
+		h.pullAnswer = "keep-local";
+
+		const { pull, push } = await h.sync();
+
+		expect(pull).toMatchObject({ outcome: "completed", rewritten: true, keptUnsent: ["drafts/c.md"] });
+		expect([...pull.keptLocal].sort()).toEqual(["a.md", "c.md", "drafts/c.md"]);
+		expect(push).toMatchObject({ outcome: "pushed", counts: { added: 1, modified: 1, deleted: 0 } });
+		expect(await h.remote()).toEqual({ "a.md": "A2", "c.md": "C", ".gitignore": rules });
+		expect(h.vault.text("drafts/c.md")).toBe("C");
+		expect(h.vault.trashed).toEqual([]);
+
+		expect((await h.sync()).push).toMatchObject({ outcome: "nothing-to-push" });
+		expect(h.backend.revision).not.toBe(head);
+		expect(h.vault.text("drafts/c.md")).toBe("C");
+	});
+
+	test("written back by a rewritten history: the remote still holds the path, so it is sent as any edit", async () => {
+		const rules = "/drafts/\n";
+		const h = await synced({ "drafts/c.md": "C1", ".gitignore": rules });
+		h.backend.commit({ "drafts/c.md": "C2" });
+		await h.pull();
+		h.backend.rewriteHistory({ "drafts/c.md": "C1", ".gitignore": rules });
+		h.pullAnswer = "keep-local";
+
+		const { pull, push } = await h.sync();
+
+		expect(pull).toMatchObject({ outcome: "completed", keptLocal: ["drafts/c.md"], keptUnsent: [] });
+		expect(push).toMatchObject({ outcome: "pushed", counts: { added: 0, modified: 1, deleted: 0 } });
+		expect(await h.remote()).toEqual({ "drafts/c.md": "C2", ".gitignore": rules });
+	});
+});
+
 describe("a file a cloud drive has taken off the device", () => {
 	const files = { "notes/big.md": "BIG", "a.md": "A" };
 	/** `notes/big.md` is evicted: its placeholder is all the folder lists. */

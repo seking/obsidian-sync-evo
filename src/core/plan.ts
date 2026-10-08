@@ -388,6 +388,7 @@ function applyRules(action: SyncAction, exclusion: Exclusion, known: KnownPaths)
 	const withoutItself: KnownPaths = {
 		has: (other, type) => other !== key && known.has(other, type),
 		onRemote: known.onRemote,
+		copyOnRemote: known.copyOnRemote,
 	};
 	if (!exclusion.excludes(key, "file", withoutItself)) return action;
 	if (record === undefined) return "excluded";

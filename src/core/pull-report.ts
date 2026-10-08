@@ -303,6 +303,9 @@ export function pullReport(t: Translate, result: PullResult, options: PullReport
 	if (result.keptLocal.length > 0) {
 		details.push(t("pull.keptLocal", { count: result.keptLocal.length, list: listText(t, result.keptLocal) }));
 	}
+	if (result.keptUnsent.length > 0) {
+		details.push(t("pull.keptUnsent", { count: result.keptUnsent.length, list: listText(t, result.keptUnsent) }));
+	}
 	if (result.recoveredPush !== undefined) details.push(recoveredPushText(t, result.recoveredPush));
 	// Not after a "no": that pull left nothing for later, it did not begin.
 	// What it put off before it asked (a file left half written that could

@@ -28,7 +28,7 @@ import {
 const paths = { configDir: ".obsidian", pluginDir: ".obsidian/plugins/sync-evo" };
 
 /** Every path is on the remote. */
-const known: KnownPaths = { has: () => true, onRemote: () => true };
+const known: KnownPaths = { has: () => true, onRemote: () => true, copyOnRemote: () => true };
 /** Nothing is on the remote and nothing has a record. */
 const unknown = knownPaths([], []);
 
@@ -351,6 +351,28 @@ describe("a copy kept from a conflict", () => {
 		const second = conflictCopyPath(first, "Mac", at, 2);
 		expect(exclusion.excludes(second, "file", knownPaths([entryAt("img.png")], []))).toBe(false);
 		expect(exclusion.excludes(second, "file", knownPaths([entryAt(first)], []))).toBe(true);
+	});
+
+	test("a copy is synced while the remote holds a copy of the same name with another number, though the first file is gone", () => {
+		const exclusion = exclusionFor("*.png\n");
+		const first = conflictCopyPath("img.png", "iPhone", at);
+		const second = conflictCopyPath("img.png", "iPhone", at, 2);
+		const third = conflictCopyPath("img.png", "iPhone", at, 3);
+		expect(exclusion.excludes(second, "file", knownPaths([entryAt(first)], []))).toBe(false);
+		expect(exclusion.excludes(first, "file", knownPaths([entryAt(second)], []))).toBe(false);
+		expect(exclusion.excludes(third, "file", knownPaths([entryAt(second)], []))).toBe(false);
+		// Without regard to case, as every known path is asked.
+		expect(exclusion.excludes(second, "file", knownPaths([entryAt(first.replace("img", "IMG"))], []))).toBe(false);
+		// A record of the other copy is not enough, as for the first file.
+		expect(exclusion.excludes(second, "file", knownPaths([], [entryAt(first)]))).toBe(true);
+		// A copy of another time, or of another device, is a copy of another conflict.
+		const later = conflictCopyPath("img.png", "iPhone", new Date(2026, 9, 3, 22, 15, 1));
+		const other = conflictCopyPath("img.png", "Mac", at);
+		expect(exclusion.excludes(second, "file", knownPaths([entryAt(later), entryAt(other)], []))).toBe(true);
+		// And in the configuration folder no copy is sent, whatever the remote holds.
+		const config = conflictCopyPath(".obsidian/app.json", "iPhone", at);
+		const configSecond = conflictCopyPath(".obsidian/app.json", "iPhone", at, 2);
+		expect(exclusion.excludes(configSecond, "file", knownPaths([entryAt(config)], []))).toBe(true);
 	});
 
 	test("an ordinary file next to a known one is not known for that", () => {

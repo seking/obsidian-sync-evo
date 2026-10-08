@@ -449,6 +449,11 @@ export interface PullResult {
 	readonly unwritable: readonly UnwritablePath[];
 	/** Files the user chose to keep when the history was rewritten. */
 	readonly keptLocal: readonly string[];
+	/**
+	 * Those of `keptLocal` that no push sends back: the remote no longer
+	 * holds the path and a rule excludes it. They stay on this device only.
+	 */
+	readonly keptUnsent: readonly string[];
 	/** Symlinks of the remote that no record held before. Told once: they have a record now. */
 	readonly newSymlinks: readonly string[];
 	/**

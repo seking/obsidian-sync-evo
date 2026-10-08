@@ -202,6 +202,7 @@ describe("how a push ended", () => {
 			deferred: [],
 			unwritable: [],
 			keptLocal: [],
+			keptUnsent: [],
 			newSymlinks: [],
 			notices: [],
 			closedViews: false,
