@@ -75,6 +75,9 @@ export default class SyncEvoPlugin extends Plugin implements SettingsHost, PullH
 			name: this.t("command.pull"),
 			callback: () => void this.pulls.run(),
 		});
+		// Until there is a push, the button of the ribbon pulls: a sync is a
+		// pull and then a push, and the push comes with stage 4.
+		this.addRibbonIcon("refresh-cw", this.t("command.pull"), () => void this.pulls.run());
 		this.addCommand({
 			id: "first-fetch",
 			name: this.t("command.firstFetch"),
