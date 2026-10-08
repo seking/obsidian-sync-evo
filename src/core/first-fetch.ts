@@ -20,6 +20,7 @@
 // counts and remembers, so that a pull and a push can ask the same question
 // and share the one answer.
 
+import { isInConfigDir } from "./exclusion";
 import type { PullPlan } from "./pull-plan";
 import type { StateStore } from "./state";
 
@@ -48,6 +49,12 @@ export interface FirstFetchFiles {
 	 */
 	readonly different: readonly string[];
 	/**
+	 * The same, for the files inside the configuration folder. No copy is
+	 * kept of those: what the vault has goes to its `.trash/`. No path here
+	 * is also in `different` or in `localOnly`.
+	 */
+	readonly differentSettings: readonly string[];
+	/**
 	 * Files at a path the remote holds as a symlink. They are not compared,
 	 * not a conflict, and never sent. Shown, but no reason to ask.
 	 */
@@ -63,7 +70,7 @@ export interface FirstFetchFiles {
  * a first fetch that resumes, with the records of what it wrote, counts what
  * is left the same way.
  */
-export function firstFetchFiles(plan: PullPlan): FirstFetchFiles {
+export function firstFetchFiles(plan: PullPlan, configDir: string): FirstFetchFiles {
 	// A set: one file can be named by more than one step of the plan.
 	const different = new Set<string>();
 	for (const write of plan.writes) {
@@ -104,7 +111,13 @@ export function firstFetchFiles(plan: PullPlan): FirstFetchFiles {
 	}
 
 	const atSymlinks = plan.symlinks.flatMap((link) => link.local.map((entry) => entry.path));
-	return { localOnly: localOnly.sort(), different: [...different].sort(), atSymlinks: atSymlinks.sort() };
+	const all = [...different].sort();
+	return {
+		localOnly: localOnly.sort(),
+		different: all.filter((path) => !isInConfigDir(path, configDir)),
+		differentSettings: all.filter((path) => isInConfigDir(path, configDir)),
+		atSymlinks: atSymlinks.sort(),
+	};
 }
 
 /**
@@ -117,8 +130,7 @@ export function firstFetchFiles(plan: PullPlan): FirstFetchFiles {
  * be asked. They are still among the files shown when something else is.
  */
 export function hasFirstFetchQuestion(files: FirstFetchFiles, configDir: string): boolean {
-	const config = `${configDir.replace(/^\/+|\/+$/g, "")}/`;
-	return [...files.localOnly, ...files.different].some((path) => !path.startsWith(config));
+	return [...files.localOnly, ...files.different].some((path) => !isInConfigDir(path, configDir));
 }
 
 export async function isFirstFetchConfirmed(store: Pick<StateStore, "getMeta">): Promise<boolean> {

@@ -47,6 +47,7 @@ const result = (over: Partial<PullResult> = {}): PullResult => ({
 	rewritten: false,
 	counts: { fetched: 0, deleted: 0, renamed: 0, conflicts: 0 },
 	conflicts: [],
+	replacedSettings: [],
 	trashed: [],
 	halfWritten: [],
 	halfCopies: [],
@@ -461,10 +462,50 @@ describe("what the user has to know", () => {
 		expect(lines[11]).toBe("…and 2 more");
 	});
 
+	test("files in the configuration folder that got the content of the remote, apart from the conflicts", () => {
+		const replaced = result({
+			counts: { fetched: 3, deleted: 0, renamed: 0, conflicts: 0 },
+			replacedSettings: [".obsidian/app.json", ".obsidian/appearance.json"],
+		});
+		expect(pullReport(t, replaced, options)).toEqual({
+			summary: "Pull finished: 3 files fetched.",
+			details: [
+				"2 files in the configuration folder now have the content of the remote. What they held on this device before is in .trash/ in this vault:\n.obsidian/app.json\n.obsidian/appearance.json",
+			],
+		});
+		expect(pullReport(ja, replaced, options)).toEqual({
+			summary: "取り込みが終わりました：取得 3 件",
+			details: [
+				"設定フォルダのファイル 2 件を、保存先の内容にしました。このデバイスの前の内容は、この保管庫の .trash/ にあります：\n.obsidian/app.json\n.obsidian/appearance.json",
+			],
+		});
+		expect(pullReport(t, result({ replacedSettings: [".obsidian/app.json"] }), options).details).toEqual([
+			"1 file in the configuration folder now has the content of the remote. What it held on this device before is in .trash/ in this vault:\n.obsidian/app.json",
+		]);
+		// Many are counted in full and listed in part.
+		const many = Array.from({ length: 7 }, (_, index) => `.obsidian/f${index}.json`);
+		const [text = ""] = pullReport(t, result({ replacedSettings: many }), options).details;
+		expect(text).toContain("7 files in the configuration folder");
+		expect(text.split("\n")).toHaveLength(7);
+
+		// After the conflicts, which are counted by themselves.
+		const both = result({
+			counts: { fetched: 2, deleted: 0, renamed: 0, conflicts: 1 },
+			conflicts: [{ path: "a.md", copyPath: "a.conflict-from-Mac-20261003-221500.md", cause: "conflict" }],
+			replacedSettings: [".obsidian/app.json"],
+		});
+		const report = pullReport(ja, both, options);
+		expect(report.summary).toBe("取り込みが終わりました：取得 2 件、競合 1 件");
+		expect(report.details.map((detail) => detail.split("\n")[0])).toEqual([
+			"このデバイスのファイル 1 件の内容を、別名で残しました：",
+			"設定フォルダのファイル 1 件を、保存先の内容にしました。このデバイスの前の内容は、この保管庫の .trash/ にあります：",
+		]);
+	});
+
 	test("files moved to .trash/ to protect them", () => {
 		const report = pullReport(t, result({ trashed: ["a.md"] }), options);
 		expect(report.details).toEqual([
-			"1 file was moved to .trash/ in this vault before the pull replaced or removed it. You can get it back from there:\na.md",
+			"1 file was moved to .trash/ in this vault by the pull, so that its content is not lost. You can get it back from there:\na.md",
 		]);
 	});
 
@@ -654,11 +695,11 @@ describe("stateProblemText", () => {
 
 describe("the question before a first fetch", () => {
 	const target = { repository: "octo/notes", branch: "main" };
-	const none = { localOnly: [], different: [], atSymlinks: [] };
+	const none = { localOnly: [], different: [], differentSettings: [], atSymlinks: [] };
 
 	test("names the repository and the branch, and says what becomes of each kind of file", () => {
 		const question = firstFetchQuestion(t, target, {
-			files: { localOnly: ["mine.md", "notes/too.md"], different: ["a.md"], atSymlinks: ["link"] },
+			files: { localOnly: ["mine.md", "notes/too.md"], different: ["a.md"], differentSettings: [], atSymlinks: ["link"] },
 			discardsState: false,
 		});
 		expect(question).toEqual({
@@ -680,6 +721,61 @@ describe("the question before a first fetch", () => {
 			],
 			note: "If you cancel, nothing is pulled and nothing is changed.",
 		});
+	});
+
+	test("files in the configuration folder have a line of their own, which says where the content goes", () => {
+		const files = {
+			localOnly: ["mine.md"],
+			different: ["a.md"],
+			differentSettings: [".obsidian/app.json", ".obsidian/appearance.json"],
+			atSymlinks: [],
+		};
+		const question = firstFetchQuestion(t, target, { files, discardsState: false });
+		expect(question.parts.slice(1)).toEqual([
+			{
+				text: "1 file has other content than the remote. It gets the content of the remote, and the content on this device is kept beside it under another name:",
+				paths: { shown: ["a.md"], more: 0 },
+			},
+			{
+				text: "2 files in the configuration folder have other content than the remote. They get the content of the remote, and the content on this device is moved to .trash/ in this vault:",
+				paths: { shown: [".obsidian/app.json", ".obsidian/appearance.json"], more: 0 },
+			},
+			{
+				text: "1 file is only on this device. It stays on this device as it is:",
+				paths: { shown: ["mine.md"], more: 0 },
+			},
+		]);
+		const one = firstFetchQuestion(t, target, {
+			files: { ...none, localOnly: ["mine.md"], differentSettings: [".obsidian/app.json"] },
+			discardsState: false,
+		});
+		expect(one.parts[1]?.text).toBe(
+			"1 file in the configuration folder has other content than the remote. It gets the content of the remote, and the content on this device is moved to .trash/ in this vault:",
+		);
+
+		expect(firstFetchQuestion(ja, target, { files, discardsState: false }).parts.slice(1)).toEqual([
+			{
+				text: "保存先と中身が違うファイル：1 件。保存先の内容に書き換えます。このデバイスの内容は、同じ場所に別名で残します。",
+				paths: { shown: ["a.md"], more: 0 },
+			},
+			{
+				text: "保存先と中身が違う設定フォルダのファイル：2 件。保存先の内容に書き換えます。このデバイスの内容は、この保管庫の .trash/ へ移します。",
+				paths: { shown: [".obsidian/app.json", ".obsidian/appearance.json"], more: 0 },
+			},
+			{
+				text: "このデバイスにだけあるファイル：1 件。このデバイスに、そのまま残します。",
+				paths: { shown: ["mine.md"], more: 0 },
+			},
+		]);
+	});
+
+	test("when the sync state is discarded and only files in the configuration folder differ, they are listed", () => {
+		const question = firstFetchQuestion(t, target, {
+			files: { ...none, differentSettings: [".obsidian/app.json"] },
+			discardsState: true,
+		});
+		expect(question.parts).toHaveLength(2);
+		expect(question.parts[1]?.paths?.shown).toEqual([".obsidian/app.json"]);
 	});
 
 	test("a kind without files is left out", () => {
@@ -721,7 +817,7 @@ describe("the question before a first fetch", () => {
 
 	test("in Japanese", () => {
 		const question = firstFetchQuestion(ja, target, {
-			files: { localOnly: ["mine.md"], different: ["a.md"], atSymlinks: [] },
+			files: { localOnly: ["mine.md"], different: ["a.md"], differentSettings: [], atSymlinks: [] },
 			discardsState: false,
 		});
 		expect(question.title).toBe("初回取得の確認");
@@ -738,7 +834,7 @@ describe("the question before starting over, in Japanese", () => {
 
 	test("says that the sync state is discarded, and that no file is deleted", () => {
 		const question = firstFetchQuestion(ja, target, {
-			files: { localOnly: ["mine.md"], different: ["a.md"], atSymlinks: ["link"] },
+			files: { localOnly: ["mine.md"], different: ["a.md"], differentSettings: [], atSymlinks: ["link"] },
 			discardsState: true,
 		});
 		expect(question).toEqual({
@@ -766,7 +862,7 @@ describe("the question before starting over, in Japanese", () => {
 
 	test("when no file is counted, it says so", () => {
 		const question = firstFetchQuestion(ja, target, {
-			files: { localOnly: [], different: [], atSymlinks: [] },
+			files: { localOnly: [], different: [], differentSettings: [], atSymlinks: [] },
 			discardsState: true,
 		});
 		expect(question.parts.map((part) => part.text)).toEqual([

@@ -552,6 +552,735 @@ describe("a conflict", () => {
 	});
 });
 
+describe("a conflict inside the configuration folder", () => {
+	// What Obsidian writes into a vault it has just created.
+	const defaults = {
+		".obsidian/app.json": "{}",
+		".obsidian/appearance.json": "{}",
+		".obsidian/core-plugins.json": "[]",
+	};
+	const theirs = {
+		".obsidian/app.json": '{"theirs":1}',
+		".obsidian/appearance.json": '{"theirs":2}',
+		".obsidian/core-plugins.json": '["theirs"]',
+		"a.md": "A",
+	};
+	const inTrash = (h: Harness): Record<string, string> =>
+		Object.fromEntries(h.vault.trashed.map((file) => [file.path, file.content]));
+
+	test("a first fetch into a vault that Obsidian just created: no copy, no question, the vault's files in .trash/", async () => {
+		const h = harness();
+		const head = h.backend.commit(theirs);
+		h.vault.putAll(defaults);
+
+		const result = await h.pull();
+
+		expect(result.outcome).toBe("completed");
+		expect(h.asked).toEqual([]);
+		expect(h.vault.snapshot()).toEqual(theirs);
+		expect(h.copies()).toEqual([]);
+		expect(await h.records()).toEqual(hashes(theirs));
+		expect(await h.base()).toBe(head);
+		expect(inTrash(h)).toEqual(defaults);
+		expect(h.vault.trashed.map((file) => file.mode)).toEqual(["vault-trash", "vault-trash", "vault-trash"]);
+		expect([...result.replacedSettings].sort()).toEqual(Object.keys(defaults));
+		expect(result.conflicts).toEqual([]);
+		expect(result.trashed).toEqual([]);
+		expect(result.counts).toEqual({ fetched: 4, deleted: 0, renamed: 0, conflicts: 0 });
+
+		// Told apart from the conflicts, and not counted among them.
+		const report = pullReport(translatorFor("en"), result, reportOptions);
+		expect(report.summary).toBe("Pull finished: 4 files fetched.");
+		expect(report.details).toHaveLength(1);
+		expect(report.details[0]).toContain("3 files in the configuration folder now have the content of the remote.");
+		expect(pullReport(translatorFor("ja"), result, reportOptions).summary).toBe("取り込みが終わりました：取得 4 件");
+
+		// Nothing is left for a second pull, and nothing for a push.
+		h.vault.log.length = 0;
+		const again = await h.pull();
+		expect(again.replacedSettings).toEqual([]);
+		expect(h.vault.log).toEqual([]);
+	});
+
+	test("the same, stopped at any point and run again: nothing lost, nothing in .trash/ twice", async () => {
+		let stops = 0;
+		for (let after = 0; ; after++) {
+			const h = harness();
+			const head = h.backend.commit(theirs);
+			h.vault.putAll(defaults);
+
+			h.crash.after(after);
+			await h.pull().catch(() => undefined);
+			const stopped = h.crash.dead;
+			h.crash.revive();
+			// What the vault had of each file is at its path or in the trash.
+			for (const [path, content] of Object.entries(defaults)) {
+				expect([h.vault.text(path), inTrash(h)[path]]).toContain(content);
+			}
+
+			const result = await h.pull();
+
+			expect(result.outcome).toBe("completed");
+			expect(h.asked).toEqual([]);
+			expect(h.vault.snapshot()).toEqual(theirs);
+			expect(h.copies()).toEqual([]);
+			expect(await h.records()).toEqual(hashes(theirs));
+			expect(await h.store.readMarkers()).toEqual([]);
+			expect(await h.base()).toBe(head);
+			expect(h.vault.trashed).toHaveLength(3);
+			expect(inTrash(h)).toEqual(defaults);
+			expect(result.conflicts).toEqual([]);
+			if (!stopped) break;
+			stops += 1;
+		}
+		// Per file: trash, marker, file, record; and the listing, the base.
+		expect(stops).toBeGreaterThan(12);
+	});
+
+	test("stopped in the middle of the write: half the file goes to .trash/ too, and the vault's content is there once", async () => {
+		const h = harness();
+		h.backend.commit(theirs);
+		h.vault.putAll(defaults);
+		const file = ".obsidian/app.json";
+		h.vault.before = (op, path) => {
+			h.crash.gate(VAULT_CHANGES.has(op));
+			if (op !== "write" || path !== file) return;
+			h.vault.put(file, '{"the');
+			h.crash.dead = true;
+			throw new Error("the app is gone");
+		};
+		await h.pull().catch(() => undefined);
+		expect(h.crash.dead).toBe(true);
+		h.crash.revive();
+		h.vault.before = undefined;
+
+		const result = await h.pull();
+
+		expect(result.outcome).toBe("completed");
+		expect(result.halfWritten).toEqual([file]);
+		expect(h.vault.snapshot()).toEqual(theirs);
+		expect(h.copies()).toEqual([]);
+		expect(h.vault.trashed.filter((trashed) => trashed.path === file).map((trashed) => trashed.content)).toEqual([
+			"{}",
+			'{"the',
+		]);
+		expect(h.vault.trashed).toHaveLength(4);
+	});
+
+	test("with a record: the remote's content wins, and a note in the same pull still gets its copy", async () => {
+		const h = await synced({ ".obsidian/app.json": "{}", "a.md": "A" });
+		const head = h.backend.commit({ ".obsidian/app.json": '{"theirs":1}', "a.md": "theirs" });
+		h.vault.putAll({ ".obsidian/app.json": '{"mine":1}', "a.md": "mine" });
+
+		const result = await h.pull();
+
+		const copy = h.copyName("a.md");
+		expect(result.outcome).toBe("completed");
+		expect(h.vault.snapshot()).toEqual({ ".obsidian/app.json": '{"theirs":1}', "a.md": "theirs", [copy]: "mine" });
+		expect(h.vault.trashed).toEqual([{ path: ".obsidian/app.json", mode: "vault-trash", content: '{"mine":1}' }]);
+		expect(result.replacedSettings).toEqual([".obsidian/app.json"]);
+		expect(result.conflicts).toEqual([{ path: "a.md", copyPath: copy, cause: "conflict" }]);
+		expect(result.counts).toEqual({ fetched: 2, deleted: 0, renamed: 0, conflicts: 1 });
+		expect(await h.records()).toEqual(hashes({ ".obsidian/app.json": '{"theirs":1}', "a.md": "theirs" }));
+		expect(await h.store.readMarkers()).toEqual([]);
+		expect(await h.base()).toBe(head);
+		expect(pullReport(translatorFor("en"), result, reportOptions).summary).toBe(
+			"Pull finished: 2 files fetched, 1 conflict.",
+		);
+	});
+
+	test("with a record, stopped at any point and run again: the same end", async () => {
+		let stops = 0;
+		for (let after = 0; ; after++) {
+			const h = await synced({ ".obsidian/app.json": "{}", "b.md": "B" });
+			const head = h.backend.commit({ ".obsidian/app.json": '{"theirs":1}', "b.md": "B2" });
+			h.vault.put(".obsidian/app.json", '{"mine":1}');
+
+			h.crash.after(after);
+			await h.pull().catch(() => undefined);
+			const stopped = h.crash.dead;
+			h.crash.revive();
+
+			const result = await h.pull();
+
+			expect(result.outcome).toBe("completed");
+			expect(h.vault.snapshot()).toEqual({ ".obsidian/app.json": '{"theirs":1}', "b.md": "B2" });
+			expect(await h.records()).toEqual(hashes({ ".obsidian/app.json": '{"theirs":1}', "b.md": "B2" }));
+			expect(await h.base()).toBe(head);
+			expect(h.vault.trashed).toEqual([{ path: ".obsidian/app.json", mode: "vault-trash", content: '{"mine":1}' }]);
+			if (!stopped) break;
+			stops += 1;
+		}
+		expect(stops).toBeGreaterThan(5);
+	});
+
+	test("a file that changed, or appeared, between the decision and the write goes to .trash/ as well", async () => {
+		const changed = await synced({ ".obsidian/app.json": "{}" });
+		changed.backend.commit({ ".obsidian/app.json": '{"theirs":1}' });
+		const first = await changed.pull({
+			// Obsidian wrote its settings while the pull was fetching.
+			fetchContents: (revision, entries) => {
+				changed.vault.put(".obsidian/app.json", '{"toggled":true}');
+				return changed.backend.fetch(revision, entries);
+			},
+		});
+		expect(first.outcome).toBe("completed");
+		expect(first.replacedSettings).toEqual([".obsidian/app.json"]);
+		expect(first.conflicts).toEqual([]);
+		expect(changed.vault.snapshot()).toEqual({ ".obsidian/app.json": '{"theirs":1}' });
+		expect(changed.vault.trashed).toEqual([
+			{ path: ".obsidian/app.json", mode: "vault-trash", content: '{"toggled":true}' },
+		]);
+
+		const appeared = harness();
+		appeared.backend.commit({ ".obsidian/app.json": '{"theirs":1}' });
+		const second = await appeared.pull({
+			fetchContents: (revision, entries) => {
+				appeared.vault.put(".obsidian/app.json", "{}");
+				return appeared.backend.fetch(revision, entries);
+			},
+		});
+		expect(second.outcome).toBe("completed");
+		expect(second.replacedSettings).toEqual([".obsidian/app.json"]);
+		expect(appeared.vault.snapshot()).toEqual({ ".obsidian/app.json": '{"theirs":1}' });
+		expect(appeared.vault.trashed.map((file) => file.content)).toEqual(["{}"]);
+		expect(appeared.copies()).toEqual([]);
+	});
+
+	test("every depth and every kind of file; a folder that only begins like it is not it", async () => {
+		const h = harness();
+		const remote = {
+			".obsidian/themes/x/theme.css": "theirs",
+			".obsidian/snippets/a.css": "theirs",
+			".obsidian-old/app.json": "theirs",
+		};
+		h.backend.commit(remote);
+		h.vault.putAll({
+			".obsidian/themes/x/theme.css": "mine",
+			".obsidian/snippets/a.css": "mine",
+			".obsidian-old/app.json": "mine",
+		});
+
+		const result = await h.pull();
+
+		// Asked because of the file outside the configuration folder.
+		expect(h.asked.map((request) => request.firstFetch?.files)).toEqual([
+			{
+				localOnly: [],
+				different: [".obsidian-old/app.json"],
+				differentSettings: [".obsidian/snippets/a.css", ".obsidian/themes/x/theme.css"],
+				atSymlinks: [],
+			},
+		]);
+		const copy = h.copyName(".obsidian-old/app.json");
+		expect(h.vault.snapshot()).toEqual({ ...remote, [copy]: "mine" });
+		expect(result.conflicts).toEqual([{ path: ".obsidian-old/app.json", copyPath: copy, cause: "conflict" }]);
+		expect([...result.replacedSettings].sort()).toEqual([".obsidian/snippets/a.css", ".obsidian/themes/x/theme.css"]);
+		expect(h.vault.trashed.map((file) => file.path).sort()).toEqual([
+			".obsidian/snippets/a.css",
+			".obsidian/themes/x/theme.css",
+		]);
+	});
+
+	test("a configuration folder of another name is the one that counts", async () => {
+		const h = harness();
+		const remote = { ".config/app.json": "theirs", ".obsidian/app.json": "theirs" };
+		h.backend.commit(remote);
+		h.vault.putAll({ ".config/app.json": "mine", ".obsidian/app.json": "mine" });
+
+		const result = await h.pull({ paths: { configDir: ".config", pluginDir: ".config/plugins/sync-evo" } });
+
+		const copy = h.copyName(".obsidian/app.json");
+		expect(h.vault.snapshot()).toEqual({ ...remote, [copy]: "mine" });
+		expect(result.replacedSettings).toEqual([".config/app.json"]);
+		expect(result.conflicts).toEqual([{ path: ".obsidian/app.json", copyPath: copy, cause: "conflict" }]);
+		expect(h.vault.trashed.map((file) => file.path)).toEqual([".config/app.json"]);
+	});
+
+	test("a deletion on one side and an edit on the other are decided as anywhere else", async () => {
+		// Deleted on the remote, edited here: the file stays, with its record.
+		const edited = await synced({ ".obsidian/app.json": "{}", "b.md": "B" });
+		edited.backend.commit({ ".obsidian/app.json": null });
+		edited.vault.put(".obsidian/app.json", '{"mine":1}');
+		const first = await edited.pull();
+		expect(first.outcome).toBe("completed");
+		expect(edited.vault.text(".obsidian/app.json")).toBe('{"mine":1}');
+		expect(await edited.records()).toEqual(hashes({ ".obsidian/app.json": "{}", "b.md": "B" }));
+		expect(edited.vault.trashed).toEqual([]);
+		expect(first.replacedSettings).toEqual([]);
+
+		// Deleted here, changed on the remote: fetched like a new file.
+		const deleted = await synced({ ".obsidian/app.json": "{}", "b.md": "B" });
+		deleted.backend.commit({ ".obsidian/app.json": '{"theirs":1}' });
+		deleted.vault.remove(".obsidian/app.json");
+		const second = await deleted.pull();
+		expect(second.outcome).toBe("completed");
+		expect(deleted.vault.text(".obsidian/app.json")).toBe('{"theirs":1}');
+		expect(deleted.vault.trashed).toEqual([]);
+		expect(second.replacedSettings).toEqual([]);
+	});
+
+	test("a copy an earlier version made stays on the device, and is not counted as a file that is only here", async () => {
+		const h = harness();
+		const settingsCopy = ".obsidian/app.conflict-from-Mac-20260101-090000.json";
+		const noteCopy = "a.conflict-from-Mac-20260101-090000.md";
+		h.backend.commit({ ".obsidian/app.json": "{}", "a.md": "A" });
+		h.vault.putAll({ ".obsidian/app.json": "{}", "a.md": "A", [settingsCopy]: "old", [noteCopy]: "old" });
+
+		const result = await h.pull();
+
+		// The copy of a note is a file that is only here, as before.
+		expect(h.asked.map((request) => request.firstFetch?.files.localOnly)).toEqual([[noteCopy]]);
+		expect(result.outcome).toBe("completed");
+		expect(h.vault.text(settingsCopy)).toBe("old");
+		expect(h.vault.text(noteCopy)).toBe("old");
+		expect(h.vault.trashed).toEqual([]);
+		expect(await h.records()).toEqual(hashes({ ".obsidian/app.json": "{}", "a.md": "A" }));
+	});
+
+	test("a copy an earlier version made is not used for a conflict either", async () => {
+		const h = await synced({ ".obsidian/app.json": "{}" });
+		const earlier = ".obsidian/app.conflict-from-iPhone-20260101-090000.json";
+		h.vault.putAll({ ".obsidian/app.json": "mine", [earlier]: "mine" });
+		h.backend.commit({ ".obsidian/app.json": "theirs" });
+
+		const result = await h.pull();
+
+		expect(result.conflicts).toEqual([]);
+		expect(result.replacedSettings).toEqual([".obsidian/app.json"]);
+		expect(h.vault.snapshot()).toEqual({ ".obsidian/app.json": "theirs", [earlier]: "mine" });
+		expect(h.vault.trashed.map((file) => file.content)).toEqual(["mine"]);
+	});
+
+	test("a no to the question trashes nothing", async () => {
+		const h = harness();
+		h.backend.commit(theirs);
+		h.vault.putAll({ ...defaults, "note.md": "N" });
+		h.answer = "cancel";
+
+		const result = await h.pull();
+
+		expect(result.outcome).toBe("declined");
+		expect(h.asked[0]?.firstFetch?.files).toEqual({
+			localOnly: ["note.md"],
+			different: [],
+			differentSettings: Object.keys(defaults),
+			atSymlinks: [],
+		});
+		expect(h.vault.snapshot()).toEqual({ ...defaults, "note.md": "N" });
+		expect(h.vault.trashed).toEqual([]);
+		expect(result.replacedSettings).toEqual([]);
+	});
+
+	test("the vault refuses to move the file away: it stays as it is, and is reported", async () => {
+		const h = await synced({ ".obsidian/app.json": "{}", "b.md": "B" });
+		const head = h.backend.commit({ ".obsidian/app.json": "theirs", "b.md": "B2" });
+		h.vault.put(".obsidian/app.json", "mine");
+		h.vault.before = (op) => {
+			if (op === "trash") throw new Error("busy");
+		};
+
+		const result = await h.pull();
+
+		expect(result.unwritable).toMatchObject([{ path: ".obsidian/app.json", reason: "trash-failed", isNew: true }]);
+		expect(result.replacedSettings).toEqual([]);
+		expect(h.vault.snapshot()).toEqual({ ".obsidian/app.json": "mine", "b.md": "B2" });
+		expect(await h.records()).toEqual(hashes({ ".obsidian/app.json": "{}", "b.md": "B2" }));
+		expect(await h.store.readMarkers()).toEqual([]);
+		expect(result.outcome).toBe("completed");
+		expect(await h.base()).toBe(head);
+	});
+
+	test("the vault refuses the write after the file was moved away: told as moved to .trash/, and fetched by the next pull", async () => {
+		const h = await synced({ ".obsidian/app.json": "{}" });
+		h.backend.commit({ ".obsidian/app.json": "theirs" });
+		h.vault.put(".obsidian/app.json", "mine");
+		h.vault.before = (op) => {
+			if (op === "write") throw new Error("busy");
+		};
+
+		const first = await h.pull();
+
+		expect(first.unwritable).toMatchObject([{ path: ".obsidian/app.json", reason: "write-failed" }]);
+		expect(first.replacedSettings).toEqual([]);
+		expect(first.trashed).toEqual([".obsidian/app.json"]);
+		expect(h.vault.trashed.map((file) => file.content)).toEqual(["mine"]);
+		expect(await h.store.readMarkers()).toEqual([]);
+
+		h.vault.before = undefined;
+		const second = await h.pull();
+		expect(second.counts.fetched).toBe(1);
+		expect(h.vault.snapshot()).toEqual({ ".obsidian/app.json": "theirs" });
+		expect(h.vault.trashed).toHaveLength(1);
+	});
+
+	test("a file where the remote has a folder goes to .trash/ instead of the name of a copy", async () => {
+		const h = harness();
+		h.backend.commit({ ".obsidian/snippets/a.css": "theirs" });
+		h.vault.put(".obsidian/snippets", "a file named snippets");
+
+		const result = await h.pull();
+
+		expect(result.outcome).toBe("completed");
+		expect(h.asked).toEqual([]);
+		expect(h.vault.snapshot()).toEqual({ ".obsidian/snippets/a.css": "theirs" });
+		expect(result.conflicts).toEqual([]);
+		expect(result.replacedSettings).toEqual([]);
+		expect(result.trashed).toEqual([".obsidian/snippets"]);
+		expect(h.vault.trashed).toEqual([
+			{ path: ".obsidian/snippets", mode: "vault-trash", content: "a file named snippets" },
+		]);
+	});
+
+	test("a file in the way of a rename that only changes the case goes to .trash/ as well", async () => {
+		// Another file at the new spelling.
+		const taken = await synced({ ".obsidian/snippets/a.css": "remote" }, { caseSensitive: true });
+		taken.vault.put(".obsidian/snippets/A.css", "made here");
+		taken.backend.commit({ ".obsidian/snippets/a.css": null, ".obsidian/snippets/A.css": "remote" });
+		const first = await taken.pull();
+		expect(first.outcome).toBe("completed");
+		expect(taken.vault.snapshot()).toEqual({ ".obsidian/snippets/A.css": "remote" });
+		expect(first.conflicts).toEqual([]);
+		expect(first.trashed).toEqual([".obsidian/snippets/A.css"]);
+		expect(taken.vault.trashed.map((file) => file.content)).toEqual(["made here"]);
+
+		// The file under the old spelling, edited, beside the remote's content
+		// under the new one.
+		const old = await synced({ ".obsidian/snippets/a.css": "old" }, { caseSensitive: true });
+		old.vault.putAll({ ".obsidian/snippets/a.css": "edited", ".obsidian/snippets/A.css": "theirs" });
+		old.backend.commit({ ".obsidian/snippets/a.css": null, ".obsidian/snippets/A.css": "theirs" });
+		const second = await old.pull();
+		expect(second.outcome).toBe("completed");
+		expect(old.vault.snapshot()).toEqual({ ".obsidian/snippets/A.css": "theirs" });
+		expect(second.conflicts).toEqual([]);
+		expect(second.trashed).toEqual([".obsidian/snippets/a.css"]);
+		expect(old.vault.trashed.map((file) => file.content)).toEqual(["edited"]);
+	});
+
+	test("a file written again between the move to .trash/ and the write goes there too, and nothing is lost", async () => {
+		const file = ".obsidian/app.json";
+		const h = await synced({ [file]: "{}" });
+		const head = h.backend.commit({ [file]: "theirs" });
+		h.vault.put(file, "mine");
+		// Obsidian writes its settings once more, right after the pull moved
+		// the file away.
+		let toggled = false;
+		h.vault.before = (op, path) => {
+			if (op !== "stat" || path !== file || toggled || h.vault.trashed.length === 0) return;
+			toggled = true;
+			h.vault.put(file, "toggled");
+		};
+
+		const result = await h.pull();
+
+		expect(toggled).toBe(true);
+		expect(result.outcome).toBe("completed");
+		expect(h.vault.snapshot()).toEqual({ [file]: "theirs" });
+		expect(h.vault.trashed).toEqual([
+			{ path: file, mode: "vault-trash", content: "mine" },
+			{ path: file, mode: "vault-trash", content: "toggled" },
+		]);
+		// One path, told once: both are what it held on this device before.
+		expect(result.replacedSettings).toEqual([file]);
+		expect(result.trashed).toEqual([]);
+		expect(result.deferred).toEqual([]);
+		expect(result.counts).toEqual({ fetched: 1, deleted: 0, renamed: 0, conflicts: 0 });
+		expect(await h.records()).toEqual(hashes({ [file]: "theirs" }));
+		expect(await h.store.readMarkers()).toEqual([]);
+		expect(await h.base()).toBe(head);
+	});
+
+	test("a file that is written again and again is left to the next pull, with every content it had still somewhere", async () => {
+		const file = ".obsidian/app.json";
+		const h = await synced({ [file]: "{}" });
+		const base = await h.base();
+		const head = h.backend.commit({ [file]: "theirs" });
+		h.vault.put(file, "mine");
+		let writes = 0;
+		h.vault.before = (op, path) => {
+			if (op !== "stat" || path !== file || h.vault.trashed.length === 0) return;
+			if (h.vault.text(file) === undefined) h.vault.put(file, `toggled ${++writes}`);
+		};
+
+		const first = await h.pull();
+
+		// Moved away twice and no more; the third content stays at the path.
+		expect(h.vault.trashed.map((trashed) => trashed.content)).toEqual(["mine", "toggled 1"]);
+		expect(h.vault.snapshot()).toEqual({ [file]: "toggled 2" });
+		expect(first.deferred).toEqual([{ path: file, reason: "changed-during-pull" }]);
+		expect(first.unwritable).toEqual([]);
+		expect(first.replacedSettings).toEqual([]);
+		expect(first.trashed).toEqual([file]);
+		expect(first.counts.fetched).toBe(0);
+		// No record of a content the path does not hold, and no marker of a
+		// write that was never begun.
+		expect(await h.records()).toEqual(hashes({ [file]: "{}" }));
+		expect(await h.store.readMarkers()).toEqual([]);
+		expect(first.outcome).toBe("incomplete");
+		expect(await h.base()).toBe(base);
+
+		h.vault.before = undefined;
+		const second = await h.pull();
+
+		expect(second.outcome).toBe("completed");
+		expect(second.replacedSettings).toEqual([file]);
+		expect(h.vault.snapshot()).toEqual({ [file]: "theirs" });
+		expect(h.vault.trashed.map((trashed) => trashed.content)).toEqual(["mine", "toggled 1", "toggled 2"]);
+		expect(await h.records()).toEqual(hashes({ [file]: "theirs" }));
+		expect(await h.base()).toBe(head);
+	});
+
+	test("the vault refuses the second move to .trash/: the newer file stays, and the first is told as moved", async () => {
+		const file = ".obsidian/app.json";
+		const h = await synced({ [file]: "{}" });
+		h.backend.commit({ [file]: "theirs" });
+		h.vault.put(file, "mine");
+		h.vault.before = (op, path) => {
+			if (path !== file || h.vault.trashed.length === 0) return;
+			if (op === "stat" && h.vault.text(file) === undefined) h.vault.put(file, "toggled");
+			if (op === "trash") throw new Error("busy");
+		};
+
+		const result = await h.pull();
+
+		expect(h.vault.snapshot()).toEqual({ [file]: "toggled" });
+		expect(h.vault.trashed.map((trashed) => trashed.content)).toEqual(["mine"]);
+		expect(result.unwritable).toMatchObject([{ path: file, reason: "trash-failed", isNew: true }]);
+		expect(result.trashed).toEqual([file]);
+		expect(result.replacedSettings).toEqual([]);
+		expect(await h.records()).toEqual(hashes({ [file]: "{}" }));
+		expect(await h.store.readMarkers()).toEqual([]);
+	});
+
+	describe("a file in the way that the vault refuses to move to .trash/ stays, is told once, and keeps its record", () => {
+		const refuseTrash = (h: Harness): void => {
+			h.vault.before = (op) => {
+				if (op === "trash") throw new Error("busy");
+			};
+		};
+
+		test("where the remote has a folder now", async () => {
+			const h = await synced({ ".obsidian/snippets": "S", "b.md": "B" });
+			h.backend.commit({ ".obsidian/snippets": null, ".obsidian/snippets/a.css": "theirs" });
+			h.vault.put(".obsidian/snippets", "edited");
+			const before = await h.records();
+			refuseTrash(h);
+
+			const first = await h.pull();
+
+			expect(first.unwritable).toMatchObject([
+				{ path: ".obsidian/snippets", reason: "trash-failed", isNew: true },
+				{ path: ".obsidian/snippets/a.css", reason: "write-failed", isNew: true },
+			]);
+			expect(first.notices).toEqual([
+				{ kind: "unwritable-path", path: ".obsidian/snippets" },
+				{ kind: "unwritable-path", path: ".obsidian/snippets/a.css" },
+			]);
+			expect(first.conflicts).toEqual([]);
+			expect(first.trashed).toEqual([]);
+			expect(h.vault.snapshot()).toEqual({ ".obsidian/snippets": "edited", "b.md": "B" });
+			expect(h.copies()).toEqual([]);
+			expect(await h.records()).toEqual(before);
+
+			const second = await h.pull();
+			expect(second.unwritable).toMatchObject([
+				{ path: ".obsidian/snippets", reason: "trash-failed", isNew: false },
+				{ path: ".obsidian/snippets/a.css", reason: "write-failed", isNew: false },
+			]);
+			expect(second.notices).toEqual([]);
+			expect(await h.records()).toEqual(before);
+
+			h.vault.before = undefined;
+			const third = await h.pull();
+			expect(third.outcome).toBe("completed");
+			expect(third.trashed).toEqual([".obsidian/snippets"]);
+			expect(h.vault.snapshot()).toEqual({ ".obsidian/snippets/a.css": "theirs", "b.md": "B" });
+		});
+
+		test("at the name of a rename that only changes the case", async () => {
+			const h = await synced({ ".obsidian/snippets/a.css": "remote" }, { caseSensitive: true });
+			h.backend.commit({ ".obsidian/snippets/a.css": null, ".obsidian/snippets/A.css": "remote 2" });
+			h.vault.put(".obsidian/snippets/A.css", "made here");
+			const before = await h.records();
+			refuseTrash(h);
+
+			const first = await h.pull();
+
+			expect(first.unwritable).toMatchObject([
+				{ path: ".obsidian/snippets/A.css", reason: "trash-failed", isNew: true },
+				{ path: ".obsidian/snippets/A.css", reason: "depends-on-unwritable", isNew: false },
+			]);
+			expect(first.notices).toEqual([{ kind: "unwritable-path", path: ".obsidian/snippets/A.css" }]);
+			expect(first.trashed).toEqual([]);
+			expect(h.vault.snapshot()).toEqual({
+				".obsidian/snippets/A.css": "made here",
+				".obsidian/snippets/a.css": "remote",
+			});
+			expect(h.copies()).toEqual([]);
+			expect(await h.records()).toEqual(before);
+
+			const second = await h.pull();
+			expect(second.notices).toEqual([]);
+			expect(await h.records()).toEqual(before);
+		});
+
+		test("under the old spelling, edited, beside the remote's content under the new one", async () => {
+			const h = await synced({ ".obsidian/snippets/a.css": "old" }, { caseSensitive: true });
+			h.vault.putAll({ ".obsidian/snippets/a.css": "edited", ".obsidian/snippets/A.css": "theirs" });
+			h.backend.commit({ ".obsidian/snippets/a.css": null, ".obsidian/snippets/A.css": "theirs" });
+			const before = await h.records();
+			refuseTrash(h);
+
+			const first = await h.pull();
+
+			// Told under the new spelling, which is what the file holds up.
+			expect(first.unwritable).toMatchObject([
+				{ path: ".obsidian/snippets/a.css", reason: "trash-failed", isNew: true },
+			]);
+			expect(first.notices).toEqual([{ kind: "unwritable-path", path: ".obsidian/snippets/A.css" }]);
+			expect(first.trashed).toEqual([]);
+			expect(h.vault.snapshot()).toEqual({
+				".obsidian/snippets/A.css": "theirs",
+				".obsidian/snippets/a.css": "edited",
+			});
+			expect(h.copies()).toEqual([]);
+			expect(await h.records()).toEqual(before);
+
+			const second = await h.pull();
+			expect(second.notices).toEqual([]);
+			expect(await h.records()).toEqual(before);
+		});
+	});
+
+	test("a file at the root that is named like the configuration folder is not inside it: it gets a copy", async () => {
+		const h = harness();
+		h.backend.commit({ ".obsidian/app.json": "theirs" });
+		h.vault.put(".obsidian", "a file named like the folder");
+
+		const result = await h.pull();
+
+		// And is asked about, like any file the first fetch moves to a copy.
+		expect(h.asked.map((request) => request.firstFetch?.files)).toEqual([
+			{ localOnly: [], different: [".obsidian"], differentSettings: [], atSymlinks: [] },
+		]);
+		const copy = h.copyName(".obsidian");
+		expect(result.outcome).toBe("completed");
+		expect(result.conflicts).toEqual([{ path: ".obsidian", copyPath: copy, cause: "became-folder" }]);
+		expect(result.replacedSettings).toEqual([]);
+		expect(result.trashed).toEqual([]);
+		expect(h.vault.trashed).toEqual([]);
+		expect(h.vault.snapshot()).toEqual({ ".obsidian/app.json": "theirs", [copy]: "a file named like the folder" });
+	});
+
+	describe("with a history that was rewritten", () => {
+		const file = ".obsidian/app.json";
+		/** A conflict in the configuration folder, beside a note the remote takes back. */
+		async function rewritten(): Promise<{ h: Harness; head: string }> {
+			const h = await synced({ [file]: "{}", "a.md": "A1" });
+			h.backend.commit({ "a.md": "A2" });
+			await h.pull();
+			const head = h.backend.rewriteHistory({ [file]: "theirs", "a.md": "A1" });
+			h.vault.put(file, "mine");
+			return { h, head };
+		}
+
+		test("proceed: moved to .trash/ and replaced, and told once", async () => {
+			const { h, head } = await rewritten();
+
+			const result = await h.pull();
+
+			expect(result).toMatchObject({ outcome: "completed", rewritten: true });
+			expect(h.asked).toHaveLength(1);
+			expect(h.vault.snapshot()).toEqual({ [file]: "theirs", "a.md": "A1" });
+			expect(h.vault.trashed).toEqual([
+				{ path: file, mode: "vault-trash", content: "mine" },
+				{ path: "a.md", mode: "vault-trash", content: "A2" },
+			]);
+			// Not among the files moved away because the history was rewritten.
+			expect(result.replacedSettings).toEqual([file]);
+			expect(result.trashed).toEqual(["a.md"]);
+			expect(result.keptLocal).toEqual([]);
+			expect(result.conflicts).toEqual([]);
+			expect(await h.records()).toEqual(hashes({ [file]: "theirs", "a.md": "A1" }));
+			expect(await h.base()).toBe(head);
+		});
+
+		test("keep mine: the note stays, and the conflict is still moved to .trash/ and replaced", async () => {
+			const { h, head } = await rewritten();
+			h.answer = "keep-local";
+
+			const result = await h.pull();
+
+			expect(result).toMatchObject({ outcome: "completed", rewritten: true });
+			expect(h.vault.snapshot()).toEqual({ [file]: "theirs", "a.md": "A2" });
+			expect(h.vault.trashed).toEqual([{ path: file, mode: "vault-trash", content: "mine" }]);
+			expect(result.replacedSettings).toEqual([file]);
+			expect(result.trashed).toEqual([]);
+			// A conflict is not a file the answer is about.
+			expect(result.keptLocal).toEqual(["a.md"]);
+			expect(result.conflicts).toEqual([]);
+			expect(await h.records()).toEqual(hashes({ [file]: "theirs", "a.md": "A1" }));
+			expect(await h.base()).toBe(head);
+		});
+	});
+
+	test("the marker of a copy that an earlier version was killed over is settled, and its conflict told once", async () => {
+		const file = ".obsidian/app.json";
+		const copy = ".obsidian/app.conflict-from-iPhone-20260101-090000.json";
+		const h = await synced({ [file]: "theirs" });
+		// As that version left it: the copy and the file written, the record
+		// stored, and the marker of the copy still there.
+		h.vault.put(copy, "mine");
+		await h.store.putMarker(makeMarker(copy, null, blobHash("mine"), true));
+
+		const first = await h.pull();
+
+		expect(first.outcome).toBe("completed");
+		expect(first.conflicts).toEqual([{ path: file, copyPath: copy, cause: "conflict" }]);
+		expect(first.replacedSettings).toEqual([]);
+		expect(first.halfCopies).toEqual([]);
+		expect(await h.store.readMarkers()).toEqual([]);
+		expect(await h.store.getMeta(AWAITED_CONFLICTS_KEY)).toBeUndefined();
+
+		// From here on the copy is a file the sync leaves out.
+		h.vault.log.length = 0;
+		const second = await h.pull();
+		expect(second.outcome).toBe("completed");
+		expect(second.conflicts).toEqual([]);
+		expect(h.asked).toEqual([]);
+		expect(h.vault.log).toEqual([]);
+		expect(h.vault.snapshot()).toEqual({ [file]: "theirs", [copy]: "mine" });
+		expect(h.vault.trashed).toEqual([]);
+		expect(await h.records()).toEqual(hashes({ [file]: "theirs" }));
+	});
+
+	test("a copy an earlier version sent, edited here and deleted on the remote: it stays, and only its record goes", async () => {
+		const file = ".obsidian/app.json";
+		const copy = ".obsidian/app.conflict-from-Mac-20260101-090000.json";
+		const h = await synced({ [file]: "theirs", [copy]: "old" });
+		expect(await h.records()).toEqual(hashes({ [file]: "theirs", [copy]: "old" }));
+		const head = h.backend.commit({ [copy]: null });
+		h.vault.put(copy, "edited");
+
+		const result = await h.pull();
+
+		expect(result.outcome).toBe("completed");
+		expect(h.vault.snapshot()).toEqual({ [file]: "theirs", [copy]: "edited" });
+		expect(h.vault.trashed).toEqual([]);
+		expect(result.counts).toEqual({ fetched: 0, deleted: 0, renamed: 0, conflicts: 0 });
+		expect(await h.records()).toEqual(hashes({ [file]: "theirs" }));
+		expect(await h.base()).toBe(head);
+
+		// Left out from then on, like a copy that never had a record.
+		h.vault.log.length = 0;
+		const again = await h.pull();
+		expect(again.outcome).toBe("completed");
+		expect(h.vault.log).toEqual([]);
+		expect(h.vault.text(copy)).toBe("edited");
+		expect(await h.records()).toEqual(hashes({ [file]: "theirs" }));
+	});
+});
+
 describe("typing while the pull runs", () => {
 	test("what was typed and not saved shows before a file is written over, and is kept", async () => {
 		const h = await synced({ "a.md": "A" });
@@ -2135,16 +2864,18 @@ describe("a file moved to a folder the disk spells otherwise", () => {
 	async function moveStray(
 		aside: boolean,
 		refuseRenames = false,
+		from = "notes/x.md",
+		to = "Notes/x.md",
 	): Promise<{ vault: MemoryPullVault; tally: Tally; seen: Map<string, Seen> }> {
 		const time = Date.UTC(2026, 9, 3, 12, 0, 0);
 		const vault = new MemoryPullVault({ caseSensitive: false, now: () => time });
-		vault.put("notes/x.md", "X");
+		vault.put(from, "X");
 		if (refuseRenames) {
 			vault.before = (op) => {
-				if (op === "rename") throw new Error("busy");
+				if (op === "rename" || op === "trash") throw new Error("busy");
 			};
 		}
-		const local = { path: "notes/x.md", hash: blobHash("X"), size: 1 };
+		const local = { path: from, hash: blobHash("X"), size: 1 };
 		const empty = planPull({
 			remote: [],
 			local: [],
@@ -2152,7 +2883,7 @@ describe("a file moved to a folder the disk spells otherwise", () => {
 			exclusion: createExclusion({ ...paths, gitignore: null }),
 		});
 		const tally = new Tally();
-		const seen = new Map<string, Seen>([["notes/x.md", { hash: local.hash, stat: { mtime: time, size: 1 } }]]);
+		const seen = new Map<string, Seen>([[from, { hash: local.hash, stat: { mtime: time, size: 1 } }]]);
 		const backend = new MemoryBackend();
 		const done = await applyPlan(
 			{
@@ -2166,13 +2897,14 @@ describe("a file moved to a folder the disk spells otherwise", () => {
 				listing: { revision: null, entries: [] },
 				protect: false,
 				seen,
-				localPaths: ["notes/x.md"],
+				localPaths: [from],
 				tally,
 				beforeWrite: async () => {},
+				configDir: paths.configDir,
 				communityPluginsKey: ".obsidian/community-plugins.json",
 				pluginId: "sync-evo",
 			},
-			{ ...empty, strays: [{ local, to: "Notes/x.md", aside }] },
+			{ ...empty, strays: [{ local, to, aside }] },
 		);
 		expect(done).toBe(true);
 		return { vault, tally, seen };
@@ -2184,6 +2916,28 @@ describe("a file moved to a folder the disk spells otherwise", () => {
 		expect(vault.paths()).toEqual([copy]);
 		expect(tally.conflicts).toEqual([{ path: "Notes/x.md", copyPath: copy, cause: "name-taken" }]);
 		expect([...seen.keys()]).toEqual([copy]);
+	});
+
+	test("inside the configuration folder it goes to .trash/ instead of a copy", async () => {
+		const from = ".obsidian/snippets/x.css";
+		const { vault, tally, seen } = await moveStray(true, false, from, ".obsidian/Snippets/x.css");
+		expect(vault.paths()).toEqual([]);
+		expect(vault.trashed).toEqual([{ path: from, mode: "vault-trash", content: "X" }]);
+		expect(tally.conflicts).toEqual([]);
+		expect(tally.trashed).toEqual([from]);
+		expect([...seen.keys()]).toEqual([]);
+	});
+
+	test("inside the configuration folder, a move to .trash/ the vault refuses is told, and the file stays", async () => {
+		const from = ".obsidian/snippets/x.css";
+		const { vault, tally, seen } = await moveStray(true, true, from, ".obsidian/Snippets/x.css");
+		expect(vault.paths()).toEqual([from]);
+		expect(vault.trashed).toEqual([]);
+		expect(tally.unwritable).toMatchObject([{ path: from, reason: "trash-failed" }]);
+		expect(tally.refused).toEqual([{ remotePath: from, reportedAs: from }]);
+		expect(tally.conflicts).toEqual([]);
+		expect(tally.trashed).toEqual([]);
+		expect([...seen.keys()]).toEqual([from]);
 	});
 
 	test("a file the rename left where it was is known under the path it has", async () => {
@@ -2317,7 +3071,7 @@ describe("the question before a first fetch", () => {
 				losses: null,
 				recordCount: 0,
 				firstFetch: {
-					files: { localOnly: ["only-here.md"], different: ["different.md"], atSymlinks: [] },
+					files: { localOnly: ["only-here.md"], different: ["different.md"], differentSettings: [], atSymlinks: [] },
 					discardsState: false,
 				},
 			},
@@ -2413,7 +3167,7 @@ describe("the question before a first fetch", () => {
 				losses: null,
 				recordCount: 0,
 				firstFetch: {
-					files: { localOnly: ["a.md", "notes/b.md"], different: [], atSymlinks: [] },
+					files: { localOnly: ["a.md", "notes/b.md"], different: [], differentSettings: [], atSymlinks: [] },
 					discardsState: false,
 				},
 			},
@@ -2468,6 +3222,7 @@ describe("the question before a first fetch", () => {
 		expect(h.asked[1]?.firstFetch?.files).toEqual({
 			localOnly: [copy, "later.md", "only-here.md"],
 			different: [],
+			differentSettings: [],
 			atSymlinks: [],
 		});
 		expect(h.asked[1]?.losses).toBeNull();
@@ -2559,6 +3314,7 @@ describe("the question before a first fetch", () => {
 		expect(other.asked[0]?.firstFetch?.files).toEqual({
 			localOnly: ["only-here.md"],
 			different: [],
+			differentSettings: [],
 			atSymlinks: ["link"],
 		});
 	});
@@ -2609,7 +3365,7 @@ describe("the question before a first fetch", () => {
 		expect(h.asked).toHaveLength(1);
 		expect(h.asked[0]?.losses?.deletions).toHaveLength(8);
 		expect(h.asked[0]?.firstFetch).toEqual({
-			files: { localOnly: ["only-here.md"], different: [], atSymlinks: [] },
+			files: { localOnly: ["only-here.md"], different: [], differentSettings: [], atSymlinks: [] },
 			discardsState: false,
 		});
 		expect(result.outcome).toBe("completed");
@@ -2667,7 +3423,7 @@ describe("starting over: the first fetch command", () => {
 				losses: null,
 				recordCount: 0,
 				firstFetch: {
-					files: { localOnly: ["only-here.md"], different: ["b.md"], atSymlinks: [] },
+					files: { localOnly: ["only-here.md"], different: ["b.md"], differentSettings: [], atSymlinks: [] },
 					discardsState: true,
 				},
 			},
@@ -2757,7 +3513,7 @@ describe("starting over: the first fetch command", () => {
 			{
 				losses: null,
 				recordCount: 0,
-				firstFetch: { files: { localOnly: [], different: [], atSymlinks: [] }, discardsState: true },
+				firstFetch: { files: { localOnly: [], different: [], differentSettings: [], atSymlinks: [] }, discardsState: true },
 			},
 		]);
 		expect(run.discards).toBe(1);
@@ -2775,7 +3531,7 @@ describe("starting over: the first fetch command", () => {
 
 		expect(result.outcome).toBe("remote-empty");
 		expect(h.asked[0]?.firstFetch).toEqual({
-			files: { localOnly: ["a.md"], different: [], atSymlinks: [] },
+			files: { localOnly: ["a.md"], different: [], differentSettings: [], atSymlinks: [] },
 			discardsState: true,
 		});
 		expect(run.discards).toBe(1);

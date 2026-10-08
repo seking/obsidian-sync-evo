@@ -19,6 +19,7 @@ import {
 	createExclusion,
 	defaultSectionLines,
 	type Exclusion,
+	isInConfigDir,
 	type KnownPaths,
 	knownPaths,
 	type PathType,
@@ -362,9 +363,58 @@ describe("a copy kept from a conflict", () => {
 		expect(exclusionFor(null).excludes(copy, "file", known)).toBe(true);
 	});
 
+	test("a copy of a file inside the configuration folder is left out, though the file is on the remote", () => {
+		const exclusion = exclusionFor(null);
+		for (const original of [".obsidian/app.json", ".obsidian/themes/x/theme.css", ".obsidian/snippets/a.css"]) {
+			const copy = conflictCopyPath(original, "Mac", at);
+			expect(exclusion.excludes(copy, "file", knownPaths([entryAt(original)], []))).toBe(true);
+			expect(exclusion.excludes(copy, "file", unknown)).toBe(true);
+			// A copy of the copy as well.
+			const second = conflictCopyPath(copy, "iPhone", at, 2);
+			expect(exclusion.excludes(second, "file", knownPaths([entryAt(original)], []))).toBe(true);
+			// The file itself is synced like any other.
+			expect(exclusion.excludes(original, "file", unknown)).toBe(false);
+			// A copy that is known itself, sent by an earlier version, stays synced.
+			expect(exclusion.excludes(copy, "file", knownPaths([entryAt(copy)], []))).toBe(false);
+			expect(exclusion.excludes(copy, "file", knownPaths([], [entryAt(copy)]))).toBe(false);
+		}
+	});
+
+	test("that is by the name the configuration folder has, and not by a name that begins like it", () => {
+		const copy = conflictCopyPath(".obsidian/app.json", "Mac", at);
+		const beside = conflictCopyPath(".obsidian-old/app.json", "Mac", at);
+		const remote = knownPaths([entryAt(".obsidian/app.json"), entryAt(".obsidian-old/app.json")], []);
+		expect(exclusionFor(null).excludes(beside, "file", remote)).toBe(false);
+		const renamed = createExclusion({ configDir: ".config", pluginDir: ".config/plugins/sync-evo", gitignore: null });
+		expect(renamed.excludes(copy, "file", remote)).toBe(false);
+		const inRenamed = conflictCopyPath(".config/app.json", "Mac", at);
+		expect(renamed.excludes(inRenamed, "file", knownPaths([entryAt(".config/app.json")], []))).toBe(true);
+	});
+
 	test("a folder is never taken for a copy", () => {
 		const exclusion = exclusionFor("/a.md/\n");
 		expect(exclusion.matchesRule("a.conflict-from-iPhone-20261003-221500.md", "folder")).toBe(false);
+	});
+});
+
+describe("inside the configuration folder", () => {
+	test("every depth, and the folder itself is not inside it", () => {
+		expect(isInConfigDir(".obsidian/app.json", ".obsidian")).toBe(true);
+		expect(isInConfigDir(".obsidian/themes/x/theme.css", ".obsidian")).toBe(true);
+		expect(isInConfigDir(".obsidian", ".obsidian")).toBe(false);
+		expect(isInConfigDir("notes/.obsidian/app.json", ".obsidian")).toBe(false);
+		expect(isInConfigDir(".obsidian-old/app.json", ".obsidian")).toBe(false);
+		expect(isInConfigDir("a.md", ".obsidian")).toBe(false);
+	});
+
+	test("the name is taken with or without slashes, in any case and normalization", () => {
+		expect(isInConfigDir(".obsidian/app.json", "/.obsidian/")).toBe(true);
+		expect(isInConfigDir(".Obsidian/app.json", ".obsidian")).toBe(true);
+		expect(isInConfigDir(".config/app.json", ".config")).toBe(true);
+		expect(isInConfigDir(".obsidian/app.json", ".config")).toBe(false);
+		expect(isInConfigDir(".ガイド/app.json".normalize("NFD"), ".ガイド".normalize("NFC"))).toBe(true);
+		// No name: nothing is inside it.
+		expect(isInConfigDir("a.md", "")).toBe(false);
 	});
 });
 

@@ -51,7 +51,13 @@ function recordsOf(files: Files): SyncRecord[] {
 }
 
 /** What a first fetch asks about, for a vault and a remote, with no record unless given. */
-function files(scenario: { remote?: Files | RemoteEntry[]; local?: Files; records?: Files; gitignore?: string }) {
+function files(scenario: {
+	remote?: Files | RemoteEntry[];
+	local?: Files;
+	records?: Files;
+	gitignore?: string;
+	configDir?: string;
+}) {
 	const { remote = {} } = scenario;
 	return firstFetchFiles(
 		planPull({
@@ -65,6 +71,7 @@ function files(scenario: { remote?: Files | RemoteEntry[]; local?: Files; record
 			}),
 			sizeLimit: 1000,
 		}),
+		scenario.configDir ?? ".obsidian",
 	);
 }
 
@@ -77,6 +84,7 @@ describe("the files a first fetch asks about", () => {
 		expect(counted).toEqual({
 			localOnly: ["notes/too.md", "only-here.md"],
 			different: ["different.md"],
+			differentSettings: [],
 			atSymlinks: [],
 		});
 		expect(hasFirstFetchQuestion(counted, ".obsidian")).toBe(true);
@@ -87,7 +95,7 @@ describe("the files a first fetch asks about", () => {
 		const vaults: Files[] = [{}, { "a.md": "A" }, remote];
 		for (const local of vaults) {
 			const counted = files({ remote, local });
-			expect(counted).toEqual({ localOnly: [], different: [], atSymlinks: [] });
+			expect(counted).toEqual({ localOnly: [], different: [], differentSettings: [], atSymlinks: [] });
 			expect(hasFirstFetchQuestion(counted, ".obsidian")).toBe(false);
 		}
 	});
@@ -97,9 +105,11 @@ describe("the files a first fetch asks about", () => {
 		const config = { ".obsidian/app.json": "{}", ".obsidian/appearance.json": "{}" };
 		const remote = { "a.md": "A", ".obsidian/app.json": '{"theirs":true}' };
 		const fresh = files({ remote, local: config });
+		// The one that differs is listed apart: no copy is kept of it.
 		expect(fresh).toEqual({
 			localOnly: [".obsidian/appearance.json"],
-			different: [".obsidian/app.json"],
+			different: [],
+			differentSettings: [".obsidian/app.json"],
 			atSymlinks: [],
 		});
 		expect(hasFirstFetchQuestion(fresh, ".obsidian")).toBe(false);
@@ -115,13 +125,67 @@ describe("the files a first fetch asks about", () => {
 		expect(hasFirstFetchQuestion(beside, ".obsidian")).toBe(true);
 	});
 
+	test("files in the configuration folder that differ are listed apart, at any depth and of any kind", () => {
+		const remote = {
+			"a.md": "theirs",
+			".obsidian/app.json": "theirs",
+			".obsidian/themes/x/theme.css": "theirs",
+			".obsidian/snippets/a.css": "theirs",
+			".obsidian-old/app.json": "theirs",
+			".obsidian/hotkeys/b.json": "theirs",
+		};
+		const local = {
+			"a.md": "mine",
+			".obsidian/app.json": "mine",
+			".obsidian/themes/x/theme.css": "mine",
+			".obsidian/snippets/a.css": "mine",
+			".obsidian-old/app.json": "mine",
+			// A file where the remote has a folder.
+			".obsidian/hotkeys": "mine",
+		};
+		const counted = files({ remote, local });
+		expect(counted).toEqual({
+			localOnly: [],
+			different: [".obsidian-old/app.json", "a.md"],
+			differentSettings: [
+				".obsidian/app.json",
+				".obsidian/hotkeys",
+				".obsidian/snippets/a.css",
+				".obsidian/themes/x/theme.css",
+			],
+			atSymlinks: [],
+		});
+		// With another name for the folder, these are files like any other.
+		const renamed = files({ remote, local, configDir: ".obsidian-old" });
+		expect(renamed.differentSettings).toEqual([".obsidian-old/app.json"]);
+		expect(renamed.different).toHaveLength(5);
+	});
+
+	test("a copy an earlier version kept of a file in the configuration folder is in no list, and is not sent", () => {
+		const settingsCopy = ".obsidian/app.conflict-from-Mac-20260101-090000.json";
+		const noteCopy = "a.conflict-from-Mac-20260101-090000.md";
+		const remote = { "a.md": "A", ".obsidian/app.json": "{}" };
+		const local = { ...remote, [settingsCopy]: "old", [noteCopy]: "old" };
+		const counted = files({ remote, local });
+		expect(counted).toEqual({ localOnly: [noteCopy], different: [], differentSettings: [], atSymlinks: [] });
+
+		const plan = planPull({
+			remote: remoteOf(remote),
+			local: localOf(local),
+			records: [],
+			exclusion: createExclusion({ configDir: ".obsidian", pluginDir: ownFolder, gitignore: null }),
+			sizeLimit: 1000,
+		});
+		expect(plan.pushOnly.map((action) => action.key)).toEqual([noteCopy]);
+	});
+
 	test("an empty remote: every file is only here", () => {
 		expect(files({ local: { "b.md": "B", "a.md": "A" } }).localOnly).toEqual(["a.md", "b.md"]);
 	});
 
 	test("a file at the path of a symlink is counted apart, and alone is nothing to ask about", () => {
 		const counted = files({ remote: [link("link"), ...remoteOf({ "a.md": "A" })], local: { link: "a file" } });
-		expect(counted).toEqual({ localOnly: [], different: [], atSymlinks: ["link"] });
+		expect(counted).toEqual({ localOnly: [], different: [], differentSettings: [], atSymlinks: ["link"] });
 		expect(hasFirstFetchQuestion(counted, ".obsidian")).toBe(false);
 	});
 
@@ -136,7 +200,7 @@ describe("the files a first fetch asks about", () => {
 			},
 			gitignore: "/drafts/\n",
 		});
-		expect(counted).toEqual({ localOnly: [], different: [], atSymlinks: [] });
+		expect(counted).toEqual({ localOnly: [], different: [], differentSettings: [], atSymlinks: [] });
 	});
 
 	test("a file that is too large is in no list: it is never read", () => {
@@ -146,12 +210,12 @@ describe("the files a first fetch asks about", () => {
 
 	test("a file where the remote has a folder is kept as a copy, and counted as different", () => {
 		const counted = files({ remote: { "notes/a.md": "A" }, local: { notes: "a file named notes" } });
-		expect(counted).toEqual({ localOnly: [], different: ["notes"], atSymlinks: [] });
+		expect(counted).toEqual({ localOnly: [], different: ["notes"], differentSettings: [], atSymlinks: [] });
 	});
 
 	test("a file the remote spells in another case is shown as the vault spells it", () => {
 		const counted = files({ remote: { "Notes/A.md": "theirs" }, local: { "notes/a.md": "mine" } });
-		expect(counted).toEqual({ localOnly: [], different: ["notes/a.md"], atSymlinks: [] });
+		expect(counted).toEqual({ localOnly: [], different: ["notes/a.md"], differentSettings: [], atSymlinks: [] });
 	});
 
 	test("a file whose name is taken in the folder it follows is kept as a copy: different, and not only here", () => {
@@ -166,6 +230,7 @@ describe("the files a first fetch asks about", () => {
 			// `notes/c.md` moves to a name that is free, as it is.
 			localOnly: ["Notes/b.md", "notes/c.md"],
 			different: ["notes/a.md", "notes/b.md"],
+			differentSettings: [],
 			atSymlinks: [],
 		});
 	});
@@ -176,7 +241,7 @@ describe("the files a first fetch asks about", () => {
 			records: { "notes.md": "old" },
 			local: { "notes.md": "edited", "Notes.md": "theirs" },
 		});
-		expect(counted).toEqual({ localOnly: [], different: ["notes.md"], atSymlinks: [] });
+		expect(counted).toEqual({ localOnly: [], different: ["notes.md"], differentSettings: [], atSymlinks: [] });
 	});
 
 	test("with records: another file at the new spelling makes way for the renamed one", () => {
@@ -186,7 +251,7 @@ describe("the files a first fetch asks about", () => {
 			local: { "notes.md": "old", "Notes.md": "something else" },
 		});
 		// The renamed file is unchanged since its record, and is written over.
-		expect(counted).toEqual({ localOnly: [], different: ["Notes.md"], atSymlinks: [] });
+		expect(counted).toEqual({ localOnly: [], different: ["Notes.md"], differentSettings: [], atSymlinks: [] });
 	});
 
 	test("with records: both of them, when the renamed file was edited too", () => {
@@ -195,7 +260,7 @@ describe("the files a first fetch asks about", () => {
 			records: { "notes.md": "old" },
 			local: { "notes.md": "edited", "Notes.md": "something else" },
 		});
-		expect(counted).toEqual({ localOnly: [], different: ["Notes.md", "notes.md"], atSymlinks: [] });
+		expect(counted).toEqual({ localOnly: [], different: ["Notes.md", "notes.md"], differentSettings: [], atSymlinks: [] });
 	});
 
 	test("with records, a first fetch that resumes: what it wrote is not counted, an edit of it is not only here", () => {
@@ -204,7 +269,7 @@ describe("the files a first fetch asks about", () => {
 			records: { "a.md": "A", "b.md": "B" },
 			local: { "a.md": "A", "b.md": "edited", "mine.md": "M" },
 		});
-		expect(counted).toEqual({ localOnly: ["mine.md"], different: [], atSymlinks: [] });
+		expect(counted).toEqual({ localOnly: ["mine.md"], different: [], differentSettings: [], atSymlinks: [] });
 	});
 });
 

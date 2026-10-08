@@ -405,7 +405,20 @@ export interface PullResult {
 	 * the user had is in the copy then, and not in the `.trash/`.
 	 */
 	readonly conflicts: readonly PullConflict[];
-	/** Files moved to the `.trash/` of the vault to protect their content, as they were spelled. */
+	/**
+	 * Files inside the configuration folder that had a conflict and hold the
+	 * content of the remote now. No copy is kept of such a file: what the
+	 * vault had is in its `.trash/`, whatever the app's setting for deleted
+	 * files. Not among `conflicts`, and not counted there.
+	 */
+	readonly replacedSettings: readonly string[];
+	/**
+	 * Files moved to the `.trash/` of the vault to protect their content, as
+	 * they were spelled. With the files inside the configuration folder that
+	 * were in the way of something else and would have been moved to the name
+	 * of a copy anywhere else, and with the ones that had a conflict there
+	 * and were moved away but not written (`unwritable`, or `deferred`).
+	 */
 	readonly trashed: readonly string[];
 	/**
 	 * Files a pull that stopped was writing, found with a content that is

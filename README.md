@@ -6,7 +6,7 @@ Sync Evo is a plugin for [Obsidian](https://obsidian.md) that is being built to 
 
 Under development. The current version has a settings screen where you enter the repository, the branch, the token, and a name for the device, and can test the connection. It has one command, "Pull", which brings the vault in line with the repository: it fetches the files that are new or changed there, and deletes the ones that were deleted there. It does not send anything to the repository yet, and nothing runs on its own.
 
-A file that was changed both in the vault and in the repository is not overwritten: the repository's version takes the name, and the vault's version is kept beside it as `<name>.conflict-from-<device>-<date>-<time>.<extension>`. Before a pull deletes many files, or follows a history that was rewritten, it stops and asks.
+A file that was changed both in the vault and in the repository is not overwritten: the repository's version takes the name, and the vault's version is kept beside it as `<name>.conflict-from-<device>-<date>-<time>.<extension>`. A file in the configuration folder gets no such copy: the vault's version goes to `.trash/` in the vault. Before a pull deletes many files, or follows a history that was rewritten, it stops and asks.
 
 The settings and the record of what was synced are kept on the device, outside the vault. The token is kept in Obsidian's Keychain; the settings hold only the name it is saved under.
 

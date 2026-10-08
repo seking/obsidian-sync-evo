@@ -765,6 +765,39 @@ describe("a conflict copy and the rules", () => {
 		});
 		expect(summary(deleted)).toEqual([`drop-record ${copy}`, "delete-local img.png"]);
 	});
+
+	test("a copy inside the configuration folder that has a record and is gone from the remote is not sent back", async () => {
+		const copy = conflictCopyPath(".obsidian/app.json", "Mac", at);
+		// While the remote holds it, it is synced like any other file.
+		const onRemote = await planFor({
+			synced: { ".obsidian/app.json": "theirs", [copy]: "mine" },
+			local: { [copy]: "edited" },
+		});
+		expect(summary(onRemote)).toEqual([`upload ${copy}`]);
+
+		// Deleted there and edited here: the edit stays, and the record goes.
+		// The file it is a copy of is still on the remote, which would have
+		// the copy of a note sent again.
+		const edited = await planFor({
+			synced: { ".obsidian/app.json": "theirs", [copy]: "mine" },
+			remote: { [copy]: null },
+			local: { [copy]: "edited" },
+		});
+		expect(summary(edited)).toEqual([`drop-record ${copy}`]);
+		expect(edited.actions[0]?.local?.hash).toBe(blobHash("edited"));
+
+		// Without the record it is left out, and the decision is not repeated.
+		const after = await planFor({ synced: { ".obsidian/app.json": "theirs" }, local: { [copy]: "edited" } });
+		expect(after.actions).toEqual([]);
+		expect(skips(after)).toEqual([`excluded ${copy}`]);
+
+		// Deleted there and not edited here: deleted, like any recorded file.
+		const unchanged = await planFor({
+			synced: { ".obsidian/app.json": "theirs", [copy]: "mine" },
+			remote: { [copy]: null },
+		});
+		expect(summary(unchanged)).toEqual([`delete-local ${copy}`]);
+	});
 });
 
 describe("the two things that are never synced", () => {

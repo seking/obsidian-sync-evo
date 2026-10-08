@@ -178,9 +178,13 @@ export const en = baseCatalog({
 		"{copy} ({path} is a symbolic link on the remote now, which is not written to this device)",
 	"pull.conflict.becameFolder": "{copy} ({path} is a folder on the remote now)",
 	"pull.conflict.nameTaken": "{copy} (the remote renamed another file to {path})",
+	"pull.replacedSettings": {
+		one: "{count} file in the configuration folder now has the content of the remote. What it held on this device before is in .trash/ in this vault:\n{list}",
+		other: "{count} files in the configuration folder now have the content of the remote. What they held on this device before is in .trash/ in this vault:\n{list}",
+	},
 	"pull.trashed": {
-		one: "{count} file was moved to .trash/ in this vault before the pull replaced or removed it. You can get it back from there:\n{list}",
-		other: "{count} files were moved to .trash/ in this vault before the pull replaced or removed them. You can get them back from there:\n{list}",
+		one: "{count} file was moved to .trash/ in this vault by the pull, so that its content is not lost. You can get it back from there:\n{list}",
+		other: "{count} files were moved to .trash/ in this vault by the pull, so that their content is not lost. You can get them back from there:\n{list}",
 	},
 	"pull.halfWritten": {
 		one: "An earlier pull stopped while it was writing {count} file. What was left of it was moved to .trash/ in this vault. A pull fetches the content of the remote. If you had edited the file since, you can get your edit back from there:\n{list}",
@@ -228,6 +232,10 @@ export const en = baseCatalog({
 	"confirm.firstFetch.different": {
 		one: "{count} file has other content than the remote. It gets the content of the remote, and the content on this device is kept beside it under another name:",
 		other: "{count} files have other content than the remote. They get the content of the remote, and the content on this device is kept beside them under another name:",
+	},
+	"confirm.firstFetch.differentSettings": {
+		one: "{count} file in the configuration folder has other content than the remote. It gets the content of the remote, and the content on this device is moved to .trash/ in this vault:",
+		other: "{count} files in the configuration folder have other content than the remote. They get the content of the remote, and the content on this device is moved to .trash/ in this vault:",
 	},
 	"confirm.firstFetch.localOnly": {
 		one: "{count} file is only on this device. It stays on this device as it is:",

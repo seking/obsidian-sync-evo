@@ -20,6 +20,11 @@
 // marker and its record (`writeRemote`), and the handling of a conflict
 // (`conflict`).
 //
+// Inside the configuration folder no copy is ever made (`isInConfigDir`).
+// What would be kept as a copy anywhere else goes to the `.trash/` of the
+// vault there: the vault's side of a conflict (`replaceSettings`), and a file
+// that is in the way of something else (`moveAside`).
+//
 // What goes wrong with one file does not stop the others. It ends up in one
 // of two lists. "Unwritable": the vault refused; the path has no record of
 // the new content, so the next pull tries again, and the base revision may
@@ -30,6 +35,7 @@
 
 import type { Backend, RemoteEntry, RemoteListing } from "./backend";
 import { CopyIndex, copyCandidate } from "./conflict-copies";
+import { isInConfigDir } from "./exclusion";
 import { foldedKey, pathKey } from "./paths";
 import type { LocalEntry, SyncRecord } from "./plan";
 import {
@@ -79,6 +85,8 @@ export class Tally {
 	deleted = 0;
 	renamed = 0;
 	readonly conflicts: PullConflict[] = [];
+	/** `PullResult.replacedSettings`. */
+	readonly replacedSettings: string[] = [];
 	readonly trashed: string[] = [];
 	/** `PullResult.halfWritten`. */
 	readonly halfWritten: string[] = [];
@@ -129,6 +137,8 @@ export interface ApplyEnv {
 	/** Awaited before each write of a file. */
 	readonly beforeWrite: () => Promise<void>;
 	readonly onStep?: (done: number, total: number) => void;
+	/** The name of the configuration folder, where no copy of a conflict is made. */
+	readonly configDir: string;
 	/** The key of `community-plugins.json` and the id it has to list. */
 	readonly communityPluginsKey: string;
 	readonly pluginId: string;
@@ -458,11 +468,23 @@ class Applier {
 	}
 
 	/**
+	 * To the `.trash/` of the vault, whatever the setting: for content that
+	 * may be nowhere else.
+	 */
+	private async trashInVault(path: string, key: string): Promise<void> {
+		await this.change(() => this.vault.trash(path, "vault-trash"));
+		this.seen.delete(key);
+	}
+
+	/**
 	 * Moves the file at `path` to the name of a copy of `original`, by a
 	 * rename, so that its content is never in two places or in none. Answers
-	 * the new path, or `null` when the vault refused. The file is then
+	 * whether it is out of the way. When the vault refused, the file is
 	 * reported and told once under `noticePath`: what the pull could not do
 	 * because the file is still there.
+	 *
+	 * Inside the configuration folder the copy is not made: the file goes to
+	 * the `.trash/` of the vault, and is told as moved there.
 	 */
 	private async moveAside(
 		path: string,
@@ -470,14 +492,24 @@ class Applier {
 		original: string,
 		cause: PullConflictCause,
 		noticePath: string,
-	): Promise<string | null> {
+	): Promise<boolean> {
+		if (isInConfigDir(original, this.env.configDir)) {
+			try {
+				await this.trashInVault(path, key);
+			} catch (error) {
+				this.refuse(noticePath, path, "trash-failed", error);
+				return false;
+			}
+			this.tally.trashed.push(path);
+			return true;
+		}
 		let copy: string;
 		try {
 			copy = await this.freeCopyPath(original);
 			await this.change(() => this.vault.rename(path, copy));
 		} catch (error) {
 			this.refuse(noticePath, path, "rename-failed", error);
-			return null;
+			return false;
 		}
 		// The copy is named after `original`, whose folders the vault may
 		// spell otherwise; it is reported as it is spelled now.
@@ -487,7 +519,7 @@ class Applier {
 		if (was !== undefined) this.seen.set(pathKey(copy), was);
 		this.localCopies.add(copy);
 		this.tally.conflicts.push({ path: original, copyPath: copy, cause });
-		return copy;
+		return true;
 	}
 
 	// -----------------------------------------------------------------------
@@ -550,7 +582,7 @@ class Applier {
 		// Told under the path the remote has something else at now, which
 		// the vault cannot follow while the file is in its place.
 		const { nameAfter } = entry;
-		if (there && (await this.moveAside(path, pathKey(path), nameAfter, entry.cause, nameAfter)) === null) return;
+		if (there && !(await this.moveAside(path, pathKey(path), nameAfter, entry.cause, nameAfter))) return;
 		if (entry.record !== undefined || entry.recordAfter !== undefined) {
 			await this.settleRecord(entry.key, entry.recordAfter);
 		}
@@ -689,7 +721,7 @@ class Applier {
 				this.defer(to, "save-failed");
 				return "deferred";
 			}
-			if ((await this.moveAside(to, key, to, "name-taken", to)) === null) return "unwritable";
+			if (!(await this.moveAside(to, key, to, "name-taken", to))) return "unwritable";
 		}
 
 		const now = await this.look(from, scannedKey);
@@ -746,7 +778,7 @@ class Applier {
 			this.defer(from, "unreadable");
 			return "deferred";
 		}
-		return (await this.moveAside(from, scannedKey, to, "name-taken", to)) === null ? "unwritable" : "done";
+		return (await this.moveAside(from, scannedKey, to, "name-taken", to)) ? "done" : "unwritable";
 	}
 
 	private async applyStray(stray: StrayMove): Promise<void> {
@@ -934,16 +966,27 @@ class Applier {
 	 * then the record and the end of the marker in one transaction. `content`
 	 * has been checked against `remote.hash`. `before` is the hash of the
 	 * file that is written over, or `null`.
+	 *
+	 * `lastLook` is asked once the marker is put and right before the write,
+	 * with nothing of this pull's left in between. When it answers `false`
+	 * nothing is written and the marker goes; it has said why itself.
 	 */
 	private async writeRemote(
 		path: string,
 		remote: RemoteEntry,
 		content: Uint8Array,
 		before: string | null,
+		lastLook?: () => Promise<boolean>,
 	): Promise<boolean> {
 		const key = pathKey(path);
 		await this.store.putMarker(makeMarker(path, before, remote.hash, false));
 		await this.env.beforeWrite();
+		if (lastLook !== undefined && !(await lastLook())) {
+			// Nothing was begun, whatever is at the path by now. With the
+			// marker left, a resume would take that for half a write.
+			await this.store.deleteMarker(key);
+			return false;
+		}
 		try {
 			await this.change(() => this.vault.write(path, content));
 		} catch (error) {
@@ -992,6 +1035,8 @@ class Applier {
 	 * The editors save before the file is read, or what was typed last would
 	 * be in neither place. They save again before the path is written,
 	 * because the user may have typed on in between.
+	 *
+	 * Inside the configuration folder there is no copy (`replaceSettings`).
 	 */
 	private async conflict(path: string, remote: RemoteEntry, content: Uint8Array): Promise<void> {
 		const key = pathKey(path);
@@ -1003,6 +1048,11 @@ class Applier {
 		}
 		if (mine.hash === remote.hash) {
 			await this.store.commitWrite(makeRecord(recordOf(remote), mine.stat, this.env.startedAt));
+			return;
+		}
+
+		if (isInConfigDir(path, this.env.configDir)) {
+			await this.replaceSettings(path, key, remote, content);
 			return;
 		}
 
@@ -1065,6 +1115,68 @@ class Applier {
 		await this.store.deleteMarker(pathKey(copy));
 		if (!written) return;
 		this.tally.conflicts.push({ path, copyPath: copy, cause: "conflict" });
+	}
+
+	/**
+	 * A conflict inside the configuration folder. The vault's content goes to
+	 * the `.trash/` of the vault and the remote's to the path; in that order,
+	 * like a copy and the path, and by a move, which takes whatever the file
+	 * holds by then.
+	 *
+	 * No marker is needed for the first half. A pull that stops after it
+	 * finds no file at the path, which is a fetch, with or without a record
+	 * (`decide` in `plan.ts`); nothing is moved a second time. The second
+	 * half is a write like any other, with its marker, and with one more
+	 * look at the path (`stillAway`).
+	 */
+	private async replaceSettings(path: string, key: string, remote: RemoteEntry, content: Uint8Array): Promise<void> {
+		try {
+			await this.trashInVault(path, key);
+		} catch (error) {
+			this.refuse(path, path, "trash-failed", error);
+			return;
+		}
+		const written = await this.writeRemote(path, remote, content, null, () => this.stillAway(path, key));
+		// A file that is in the trash and not replaced is told all the same.
+		(written ? this.tally.replacedSettings : this.tally.trashed).push(path);
+	}
+
+	/**
+	 * Whether the path `replaceSettings` emptied is still empty, right before
+	 * it is written. The app writes its settings again whenever the user
+	 * switches something, and a file that landed since the move would be
+	 * written over, with its content at the path no more and not in the
+	 * `.trash/` either. Such a file is moved there as well; the path is told
+	 * once, and what it held before is two files there then.
+	 *
+	 * Once, like the copy of a conflict that is written again (`conflict`):
+	 * a path that is filled a second time is being written to, and is left
+	 * to the next sync as it is. Nothing is lost by that. The file holds the
+	 * newest content and has no record of it, so it is a conflict again.
+	 */
+	private async stillAway(path: string, key: string): Promise<boolean> {
+		for (let moves = 0; ; moves++) {
+			let file: boolean;
+			try {
+				const stat = await this.vault.stat(path);
+				if (stat === null) return true;
+				file = stat.type === "file";
+			} catch {
+				this.defer(path, "unreadable");
+				return false;
+			}
+			// A folder is not moved anywhere: the next pull finds it in the way.
+			if (!file || moves === 1) {
+				this.defer(path, "changed-during-pull");
+				return false;
+			}
+			try {
+				await this.trashInVault(path, key);
+			} catch (error) {
+				this.refuse(path, path, "trash-failed", error);
+				return false;
+			}
+		}
 	}
 
 	/** Has the editors save, then reads the file. `null` when there is none. */

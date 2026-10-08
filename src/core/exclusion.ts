@@ -88,6 +88,10 @@ export interface Exclusion {
 	 * Once the remote has deleted it, the file is on its way out, and its
 	 * copy is like any other new file a rule matches. For a copy of a copy
 	 * it is the first file that is asked about, as for the rule.
+	 *
+	 * A copy of a file inside the configuration folder is left out, unless
+	 * it is known itself. No pull makes such a copy (`isInConfigDir`); one
+	 * that an earlier version made stays on the device, and is not sent.
 	 */
 	excludes(path: string, type: PathType, known: KnownPaths): boolean;
 }
@@ -181,11 +185,29 @@ export function createExclusion(input: ExclusionInput): Exclusion {
 			if (known.has(key, type)) return false;
 			if (type === "file") {
 				const original = withoutConflictNames(key);
-				if (original !== key && known.onRemote(original)) return false;
+				if (original !== key) {
+					if (isInConfigDir(original, input.configDir)) return true;
+					if (known.onRemote(original)) return false;
+				}
 			}
 			return matchesRule(path, type);
 		},
 	};
+}
+
+/**
+ * Whether `path` is inside the configuration folder, at any depth. A file
+ * there is the app's or a plugin's and not a note, so what the vault has of
+ * it is never kept as a copy of a conflict: the copy would be read by nothing
+ * and sent to every device. Where a copy would be made, the content goes to
+ * the `.trash/` of the vault instead (`pull-apply.ts`).
+ *
+ * Without the cases, like the two fixed exclusions: most vaults are on a
+ * file system that does not tell them apart.
+ */
+export function isInConfigDir(path: string, configDir: string): boolean {
+	const config = foldedKey(trimSlashes(configDir));
+	return config !== "" && foldedKey(path).startsWith(`${config}/`);
 }
 
 /**

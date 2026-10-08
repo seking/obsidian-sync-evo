@@ -157,8 +157,10 @@ export const ja = completeTranslation(en, {
 		"{copy}（{path} は保存先でシンボリックリンクになりました。リンクは、このデバイスに書き込みません）",
 	"pull.conflict.becameFolder": "{copy}（{path} は保存先でフォルダになりました）",
 	"pull.conflict.nameTaken": "{copy}（保存先で、別のファイルの名前が {path} に変わりました）",
+	"pull.replacedSettings":
+		"設定フォルダのファイル {count} 件を、保存先の内容にしました。このデバイスの前の内容は、この保管庫の .trash/ にあります：\n{list}",
 	"pull.trashed":
-		"{count} 件のファイルを、置き換える前または削除する前に、この保管庫の .trash/ へ移しました。そこから戻せます：\n{list}",
+		"取り込みで、{count} 件のファイルをこの保管庫の .trash/ へ移しました。内容は失われていません。そこから戻せます：\n{list}",
 	"pull.halfWritten":
 		"前の取り込みが、{count} 件のファイルを書いている途中で止まっていました。残っていた内容は、この保管庫の .trash/ へ移しました。保存先の内容は、取り込みで取得します。その後に編集していた時は、そこから戻せます：\n{list}",
 	"pull.halfCopies":
@@ -192,6 +194,8 @@ export const ja = completeTranslation(en, {
 		"{repository} のブランチ {branch} から、この保管庫に初めて取り込みます。この保管庫には、すでにファイルがあります。",
 	"confirm.firstFetch.different":
 		"保存先と中身が違うファイル：{count} 件。保存先の内容に書き換えます。このデバイスの内容は、同じ場所に別名で残します。",
+	"confirm.firstFetch.differentSettings":
+		"保存先と中身が違う設定フォルダのファイル：{count} 件。保存先の内容に書き換えます。このデバイスの内容は、この保管庫の .trash/ へ移します。",
 	"confirm.firstFetch.localOnly": "このデバイスにだけあるファイル：{count} 件。このデバイスに、そのまま残します。",
 	"confirm.firstFetch.atSymlinks":
 		"保存先でシンボリックリンクになっているパスにあるファイル：{count} 件。比べずに、そのまま残します。",

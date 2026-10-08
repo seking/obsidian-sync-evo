@@ -612,7 +612,7 @@ class PullRun {
 		// Not when there is nothing to pull: nothing is taken away then.
 		const lossesDue =
 			!nothingToPull && needsConfirmation(losses, plan.recordCount) && !isConfirmed(losses, confirmed);
-		const files = unconfirmed ? firstFetchFiles(plan) : null;
+		const files = unconfirmed ? firstFetchFiles(plan, deps.paths.configDir) : null;
 		const firstDue = files !== null && (startOver || hasFirstFetchQuestion(files, this.deps.paths.configDir));
 		const keptLocal: string[] = [];
 		let declined = false;
@@ -783,6 +783,7 @@ class PullRun {
 				conflicts: tally.conflicts.length,
 			},
 			conflicts: tally.conflicts,
+			replacedSettings: tally.replacedSettings,
 			trashed: tally.trashed,
 			halfWritten: tally.halfWritten,
 			halfCopies: tally.halfCopies,
@@ -884,6 +885,7 @@ class PullRun {
 				this.applied = { done, total };
 				this.progress("applying", done, total);
 			},
+			configDir: deps.paths.configDir,
 			communityPluginsKey: pathKey(`${trimSlashes(deps.paths.configDir)}/community-plugins.json`),
 			pluginId: deps.pluginId,
 		};

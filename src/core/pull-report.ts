@@ -83,12 +83,16 @@ export function firstFetchQuestion(
 	if (files.different.length > 0) {
 		listed(t("confirm.firstFetch.different", { count: files.different.length }), files.different);
 	}
+	if (files.differentSettings.length > 0) {
+		const { differentSettings } = files;
+		listed(t("confirm.firstFetch.differentSettings", { count: differentSettings.length }), differentSettings);
+	}
 	if (files.localOnly.length > 0) {
 		// T028: with a push, this is where the user is told that these
 		// files are sent to the repository named above by the next push.
 		listed(t("confirm.firstFetch.localOnly", { count: files.localOnly.length }), files.localOnly);
 	}
-	if (files.different.length + files.localOnly.length === 0) parts.push({ text: t("confirm.startOver.nothing") });
+	if (files.different.length + files.differentSettings.length + files.localOnly.length === 0) parts.push({ text: t("confirm.startOver.nothing") });
 	if (files.atSymlinks.length > 0) {
 		listed(t("confirm.firstFetch.atSymlinks", { count: files.atSymlinks.length }), files.atSymlinks);
 	}
@@ -270,6 +274,10 @@ export function pullReport(t: Translate, result: PullResult, options: PullReport
 	if (result.conflicts.length > 0) {
 		const lines = result.conflicts.map((conflict) => conflictLine(t, conflict));
 		details.push(t("pull.conflicts", { count: lines.length, list: listText(t, lines, 10) }));
+	}
+	if (result.replacedSettings.length > 0) {
+		const { replacedSettings } = result;
+		details.push(t("pull.replacedSettings", { count: replacedSettings.length, list: listText(t, replacedSettings) }));
 	}
 	if (result.trashed.length > 0) {
 		details.push(t("pull.trashed", { count: result.trashed.length, list: listText(t, result.trashed) }));

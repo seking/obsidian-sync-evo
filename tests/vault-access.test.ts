@@ -635,6 +635,29 @@ describe("a pull through the routing", () => {
 		expect(ports.folderPaths()).toEqual([".obsidian"]);
 	});
 
+	test.each(["system", "none", "local"])(
+		"a conflict inside the configuration folder: to .trash/ of the vault, with the setting %j",
+		async (setting) => {
+			const { ports, backend, pull } = harness(false);
+			ports.trashSetting = setting;
+			backend.commit({ ".obsidian/app.json": "{}", "a.md": "a1" });
+			await pull();
+
+			ports.put(".obsidian/app.json", '{"mine":1}');
+			backend.commit({ ".obsidian/app.json": '{"theirs":1}' });
+			ports.calls.length = 0;
+			const result = await pull();
+
+			expect(result.outcome).toBe("completed");
+			expect(result.replacedSettings).toEqual([".obsidian/app.json"]);
+			expect(result.conflicts).toEqual([]);
+			expect(ports.text(".obsidian/app.json")).toBe('{"theirs":1}');
+			expect(ports.trashed).toEqual([{ path: ".obsidian/app.json", where: "vault" }]);
+			expect(ports.calls).toContain("trashLocal .obsidian/app.json");
+			expect(ports.paths()).toEqual([".obsidian/app.json", "a.md"]);
+		},
+	);
+
 	test("a folder renamed in case on the remote is renamed here, in one call, where the cases are not told apart", async () => {
 		const { ports, backend, pull } = harness(false);
 		backend.commit({ "notes/a.md": "a", "notes/b.md": "b" });
