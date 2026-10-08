@@ -13,8 +13,10 @@
 // this only says whether the second follows the first, and what it is told
 // of it.
 
+import { BackendError } from "./backend";
 import { type PullDeps, type PullResult, runPull } from "./pull";
 import { type PushDeps, type PushRunResult, runPush } from "./push";
+import { markPushFailure } from "./push-failure";
 
 /**
  * Whether a push follows a pull that ended like this.
@@ -64,9 +66,28 @@ export interface SyncResult {
 
 /** Pulls, then pushes. Rejects as the pull or the push does; a pull that rejects is followed by no push. */
 export async function runSync(deps: SyncDeps): Promise<SyncResult> {
-	const pull = await runPull(deps.pull);
+	let pull: PullResult;
+	try {
+		pull = await runPull(deps.pull);
+	} catch (error) {
+		// The user asked for a push too, and none was made. Not when the
+		// sync was stopped: that is the user's, and no failure.
+		if (!(error instanceof BackendError && error.kind === "cancelled")) await unsent(deps);
+		throw error;
+	}
 	deps.onPulled?.(pull);
 	if (!pushFollows(pull) || deps.push.signal?.aborted === true) return { pull, push: null };
 	const push = await runPush({ ...deps.push, hold: pathsToHold(pull) });
 	return { pull, push };
+}
+
+// The push of a sync that never began is told again like one that failed
+// (`push-failure.ts`). What fails here must not take the place of how the
+// pull ended.
+async function unsent(deps: SyncDeps): Promise<void> {
+	try {
+		await markPushFailure(deps.push.store, deps.push.now());
+	} catch {
+		// The end of the pull is the one to tell.
+	}
 }

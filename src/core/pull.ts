@@ -53,6 +53,7 @@ import {
 import { foldedKey, pathKey } from "./paths";
 import { DEFAULT_SIZE_LIMIT, type LocalEntry } from "./plan";
 import { type ApplyEnv, applyPlan, type Seen, Tally } from "./pull-apply";
+import { clearPushFailure } from "./push-failure";
 import { type PushCounts, settlePendingPush } from "./push-pending";
 import type {
 	BulkWriteSession,
@@ -584,7 +585,13 @@ class PullRun {
 			this.recoveredPush = await settlePendingPush(store, head, (from, to) =>
 				this.asked(deps.backend.checkBase(from, to)),
 			);
-			if (this.recoveredPush !== null) base = await readBaseRevision(store);
+			if (this.recoveredPush !== null) {
+				base = await readBaseRevision(store);
+				// The push that had not got to its end, as far as this
+				// device knew, has. A push that finds this out is itself
+				// under way, and takes the note away when it is through.
+				await clearPushFailure(store);
+			}
 		}
 
 		// Whether the question before a first fetch is still to be asked. By

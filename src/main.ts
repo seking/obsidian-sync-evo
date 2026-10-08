@@ -9,12 +9,14 @@
  * Source: https://github.com/seking/obsidian-sync-evo
  */
 
-import { getLanguage, Platform, Plugin } from "obsidian";
+import { getLanguage, Notice, Platform, Plugin } from "obsidian";
 import { type CheckOutcome, runConnectionCheck } from "./core/connection-check";
 import { GitHubClient } from "./core/github/client";
 import { timerSleep } from "./core/github/timer-sleep";
 import { type Translate, translatorFor } from "./core/i18n";
 import { readSymlinkTargets, type SymlinkTarget } from "./core/pull";
+import { type PushFailure, readPushFailure } from "./core/push-failure";
+import { pushFailureReminderText } from "./core/push-report";
 import {
 	type ConnectionChange,
 	connectionChange,
@@ -51,14 +53,18 @@ export default class SyncEvoPlugin extends Plugin implements SettingsHost, SyncH
 	 * A sync gets them with `syncState.open()` and in no other way: that
 	 * waits for a discard asked for by a change of the connection, and
 	 * answers "newer-version" or "unavailable" instead of a store when there
-	 * is nothing the sync may use. Nothing is opened before a sync asks, or
-	 * the settings screen does for its list of skipped symlinks, and never
-	 * while there is no connection.
+	 * is nothing the sync may use. Nothing is opened before a sync asks, the
+	 * settings screen does for what it lists, or the app has started and a
+	 * push that did not finish is looked for; and never while there is no
+	 * connection.
 	 */
 	readonly syncState = new SyncState(syncStateDepsOf(this.app, () => this.syncs.stateBlocked()));
 
 	/** The one place a sync of any kind is started from, so that two never run at once. */
 	private readonly syncs = new SyncRunner(this);
+
+	/** The plugin is going away: nothing more is shown. */
+	private unloaded = false;
 
 	override onload(): void {
 		// A change of the app language takes effect on restart, so reading it once is enough.
@@ -97,9 +103,26 @@ export default class SyncEvoPlugin extends Plugin implements SettingsHost, SyncH
 			name: this.t("command.stop"),
 			callback: () => this.syncs.requestStop(),
 		});
+
+		// Once the app is up. The sync state is only read: nothing is asked
+		// of the remote, and nothing is sent again.
+		this.app.workspace.onLayoutReady(() => void this.remindOfPushFailure());
+	}
+
+	/** Tells once more, until it is dismissed, of a push that did not get to its end (`push-failure.ts`). */
+	private async remindOfPushFailure(): Promise<void> {
+		const failure = await this.pushFailure();
+		if (this.unloaded) {
+			// The sync state was let go of while this waited for it, and
+			// has been opened since.
+			this.syncState.close();
+			return;
+		}
+		if (failure !== null) new Notice(pushFailureReminderText(this.t, failure), 0);
 	}
 
 	override onunload(): void {
+		this.unloaded = true;
 		// Before the state is let go of, so that the sync stops asking for it.
 		this.syncs.stop();
 		this.syncState.close();
@@ -162,6 +185,21 @@ export default class SyncEvoPlugin extends Plugin implements SettingsHost, SyncH
 			return opened.status === "ok" ? await readSymlinkTargets(opened.store) : [];
 		} catch {
 			return [];
+		}
+	}
+
+	/**
+	 * The push that did not get to its end, if no sync has sent since.
+	 * `null` while there is no connection, as for the symlinks. Never rejects.
+	 */
+	async pushFailure(): Promise<PushFailure | null> {
+		const settings = this.deviceSettings;
+		if (settings === null || connectionOf(settings) === null) return null;
+		try {
+			const opened = await this.syncState.open();
+			return opened.status === "ok" ? await readPushFailure(opened.store) : null;
+		} catch {
+			return null;
 		}
 	}
 

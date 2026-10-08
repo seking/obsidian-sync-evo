@@ -156,6 +156,13 @@ function nextMinute(time: number): number {
 	return Math.ceil(time / 60_000) * 60_000;
 }
 
+/** The day and the time of day on the device, to the minute, as "2026-10-09 14:05". */
+export function dateTime(time: number): string {
+	const at = new Date(time);
+	const two = (value: number): string => String(value).padStart(2, "0");
+	return `${at.getFullYear()}-${two(at.getMonth() + 1)}-${two(at.getDate())} ${clockTime(time)}`;
+}
+
 /** The time of day on the device, to the minute, as "14:05". */
 export function clockTime(time: number): string {
 	const at = new Date(time);

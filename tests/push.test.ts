@@ -30,6 +30,7 @@ import {
 	PENDING_PUSH_KEY,
 	readPendingPush,
 } from "../src/core/push-pending";
+import { PUSH_FAILURE_KEY, readPushFailure } from "../src/core/push-failure";
 import { makeMarker, readBaseRevision, type StateStore } from "../src/core/state";
 import { pathsToHold, pushFollows, runSync, type SyncResult } from "../src/core/sync";
 import { blobHash, type FileContent, MemoryBackend } from "./support/memory-backend";
@@ -1690,6 +1691,148 @@ describe("what a pull leaves for the push that follows", () => {
 		expect(h.vault.snapshot()).toEqual(await h.remote());
 		expect(h.vault.trashed).toEqual([]);
 		await expectNothingToPull(h);
+	});
+});
+
+describe("a push that did not get to its end is remembered", () => {
+	/** A remote that cannot be reached. */
+	function offline(h: Harness): TestBackend {
+		const backend = Object.create(h.backend) as TestBackend;
+		backend.list = async () => {
+			throw new BackendError("unreachable", "offline");
+		};
+		return backend;
+	}
+
+	test("a push that fails leaves the time it began, and the next one that goes through takes it away", async () => {
+		const h = await synced({ "a.md": "A" });
+		h.vault.put("a.md", "A2");
+		expect(await readPushFailure(h.store)).toBeNull();
+
+		await expect(h.push({ backend: offline(h) })).rejects.toMatchObject({ kind: "unreachable" });
+
+		expect(await readPushFailure(h.store)).toEqual({ at: h.now() });
+		// Nothing is asked of the remote, and nothing is sent, until the user syncs.
+		expect(h.backend.pushes).toBe(0);
+
+		expect((await h.push()).outcome).toBe("pushed");
+		expect(await h.store.getMeta(PUSH_FAILURE_KEY)).toBeUndefined();
+	});
+
+	test("it goes away too when there is nothing left to send", async () => {
+		const h = await synced({ "a.md": "A" });
+		h.vault.put("a.md", "A2");
+		await expect(h.push({ backend: offline(h) })).rejects.toMatchObject({ kind: "unreachable" });
+		h.vault.put("a.md", "A");
+
+		expect((await h.push()).outcome).toBe("nothing-to-push");
+
+		expect(await readPushFailure(h.store)).toBeNull();
+	});
+
+	test("a push that fails after it found the one before to have gone through is still remembered", async () => {
+		const h = await synced({ "a.md": "A" });
+		h.vault.put("a.md", "A2");
+		h.backend.publishFault = "lost-answer";
+		await expect(h.push()).rejects.toMatchObject({ kind: "unreachable" });
+		h.vault.put("a.md", "A3");
+		h.backend.publishFault = "lost-request";
+
+		await expect(h.push()).rejects.toMatchObject({ kind: "unreachable" });
+
+		expect(await h.remote()).toEqual({ "a.md": "A2" });
+		expect(await readPushFailure(h.store)).toEqual({ at: h.now() });
+	});
+
+	test("a remote without commits is none: nothing can be sent to it, by a push or by a sync", async () => {
+		const h = harness();
+		h.vault.put("mine.md", "M");
+
+		expect(await h.push()).toMatchObject({ outcome: "pull-first", reason: "remote-empty" });
+		expect(await readPushFailure(h.store)).toBeNull();
+		expect((await h.sync()).pull.outcome).toBe("remote-empty");
+		expect(await readPushFailure(h.store)).toBeNull();
+	});
+
+	test("a push that has to wait for a pull is one too: nothing was sent", async () => {
+		const h = harness();
+		h.backend.commit({ "a.md": "A" });
+		h.vault.put("mine.md", "M");
+
+		expect(await h.push()).toMatchObject({ outcome: "pull-first", reason: "no-base" });
+
+		expect(await readPushFailure(h.store)).toEqual({ at: h.now() });
+	});
+
+	test("a no and a stop are the user's: neither leaves it, and neither takes away what a failure left", async () => {
+		const h = await synced({ "a.md": "A" }, { firstPush: true });
+		h.vault.put("a.md", "A2");
+		h.answer = "cancel";
+		expect((await h.push()).outcome).toBe("declined");
+		expect(await readPushFailure(h.store)).toBeNull();
+		const stopped = new AbortController();
+		stopped.abort();
+		expect((await h.push({ signal: stopped.signal })).outcome).toBe("cancelled");
+		expect(await readPushFailure(h.store)).toBeNull();
+
+		await expect(h.push({ backend: offline(h) })).rejects.toMatchObject({ kind: "unreachable" });
+		const failure = { at: h.now() };
+		expect((await h.push()).outcome).toBe("declined");
+		expect(await readPushFailure(h.store)).toEqual(failure);
+		expect((await h.push({ signal: stopped.signal })).outcome).toBe("cancelled");
+		expect(await readPushFailure(h.store)).toEqual(failure);
+	});
+
+	test("the app is closed under the push: it is found when the app starts again", async () => {
+		const h = await synced({ "a.md": "A" });
+		h.vault.put("a.md", "A2");
+		const before = h.backend.revision;
+		// Killed after the push has noted that it began.
+		h.crash.after(1);
+
+		await expect(h.push()).rejects.toThrow("the app is gone");
+		h.crash.revive();
+		expect(h.backend.revision).toBe(before);
+
+		expect(await readPushFailure(h.store)).toEqual({ at: h.now() });
+	});
+
+	test("the answer was lost and the push had gone through: the pull that finds that out takes it away", async () => {
+		const h = await synced({ "a.md": "A" });
+		h.vault.put("a.md", "A2");
+		h.backend.publishFault = "lost-answer";
+		await expect(h.push()).rejects.toMatchObject({ kind: "unreachable" });
+		h.backend.publishFault = null;
+		expect(await readPushFailure(h.store)).not.toBeNull();
+
+		expect(await h.pull()).toMatchObject({ outcome: "completed", recoveredPush: { modified: 1 } });
+
+		expect(await readPushFailure(h.store)).toBeNull();
+	});
+
+	test("a sync whose pull fails made no push, and is remembered as one; not when it was stopped", async () => {
+		const h = await synced({ "a.md": "A" });
+		h.vault.put("a.md", "A2");
+
+		await expect(h.sync({ pull: { backend: offline(h) } })).rejects.toMatchObject({ kind: "unreachable" });
+		expect(await readPushFailure(h.store)).toEqual({ at: h.now() });
+		expect((await h.sync()).push).toMatchObject({ outcome: "pushed" });
+		expect(await readPushFailure(h.store)).toBeNull();
+
+		const stopped = new AbortController();
+		stopped.abort();
+		expect((await h.sync({ pull: { signal: stopped.signal }, push: { signal: stopped.signal } })).push).toBeNull();
+		expect(await readPushFailure(h.store)).toBeNull();
+
+		// A pull alone is no push that failed.
+		await expect(h.pull({ backend: offline(h) })).rejects.toMatchObject({ kind: "unreachable" });
+		expect(await readPushFailure(h.store)).toBeNull();
+	});
+
+	test("a value that cannot be read is no failure", async () => {
+		const h = await synced({ "a.md": "A" });
+		await h.store.setMeta(PUSH_FAILURE_KEY, { at: "yesterday" });
+		expect(await readPushFailure(h.store)).toBeNull();
 	});
 });
 

@@ -255,6 +255,8 @@ export const en = baseCatalog({
 	"push.cancelled": "The push was stopped. Nothing was sent.",
 	"push.connectionChanged": "The push was stopped because the connection was changed. Nothing was sent.",
 	"push.failed": "The push failed. {reason}",
+	"push.unfinished":
+		"The last sync ({time}) did not finish its push. Changes on this device may not have reached the remote. Nothing is sent again by itself: run a sync to send what this device holds now.",
 	"push.error.workflows":
 		"GitHub refused the push because it changes files under .github/workflows/. For that, the token also needs the Workflows read and write permission.",
 	"push.error.notAsListed":

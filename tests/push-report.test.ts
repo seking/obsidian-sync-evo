@@ -15,7 +15,13 @@ import { translatorFor } from "../src/core/i18n";
 import { pullReport } from "../src/core/pull-report";
 import type { PullResult } from "../src/core/pull";
 import type { PushRunResult } from "../src/core/push";
-import { pushFailureText, pushProgressText, pushQuestion, pushReport } from "../src/core/push-report";
+import {
+	pushFailureReminderText,
+	pushFailureText,
+	pushProgressText,
+	pushQuestion,
+	pushReport,
+} from "../src/core/push-report";
 
 const t = translatorFor("en");
 const ja = translatorFor("ja");
@@ -394,6 +400,18 @@ describe("a push that could not be carried out", () => {
 	test("a stop is not a failure", () => {
 		expect(pushFailureText(t, settings, new BackendError("cancelled", "boom"))).toBe(
 			"The push was stopped. Nothing was sent.",
+		);
+	});
+});
+
+describe("a push that did not get to its end, told again", () => {
+	test("says when it began, on the clock of the device, and that a sync sends what is there now", () => {
+		const at = new Date(2026, 9, 9, 3, 5, 40).getTime();
+		expect(pushFailureReminderText(t, { at })).toBe(
+			"The last sync (2026-10-09 03:05) did not finish its push. Changes on this device may not have reached the remote. Nothing is sent again by itself: run a sync to send what this device holds now.",
+		);
+		expect(pushFailureReminderText(ja, { at })).toBe(
+			"前の同期（2026-10-09 03:05）では、送信が終わっていません。このデバイスの変更が、保存先に届いていないことがあります。自動では送り直しません。同期を実行すると、今の内容で送信します。",
 		);
 	});
 });

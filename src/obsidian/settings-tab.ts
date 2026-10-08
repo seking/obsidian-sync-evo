@@ -13,6 +13,8 @@ import { type App, Notice, type Plugin, PluginSettingTab, SecretComponent, Setti
 import { type CheckOutcome, connectionCheckText, isSuccess } from "../core/connection-check";
 import type { Translate } from "../core/i18n";
 import type { SymlinkTarget } from "../core/pull";
+import type { PushFailure } from "../core/push-failure";
+import { pushFailureReminderText } from "../core/push-report";
 import { branchToStore, type DeviceSettings, deviceNameProblem, repositoryToStore } from "../core/settings";
 
 /** What the screen needs from the plugin. */
@@ -26,6 +28,8 @@ export interface SettingsHost {
 	testConnection(settings: DeviceSettings): Promise<CheckOutcome>;
 	/** The symlinks of the remote that are skipped, with where they point. Never rejects. */
 	skippedSymlinks(): Promise<readonly SymlinkTarget[]>;
+	/** The push that did not get to its end, if no sync has sent since. Never rejects. */
+	pushFailure(): Promise<PushFailure | null>;
 }
 
 /**
@@ -71,6 +75,9 @@ export class SyncEvoSettingTab extends PluginSettingTab {
 				});
 			return;
 		}
+
+		// Above everything else: it is what the user has to act on.
+		void this.showPushFailure(containerEl.createDiv(), this.drawn);
 
 		// The repository and the branch are taken over when the field is left
 		// or Enter is pressed (the DOM `change` event), not on each key. Every
@@ -203,6 +210,13 @@ export class SyncEvoSettingTab extends PluginSettingTab {
 		for (const link of links) {
 			list.createEl("li", { text: t("settings.symlinks.item", { path: link.path, target: link.target }) });
 		}
+	}
+
+	/** A push that did not get to its end, when there is one. Read from the sync state, like the symlinks. */
+	private async showPushFailure(el: HTMLElement, drawn: number): Promise<void> {
+		const failure = await this.host.pushFailure();
+		if (failure === null || drawn !== this.drawn) return;
+		el.createEl("p", { text: pushFailureReminderText(this.host.t, failure), cls: "mod-warning" });
 	}
 
 	override hide(): void {

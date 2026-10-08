@@ -14,10 +14,12 @@
 // with what happened and no text.
 
 import type { Translate } from "./i18n";
+import type { PushFailure } from "./push-failure";
 import {
 	CONFIRM_LIST_LIMIT,
 	capList,
 	clockTime,
+	dateTime,
 	failureReason,
 	listText,
 	megabytes,
@@ -138,6 +140,14 @@ export function pushFailureText(
 ): string {
 	if (error instanceof BackendError && error.kind === "cancelled") return pushStoppedText(t, connectionChanged);
 	return t("push.failed", { reason: failureReason(t, settings, error) });
+}
+
+/**
+ * For when the app starts, and for the settings: a push did not get to its
+ * end, and no sync has sent since.
+ */
+export function pushFailureReminderText(t: Translate, failure: PushFailure): string {
+	return t("push.unfinished", { time: dateTime(failure.at) });
 }
 
 export interface PushReportOptions {

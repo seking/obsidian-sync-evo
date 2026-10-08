@@ -54,6 +54,7 @@ import {
 	rememberPendingPush,
 	settlePendingPush,
 } from "./push-pending";
+import { clearPushFailure, markPushFailure, readPushFailure, restorePushFailure } from "./push-failure";
 import { type HeldRename, needsPushConfirmation, type PushPlan, type PushRefusal, planPush } from "./push-plan";
 import { scanVault } from "./scan";
 import { currentListing, type FileStat, makeRecord, readBaseRevision, type StateStore } from "./state";
@@ -282,8 +283,25 @@ class PushRun {
 	}
 
 	async push(): Promise<PushRunResult> {
+		const { store } = this.deps;
+		// From here until the push has gone through, it counts as one that
+		// did not get to its end (`push-failure.ts`): also when the app is
+		// closed under it. Written by every push, also one that finds
+		// nothing to send.
+		const before = await readPushFailure(store);
+		await markPushFailure(store, this.startedAt);
 		try {
-			return await this.run();
+			const result = await this.run();
+			// Quietly: the push has ended as it has, whatever becomes of this.
+			if (result.outcome === "pushed" || result.outcome === "nothing-to-push") {
+				await this.quietly(() => clearPushFailure(store));
+			} else if (result.outcome !== "pull-first" || result.reason === "remote-empty") {
+				// A "no" and a stop are the user's, and no failure. Nor is
+				// a remote without commits: nothing can be sent to it, so
+				// no later push would ever take the note away.
+				await this.quietly(() => restorePushFailure(store, before));
+			}
+			return result;
 		} catch (error) {
 			// The commit was made and remembered, and the request that moves
 			// the branch was never sent: the push has not happened, and
@@ -299,6 +317,7 @@ class PushRun {
 			// Stopped while the remote was asked or sent to. The branch was
 			// not moved by a request that was never sent.
 			if (this.aborted() && error instanceof BackendError && error.kind === "cancelled") {
+				await this.quietly(() => restorePushFailure(store, before));
 				return this.result("cancelled");
 			}
 			throw error;

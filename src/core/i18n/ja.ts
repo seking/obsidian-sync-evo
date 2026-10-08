@@ -213,6 +213,8 @@ export const ja = completeTranslation(en, {
 	"push.cancelled": "送信を中止しました。何も送信していません。",
 	"push.connectionChanged": "接続先が変わったため、送信を中止しました。何も送信していません。",
 	"push.failed": "送信に失敗しました。{reason}",
+	"push.unfinished":
+		"前の同期（{time}）では、送信が終わっていません。このデバイスの変更が、保存先に届いていないことがあります。自動では送り直しません。同期を実行すると、今の内容で送信します。",
 	"push.error.workflows":
 		"GitHub が送信を拒否しました。.github/workflows/ の下のファイルを変更するには、トークンに Workflows の読み取りと書き込みの権限も必要です。",
 	"push.error.notAsListed":
