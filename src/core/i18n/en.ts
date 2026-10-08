@@ -106,18 +106,24 @@ export const en = baseCatalog({
 		"The file {path} of the remote could not be written: files that are only on this device are in its place. Move or rename them, and the next pull writes it:\n{list}",
 	"notice.archiveGivenUp":
 		"Downloading all files at once did not work on this device, so Sync Evo no longer tries it here. When there are many files to fetch, they are now fetched one by one, which takes longer.",
+	"notice.localPathCollision":
+		"Some new files were not sent. Their paths differ only in upper and lower case from another path on the remote, or from another new file. Rename them, and the next push sends them. Other files are sent as usual:\n{list}",
+	"notice.renameNotSent":
+		"Some files were renamed on this device in upper and lower case only, and the new name is not sent: a rule of .gitignore excludes it, or it differs only in case from another path. The file under the old name was therefore not deleted on the remote either:\n{list}",
 
 	// Lists inside a message.
 	"list.separator": ", ",
 	"list.more": { one: "…and {count} more", other: "…and {count} more" },
 
 	// The commands.
+	"command.sync": "Sync (pull, then push)",
 	"command.pull": "Pull",
+	"command.push": "Push",
 	"command.firstFetch": "First fetch (discard the sync state and start over)",
 	"command.stop": "Stop the sync",
 
 	// A pull: its progress, its outcome, and what the user has to know of it.
-	"pull.alreadyRunning": "A pull is already running.",
+	"sync.alreadyRunning": "A sync is already running.",
 	"pull.notRunning": "No sync is running.",
 	"pull.progress.starting": "Pull: starting…",
 	"pull.progress.listing": "Pull: checking the remote…",
@@ -167,8 +173,20 @@ export const en = baseCatalog({
 	},
 	"pull.incompleteSome": "Some files could not be pulled and are left for the next sync. {reason}",
 	"pull.reason.hashMismatch": "The content GitHub sent did not match its own listing.",
-	"pull.reason.unreadable": "A file on this device could not be read.",
 	"pull.reason.trashFailed": "A file on this device could not be moved to .trash/ in this vault.",
+	"pull.notDownloaded": {
+		one: "{count} file is not downloaded to this device (a cloud drive keeps only a placeholder). Download it, then sync again:\n{list}",
+		other:
+			"{count} files are not downloaded to this device (a cloud drive keeps only a placeholder). Download them, then sync again:\n{list}",
+	},
+	"pull.unreadable": {
+		one: "{count} file on this device could not be read and was left as it is. Check it, then sync again:\n{list}",
+		other: "{count} files on this device could not be read and were left as they are. Check them, then sync again:\n{list}",
+	},
+	"pull.waitingForUnread": {
+		one: "{count} other file was not pulled either: it waits for a file that is left for the next sync. A later sync pulls it.",
+		other: "{count} other files were not pulled either: they wait for a file that is left for the next sync. A later sync pulls them.",
+	},
 	"pull.conflicts": {
 		one: "The content of {count} file on this device was kept under another name:\n{list}",
 		other: "The content of {count} files on this device was kept under another name:\n{list}",
@@ -203,6 +221,61 @@ export const en = baseCatalog({
 		other: "The remote has {count} symbolic links. Sync Evo does not write them to this device and leaves them as they are on the remote. The settings list the links that are skipped:\n{list}",
 	},
 
+	// A push: its progress, its outcome, and what the user has to know of it.
+	"push.progress.starting": "Push: starting…",
+	"push.progress.listing": "Push: checking the remote…",
+	"push.progress.scanning": "Push: looking through the vault…",
+	"push.progress.hashing": "Push: comparing files ({done}/{total})…",
+	"push.progress.sendingStart": "Push: sending files…",
+	"push.progress.sending": "Push: sending files ({done}/{total})…",
+	"push.progress.finishing": "Push: finishing…",
+	"push.progress.stopping": "Push: stopping…",
+	"push.progress.rateLimited":
+		"GitHub's limit on creating content was reached. The push continues at {time}. Keep Obsidian in front until then: a push that stops sends nothing.",
+	"push.count.added": { one: "{count} file added", other: "{count} files added" },
+	"push.count.modified": { one: "{count} file modified", other: "{count} files modified" },
+	"push.count.deleted": { one: "{count} file deleted", other: "{count} files deleted" },
+	"push.summary": "Push finished: {details}.",
+	"push.nothing": "Nothing to push. The remote is up to date.",
+	"push.nothingSent": "Nothing was sent.",
+	"push.recovered": "The previous push had reached the remote: {details}. It is recorded on this device now.",
+	"push.pullFirst.noBase":
+		"Nothing was sent. This device has not finished its first pull from the remote yet. Pull first, then push.",
+	"push.pullFirst.remoteEmpty":
+		"Nothing was sent. The remote is empty: it has no commits yet. This version of Sync Evo cannot send to an empty repository.",
+	"push.pullFirst.remoteMoved":
+		"Nothing was sent. The remote was changed from another device after this push began. Pull first, then push again.",
+	"push.pullFirst.gitignore":
+		"Nothing was sent. The .gitignore of this vault decides what is sent, and it could not be relied on: an editor could not save it, or an earlier pull stopped while writing it. If .gitignore is open in an editor, save or close it, then push again. Otherwise pull first, then push.",
+	"push.declined": "The push was cancelled. Nothing was sent.",
+	"push.cancelled": "The push was stopped. Nothing was sent.",
+	"push.connectionChanged": "The push was stopped because the connection was changed. Nothing was sent.",
+	"push.failed": "The push failed. {reason}",
+	"push.error.workflows":
+		"GitHub refused the push because it changes files under .github/workflows/. For that, the token also needs the Workflows read and write permission.",
+	"push.error.notAsListed":
+		"Nothing was sent. The remote does not hold what this device had listed for it. The next sync lists the remote again. Sync again.",
+	"push.storedOtherwise": {
+		one: "GitHub stored {count} file with other content than this device sent. The next pull replaces the file on this device with GitHub's version:\n{list}",
+		other: "GitHub stored {count} files with other content than this device sent. The next pull replaces the files on this device with GitHub's versions:\n{list}",
+	},
+	"push.held": {
+		one: "{count} file was not sent: a pull has not finished with it, or an editor could not save it. Sync again:\n{list}",
+		other: "{count} files were not sent: a pull has not finished with them, or an editor could not save them. Sync again:\n{list}",
+	},
+	"push.remoteInTheWay": {
+		one: "{count} file was not sent: the remote has a file or a folder in its place that this device has not pulled yet. Pull first, then push again:\n{list}",
+		other: "{count} files were not sent: the remote has files or folders in their place that this device has not pulled yet. Pull first, then push again:\n{list}",
+	},
+	"push.notDownloaded": {
+		one: "{count} new file was not sent: it is not downloaded to this device (a cloud drive keeps only a placeholder). Download it, then sync again:\n{list}",
+		other: "{count} new files were not sent: they are not downloaded to this device (a cloud drive keeps only a placeholder). Download them, then sync again:\n{list}",
+	},
+	"push.leftOut": {
+		one: "{count} file was left out: it changed or could not be read while the push ran, or an editor could not save it. The next push looks at it again:\n{list}",
+		other: "{count} files were left out: they changed or could not be read while the push ran, or an editor could not save them. The next push looks at them again:\n{list}",
+	},
+
 	// Why there is no sync state to work with.
 	"state.waiting": "Waiting for the sync state of the previous connection to be removed…",
 	"state.newerVersion":
@@ -216,7 +289,7 @@ export const en = baseCatalog({
 	"state.discardFailed":
 		"The sync state of the previous connection could not be removed, so nothing was synced. Restart Obsidian and try again.",
 
-	// The questions a pull stops to ask.
+	// The questions a pull or a push stops to ask.
 	"confirm.proceed": "Proceed",
 	"confirm.keepLocal": "Keep my files",
 	"confirm.cancel": "Cancel",
@@ -238,13 +311,34 @@ export const en = baseCatalog({
 		other: "{count} files in the configuration folder have other content than the remote. They get the content of the remote, and the content on this device is moved to .trash/ in this vault:",
 	},
 	"confirm.firstFetch.localOnly": {
-		one: "{count} file is only on this device. It stays on this device as it is:",
-		other: "{count} files are only on this device. They stay on this device as they are:",
+		one: "{count} file is only on this device. It stays on this device as it is, and the next push sends it to the remote, unless it is excluded:",
+		other: "{count} files are only on this device. They stay on this device as they are, and the next push sends them to the remote, except files that are excluded:",
 	},
 	"confirm.firstFetch.atSymlinks": {
 		one: "{count} file is at a path that is a symbolic link on the remote. It is not compared and stays as it is:",
 		other: "{count} files are at paths that are symbolic links on the remote. They are not compared and stay as they are:",
 	},
+	"confirm.firstPush.title": "Confirm the first push",
+	"confirm.firstPush.body":
+		"This is the first push from this device to {repository}, branch {branch}. It changes the remote as listed below. Once a push has gone through, later pushes do not show this list.",
+	"confirm.firstPush.added": { one: "{count} file to add:", other: "{count} files to add:" },
+	"confirm.firstPush.modified": { one: "{count} file to modify:", other: "{count} files to modify:" },
+	"confirm.firstPush.deleted": { one: "{count} file to delete:", other: "{count} files to delete:" },
+	"confirm.pushDelete.body": {
+		one: "{count} file was deleted on this device. The push deletes it on the remote, and a pull then deletes it on your other devices.",
+		other: "{count} files were deleted on this device. The push deletes them on the remote, and a pull then deletes them on your other devices.",
+	},
+	"confirm.push.note": "If you cancel, nothing is sent and nothing is changed.",
+	"confirm.largeFiles.title": "Confirm large files",
+	"confirm.largeFiles.body": {
+		one: "{count} file to send is larger than {limit} MB. A file that was sent stays in the history of the repository, also after it is deleted:",
+		other: "{count} files to send are larger than {limit} MB. A file that was sent stays in the history of the repository, also after it is deleted:",
+	},
+	"confirm.largeFiles.item": "{path} ({size} MB)",
+	"confirm.largeFiles.conflictCopy":
+		"A copy kept from a conflict is among them. A rule in .gitignore does not keep such a copy from being sent. To keep it from being sent, cancel the push, then delete the copy or move it out of the vault.",
+	"confirm.largeFiles.send": "Send",
+	"confirm.largeFiles.cancel": "Cancel the push",
 	"confirm.startOver.title": "Discard the sync state and start over",
 	"confirm.startOver.body":
 		"This discards the sync state of this device and builds it again by pulling from {repository}, branch {branch}. The sync state is only Sync Evo's own record of what has been synced: no file is deleted, on this device or on the remote.",

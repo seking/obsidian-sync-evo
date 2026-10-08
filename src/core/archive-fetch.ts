@@ -459,6 +459,7 @@ function saysDeviceCannot(error: unknown): boolean {
 		case "branch-not-found":
 		case "workflows-permission":
 		case "incomplete-listing":
+		case "not-as-listed":
 		case "cancelled":
 			return false;
 	}

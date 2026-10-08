@@ -99,14 +99,21 @@ export const ja = completeTranslation(en, {
 	"notice.archiveGivenUp":
 		"このデバイスでは、全ファイルをまとめて取得できませんでした。今後このデバイスでは、まとめて取得しません。ファイルが多いときも1件ずつ取得するため、時間が長くかかります。",
 
+	"notice.localPathCollision":
+		"一部の新しいファイルを、送信していません。保存先のほかのパス、またはほかの新しいファイルと、大文字と小文字だけが違います。名前を変えると、次の送信で送ります。ほかのファイルは、通常どおり送信します：\n{list}",
+	"notice.renameNotSent":
+		"このデバイスで、大文字と小文字だけを変えて名前を変えたファイルがあります。新しい名前は、.gitignore の規則で除外されるか、ほかのパスと大文字と小文字だけが違うため、送信していません。そのため、保存先にある古い名前のファイルも削除していません：\n{list}",
+
 	"list.separator": "、",
 	"list.more": "…ほか {count} 件",
 
+	"command.sync": "同期する（取り込んでから送信）",
 	"command.pull": "保存先から取り込む（pull）",
+	"command.push": "保存先へ送信する（push）",
 	"command.firstFetch": "初回取得（同期の状態を捨ててやり直す）",
 	"command.stop": "同期を中止する",
 
-	"pull.alreadyRunning": "取り込みは、すでに実行中です。",
+	"sync.alreadyRunning": "同期は、すでに実行中です。",
 	"pull.notRunning": "同期は実行していません。",
 	"pull.progress.starting": "取り込み：始めています…",
 	"pull.progress.listing": "取り込み：保存先を確認中…",
@@ -149,8 +156,13 @@ export const ja = completeTranslation(en, {
 	"pull.incomplete": "{count} 件のファイルを取り込めませんでした。次の同期で、もう一度試します。{reason}",
 	"pull.incompleteSome": "一部のファイルを取り込めませんでした。次の同期で、もう一度試します。{reason}",
 	"pull.reason.hashMismatch": "GitHub から受け取った内容が、GitHub の一覧と合いませんでした。",
-	"pull.reason.unreadable": "このデバイスのファイルを読めませんでした。",
 	"pull.reason.trashFailed": "このデバイスのファイルを、この保管庫の .trash/ へ移せませんでした。",
+	"pull.notDownloaded":
+		"{count} 件のファイルが、このデバイスにダウンロードされていません（クラウドドライブが仮のファイルだけを置いています）。ダウンロードしてから、もう一度同期してください：\n{list}",
+	"pull.unreadable":
+		"このデバイスのファイル {count} 件を読めませんでした。そのままにしてあります。ファイルを確かめてから、もう一度同期してください：\n{list}",
+	"pull.waitingForUnread":
+		"ほかに {count} 件のファイルも、取り込んでいません。次の同期に残したファイルを待っています。後の同期で、取り込みます。",
 	"pull.conflicts": "このデバイスのファイル {count} 件の内容を、別名で残しました：\n{list}",
 	"pull.conflict.conflict": "{copy}（競合。{path} は保存先の内容になりました）",
 	"pull.conflict.becameSymlink":
@@ -169,6 +181,50 @@ export const ja = completeTranslation(en, {
 		"選んだとおり、このデバイスのファイル {count} 件をそのまま残しました。保存先の内容とは異なります：\n{list}",
 	"pull.symlinks":
 		"保存先にシンボリックリンクが {count} 件あります。Sync Evo は、このデバイスに書き込まず、保存先でもそのままにします。飛ばしているリンクは、設定画面で確認できます：\n{list}",
+
+	"push.progress.starting": "送信：始めています…",
+	"push.progress.listing": "送信：保存先を確認中…",
+	"push.progress.scanning": "送信：保管庫を確認中…",
+	"push.progress.hashing": "送信：ファイルを比較中（{done}/{total}）…",
+	"push.progress.sendingStart": "送信：ファイルを送信中…",
+	"push.progress.sending": "送信：ファイルを送信中（{done}/{total}）…",
+	"push.progress.finishing": "送信：仕上げています…",
+	"push.progress.stopping": "送信：中止しています…",
+	"push.progress.rateLimited":
+		"GitHub の、ファイル作成の上限に達しました。{time} に続きを送信します。それまで、Obsidian を前に出したままにしてください。送信は、途中で止まると何も送られません。",
+	"push.count.added": "追加 {count} 件",
+	"push.count.modified": "変更 {count} 件",
+	"push.count.deleted": "削除 {count} 件",
+	"push.summary": "送信が終わりました：{details}",
+	"push.nothing": "送信するものはありません。保存先は最新です。",
+	"push.nothingSent": "何も送信していません。",
+	"push.recovered": "前回の送信は、保存先に届いていました：{details}。このデバイスに記録しました。",
+	"push.pullFirst.noBase":
+		"何も送信していません。このデバイスは、保存先からの最初の取り込みをまだ終えていません。先に取り込み（pull）を行ってから、送信してください。",
+	"push.pullFirst.remoteEmpty":
+		"何も送信していません。保存先は空で、コミットがまだありません。このバージョンの Sync Evo は、空のリポジトリには送信できません。",
+	"push.pullFirst.remoteMoved":
+		"何も送信していません。この送信を始めた後に、保存先がほかのデバイスから変更されました。先に取り込み（pull）を行ってから、もう一度送信してください。",
+	"push.pullFirst.gitignore":
+		"何も送信していません。何を送信するかは、この保管庫の .gitignore で決まりますが、その内容を確かめられませんでした。エディタが .gitignore を保存できなかったか、前の取り込みが書いている途中で止まりました。.gitignore をエディタで開いている時は、保存するか閉じてから、もう一度送信してください。開いていない時は、先に取り込み（pull）を行ってから、送信してください。",
+	"push.declined": "送信をやめました。何も送信していません。",
+	"push.cancelled": "送信を中止しました。何も送信していません。",
+	"push.connectionChanged": "接続先が変わったため、送信を中止しました。何も送信していません。",
+	"push.failed": "送信に失敗しました。{reason}",
+	"push.error.workflows":
+		"GitHub が送信を拒否しました。.github/workflows/ の下のファイルを変更するには、トークンに Workflows の読み取りと書き込みの権限も必要です。",
+	"push.error.notAsListed":
+		"何も送信していません。保存先の中身が、このデバイスが持っている保存先の一覧と違っていました。次の同期で、一覧を取り直します。もう一度同期してください。",
+	"push.storedOtherwise":
+		"GitHub が、このデバイスが送信した内容と違う内容で保存したファイル：{count} 件。次の取り込み（pull）で、このデバイスのファイルを GitHub の内容に置き換えます：\n{list}",
+	"push.held":
+		"{count} 件のファイルを、送信していません。取り込みが済んでいないか、エディタが保存できませんでした。もう一度同期してください：\n{list}",
+	"push.remoteInTheWay":
+		"{count} 件のファイルを、送信していません。その場所に、このデバイスがまだ取り込んでいないファイルかフォルダが、保存先にあります。先に取り込み（pull）を行ってから、もう一度送信してください：\n{list}",
+	"push.notDownloaded":
+		"{count} 件の新しいファイルを、送信していません。このデバイスにダウンロードされていないためです（クラウドドライブが仮のファイルだけを置いています）。ダウンロードしてから、もう一度同期してください：\n{list}",
+	"push.leftOut":
+		"{count} 件のファイルを、送信していません。送信の途中で変わったか、読めなかったか、エディタが保存できませんでした。次の送信で、もう一度確かめます：\n{list}",
 
 	"state.waiting": "前の接続先の同期の状態を削除し終えるまで待っています…",
 	"state.newerVersion":
@@ -196,9 +252,27 @@ export const ja = completeTranslation(en, {
 		"保存先と中身が違うファイル：{count} 件。保存先の内容に書き換えます。このデバイスの内容は、同じ場所に別名で残します。",
 	"confirm.firstFetch.differentSettings":
 		"保存先と中身が違う設定フォルダのファイル：{count} 件。保存先の内容に書き換えます。このデバイスの内容は、この保管庫の .trash/ へ移します。",
-	"confirm.firstFetch.localOnly": "このデバイスにだけあるファイル：{count} 件。このデバイスに、そのまま残します。",
+	"confirm.firstFetch.localOnly":
+		"このデバイスにだけあるファイル：{count} 件。このデバイスに、そのまま残します。次の送信（push）で、保存先に送ります。除外するファイルは、送りません。",
 	"confirm.firstFetch.atSymlinks":
 		"保存先でシンボリックリンクになっているパスにあるファイル：{count} 件。比べずに、そのまま残します。",
+	"confirm.firstPush.title": "最初の送信の確認",
+	"confirm.firstPush.body":
+		"このデバイスから {repository} のブランチ {branch} へ、初めて送信します。保存先を、下のとおりに変更します。送信が1回済むと、次からの送信では、この一覧を出しません。",
+	"confirm.firstPush.added": "追加するファイル：{count} 件",
+	"confirm.firstPush.modified": "変更するファイル：{count} 件",
+	"confirm.firstPush.deleted": "削除するファイル：{count} 件",
+	"confirm.pushDelete.body":
+		"このデバイスで削除したファイル {count} 件を、保存先からも削除します。ほかのデバイスでも、取り込むと削除されます。",
+	"confirm.push.note": "やめた場合は、何も送信せず、何も変更しません。",
+	"confirm.largeFiles.title": "大きなファイルの確認",
+	"confirm.largeFiles.body":
+		"{limit}MB を超えるファイルを送信します：{count} 件。送信したファイルは、後で削除しても、リポジトリの履歴に残ります。",
+	"confirm.largeFiles.item": "{path}（{size}MB）",
+	"confirm.largeFiles.conflictCopy":
+		"この中に、競合で残した別名のファイルがあります。別名のファイルは、.gitignore に書いても送信されます。送信しない時は、送信をやめてから、そのファイルを削除するか、保管庫の外へ移してください。",
+	"confirm.largeFiles.send": "送る",
+	"confirm.largeFiles.cancel": "送信をやめる",
 	"confirm.startOver.title": "同期の状態を捨ててやり直す",
 	"confirm.startOver.body":
 		"このデバイスの同期の状態を捨てて、{repository} のブランチ {branch} から取り込み直して作り直します。同期の状態は、何を同期したかを Sync Evo が覚えておくための記録です。ファイルは、このデバイスでも保存先でも削除しません。",

@@ -30,17 +30,23 @@ export interface FolderLister {
 }
 
 /**
- * One file the scan found. `state` has a single value so far; it is there so
- * that a file that exists but cannot be read (one a cloud drive has taken
- * off the device) can be told from a deleted one later, without changing
- * what a scan returns.
+ * One file the scan found.
+ *
+ * - "present": the folder lists it.
+ * - "placeholder": the folder lists `.<name>.icloud` in its place. A cloud
+ *   drive has taken the content off the device and left that behind. The
+ *   file exists, and cannot be read here: it is neither deleted nor
+ *   changed, and nothing may be written over it. Whoever makes the local
+ *   side of the sync decision lists it without a hash and keeps it out of
+ *   the plan (`PlanInput.held`); left out, it would read as deleted, and a
+ *   push would delete it on the remote.
  */
 export interface ScannedPath {
 	/** Path from the vault root, spelled as the lister returned it. */
 	readonly path: string;
 	/** `pathKey(path)`. */
 	readonly key: string;
-	readonly state: "present";
+	readonly state: "present" | "placeholder";
 }
 
 export interface ScanInput {
@@ -66,6 +72,22 @@ export interface ScanResult {
 
 const ROOT = "/";
 
+// What iCloud Drive leaves in the place of `name` when it takes the content
+// off the device.
+const PLACEHOLDER_NAME = /^\.(.+)\.icloud$/;
+
+/**
+ * The path of the file a placeholder stands for, or `null` for any other
+ * name: one that only ends in `.icloud`, or only starts with a dot, is a
+ * file like any other.
+ */
+export function placeholderTarget(path: string): string | null {
+	const slash = path.lastIndexOf("/");
+	const name = PLACEHOLDER_NAME.exec(path.slice(slash + 1))?.[1];
+	if (name === undefined || name === "." || name === "..") return null;
+	return path.slice(0, slash + 1) + name;
+}
+
 /**
  * Lists the vault. Left out, without being entered or listed:
  *
@@ -78,6 +100,10 @@ const ROOT = "/";
  *   from a conflict is the exclusion's to say.) The sync decision would turn each of
  *   them away as excluded; this only saves listing them, and a
  *   `.obsidian/plugins/` with thousands of files is the usual case.
+ *
+ * A placeholder of a cloud drive (`.<name>.icloud`) is listed as the file
+ * it stands for, in the state "placeholder", unless the folder lists that
+ * file too. The placeholder's own name is excluded by a rule as before.
  *
  * Whether a path is known is asked without regard to case (`knownPaths`).
  * Returning one file too many costs nothing, since the decision is taken
@@ -103,10 +129,15 @@ export async function scanVault(input: ScanInput): Promise<ScanResult> {
 	const pending: string[] = [ROOT];
 	for (let folder = pending.pop(); folder !== undefined; folder = pending.pop()) {
 		const listed = await lister.list(folder);
+		const files = listed.files.map(fromRoot);
+		const there = new Set(files.map(foldedKey));
 
-		for (const returned of listed.files) {
-			const path = fromRoot(returned);
+		for (const path of files) {
 			if (folder === ROOT && foldedKey(path) === ".git") rootHasGit = true;
+			const evicted = placeholderTarget(path);
+			if (evicted !== null && !there.has(foldedKey(evicted)) && !exclusion.excludes(evicted, "file", known)) {
+				paths.push({ path: evicted, key: pathKey(evicted), state: "placeholder" });
+			}
 			if (exclusion.excludes(path, "file", known)) continue;
 			paths.push({ path, key: pathKey(path), state: "present" });
 		}

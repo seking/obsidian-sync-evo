@@ -46,6 +46,14 @@ import type { StateStore } from "./state";
  *   once (`archive-fetch.ts`), and fetches them one at a time from now on.
  *   About the device and no path: its path is empty. Told once, by the pull
  *   that finds it so, and not again for as long as the sync state lasts.
+ * - "local-path-collision": a file that is new on this device was not sent,
+ *   because its path differs only in upper and lower case from another
+ *   path the remote holds or the same push sends. Told once for as long as
+ *   that is so. Found by a push alone (`PUSH_NOTICE_KINDS`).
+ * - "rename-not-sent": a file was renamed on this device in upper and lower
+ *   case alone, and the new spelling is not sent, so the old one was not
+ *   deleted on the remote either. The path is the new one. Found by a push
+ *   alone.
  *
  * A new kind is a new name here and a text in the catalog.
  */
@@ -60,9 +68,18 @@ export const NOTICE_KINDS = [
 	"unwritable-path",
 	"blocked-path",
 	"archive-given-up",
+	"local-path-collision",
+	"rename-not-sent",
 ] as const;
 
 export type NoticeKind = (typeof NOTICE_KINDS)[number];
+
+/**
+ * The kinds only a push finds out about. A push works out which of them
+ * apply and leaves the others as they are remembered; a pull does the
+ * reverse. "too-large" is found by both, from the same plan.
+ */
+export const PUSH_NOTICE_KINDS: readonly NoticeKind[] = ["local-path-collision", "rename-not-sent"];
 
 export interface NoticeRef {
 	readonly kind: NoticeKind;

@@ -47,6 +47,26 @@ export class MemoryBackend implements Backend {
 	// The files of every revision, for an archive of one that is no longer the head.
 	private readonly snapshots = new Map<string, ReadonlyMap<string, string>>();
 	private counter = 0;
+	/**
+	 * Fails the last step of a push, as a connection that drops does:
+	 * "lost-request" before the revision is made the head, "lost-answer"
+	 * after. Either way the push rejects with "unreachable".
+	 */
+	publishFault: "lost-request" | "lost-answer" | null = null;
+	/**
+	 * Called once the revision of a push is made, and before it is made the
+	 * head. A test throws from it for a push that is stopped right there.
+	 */
+	beforeMove: (() => void) | undefined;
+	/** Whether a push that went through answers without the listing of its revision. */
+	listingFault = false;
+	/** The device name the last push that went through was given. */
+	lastDeviceName: string | undefined;
+
+	/** How many revisions the history holds. */
+	get revisionCount(): number {
+		return this.history.length;
+	}
 
 	get revision(): string | null {
 		return this.history[this.history.length - 1] ?? null;
@@ -76,26 +96,45 @@ export class MemoryBackend implements Backend {
 
 	async push(request: PushRequest): Promise<PushResult> {
 		if (request.baseRevision !== this.revision) return { status: "stale" };
-		if (request.writes.length === 0 && request.deletes.length === 0) {
-			return { status: "pushed", revision: this.revision, written: [] };
-		}
+		if (request.writes.length === 0 && request.deletes.length === 0) return { status: "unchanged" };
 
 		// Everything is checked before anything is changed.
 		for (const entry of request.deletes) this.expectListed(entry);
-		const contents: Uint8Array[] = [];
 		for (const file of request.writes) {
 			if (file.replaces !== undefined) this.expectListed(file.replaces);
-			const content = await file.read();
-			if (blobHash(content) !== file.hash) {
-				throw new BackendError("other", `content does not match its hash: ${file.path}`);
-			}
-			contents.push(content);
+			else if (this.files.has(file.path)) throw new BackendError("other", `not a new path: ${file.path}`);
 		}
+		// What is read is what is sent, under the hash it has.
+		const sent: { path: string; content: Uint8Array }[] = [];
+		for (const file of request.writes) {
+			const content = await file.read();
+			if (content !== null) sent.push({ path: file.path, content });
+		}
+		const same = sent.every(({ path, content }) => this.files.get(path) === blobHash(content));
+		if (request.deletes.length === 0 && same) return { status: "unchanged" };
+
+		// The revision is made, and then made the head: two steps, like a
+		// commit and the move of a branch.
+		// A name of its own, also when it never becomes the head: another
+		// device's revision must not be taken for this one.
+		const revision = this.nextRevision();
+		const written = sent.map(({ path, content }): RemoteEntry => {
+			return { path, kind: "file", hash: blobHash(content), size: content.length };
+		});
+		await request.beforePublish?.({ revision, written });
+		this.beforeMove?.();
+		request.onPublish?.();
+		if (this.publishFault === "lost-request") throw new BackendError("unreachable", "timed out");
+		// Another device may have pushed while the files were read.
+		if (request.baseRevision !== this.revision) return { status: "stale" };
 
 		for (const entry of request.deletes) this.files.delete(entry.path);
-		const written = request.writes.map((file, i) => this.store(file.path, contents[i] ?? new Uint8Array()));
-		this.advance();
-		return { status: "pushed", revision: this.revision, written };
+		for (const { path, content } of sent) this.store(path, content);
+		this.lastDeviceName = request.deviceName;
+		this.advance(revision);
+		if (this.publishFault === "lost-answer") throw new BackendError("unreachable", "timed out");
+		if (this.listingFault) return { status: "pushed", revision, written };
+		return { status: "pushed", revision, written, listing: { revision, entries: this.entries() } };
 	}
 
 	/** Another device pushes: sets the given paths, or removes them with `null`. */
@@ -105,6 +144,16 @@ export class MemoryBackend implements Backend {
 			else this.store(path, bytes(content));
 		}
 		return this.advance();
+	}
+
+	/**
+	 * Changes what the head holds without making a revision. Nothing a real
+	 * remote does; it stands in for a remote that holds other content than
+	 * the listing of its head said (a listing that was worked out, and not
+	 * asked for).
+	 */
+	amend(changes: Record<string, FileContent>): void {
+		for (const [path, content] of Object.entries(changes)) this.store(path, bytes(content));
 	}
 
 	/** Another device force-pushes: the remote holds exactly `files`, on a new history. */
@@ -128,7 +177,7 @@ export class MemoryBackend implements Backend {
 
 	private expectListed(entry: RemoteEntry): void {
 		if (this.files.get(entry.path) !== entry.hash) {
-			throw new BackendError("other", `not the listed entry: ${entry.path}`);
+			throw new BackendError("not-as-listed", `not the listed entry: ${entry.path}`);
 		}
 	}
 
@@ -148,9 +197,12 @@ export class MemoryBackend implements Backend {
 		return { path, kind: "file", hash, size: content.length };
 	}
 
-	private advance(): string {
+	private nextRevision(): string {
 		this.counter += 1;
-		const revision = `rev-${this.counter}`;
+		return `rev-${this.counter}`;
+	}
+
+	private advance(revision = this.nextRevision()): string {
 		this.history.push(revision);
 		this.snapshots.set(revision, new Map(this.files));
 		return revision;

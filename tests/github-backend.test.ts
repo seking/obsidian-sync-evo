@@ -68,6 +68,24 @@ class FakeClient implements GitHubBackendClient {
 		if (this.ancestor instanceof BackendError) throw this.ancestor;
 		return this.ancestor;
 	}
+
+	// Sending is tested against a fake of GitHub itself (`github-push.test.ts`).
+	// Reading must never get here.
+	async createBlob(): Promise<string> {
+		throw new Error("createBlob: nothing is sent while reading");
+	}
+
+	async createTree(): Promise<string> {
+		throw new Error("createTree: nothing is sent while reading");
+	}
+
+	async createCommit(): Promise<string> {
+		throw new Error("createCommit: nothing is sent while reading");
+	}
+
+	async updateRef(): Promise<{ status: "updated" }> {
+		throw new Error("updateRef: nothing is sent while reading");
+	}
 }
 
 async function kindOf(promise: Promise<unknown>): Promise<BackendErrorKind | "resolved" | "not a BackendError"> {
@@ -389,8 +407,4 @@ describe("fetchArchive", () => {
 		client.zip = strToU8("<html>Sign in</html>".repeat(5));
 		await expect(new GitHubBackend(client).fetchArchive(A)).rejects.not.toBeInstanceOf(BackendError);
 	});
-});
-
-test("push is not there yet, and says so", async () => {
-	expect(await kindOf(new GitHubBackend(new FakeClient()).push())).toBe("other");
 });

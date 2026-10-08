@@ -14,7 +14,7 @@
 // Where that place is (IndexedDB on a device, memory in tests) is decided
 // outside the core.
 
-import type { EntryKind, RemoteEntry, RemoteListing } from "./backend";
+import type { EntryKind, ListResult, RemoteEntry, RemoteListing } from "./backend";
 import { pathKey } from "./paths";
 import type { SyncRecord } from "./plan";
 
@@ -274,6 +274,26 @@ export async function readBaseRevision(store: StateStore): Promise<string | null
 
 export function writeBaseRevision(store: StateStore, revision: string): Promise<void> {
 	return store.setMeta(BASE_REVISION_KEY, revision);
+}
+
+/**
+ * The listing of the head of the remote: the stored one while the remote
+ * has not moved past it, and otherwise the one the remote gives now, which
+ * is stored. `list` is `Backend.list`.
+ */
+export async function currentListing(
+	store: Pick<StateStore, "getListing" | "putListing">,
+	list: (known: string | null) => Promise<ListResult>,
+): Promise<RemoteListing> {
+	const stored = await store.getListing();
+	// Without a listing to fall back on, "unchanged" would be of no use.
+	const listed = await list(stored === null ? null : stored.revision);
+	if (!listed.changed) {
+		if (stored !== null) return stored;
+		throw new Error("The remote answered that nothing changed since a listing that was never taken.");
+	}
+	await store.putListing(listed.listing);
+	return listed.listing;
 }
 
 const ENTRY_KINDS: readonly EntryKind[] = ["file", "symlink", "submodule"];

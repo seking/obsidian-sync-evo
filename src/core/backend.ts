@@ -77,6 +77,11 @@ export interface ArchiveContents {
 export interface PushFile {
 	/** Path as it should appear on the remote. */
 	readonly path: string;
+	/**
+	 * The hash and the size the file had when the push was planned. Not what
+	 * is recorded: the content is read when it is sent, and may be newer by
+	 * then (`read`).
+	 */
 	readonly hash: string;
 	readonly size: number;
 	/**
@@ -86,8 +91,21 @@ export interface PushFile {
 	 * the path alone which file to replace.
 	 */
 	readonly replaces?: RemoteEntry;
-	/** Read lazily, so that a large push does not hold every file in memory. */
-	read(): Promise<Uint8Array>;
+	/**
+	 * Read lazily, so that a large push does not hold every file in memory,
+	 * and once. What it answers is what is sent, also when it is no longer
+	 * the content of `hash`: a note that is typed in while the push runs is
+	 * sent as it is by then, under the hash it has by then (`PushResult`).
+	 * `null` leaves the file out of this push, and everything else is sent.
+	 */
+	read(): Promise<Uint8Array | null>;
+}
+
+/** A revision that was made and is not the head of the remote yet. */
+export interface PendingPush {
+	readonly revision: string;
+	/** The written files as that revision holds them, like `PushResult.written`. */
+	readonly written: readonly RemoteEntry[];
 }
 
 export interface PushRequest {
@@ -101,6 +119,25 @@ export interface PushRequest {
 	 * that was listed.
 	 */
 	readonly deletes: readonly RemoteEntry[];
+	/** The name of this device, for a remote that keeps a description of each change. */
+	readonly deviceName?: string;
+	/**
+	 * Awaited once, after everything was sent and right before the new
+	 * revision is made the head of the remote: the last moment at which
+	 * nothing of the push shows. Whether that last step took effect is not
+	 * always known (an answer that never arrives), so the caller stores the
+	 * revision here, and can tell later by looking at the head. A rejection
+	 * ends the push with nothing changed. Not called when there is nothing
+	 * to make a revision of.
+	 */
+	readonly beforePublish?: (pending: PendingPush) => Promise<void>;
+	/**
+	 * Called, and not awaited, right before the request that makes the new
+	 * revision the head is sent. A push that ends without this having been
+	 * called has changed nothing, whatever `beforePublish` was handed; one
+	 * that fails after it may have gone through.
+	 */
+	readonly onPublish?: () => void;
 }
 
 export type PushResult =
@@ -108,9 +145,27 @@ export type PushResult =
 			readonly status: "pushed";
 			/** The revision to use as the base from now on. */
 			readonly revision: string | null;
-			/** The written files as the remote now holds them. */
+			/**
+			 * The written files as the remote now holds them: each with the
+			 * hash of the content that was sent. Without the files whose
+			 * `read` answered `null`.
+			 */
 			readonly written: readonly RemoteEntry[];
+			/**
+			 * Everything the new revision holds, as the remote lists it:
+			 * asked of the remote after the push, never worked out from what
+			 * was sent. A remote may store a file as other bytes than it was
+			 * sent, and a listing that says otherwise would have every later
+			 * push of that file refused. Absent when the remote could not be
+			 * asked; the caller then keeps no listing, and lists again.
+			 */
+			readonly listing?: RemoteListing;
 	  }
+	/**
+	 * There was nothing to send, or what was read is what the remote already
+	 * holds. No revision was made.
+	 */
+	| { readonly status: "unchanged" }
 	/** The remote moved past `baseRevision`. Nothing was changed. */
 	| { readonly status: "stale" };
 
@@ -163,10 +218,15 @@ export interface Backend {
 	fetchArchive?(revision: string): Promise<ArchiveContents>;
 
 	/**
-	 * Applies writes and deletes on top of `baseRevision`. Paths not named are
-	 * left as they are. Answers "stale" instead of overwriting when the remote
-	 * has moved. Fails, changing nothing, when a file's content does not match
-	 * its `hash`.
+	 * Applies writes and deletes on top of `baseRevision`, as one revision.
+	 * Paths not named are left as they are. Answers "stale" instead of
+	 * overwriting when the remote has moved, and looks for that before any
+	 * content is sent. Fails with "not-as-listed", changing nothing, when an
+	 * entry to replace or to delete is not what the remote holds at
+	 * `baseRevision`.
+	 *
+	 * A failure does not always mean that nothing changed: see
+	 * `PushRequest.beforePublish`.
 	 */
 	push(request: PushRequest): Promise<PushResult>;
 }
@@ -199,6 +259,12 @@ export type BackendErrorKind =
 	| "workflows-permission"
 	/** The remote could not return the whole listing. */
 	| "incomplete-listing"
+	/**
+	 * A push was refused before anything was sent: what the remote holds at
+	 * the revision is not what the listing the push was planned from says.
+	 * The listing is of no use then, and the remote is listed again.
+	 */
+	| "not-as-listed"
 	/** The caller asked for the work to stop. Nothing is wrong with the remote. */
 	| "cancelled"
 	| "other";

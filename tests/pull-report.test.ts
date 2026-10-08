@@ -400,13 +400,126 @@ describe("files left for the next sync", () => {
 		]);
 	});
 
-	test("a file that could not be read", () => {
+	test("a file that could not be read is told with its path", () => {
+		const one = result({ outcome: "incomplete", deferred: [{ path: "notes/a.md", reason: "unreadable" }] });
+		expect(pullReport(t, one, options).details).toEqual([
+			"1 file on this device could not be read and was left as it is. Check it, then sync again:\nnotes/a.md",
+		]);
+		const two = result({
+			outcome: "incomplete",
+			deferred: [
+				{ path: "a.md", reason: "unreadable" },
+				{ path: "b.md", reason: "unreadable" },
+			],
+		});
+		expect(pullReport(t, two, options).details).toEqual([
+			"2 files on this device could not be read and were left as they are. Check them, then sync again:\na.md\nb.md",
+		]);
+		expect(pullReport(ja, two, options).details).toEqual([
+			"このデバイスのファイル 2 件を読めませんでした。そのままにしてあります。ファイルを確かめてから、もう一度同期してください：\na.md\nb.md",
+		]);
+	});
+
+	test("a file a cloud drive has not downloaded is told as that, with its path", () => {
+		const one = result({ outcome: "incomplete", deferred: [{ path: "notes/big.md", reason: "not-downloaded" }] });
+		expect(pullReport(t, one, options).details).toEqual([
+			"1 file is not downloaded to this device (a cloud drive keeps only a placeholder). Download it, then sync again:\nnotes/big.md",
+		]);
+		const two = result({
+			outcome: "incomplete",
+			deferred: [
+				{ path: "a.md", reason: "not-downloaded" },
+				{ path: "b.md", reason: "not-downloaded" },
+			],
+		});
+		expect(pullReport(t, two, options).details).toEqual([
+			"2 files are not downloaded to this device (a cloud drive keeps only a placeholder). Download them, then sync again:\na.md\nb.md",
+		]);
+		expect(pullReport(ja, two, options).details).toEqual([
+			"2 件のファイルが、このデバイスにダウンロードされていません（クラウドドライブが仮のファイルだけを置いています）。ダウンロードしてから、もう一度同期してください：\na.md\nb.md",
+		]);
+	});
+
+	test("the paths of such files are listed up to a limit, and then counted", () => {
+		for (const reason of ["not-downloaded", "unreadable"] as const) {
+			const deferred = Array.from({ length: 8 }, (_, index) => ({ path: `f${index}.md`, reason }));
+			const [text] = pullReport(t, result({ outcome: "incomplete", deferred }), options).details;
+			expect(text?.startsWith("8 files ")).toBe(true);
+			expect(text?.split("\n").slice(1)).toEqual(["f0.md", "f1.md", "f2.md", "f3.md", "f4.md", "…and 3 more"]);
+		}
+	});
+
+	test("each kind has a text of its own, beside the one for what failed otherwise", () => {
 		const report = pullReport(
 			t,
-			result({ outcome: "incomplete", deferred: [{ path: "a.md", reason: "unreadable" }] }),
+			result({
+				outcome: "incomplete",
+				deferred: [
+					{ path: "bad.md", reason: "unreadable" },
+					{ path: "big.md", reason: "not-downloaded" },
+					{ path: "odd.md", reason: "hash-mismatch" },
+				],
+			}),
 			options,
 		);
-		expect(report.details[0]).toContain("A file on this device could not be read.");
+		expect(report.details).toHaveLength(3);
+		expect(report.details[0]).toBe(
+			"1 file could not be pulled and is left for the next sync. The content GitHub sent did not match its own listing.",
+		);
+		expect(report.details[1]).toContain("not downloaded to this device");
+		expect(report.details[1]).toContain("big.md");
+		expect(report.details[2]).toContain("could not be read");
+		expect(report.details[2]).toContain("bad.md");
+	});
+
+	test("the files that only wait for such a file are counted after it, when nothing else counts them", () => {
+		const waiting = result({
+			outcome: "incomplete",
+			deferred: [
+				{ path: "bad.md", reason: "unreadable" },
+				{ path: "big.md", reason: "not-downloaded" },
+				{ path: "c.md", reason: "depends-on-deferred" },
+				{ path: "d.md", reason: "depends-on-deferred" },
+			],
+		});
+		const details = pullReport(t, waiting, options).details;
+		expect(details).toHaveLength(3);
+		expect(details[0]).toContain("big.md");
+		expect(details[1]).toContain("bad.md");
+		expect(details[2]).toBe(
+			"2 other files were not pulled either: they wait for a file that is left for the next sync. A later sync pulls them.",
+		);
+		expect(pullReport(ja, waiting, options).details[2]).toBe(
+			"ほかに 2 件のファイルも、取り込んでいません。次の同期に残したファイルを待っています。後の同期で、取り込みます。",
+		);
+
+		// Counted by the text for what failed otherwise, and not a second time.
+		const failed = result({
+			outcome: "incomplete",
+			deferred: [...waiting.deferred, { path: "odd.md", reason: "hash-mismatch" }],
+		});
+		const both = pullReport(t, failed, options).details;
+		expect(both).toHaveLength(3);
+		expect(both[0]).toBe(
+			"3 files could not be pulled and are left for the next sync. The content GitHub sent did not match its own listing.",
+		);
+	});
+
+	test("a pull that was declined left nothing for later, and says nothing of that", () => {
+		const report = pullReport(
+			t,
+			result({
+				outcome: "declined",
+				deferred: [
+					{ path: "bad.md", reason: "unreadable" },
+					{ path: "big.md", reason: "not-downloaded" },
+					{ path: "half.md", reason: "trash-failed" },
+				],
+			}),
+			options,
+		);
+		expect(report.summary).toBe("The pull was cancelled. Nothing was changed.");
+		expect(report.details).toEqual([]);
 	});
 
 	test("a fetch stopped by the signal is a stop, not a failure", () => {
@@ -548,6 +661,8 @@ describe("what the user has to know", () => {
 					{ kind: "invalid-path", path: "a//b" },
 					{ kind: "blocked-path", path: "notes" },
 					{ kind: "archive-given-up", path: "" },
+					{ kind: "local-path-collision", path: "case.md" },
+					{ kind: "rename-not-sent", path: "Drafts/a.md" },
 				],
 				unwritable: [
 					{ path: "notes", reason: "blocked", inTheWay: ["notes/draft.md", "notes/sub/idea.md"], isNew: true },
@@ -652,7 +767,7 @@ describe("a pull that could not be carried out", () => {
 		["branch-not-found", "no branch named main"],
 		["unreachable", "Could not reach GitHub"],
 		["incomplete-listing", "more files than GitHub lists"],
-		["workflows-permission", "Details: boom"],
+		["workflows-permission", "the Workflows read and write permission"],
 		["other", "Details: boom"],
 	];
 	test.each(cases)("%s", (kind, expected) => {
@@ -711,7 +826,7 @@ describe("the question before a first fetch", () => {
 					paths: { shown: ["a.md"], more: 0 },
 				},
 				{
-					text: "2 files are only on this device. They stay on this device as they are:",
+					text: "2 files are only on this device. They stay on this device as they are, and the next push sends them to the remote, except files that are excluded:",
 					paths: { shown: ["mine.md", "notes/too.md"], more: 0 },
 				},
 				{
@@ -741,7 +856,7 @@ describe("the question before a first fetch", () => {
 				paths: { shown: [".obsidian/app.json", ".obsidian/appearance.json"], more: 0 },
 			},
 			{
-				text: "1 file is only on this device. It stays on this device as it is:",
+				text: "1 file is only on this device. It stays on this device as it is, and the next push sends it to the remote, unless it is excluded:",
 				paths: { shown: ["mine.md"], more: 0 },
 			},
 		]);
@@ -763,7 +878,7 @@ describe("the question before a first fetch", () => {
 				paths: { shown: [".obsidian/app.json", ".obsidian/appearance.json"], more: 0 },
 			},
 			{
-				text: "このデバイスにだけあるファイル：1 件。このデバイスに、そのまま残します。",
+				text: "このデバイスにだけあるファイル：1 件。このデバイスに、そのまま残します。次の送信（push）で、保存先に送ります。除外するファイルは、送りません。",
 				paths: { shown: ["mine.md"], more: 0 },
 			},
 		]);
@@ -824,7 +939,7 @@ describe("the question before a first fetch", () => {
 		expect(question.parts.map((part) => part.text)).toEqual([
 			"octo/notes のブランチ main から、この保管庫に初めて取り込みます。この保管庫には、すでにファイルがあります。",
 			"保存先と中身が違うファイル：1 件。保存先の内容に書き換えます。このデバイスの内容は、同じ場所に別名で残します。",
-			"このデバイスにだけあるファイル：1 件。このデバイスに、そのまま残します。",
+			"このデバイスにだけあるファイル：1 件。このデバイスに、そのまま残します。次の送信（push）で、保存先に送ります。除外するファイルは、送りません。",
 		]);
 	});
 });
@@ -848,7 +963,7 @@ describe("the question before starting over, in Japanese", () => {
 					paths: { shown: ["a.md"], more: 0 },
 				},
 				{
-					text: "このデバイスにだけあるファイル：1 件。このデバイスに、そのまま残します。",
+					text: "このデバイスにだけあるファイル：1 件。このデバイスに、そのまま残します。次の送信（push）で、保存先に送ります。除外するファイルは、送りません。",
 					paths: { shown: ["mine.md"], more: 0 },
 				},
 				{

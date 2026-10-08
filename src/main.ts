@@ -24,12 +24,12 @@ import {
 	type DeviceSettings,
 } from "./core/settings";
 import { obsidianHttp } from "./obsidian/http";
-import { type PullHost, PullRunner } from "./obsidian/pull-runner";
+import { type SyncHost, SyncRunner } from "./obsidian/sync-runner";
 import { SettingsStore } from "./obsidian/settings-store";
 import { type SettingsHost, SyncEvoSettingTab } from "./obsidian/settings-tab";
 import { SyncState, syncStateDepsOf } from "./obsidian/sync-state";
 
-export default class SyncEvoPlugin extends Plugin implements SettingsHost, PullHost {
+export default class SyncEvoPlugin extends Plugin implements SettingsHost, SyncHost {
 	/** Looks up every text the plugin shows, in the language of the app. */
 	t: Translate = translatorFor("");
 
@@ -55,10 +55,10 @@ export default class SyncEvoPlugin extends Plugin implements SettingsHost, PullH
 	 * the settings screen does for its list of skipped symlinks, and never
 	 * while there is no connection.
 	 */
-	readonly syncState = new SyncState(syncStateDepsOf(this.app, () => this.pulls.stateBlocked()));
+	readonly syncState = new SyncState(syncStateDepsOf(this.app, () => this.syncs.stateBlocked()));
 
-	/** The one place a pull is started from, so that two never run at once. */
-	private readonly pulls = new PullRunner(this);
+	/** The one place a sync of any kind is started from, so that two never run at once. */
+	private readonly syncs = new SyncRunner(this);
 
 	override onload(): void {
 		// A change of the app language takes effect on restart, so reading it once is enough.
@@ -68,31 +68,40 @@ export default class SyncEvoPlugin extends Plugin implements SettingsHost, PullH
 		this.deviceSettings = loaded.status === "ok" ? loaded.settings : null;
 		this.addSettingTab(new SyncEvoSettingTab(this.app, this, this));
 
-		// The only things that start a pull. Each is started by the user, and
-		// keeps the screen on while it runs (`PullRunner.run`).
+		// The only things that start a sync. Each is started by the user, and
+		// keeps the screen on while it runs (`SyncRunner.run`). The button
+		// of the ribbon is the sync: a pull, and then a push.
+		this.addCommand({
+			id: "sync",
+			name: this.t("command.sync"),
+			callback: () => void this.syncs.run("sync"),
+		});
+		this.addRibbonIcon("refresh-cw", this.t("command.sync"), () => void this.syncs.run("sync"));
 		this.addCommand({
 			id: "pull",
 			name: this.t("command.pull"),
-			callback: () => void this.pulls.run(),
+			callback: () => void this.syncs.run("pull"),
 		});
-		// Until there is a push, the button of the ribbon pulls: a sync is a
-		// pull and then a push, and the push comes with stage 4.
-		this.addRibbonIcon("refresh-cw", this.t("command.pull"), () => void this.pulls.run());
+		this.addCommand({
+			id: "push",
+			name: this.t("command.push"),
+			callback: () => void this.syncs.run("push"),
+		});
 		this.addCommand({
 			id: "first-fetch",
 			name: this.t("command.firstFetch"),
-			callback: () => void this.pulls.run("first-fetch"),
+			callback: () => void this.syncs.run("first-fetch"),
 		});
 		this.addCommand({
 			id: "stop",
 			name: this.t("command.stop"),
-			callback: () => this.pulls.requestStop(),
+			callback: () => this.syncs.requestStop(),
 		});
 	}
 
 	override onunload(): void {
-		// Before the state is let go of, so that the pull stops asking for it.
-		this.pulls.stop();
+		// Before the state is let go of, so that the sync stops asking for it.
+		this.syncs.stop();
 		this.syncState.close();
 	}
 
@@ -114,11 +123,11 @@ export default class SyncEvoPlugin extends Plugin implements SettingsHost, PullH
 		// connection with the old state. The removal itself ends later, and
 		// `syncState.open()` waits for it.
 		//
-		// A pull that is running is stopped first, and the removal waits for
-		// it to end. Removed under the pull, the state would lose the marker
+		// A sync that is running is stopped first, and the removal waits for
+		// it to end. Removed under a pull, the state would lose the marker
 		// of the file being written before that file is whole, and the next
 		// sync would take the half of it for a file of the user's.
-		if (change === "set" || change === "changed") this.syncState.requestDiscard(this.pulls.interrupt());
+		if (change === "set" || change === "changed") this.syncState.requestDiscard(this.syncs.interrupt());
 		this.deviceSettings = next;
 		this.store.save(next);
 		return change;

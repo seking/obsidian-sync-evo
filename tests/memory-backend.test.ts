@@ -133,23 +133,48 @@ test("a push with no base revision to a remote that has files is refused", async
 	expect(text(backend.read("a.md"))).toBe("theirs");
 });
 
-test("a push whose content does not match its hash fails and changes nothing", async () => {
+test("what a file reads as is what is sent, under the hash it has, and a file that reads as nothing is left out", async () => {
 	const backend = new MemoryBackend();
-	const base = backend.commit({ "a.md": "A", "old.md": "O" });
-	const wrong: PushFile = { ...pushFile("b.md", "B"), hash: blobHash("something else") };
+	const base = backend.commit({ "a.md": "A" });
+	// Planned as "B", and typed in since.
+	const drifted: PushFile = { ...pushFile("b.md", "B"), read: async () => bytes("B, and more") };
+	const gone: PushFile = { ...pushFile("c.md", "C"), read: async () => null };
 
-	await expect(
-		backend.push({
-			baseRevision: base,
-			writes: [pushFile("a.md", "A2"), wrong],
-			deletes: [await entryAt(backend, "old.md")],
-		}),
-	).rejects.toThrow("b.md");
+	const result = await backend.push({ baseRevision: base, writes: [drifted, gone], deletes: [] });
 
+	if (result.status !== "pushed") throw new Error("expected the push to go through");
+	expect(result.written).toEqual([{ path: "b.md", kind: "file", hash: blobHash("B, and more"), size: 11 }]);
+	expect(text(backend.read("b.md"))).toBe("B, and more");
+	expect(backend.read("c.md")).toBeUndefined();
+});
+
+test("a new path that the remote already holds fails and changes nothing", async () => {
+	const backend = new MemoryBackend();
+	const base = backend.commit({ "a.md": "A" });
+	await expect(backend.push({ baseRevision: base, writes: [pushFile("a.md", "mine")], deletes: [] })).rejects.toThrow(
+		"a.md",
+	);
 	expect(backend.revision).toBe(base);
 	expect(text(backend.read("a.md"))).toBe("A");
-	expect(text(backend.read("old.md"))).toBe("O");
-	expect(backend.read("b.md")).toBeUndefined();
+});
+
+test("the revision is handed over before it is the head, with what it holds", async () => {
+	const backend = new MemoryBackend();
+	const base = backend.commit({ "a.md": "A" });
+	const seen: unknown[] = [];
+
+	const result = await backend.push({
+		baseRevision: base,
+		writes: [pushFile("b.md", "B")],
+		deletes: [],
+		beforePublish: async (pending) => {
+			seen.push({ ...pending, head: backend.revision });
+		},
+	});
+
+	if (result.status !== "pushed") throw new Error("expected the push to go through");
+	expect(seen).toEqual([{ revision: result.revision, written: result.written, head: base }]);
+	expect(backend.revision).toBe(result.revision);
 });
 
 test("a delete or a replacement that names an entry the remote does not hold fails", async () => {
@@ -166,11 +191,13 @@ test("a delete or a replacement that names an entry the remote does not hold fai
 	expect(text(backend.read("a.md"))).toBe("A");
 });
 
-test("a push with nothing in it does not create a revision", async () => {
+test("a push with nothing in it, or with only what the remote holds, does not create a revision", async () => {
 	const backend = new MemoryBackend();
 	const base = backend.commit({ "a.md": "A" });
-	const result = await backend.push({ baseRevision: base, writes: [], deletes: [] });
-	expect(result).toEqual({ status: "pushed", revision: base, written: [] });
+	expect(await backend.push({ baseRevision: base, writes: [], deletes: [] })).toEqual({ status: "unchanged" });
+	const same = { ...pushFile("a.md", "A"), replaces: await entryAt(backend, "a.md") };
+	expect(await backend.push({ baseRevision: base, writes: [same], deletes: [] })).toEqual({ status: "unchanged" });
+	expect(backend.revision).toBe(base);
 });
 
 test("the base continues after ordinary commits and is reported rewritten after a force push", async () => {

@@ -1970,12 +1970,12 @@ describe("files and folders that trade places", () => {
 		const h = harness();
 		h.backend.commit({ notes: "a file", drafts: "another" });
 		h.vault.makeFolder("notes");
-		h.vault.put("drafts/.hidden-by-a-rule.icloud", "kept");
+		h.vault.put("drafts/hidden-by-a-rule.icloud", "kept");
 
 		const result = await h.pull();
 
 		expect(result.unwritable).toMatchObject([{ path: "drafts", reason: "folder-in-the-way" }]);
-		expect(h.vault.snapshot()).toEqual({ notes: "a file", "drafts/.hidden-by-a-rule.icloud": "kept" });
+		expect(h.vault.snapshot()).toEqual({ notes: "a file", "drafts/hidden-by-a-rule.icloud": "kept" });
 		expect(await h.records()).toEqual(hashes({ notes: "a file" }));
 	});
 
@@ -2066,6 +2066,28 @@ describe("deleting many files", () => {
 		expect(await h.records()).toEqual(hashes(many));
 		expect(await h.base()).toBe(base);
 		expect(await h.store.getMeta(PULL_CONFIRMATION_KEY)).toBeUndefined();
+	});
+
+	test("stopped while the question is open: a stop and not a no, and what was confirmed before stays", async () => {
+		const { h, base } = await withTenDeleted();
+		const before = { rewritten: false, deletions: ["f00.md"], overwrites: [] };
+		await h.store.setMeta(PULL_CONFIRMATION_KEY, before);
+		const stop = new AbortController();
+		// The dialog closes as "cancel" when the pull is stopped.
+		h.answer = () => {
+			stop.abort();
+			return "cancel";
+		};
+
+		const result = await h.pull({ signal: stop.signal });
+
+		expect(result.outcome).toBe("cancelled");
+		expect(h.asked).toHaveLength(1);
+		expect(h.vault.snapshot()).toEqual(many);
+		expect(h.vault.log).toEqual([]);
+		expect(await h.records()).toEqual(hashes(many));
+		expect(await h.base()).toBe(base);
+		expect(await h.store.getMeta(PULL_CONFIRMATION_KEY)).toEqual(before);
 	});
 
 	test("an answer that is only offered for a rewritten history counts as no", async () => {
@@ -4407,7 +4429,7 @@ describe("going on after a pull that stopped while writing", () => {
 				expect(await h.records()).toEqual(hashes({ "a.md": "A", "b.md": "B2", "c.md": "C" }));
 				expect(await h.base()).toBe(base);
 				expect(pullReport(translatorFor("en"), result, reportOptions).details).toEqual([
-					"1 file could not be pulled and is left for the next sync. A file on this device could not be read.",
+					"1 file on this device could not be read and was left as it is. Check it, then sync again:\na.md",
 				]);
 			}
 

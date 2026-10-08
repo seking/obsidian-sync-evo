@@ -20,15 +20,43 @@ import type { Connection } from "../core/settings";
 export type PullTarget = Pick<Connection, "repository" | "branch">;
 
 /**
- * Asks in a dialog. Closing it in any way but a button is "cancel". A push
- * that asks the question before a first fetch (T028) asks it through this
- * too, with a request that has no losses.
+ * Asks in a dialog. Closing it in any way but a button is "cancel", and so
+ * is the sync being stopped while it is open (`signal`).
  */
-export function confirmPullIn(app: App, t: Translate, target: PullTarget): ConfirmPull {
+export function confirmPullIn(app: App, t: Translate, target: PullTarget, signal?: AbortSignal): ConfirmPull {
 	return (request) =>
 		new Promise((resolve) => {
-			new PullConfirmModal(app, t, target, request, resolve).open();
+			let unwatch = (): void => {};
+			const modal = new PullConfirmModal(app, t, target, request, (answer) => {
+				unwatch();
+				resolve(answer);
+			});
+			modal.open();
+			unwatch = closeWhenAborted(modal, signal);
 		});
+}
+
+/**
+ * Closes a question when the sync it belongs to is stopped, which answers
+ * it "cancel": closed in any way but a button is that. A sync that is
+ * stopped because the connection is being changed is waited for before the
+ * sync state is discarded, and must not wait in turn for the user to find
+ * the dialog.
+ *
+ * Answers what stops the watching, to be called once the question is
+ * answered: the signal is the sync's and outlives the dialog, which would
+ * otherwise be held on to, and closed a second time, when the sync is
+ * stopped later.
+ */
+export function closeWhenAborted(modal: Modal, signal: AbortSignal | undefined): () => void {
+	if (signal === undefined) return () => {};
+	if (signal.aborted) {
+		modal.close();
+		return () => {};
+	}
+	const close = (): void => modal.close();
+	signal.addEventListener("abort", close, { once: true });
+	return () => signal.removeEventListener("abort", close);
 }
 
 /**
@@ -121,21 +149,25 @@ class PullConfirmModal extends Modal {
 		this.close();
 	}
 
-	/** The paths that are shown, and then only how many more there are. */
 	private list(paths: CappedList<string>): void {
-		const list = this.contentEl.createEl("ul");
-		// Fifty paths are tall, so on a desktop the list scrolls by itself.
-		// Not on a phone: there the dialog scrolls as a whole, and with two
-		// lists that scrolled inside it no path was shown at all (seen on an
-		// iPhone; likely the lists shrank to nothing, or were not painted, as
-		// scrolling boxes inside a scrolling box). A plain list can do neither.
-		if (!Platform.isPhone) {
-			list.style.maxHeight = "30vh";
-			list.style.overflowY = "auto";
-		}
-		for (const path of paths.shown) list.createEl("li", { text: path });
-		if (paths.more > 0) list.createEl("li", { text: this.t("list.more", { count: paths.more }) });
+		renderPathList(this.contentEl, this.t, paths);
 	}
+}
+
+/** A list of paths in a dialog: the ones that are shown, and then only how many more there are. */
+export function renderPathList(container: HTMLElement, t: Translate, paths: CappedList<string>): void {
+	const list = container.createEl("ul");
+	// Fifty paths are tall, so on a desktop the list scrolls by itself.
+	// Not on a phone: there the dialog scrolls as a whole, and with two
+	// lists that scrolled inside it no path was shown at all (seen on an
+	// iPhone; likely the lists shrank to nothing, or were not painted, as
+	// scrolling boxes inside a scrolling box). A plain list can do neither.
+	if (!Platform.isPhone) {
+		list.style.maxHeight = "30vh";
+		list.style.overflowY = "auto";
+	}
+	for (const path of paths.shown) list.createEl("li", { text: path });
+	if (paths.more > 0) list.createEl("li", { text: t("list.more", { count: paths.more }) });
 }
 
 function pathsOf(losses: readonly PullLoss[]): CappedList<string> {

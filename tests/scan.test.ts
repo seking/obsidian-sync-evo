@@ -13,7 +13,7 @@ import { describe, expect, test } from "vitest";
 import { conflictCopyPath } from "../src/core/conflict-name";
 import { createExclusion, type Exclusion } from "../src/core/exclusion";
 import { planSync } from "../src/core/plan";
-import { scanVault, type ScanResult } from "../src/core/scan";
+import { scanVault, type ScanResult, placeholderTarget } from "../src/core/scan";
 import { blobHash } from "./support/memory-backend";
 import { MemoryVault } from "./support/memory-vault";
 
@@ -334,5 +334,41 @@ describe("the scan and the decision together", () => {
 			`own-folder ${ownFolder}/main.js 1`,
 		]);
 		expect(scanned.rootHasGit).toBe(true);
+	});
+});
+
+describe("the placeholder a cloud drive leaves for a file it took off the device", () => {
+	test("stands for the file: listed under the name of the file, as a placeholder", async () => {
+		const vault = new MemoryVault(["a.md", "notes/.big.md.icloud", ".root.pdf.icloud"]);
+		const result = await scan(vault, { known: ["notes/big.md"] });
+		expect(result.paths.slice().sort((a, b) => (a.path < b.path ? -1 : 1))).toEqual([
+			{ path: "a.md", key: "a.md", state: "present" },
+			{ path: "notes/big.md", key: "notes/big.md", state: "placeholder" },
+			// Also one that was never synced: it is a file of the vault all the same.
+			{ path: "root.pdf", key: "root.pdf", state: "placeholder" },
+		]);
+	});
+
+	test("beside the file itself, the file is what is listed", async () => {
+		const result = await scan(new MemoryVault(["notes/big.md", "notes/.big.md.icloud"]));
+		expect(result.paths).toEqual([{ path: "notes/big.md", key: "notes/big.md", state: "present" }]);
+	});
+
+	test("not for a file a rule leaves out", async () => {
+		const result = await scan(new MemoryVault(["drafts/.x.md.icloud", ".trash/.y.md.icloud"]), { gitignore: "/drafts/\n" });
+		expect(result.paths).toEqual([]);
+	});
+
+	test("a name that only ends in .icloud, or only starts with a dot, is no placeholder", async () => {
+		const names = ["notes/x.icloud", "notes/.hidden", "notes/.icloud", "notes/...icloud", "notes/.a.icloud.md"];
+		expect(names.map(placeholderTarget)).toEqual([null, null, null, null, null]);
+		expect(placeholderTarget("notes/.big.md.icloud")).toBe("notes/big.md");
+		expect(placeholderTarget(".a.icloud")).toBe("a");
+
+		const result = await scan(new MemoryVault(["notes/x.icloud", "notes/.hidden", "notes/.a.icloud.md"]), {
+			known: ["notes/x.icloud"],
+		});
+		expect(result.paths.every((entry) => entry.state === "present")).toBe(true);
+		expect(found(result)).toEqual(["notes/.a.icloud.md", "notes/.hidden", "notes/x.icloud"]);
 	});
 });

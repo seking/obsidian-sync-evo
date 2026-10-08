@@ -20,6 +20,7 @@ import type { ExclusionPaths } from "./exclusion";
 import type { FirstFetchFiles } from "./first-fetch";
 import type { NoticeRef } from "./notices";
 import type { PullLosses } from "./pull-plan";
+import type { PushCounts } from "./push-pending";
 import type { FolderLister } from "./scan";
 import type { FileStat, StateSeed, StateStore } from "./state";
 
@@ -278,7 +279,9 @@ export interface PullDeps {
  *   and the vault alone altogether, down to what is remembered of notices.
  * - "cancelled": stopped through the signal. What was done is recorded; the
  *   base revision is where it was. The "blocked" paths are listed here too,
- *   also when the stop came before anything was done.
+ *   also when the stop came before anything was done. A stop while the
+ *   question was open is this too, and not a "no": it changes what a "no"
+ *   changes, but for the confirmation from before, which stays.
  */
 export type PullOutcome = "completed" | "incomplete" | "remote-empty" | "declined" | "cancelled";
 
@@ -315,6 +318,10 @@ export interface PullConflict {
  *   said it would be.
  * - "fetch-failed": the content could not be fetched (see `fetchError`).
  * - "unreadable": the vault could not tell what is at the path.
+ * - "not-downloaded": a cloud drive keeps only a placeholder of the file on
+ *   this device (`ScannedPath` "placeholder"), and the pull has something
+ *   to do at its path. Nothing is wrong with the file; the user has to
+ *   have it downloaded.
  * - "trash-failed": a pull that stopped left it half written, and it could
  *   not be moved to the `.trash/` of the vault. Unlike the "trash-failed" of
  *   an unwritable path, the file is not known to hold anything that may be
@@ -327,6 +334,7 @@ export type DeferReason =
 	| "hash-mismatch"
 	| "fetch-failed"
 	| "unreadable"
+	| "not-downloaded"
 	| "trash-failed"
 	| "depends-on-deferred";
 
@@ -458,4 +466,10 @@ export interface PullResult {
 	readonly refetched: number;
 	/** What the fetching threw, when it stopped before the end. */
 	readonly fetchError?: unknown;
+	/**
+	 * Set when this pull found that a push which had ended without knowing
+	 * whether it went through did go through (`push-pending.ts`): what that
+	 * push changed on the remote. It is recorded now, and told as a success.
+	 */
+	readonly recoveredPush?: PushCounts;
 }

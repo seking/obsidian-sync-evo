@@ -41,15 +41,24 @@ import { BackendError, type RemoteEntry, type RemoteListing } from "./backend";
 import { originalPathOfConflictCopy } from "./conflict-name";
 import { createExclusion } from "./exclusion";
 import { firstFetchFiles, hasFirstFetchQuestion, isFirstFetchConfirmed, markFirstFetchConfirmed } from "./first-fetch";
-import { HASH_CHUNK_BYTES } from "./hash";
-import { type NoticeKind, type NoticeRef, readNotices, reconcileNotices, writeNotices } from "./notices";
+import { type LocalRead, readLocal } from "./local-read";
+import {
+	type NoticeKind,
+	type NoticeRef,
+	PUSH_NOTICE_KINDS,
+	readNotices,
+	reconcileNotices,
+	writeNotices,
+} from "./notices";
 import { foldedKey, pathKey } from "./paths";
 import { DEFAULT_SIZE_LIMIT, type LocalEntry } from "./plan";
-import { type ApplyEnv, applyPlan, isLfsPointer, type Seen, Tally } from "./pull-apply";
+import { type ApplyEnv, applyPlan, type Seen, Tally } from "./pull-apply";
+import { type PushCounts, settlePendingPush } from "./push-pending";
 import type {
 	BulkWriteSession,
 	ContentSource,
 	DeferReason,
+	DeferredFile,
 	PullConflict,
 	PullDeps,
 	PullOutcome,
@@ -72,11 +81,9 @@ import {
 import { fromRoot, type ScanResult, scanVault } from "./scan";
 import {
 	BASE_REVISION_KEY,
-	isUnchangedByStat,
+	currentListing,
 	makeRecord,
-	RecordBatcher,
 	readBaseRevision,
-	refreshStat,
 	type FileStat,
 	type StateSeed,
 	type StateStore,
@@ -191,12 +198,20 @@ class PullRun {
 	 * those of the markers that could not be settled.
 	 */
 	private readonly held = new Set<string>();
+	/**
+	 * The files the survey found it cannot know the content of, and that
+	 * the pull is not done without (`holdUnread`). They are put off once the
+	 * plan is carried out.
+	 */
+	private readonly unread: DeferredFile[] = [];
 	/** The markers that could not be settled, and are left for the next pull. */
 	private readonly unsettled: WriteMarker[] = [];
 	/** The conflicts of `awaited` that this pull tells. They are in the tally too. */
 	private readonly resumedConflicts: PullConflict[] = [];
 	/** The conflicts that are yet to be told, as they are stored (`AWAITED_CONFLICTS_KEY`). */
 	private awaited: AwaitedConflict[] = [];
+	/** What a push that this pull found to have gone through had changed (`settlePendingPush`). */
+	private recoveredPush: PushCounts | null = null;
 
 	constructor(private readonly deps: PullDeps) {
 		this.store = deps.store;
@@ -551,12 +566,26 @@ class PullRun {
 		// discarded once the user said yes, is neither read nor changed
 		// before that.
 		const startOver = deps.discardState !== undefined;
-		const base = startOver ? null : await readBaseRevision(store);
+		let base = startOver ? null : await readBaseRevision(store);
 		this.firstFetch = base === null;
 
 		this.progress("listing");
 		const listing = startOver ? await this.freshListing() : await this.currentListing();
 		const head = listing.revision;
+
+		// A push that was stopped before it knew whether the branch had
+		// moved: with its commit as the head, or below the head, it went
+		// through, and is recorded before anything is decided from the
+		// records. The files it sent would otherwise read as changed on
+		// both sides. When the remote cannot say, the pull ends here by
+		// rejecting, with the push still remembered. Not when the pull
+		// starts over: the sync state is not touched then.
+		if (!startOver) {
+			this.recoveredPush = await settlePendingPush(store, head, (from, to) =>
+				this.asked(deps.backend.checkBase(from, to)),
+			);
+			if (this.recoveredPush !== null) base = await readBaseRevision(store);
+		}
 
 		// Whether the question before a first fetch is still to be asked. By
 		// the base revision and not by the records: a remote that is empty,
@@ -616,6 +645,10 @@ class PullRun {
 		const firstDue = files !== null && (startOver || hasFirstFetchQuestion(files, this.deps.paths.configDir));
 		const keptLocal: string[] = [];
 		let declined = false;
+		// Whether the question was closed because the pull was stopped. That
+		// is no answer of the user's: the pull ends as a "no" does, with
+		// nothing changed, and is told as the stop it is.
+		let stopped = false;
 		if (lossesDue || firstDue) {
 			const answer = await deps.confirm({
 				losses: lossesDue ? losses : null,
@@ -624,9 +657,11 @@ class PullRun {
 			});
 			const keep = answer === "keep-local" && lossesDue && rewritten;
 			if (answer !== "proceed" && !keep) {
+				stopped = this.aborted();
 				// What was confirmed before does not outlive a "no". A "no" to
-				// a first fetch alone changes nothing at all.
-				if (lossesDue) await store.deleteMeta(PULL_CONFIRMATION_KEY);
+				// a first fetch alone changes nothing at all. Nor does a stop,
+				// which leaves what was confirmed before as it is.
+				if (lossesDue && !stopped) await store.deleteMeta(PULL_CONFIRMATION_KEY);
 				declined = true;
 			} else {
 				// Whether the markers of the old sync state were settled, which
@@ -693,7 +728,8 @@ class PullRun {
 		}
 		// Nothing was planned but what a push sends, and the question is
 		// answered: the same end as when it did not have to be asked.
-		if (nothingToPull) return this.result(declined ? "declined" : "remote-empty", head, false, {});
+		const said: PullOutcome = stopped ? "cancelled" : "declined";
+		if (nothingToPull) return this.result(declined ? said : "remote-empty", head, false, {});
 
 		// The plan is final. What it cannot write is listed from here on, by
 		// every result of this pull: the "blocked-path" notice is made from
@@ -709,8 +745,12 @@ class PullRun {
 		}
 		// A pull that was to start over leaves the sync state as it is when
 		// the user says no, down to what it remembers of notices.
-		if (declined) return finish("declined", startOver ? {} : { notices: await notices(false) });
+		if (declined) return finish(said, startOver ? {} : { notices: await notices(false) });
 		if (this.aborted()) return finish("cancelled", { notices: await notices(false) });
+
+		// From here on the pull changes the vault, and what the survey could
+		// not read is what it leaves for the next sync.
+		this.tally.deferred.push(...this.unread);
 
 		this.progress("applying", 0, 0);
 		const completed = await applyPlan(
@@ -795,6 +835,7 @@ class PullRun {
 			closedViews: this.closedViews,
 			refetched: tally.refetched,
 			...(tally.fetchError === undefined ? {} : { fetchError: tally.fetchError }),
+			...(this.recoveredPush === null ? {} : { recoveredPush: this.recoveredPush }),
 			...extra,
 		};
 	}
@@ -825,8 +866,25 @@ class PullRun {
 
 		this.progress("scanning");
 		const scan = await scanVault({ lister: deps.vault, exclusion, remote: listing.entries, records });
-		const local = await this.readLocal(scan, records, listing);
+		const local = await readLocal(
+			{
+				vault: deps.vault,
+				backend: deps.backend,
+				store: this.store,
+				now: deps.now,
+				startedAt: this.startedAt,
+				sizeLimit: this.sizeLimit,
+				held: this.held,
+				aborted: () => this.aborted(),
+				onProgress: (done, total) => this.progress("hashing", done, total),
+				...(deps.yieldControl === undefined ? {} : { yieldControl: deps.yieldControl }),
+			},
+			scan,
+			records,
+			listing,
+		);
 		if (local === null) return null;
+		this.holdUnread(local, listing, records);
 
 		const plan = planPull({
 			remote: listing.entries,
@@ -839,17 +897,51 @@ class PullRun {
 		return { scan, local, plan };
 	}
 
-	/** The listing of the head: the stored one when the remote has not moved past it. */
-	private async currentListing(): Promise<RemoteListing> {
-		const stored = await this.store.getListing();
-		// Without a listing to fall back on, "unchanged" would be of no use.
-		const listed = await this.asked(this.deps.backend.list(stored === null ? null : stored.revision));
-		if (!listed.changed) {
-			if (stored !== null) return stored;
-			throw new Error("The remote answered that nothing changed since a listing that was never taken.");
+	/**
+	 * Keeps the files whose content is not known out of the plan
+	 * (`PlanInput.held`): nothing is written over them, they are not
+	 * deleted, and no copy is made of them.
+	 *
+	 * A file that could not be read is put off, so that the pull ends
+	 * "incomplete" and the base revision stays: something is wrong on this
+	 * device, and the user is told. A file a cloud drive has taken off the
+	 * device is put off only when the pull has something to do at its path
+	 * (the remote changed or deleted it, or no record says it is the
+	 * remote's): a vault can hold such files for good, and a pull that
+	 * could never get to the end because of them would help no one.
+	 *
+	 * Put off in `unread` and not in the tally: a pull that ends before it
+	 * changes anything (a "no" to its question, a stop) has not left these
+	 * files for later, and must not say so.
+	 *
+	 * A path that is held is not read again by a second survey, and a
+	 * placeholder that is held already is passed over here, so nothing is
+	 * put off twice.
+	 */
+	private holdUnread(
+		local: Pick<LocalRead, "unreadable" | "placeholders">,
+		listing: RemoteListing,
+		records: readonly StoredRecord[],
+	): void {
+		for (const path of local.unreadable) {
+			this.held.add(foldedKey(path));
+			this.unread.push({ path, reason: "unreadable" });
 		}
-		await this.store.putListing(listed.listing);
-		return listed.listing;
+		if (local.placeholders.length === 0) return;
+		const remote = new Map(listing.entries.map((entry) => [pathKey(entry.path), entry.hash]));
+		const recorded = new Map(records.map((record) => [record.key, record.hash]));
+		for (const path of local.placeholders) {
+			// Held by a marker, or by the survey before this one.
+			if (this.held.has(foldedKey(path))) continue;
+			this.held.add(foldedKey(path));
+			const key = pathKey(path);
+			if (remote.get(key) !== recorded.get(key)) this.unread.push({ path, reason: "not-downloaded" });
+		}
+	}
+
+	/** The listing of the head: the stored one when the remote has not moved past it. */
+	private currentListing(): Promise<RemoteListing> {
+		return currentListing(this.store, (known) => this.asked(this.deps.backend.list(known)));
 	}
 
 	/** The listing of the head, asked of the remote without looking at the stored one. */
@@ -1039,82 +1131,6 @@ class PullRun {
 	}
 
 	// -----------------------------------------------------------------------
-	// The vault side of the decision
-
-	/**
-	 * The hash of every file the scan found. A file whose time and size are
-	 * those of its record is not read. A file over the size limit is not read
-	 * either; it is listed with its size, which is what the plan turns it
-	 * away by. `null` when the signal stopped it.
-	 */
-	private async readLocal(
-		scan: ScanResult,
-		records: readonly StoredRecord[],
-		listing: RemoteListing,
-	): Promise<{ entries: LocalEntry[]; seen: Map<string, Seen>; lfsPointers: string[] } | null> {
-		const { deps } = this;
-		const byKey = new Map(records.map((record) => [record.key, record]));
-		const remoteByKey = new Map(listing.entries.map((entry) => [pathKey(entry.path), entry]));
-		const batcher = new RecordBatcher(this.store, { now: deps.now });
-		const entries: LocalEntry[] = [];
-		const seen = new Map<string, Seen>();
-		const lfsPointers: string[] = [];
-		const total = scan.paths.length;
-		let hashedBytes = 0;
-
-		for (const [index, scanned] of scan.paths.entries()) {
-			if (this.aborted()) {
-				await batcher.flush();
-				return null;
-			}
-			const { path, key } = scanned;
-			// Listed, so that the plan knows a file is there, and not looked
-			// at: the plan turns the path away before it reads the hash, and
-			// the file may be one that cannot be read.
-			if (this.held.has(foldedKey(path))) {
-				entries.push({ path, hash: "" });
-				continue;
-			}
-			const stat = await deps.vault.stat(path);
-			// Gone since it was listed.
-			if (stat === null || stat.type !== "file") continue;
-			if (stat.size > this.sizeLimit) {
-				entries.push({ path, hash: "", size: stat.size });
-				continue;
-			}
-
-			const record = byKey.get(key);
-			let hash: string;
-			if (record !== undefined && isUnchangedByStat(record, stat)) {
-				hash = record.hash;
-			} else {
-				const content = await deps.vault.read(path);
-				hash = await deps.backend.hashContent(content);
-				// Found here too, and not only when it is written: a pointer
-				// that was already in the vault is one all the same.
-				const remote = remoteByKey.get(key);
-				if (remote?.kind === "file" && remote.hash === hash && isLfsPointer(content)) {
-					lfsPointers.push(remote.path);
-				}
-				if (record !== undefined && record.kind === "file" && record.hash === hash) {
-					const refreshed = refreshStat(record, stat, this.startedAt);
-					if (refreshed !== null) await batcher.add(refreshed);
-				}
-				hashedBytes += content.length;
-				if (hashedBytes >= HASH_CHUNK_BYTES && deps.yieldControl !== undefined) {
-					hashedBytes = 0;
-					await deps.yieldControl();
-				}
-			}
-			entries.push({ path, hash, size: stat.size });
-			seen.set(key, { hash, stat: { mtime: stat.mtime, size: stat.size } });
-			this.progress("hashing", index + 1, total);
-		}
-		await batcher.flush();
-		return { entries, seen, lfsPointers };
-	}
-
-	// -----------------------------------------------------------------------
 	// What is told once
 
 	/**
@@ -1135,6 +1151,10 @@ class PullRun {
 			current.push({ kind, path });
 		};
 
+		// What only a push finds out is the next push's to forget.
+		for (const notice of remembered) {
+			if (PUSH_NOTICE_KINDS.includes(notice.kind)) current.push(notice);
+		}
 		if (scan.rootHasGit) add("git-at-root", ".git");
 		// Read from the sync state and not handed over by the fetching: the
 		// pull that made the device remember it can have been killed before

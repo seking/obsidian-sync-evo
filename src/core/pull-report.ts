@@ -18,6 +18,7 @@ import { type FetchLimitState, NO_FETCH_LIMIT } from "./fetch-quota";
 import type { Translate } from "./i18n";
 import { NOTICE_KINDS, type NoticeKind, type NoticeRef } from "./notices";
 import type { DeferReason, FirstFetchRequest, PullConflict, PullProgress, PullResult } from "./pull-io";
+import type { PushCounts } from "./push-pending";
 import { type Connection, type DeviceSettings, parseRepository } from "./settings";
 
 /** How many paths a confirmation lists before it only counts them. */
@@ -53,12 +54,17 @@ export interface QuestionPart {
 	readonly paths?: CappedList<string>;
 }
 
-export interface FirstFetchQuestion {
+/** The words of a question a sync stops to ask. */
+export interface Question {
 	readonly title: string;
 	readonly parts: readonly QuestionPart[];
 	/** What "cancel" does. The last thing a question says. */
 	readonly note: string;
+	/** The words on the two buttons, where they are not the usual "proceed" and "cancel". */
+	readonly buttons?: { readonly proceed: string; readonly cancel: string };
 }
+
+export type FirstFetchQuestion = Question;
 
 /**
  * The words of the question before a first fetch: where it fetches from,
@@ -88,8 +94,6 @@ export function firstFetchQuestion(
 		listed(t("confirm.firstFetch.differentSettings", { count: differentSettings.length }), differentSettings);
 	}
 	if (files.localOnly.length > 0) {
-		// T028: with a push, this is where the user is told that these
-		// files are sent to the repository named above by the next push.
 		listed(t("confirm.firstFetch.localOnly", { count: files.localOnly.length }), files.localOnly);
 	}
 	if (files.different.length + files.differentSettings.length + files.localOnly.length === 0) parts.push({ text: t("confirm.startOver.nothing") });
@@ -189,10 +193,13 @@ export function failureReason(t: Translate, settings: DeviceSettings, error: unk
 			return t("check.rateLimited");
 		case "incomplete-listing":
 			return t("pull.error.incompleteListing");
-		// A pull sends nothing, so the first is not expected. The detail is
-		// in English and for developers, but it is all there is to go on.
-		// No `default`: a kind added later fails the type check here.
 		case "workflows-permission":
+			return t("push.error.workflows");
+		case "not-as-listed":
+			return t("push.error.notAsListed");
+		// The detail is in English and for developers, but it is all there
+		// is to go on. No `default`: a kind added later fails the type
+		// check here.
 		case "cancelled":
 		case "other":
 			return t("pull.error.other", { detail });
@@ -262,10 +269,13 @@ export interface PullReportOptions {
 	readonly connectionChanged?: boolean;
 }
 
-// The reasons a file is put off that say something went wrong. The others
-// are an editor in the middle of typing: the next sync takes the file, and
-// there is nothing for the user to do or to know.
-const FAILURES: readonly DeferReason[] = ["fetch-failed", "hash-mismatch", "unreadable", "trash-failed"];
+// The reasons a file is put off that say something went wrong, and are told
+// in one text with the reason. Two more are told in texts of their own,
+// which list the paths: "unreadable" and "not-downloaded" are about files
+// the user has to find and see to (`unreadTexts`). The others are an editor
+// in the middle of typing: the next sync takes the file, and there is
+// nothing for the user to do or to know.
+const FAILURES: readonly DeferReason[] = ["fetch-failed", "hash-mismatch", "trash-failed"];
 
 /** Words what a pull answered. */
 export function pullReport(t: Translate, result: PullResult, options: PullReportOptions): PullReport {
@@ -293,12 +303,26 @@ export function pullReport(t: Translate, result: PullResult, options: PullReport
 	if (result.keptLocal.length > 0) {
 		details.push(t("pull.keptLocal", { count: result.keptLocal.length, list: listText(t, result.keptLocal) }));
 	}
-	const failed = incompleteText(t, result, options.settings);
-	if (failed !== null) details.push(failed);
+	if (result.recoveredPush !== undefined) details.push(recoveredPushText(t, result.recoveredPush));
+	// Not after a "no": that pull left nothing for later, it did not begin.
+	// What it put off before it asked (a file left half written that could
+	// not be looked at) is found again by the next pull, which tells it.
+	if (result.outcome !== "declined") {
+		const failed = incompleteText(t, result, options.settings);
+		if (failed !== null) details.push(failed);
+		// The files that only wait are counted once: by the text above
+		// when there is one.
+		details.push(...unreadTexts(t, result, failed === null));
+	}
 	if (result.newSymlinks.length > 0) {
 		details.push(t("pull.symlinks", { count: result.newSymlinks.length, list: listText(t, result.newSymlinks) }));
 	}
-	details.push(...noticeTexts(t, result, options.sizeLimit));
+	details.push(
+		...noticeTexts(t, result.notices, options.sizeLimit, (path) => {
+			const blocked = result.unwritable.find((entry) => entry.reason === "blocked" && entry.path === path);
+			return blocked?.inTheWay ?? [];
+		}),
+	);
 
 	// With the summary and not a message of its own: it is nothing to act on.
 	const summary = [summaryText(t, result, options.connectionChanged === true)];
@@ -358,7 +382,6 @@ function incompleteText(t: Translate, result: PullResult, settings: DeviceSettin
 	let reason: string;
 	if (result.fetchError !== undefined) reason = failureReason(t, settings, result.fetchError);
 	else if (failures.some((file) => file.reason === "hash-mismatch")) reason = t("pull.reason.hashMismatch");
-	else if (failures.some((file) => file.reason === "unreadable")) reason = t("pull.reason.unreadable");
 	else reason = t("pull.reason.trashFailed");
 
 	// With the files that only wait for one of these, which no step of
@@ -367,12 +390,62 @@ function incompleteText(t: Translate, result: PullResult, settings: DeviceSettin
 	return count > 0 ? t("pull.incomplete", { count, reason }) : t("pull.incompleteSome", { reason });
 }
 
-/** The texts of the one-time notices: per kind, in the order of `NOTICE_KINDS`. */
-function noticeTexts(t: Translate, result: PullResult, sizeLimit: number): string[] {
-	const notices: readonly NoticeRef[] = result.notices;
+/**
+ * The texts for the files of this device a pull could not know the content
+ * of and left as they are: the ones a cloud drive has not downloaded, and
+ * the ones that could not be read. With the paths, since the user has to
+ * see to each file. Told by every pull while it is so, and not once: the
+ * pull does not get to its end until it is seen to.
+ *
+ * `countWaiting`: whether the files that only wait for one of these are
+ * counted here, in a text of their own after them. They are when no other
+ * text counts them (`incompleteText`), so that they are told at all.
+ */
+function unreadTexts(t: Translate, result: PullResult, countWaiting: boolean): string[] {
+	const texts: string[] = [];
+	const pathsOf = (reason: DeferReason): string[] =>
+		result.deferred.filter((file) => file.reason === reason).map((file) => file.path);
+	const notDownloaded = pathsOf("not-downloaded");
+	if (notDownloaded.length > 0) {
+		texts.push(t("pull.notDownloaded", { count: notDownloaded.length, list: listText(t, notDownloaded) }));
+	}
+	const unreadable = pathsOf("unreadable");
+	if (unreadable.length > 0) {
+		texts.push(t("pull.unreadable", { count: unreadable.length, list: listText(t, unreadable) }));
+	}
+	const waiting = pathsOf("depends-on-deferred").length;
+	if (countWaiting && texts.length > 0 && waiting > 0) texts.push(t("pull.waitingForUnread", { count: waiting }));
+	return texts;
+}
+
+/** What a push changed on the remote, as a list of counts. Empty when it changed nothing. */
+export function pushCountsText(t: Translate, counts: PushCounts): string {
+	const parts: string[] = [];
+	if (counts.added > 0) parts.push(t("push.count.added", { count: counts.added }));
+	if (counts.modified > 0) parts.push(t("push.count.modified", { count: counts.modified }));
+	if (counts.deleted > 0) parts.push(t("push.count.deleted", { count: counts.deleted }));
+	return parts.join(t("list.separator"));
+}
+
+/** The text for a push that had gone through unknown to this device, and is recorded now. Told by a pull or a push. */
+export function recoveredPushText(t: Translate, counts: PushCounts): string {
+	return t("push.recovered", { details: pushCountsText(t, counts) });
+}
+
+/**
+ * The texts of the one-time notices: per kind, in the order of
+ * `NOTICE_KINDS`. `inTheWay` answers the vault files that are in the place
+ * of a blocked file of the remote.
+ */
+export function noticeTexts(
+	t: Translate,
+	notices: readonly NoticeRef[],
+	sizeLimit: number,
+	inTheWay: (path: string) => readonly string[] = () => [],
+): string[] {
 	return NOTICE_KINDS.flatMap((kind) => {
 		const paths = notices.filter((notice) => notice.kind === kind).map((notice) => notice.path);
-		return paths.length === 0 ? [] : noticeText(t, kind, paths, sizeLimit, result);
+		return paths.length === 0 ? [] : noticeText(t, kind, paths, sizeLimit, inTheWay);
 	});
 }
 
@@ -384,7 +457,7 @@ function noticeText(
 	kind: NoticeKind,
 	paths: readonly string[],
 	sizeLimit: number,
-	result: PullResult,
+	inTheWay: (path: string) => readonly string[],
 ): string[] {
 	const list = listText(t, paths);
 	switch (kind) {
@@ -406,16 +479,17 @@ function noticeText(
 			return [t("notice.unwritablePath", { list })];
 		case "blocked-path":
 			// One text per remote file: each has its own files in its place.
-			return paths.map((path) => {
-				const blocked = result.unwritable.find((entry) => entry.reason === "blocked" && entry.path === path);
-				return t("notice.blockedPath", { path, list: listText(t, blocked?.inTheWay ?? []) });
-			});
+			return paths.map((path) => t("notice.blockedPath", { path, list: listText(t, inTheWay(path)) }));
 		case "archive-given-up":
 			return [t("notice.archiveGivenUp")];
+		case "local-path-collision":
+			return [t("notice.localPathCollision", { list })];
+		case "rename-not-sent":
+			return [t("notice.renameNotSent", { list })];
 	}
 }
 
-function megabytes(bytes: number): string {
+export function megabytes(bytes: number): string {
 	const value = bytes / (1024 * 1024);
 	return Number.isInteger(value) ? String(value) : value.toFixed(1);
 }
