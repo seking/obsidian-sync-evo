@@ -30,7 +30,7 @@ import {
 	type QuestionPart,
 	recoveredPushText,
 } from "./pull-report";
-import { LARGE_FILE_BYTES, type PushConfirmRequest, type PushProgress, type PushRunResult } from "./push";
+import { LARGE_FILE_BYTES, type LeftOutReason, type PushConfirmRequest, type PushProgress, type PushRunResult } from "./push";
 import type { Connection, DeviceSettings } from "./settings";
 import { BackendError } from "./backend";
 
@@ -171,13 +171,25 @@ export function pushReport(t: Translate, result: PushRunResult, options: PushRep
 	}
 	// A new file a cloud drive keeps is told apart: it is the cloud drive
 	// the user has to see to, and the next push alone changes nothing.
-	const leftOut = (away: boolean): string[] =>
-		result.leftOut.filter((file) => (file.reason === "not-downloaded") === away).map((file) => file.path);
-	const notDownloaded = leftOut(true);
+	const leftOut = (...reasons: LeftOutReason[]): string[] =>
+		result.leftOut.filter((file) => reasons.includes(file.reason)).map((file) => file.path);
+	const notDownloaded = leftOut("not-downloaded");
 	if (notDownloaded.length > 0) {
 		details.push(t("push.notDownloaded", { count: notDownloaded.length, list: listText(t, notDownloaded) }));
 	}
-	const others = leftOut(false);
+	// Left out for its size: waiting for the next push changes nothing, so
+	// these say what the user can do, apart from the ones that only need
+	// another try.
+	const grown = leftOut("too-large");
+	if (grown.length > 0) {
+		const limit = megabytes(options.sizeLimit);
+		details.push(t("push.grownTooLarge", { count: grown.length, limit, list: listText(t, grown) }));
+	}
+	const refusedSize = leftOut("refused-size");
+	if (refusedSize.length > 0) {
+		details.push(t("push.refusedSize", { count: refusedSize.length, list: listText(t, refusedSize) }));
+	}
+	const others = leftOut("save-failed", "gone", "unreadable");
 	if (others.length > 0) {
 		details.push(t("push.leftOut", { count: others.length, list: listText(t, others) }));
 	}

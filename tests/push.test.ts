@@ -45,6 +45,8 @@ class TestBackend extends MemoryBackend {
 	/** How many times the whole remote was listed, and not just found unchanged. */
 	listings = 0;
 	pushes = 0;
+	/** Paths whose content the remote will not take because of its size. */
+	readonly refusesForSize = new Set<string>();
 	/** How many times it was asked whether one revision is built on another. */
 	checks = 0;
 	/** Whether that question fails, as on a connection that drops. */
@@ -69,7 +71,20 @@ class TestBackend extends MemoryBackend {
 
 	override async push(request: Parameters<MemoryBackend["push"]>[0]): ReturnType<MemoryBackend["push"]> {
 		this.pushes += 1;
-		const pushed = await super.push(request);
+		// A refused file was read, and then not taken: the same as the
+		// GitHub backend does with a blob that is too large for GitHub.
+		const writes = request.writes.map((file) =>
+			this.refusesForSize.has(file.path)
+				? {
+						...file,
+						read: async () => {
+							if ((await file.read()) !== null) file.refused?.("too-large");
+							return null;
+						},
+					}
+				: file,
+		);
+		const pushed = await super.push({ ...request, writes });
 		if (pushed.status !== "pushed" || pushed.listing === undefined) return pushed;
 		const entries = pushed.listing.entries.map((entry) => ({ ...entry, kind: this.kinds.get(entry.path) ?? entry.kind }));
 		return { ...pushed, listing: { revision: pushed.listing.revision, entries } };
@@ -632,6 +647,44 @@ describe("content that changes while the push runs", () => {
 		expect(await h.push()).toMatchObject({ outcome: "pushed", counts: { modified: 1 } });
 
 		expect(await h.remote()).toEqual({ "a.md": "A, typed and not saved" });
+		await expectNothingToPull(h);
+	});
+
+	test("a file the remote refuses for its size is left out and told, the rest is sent, and the next push meets it again", async () => {
+		const h = await synced({ "a.md": "A", "old.bin": "OLD" });
+		h.vault.put("a.md", "A2");
+		h.vault.put("big.bin", "BIG");
+		h.vault.put("old.bin", "OLD, and now too large");
+		h.backend.refusesForSize.add("big.bin").add("old.bin");
+
+		const result = await h.push();
+
+		expect(result).toMatchObject({
+			outcome: "pushed",
+			counts: { added: 0, modified: 1, deleted: 0 },
+			leftOut: [
+				{ path: "big.bin", reason: "refused-size" },
+				{ path: "old.bin", reason: "refused-size" },
+			],
+		});
+		expect(await h.remote()).toEqual({ "a.md": "A2", "old.bin": "OLD" });
+		const records = await h.records();
+		expect(records["big.bin"]).toBeUndefined();
+		expect(records["old.bin"]).toBe(blobHash("OLD"));
+		// The push went through, so it is not one that did not finish.
+		expect(await readPushFailure(h.store)).toBeNull();
+
+		// Nothing was lost on this device, and nothing is deleted or pulled over it.
+		expect((await h.pull()).counts).toMatchObject({ fetched: 0, deleted: 0, conflicts: 0 });
+		expect(h.vault.text("big.bin")).toBe("BIG");
+		expect(h.vault.text("old.bin")).toBe("OLD, and now too large");
+
+		const again = await h.push();
+		expect(again).toMatchObject({ outcome: "nothing-to-push", leftOut: [{ path: "big.bin" }, { path: "old.bin" }] });
+
+		// Small enough again, and it is sent.
+		h.backend.refusesForSize.clear();
+		expect(await h.push()).toMatchObject({ outcome: "pushed", counts: { added: 1, modified: 1 }, leftOut: [] });
 		await expectNothingToPull(h);
 	});
 

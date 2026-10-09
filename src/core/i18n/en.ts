@@ -281,6 +281,14 @@ export const en = baseCatalog({
 		one: "{count} new file was not sent: it is not downloaded to this device (a cloud drive keeps only a placeholder). Download it, then sync again:\n{list}",
 		other: "{count} new files were not sent: they are not downloaded to this device (a cloud drive keeps only a placeholder). Download them, then sync again:\n{list}",
 	},
+	"push.grownTooLarge": {
+		one: "{count} file was not sent: it grew past {limit} MB while the push ran. Files over {limit} MB are not synced:\n{list}",
+		other: "{count} files were not sent: they grew past {limit} MB while the push ran. Files over {limit} MB are not synced:\n{list}",
+	},
+	"push.refusedSize": {
+		one: "{count} file was not sent: GitHub refused it as too large. The other files were sent. Make this file smaller or move it out of the vault. A file the remote does not hold yet is also left alone once it is in .gitignore. If it is a conflict copy, check its content and then delete it:\n{list}",
+		other: "{count} files were not sent: GitHub refused them as too large. The other files were sent. Make these files smaller or move them out of the vault. A file the remote does not hold yet is also left alone once it is in .gitignore. If one is a conflict copy, check its content and then delete it:\n{list}",
+	},
 	"push.leftOut": {
 		one: "{count} file was left out: it changed or could not be read while the push ran, or an editor could not save it. The next push looks at it again:\n{list}",
 		other: "{count} files were left out: they changed or could not be read while the push ran, or an editor could not save them. The next push looks at them again:\n{list}",

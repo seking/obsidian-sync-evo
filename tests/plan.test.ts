@@ -318,10 +318,10 @@ describe("files over the size limit", () => {
 		expect(planOf({ remote: [], local, records: [record], sizeLimit: 10 }).actions).toEqual([]);
 	});
 
-	test("the limit is 50 MB unless given, and a file of exactly that size is synced", () => {
+	test("the limit is 38 MiB unless given, and a file of exactly that size is synced", () => {
 		const at = (size: number): RemoteEntry[] => [{ path: "big.bin", kind: "file", hash: small, size }];
-		expect(summary(planOf({ remote: at(50 * 1024 * 1024), local: [], records: [] }))).toEqual(["download big.bin"]);
-		expect(skips(planOf({ remote: at(50 * 1024 * 1024 + 1), local: [], records: [] }))).toEqual(["too-large big.bin"]);
+		expect(summary(planOf({ remote: at(38 * 1024 * 1024), local: [], records: [] }))).toEqual(["download big.bin"]);
+		expect(skips(planOf({ remote: at(38 * 1024 * 1024 + 1), local: [], records: [] }))).toEqual(["too-large big.bin"]);
 	});
 });
 

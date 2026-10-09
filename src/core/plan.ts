@@ -164,8 +164,14 @@ export interface PlanInput {
 	readonly held?: ReadonlySet<string>;
 }
 
-/** 50 MB. A phone holds a whole file in memory to fetch or send it. */
-export const DEFAULT_SIZE_LIMIT = 50 * 1024 * 1024;
+/**
+ * 38 MiB. One limit for fetching and for sending, so that no file can be
+ * fetched and then not sent back. GitHub refuses to create a blob a little
+ * under 40 MiB (`GitHubClient.createBlob`); this stays about 5% below what
+ * was seen to pass. A phone also holds a whole file in memory to fetch or
+ * send it.
+ */
+export const DEFAULT_SIZE_LIMIT = 38 * 1024 * 1024;
 
 export interface SyncPlan {
 	/** Sorted by key. Paths that need nothing are not listed. */

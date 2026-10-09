@@ -82,7 +82,7 @@ export const TREE_CHUNK_BYTES = 3 * 1024 * 1024;
 /**
  * The largest file whose content is sent inside a tree. A larger one would
  * fill a request for a tree by itself, which is one request like a blob
- * is, and a blob has a documented limit far above this.
+ * is, and a blob takes far more than this (`GitHubClient.createBlob`).
  */
 export const INLINE_FILE_BYTES = 1024 * 1024;
 
@@ -277,6 +277,9 @@ export class GitHubBackend implements Backend {
 		// The blobs this push has made, so that many files of one content
 		// (empty ones, most of all) cost one request.
 		const blobs = new Set<string>();
+		// The contents the remote would not take, so that a second file of
+		// the same content is not sent to be refused again.
+		const refusedBlobs = new Set<string>();
 		for (const [index, file] of writes.entries()) {
 			const target = targets[index];
 			if (target === undefined) continue;
@@ -284,9 +287,12 @@ export class GitHubBackend implements Backend {
 			const content = await file.read();
 			if (content === null) continue;
 			const hash = await this.hashContent(content);
-			written.push({ path: target.path, kind: "file", hash, size: content.length });
+			const entry: RemoteEntry = { path: target.path, kind: "file", hash, size: content.length };
 			// Read again, and it is what the remote holds: nothing to send.
-			if (hash === target.existing) continue;
+			if (hash === target.existing) {
+				written.push(entry);
+				continue;
+			}
 
 			const { path, mode } = target;
 			// An empty file goes as a blob: whether a tree takes an entry
@@ -295,15 +301,29 @@ export class GitHubBackend implements Backend {
 			if (text !== null) {
 				await add({ path, mode, content: text }, content.length);
 			} else {
+				// Not on the remote, so not among what was written.
+				if (refusedBlobs.has(hash)) {
+					file.refused?.("too-large");
+					continue;
+				}
 				if (!blobs.has(hash)) {
 					this.throwIfStopped();
-					const sha = await this.client.createBlob(content);
+					let sha: string;
+					try {
+						sha = await this.client.createBlob(content);
+					} catch (error) {
+						if (!(error instanceof BackendError) || error.kind !== "too-large") throw error;
+						refusedBlobs.add(hash);
+						file.refused?.("too-large");
+						continue;
+					}
 					// The record of the file is made with `hash`.
 					if (sha !== hash) throw new BackendError("other", `push: the blob is not the content that was sent: ${path}`);
 					blobs.add(hash);
 				}
 				await add({ path, mode, sha: hash }, 0);
 			}
+			written.push(entry);
 			changes.push({ kind: target.existing === undefined ? "added" : "modified", path });
 		}
 		await flush();

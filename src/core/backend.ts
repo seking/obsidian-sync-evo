@@ -99,6 +99,14 @@ export interface PushFile {
 	 * `null` leaves the file out of this push, and everything else is sent.
 	 */
 	read(): Promise<Uint8Array | null>;
+	/**
+	 * Told when the remote would not take the content that `read` gave,
+	 * because of its size. The file is left out of this push like one that
+	 * read as `null`, and everything else is sent. A remote's own limit is
+	 * not always known before it is met, and one file must not keep the
+	 * others from being sent.
+	 */
+	refused?(reason: "too-large"): void;
 }
 
 /** A revision that was made and is not the head of the remote yet. */
@@ -293,6 +301,11 @@ export type BackendErrorKind =
 	 * lack the separate permission the host requires for them.
 	 */
 	| "workflows-permission"
+	/**
+	 * The remote would not take the content of one file because of its
+	 * size. A push leaves that file out and sends the rest (`PushFile.refused`).
+	 */
+	| "too-large"
 	/** The remote could not return the whole listing. */
 	| "incomplete-listing"
 	/**

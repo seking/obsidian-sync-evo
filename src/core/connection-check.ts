@@ -137,6 +137,7 @@ export function connectionCheckText(t: Translate, settings: DeviceSettings, outc
 		// later fails the type check here until it is given a text.
 		case "incomplete-listing":
 		case "workflows-permission":
+		case "too-large":
 		case "not-as-listed":
 		case "cancelled":
 		case "other":

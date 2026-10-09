@@ -294,6 +294,29 @@ describe("how a push ended", () => {
 		);
 	});
 
+	test("a file left out for its size says what to do about it, apart from the ones that only need another push", () => {
+		const said = (translate: typeof t) =>
+			pushReport(
+				translate,
+				result({
+					leftOut: [
+						{ path: "grown.mov", reason: "too-large" },
+						{ path: "big.mov", reason: "refused-size" },
+						{ path: "a.md", reason: "gone" },
+					],
+				}),
+				options,
+			).details;
+		expect(said(t)).toEqual([
+			"1 file was not sent: it grew past 50 MB while the push ran. Files over 50 MB are not synced:\ngrown.mov",
+			"1 file was not sent: GitHub refused it as too large. The other files were sent. Make this file smaller or move it out of the vault. A file the remote does not hold yet is also left alone once it is in .gitignore. If it is a conflict copy, check its content and then delete it:\nbig.mov",
+			"1 file was left out: it changed or could not be read while the push ran, or an editor could not save it. The next push looks at it again:\na.md",
+		]);
+		expect(said(ja)[1]).toBe(
+			"1 件のファイルを、送信していません。GitHub が、大きすぎるとして受け付けませんでした。ほかのファイルは送信しました。このファイルは、小さくするか、保管庫の外へ移してください。保存先にまだ無いファイルは、.gitignore に足しても送らなくなります。競合で残した別名のファイルなら、中身を確かめてから削除してください：\nbig.mov",
+		);
+	});
+
 	test("a new file a cloud drive keeps is told apart from the others left out, and the push is not up to date", () => {
 		const said = (translate: typeof t) =>
 			pushReport(

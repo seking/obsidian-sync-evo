@@ -318,6 +318,15 @@ describe("writing", () => {
 		expect(http.body(0)).toEqual({ content: "AP/+", encoding: "base64" });
 	});
 
+	test("createBlob tells a content GitHub finds too large apart from the other refusals", async () => {
+		const tooLarge = "Sorry, your input was too large to process. Consider creating the blob in a local clone of the repository and then pushing it to GitHub.";
+		expect(await kindOf(setup([json(422, { message: tooLarge })]).client.createBlob(new Uint8Array([1])))).toBe("too-large");
+		expect(await kindOf(setup([json(413, { message: "" })]).client.createBlob(new Uint8Array([1])))).toBe("too-large");
+		expect(await kindOf(setup([json(422, { message: "Validation Failed" })]).client.createBlob(new Uint8Array([1])))).toBe("other");
+		// Only a blob: a tree that is too large is not one file to leave out.
+		expect(await kindOf(setup([json(422, { message: tooLarge })]).client.createTree(B, []))).toBe("other");
+	});
+
 	test("createTree lays inline content, blobs, and removals over the base tree", async () => {
 		const { client, http } = setup([json(201, { sha: C })]);
 		const sha = await client.createTree(B, [

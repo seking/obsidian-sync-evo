@@ -199,6 +199,15 @@ function messageOf(response: HttpResponse): string {
 }
 
 /**
+ * Whether a failed request to create a blob was refused for the size of the
+ * content: 422 with "Sorry, your input was too large to process." A 413
+ * means the same, should the host ever answer with it.
+ */
+function isTooLargeRefusal(error: BackendError): boolean {
+	return error.status === 413 || (error.status === 422 && /too large/i.test(error.message));
+}
+
+/**
  * Whether a refused write was refused because the token may not touch workflow
  * files. Unverified until the device test: what the Git Data API answers to a
  * token without the Workflows permission is not documented, so this goes by
@@ -399,11 +408,24 @@ export class GitHubClient {
 		return { commitSha: commit.sha, blobSha: blob, parents: commit.parents.length };
 	}
 
-	/** Stores content and answers with its sha. */
+	/**
+	 * Stores content and answers with its sha. Content the host finds too
+	 * large fails as "too-large": creating a blob is refused a little under
+	 * 40 MiB of content, whatever the size of the request (measured
+	 * 2026-10-09: 41,900,000 bytes passed, 41,943,039 did not). The limit is
+	 * not documented.
+	 */
 	async createBlob(content: Uint8Array): Promise<string> {
 		const what = "create blob";
 		const body = { content: encodeBase64(content), encoding: "base64" };
-		return this.created(what, this.write("POST", "/git/blobs", body));
+		try {
+			return await this.created(what, this.write("POST", "/git/blobs", body));
+		} catch (error) {
+			if (error instanceof BackendError && error.kind === "other" && isTooLargeRefusal(error)) {
+				throw new BackendError("too-large", error.message, error.status);
+			}
+			throw error;
+		}
 	}
 
 	/** Builds a tree from `baseTree` with the changes laid over it. Paths not named stay as they are. */

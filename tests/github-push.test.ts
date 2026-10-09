@@ -304,6 +304,78 @@ describe("a push to GitHub", () => {
 		]);
 	});
 
+	test("a file GitHub refuses for its size is left out, told to the caller, and the rest is sent", async () => {
+		const { github, backend } = setup();
+		const base = github.commit({ "a.md": "A", "old.png": new Uint8Array([1, 0]) });
+		const entries = await entriesOf(backend);
+		const big = new Uint8Array([0x00, 0xff, 0x01]);
+		const fine = new Uint8Array([0x00, 0xff, 0x02]);
+		github.before = (request: SentRequest) =>
+			request.method === "POST" && request.path === "/git/blobs" && JSON.stringify(request.body).includes("AP8B")
+				? respond(422, {
+						message:
+							"Sorry, your input was too large to process. Consider creating the blob in a local clone of the repository and then pushing it to GitHub.",
+					})
+				: undefined;
+		const refused: string[] = [];
+		const told = (path: string, content: Uint8Array, replaces?: RemoteEntry): PushFile => ({
+			...file(path, content, replaces),
+			refused: (reason) => refused.push(`${path} ${reason}`),
+		});
+
+		const result = await backend.push({
+			baseRevision: base,
+			writes: [told("big.png", big), told("old.png", big, entries.get("old.png")), told("fine.png", fine), file("b.md", "B")],
+			deletes: [],
+		});
+
+		expect(result.status).toBe("pushed");
+		if (result.status !== "pushed") return;
+		expect(refused).toEqual(["big.png too-large", "old.png too-large"]);
+		expect(result.written.map((entry) => entry.path)).toEqual(["fine.png", "b.md"]);
+		const files = github.files();
+		expect([...files.keys()].sort()).toEqual(["a.md", "b.md", "fine.png", "old.png"]);
+		// The file that was to be replaced stays as the remote had it.
+		expect(files.get("old.png")?.sha).toBe(blobHash(new Uint8Array([1, 0])));
+		expect(github.headCommit()?.message.split("\n")[0]).toBe("Sync Evo: unnamed device (2 added)");
+	});
+
+	test("a push whose only file GitHub refuses for its size makes no commit", async () => {
+		const { github, backend } = setup();
+		const base = github.commit({ "a.md": "A" });
+		github.before = (request: SentRequest) =>
+			request.method === "POST" && request.path === "/git/blobs" ? respond(422, { message: "Sorry, your input was too large to process." }) : undefined;
+		let refused = 0;
+
+		const result = await backend.push({
+			baseRevision: base,
+			writes: [{ ...file("big.png", new Uint8Array([0, 255])), refused: () => void (refused += 1) }],
+			deletes: [],
+		});
+
+		expect(result.status).toBe("unchanged");
+		expect(refused).toBe(1);
+		expect(github.head).toBe(base);
+	});
+
+	test("two files of one content GitHub refuses are both left out, and the content is sent once", async () => {
+		const { github, backend } = setup();
+		const base = github.commit({ "a.md": "A" });
+		github.before = (request: SentRequest) =>
+			request.method === "POST" && request.path === "/git/blobs" ? respond(422, { message: "Sorry, your input was too large to process." }) : undefined;
+		const refused: string[] = [];
+		const big = new Uint8Array([0, 255]);
+		const told = (path: string): PushFile => ({ ...file(path, big), refused: () => refused.push(path) });
+
+		const result = await backend.push({ baseRevision: base, writes: [told("one.png"), told("two.png"), file("b.md", "B")], deletes: [] });
+
+		expect(result.status).toBe("pushed");
+		if (result.status !== "pushed") return;
+		expect(refused).toEqual(["one.png", "two.png"]);
+		expect(result.written.map((entry) => entry.path)).toEqual(["b.md"]);
+		expect(github.writes().filter((line) => line === "POST /git/blobs").length).toBe(1);
+	});
+
 	test("a refusal over workflow files is told as that, wherever GitHub gives it: the tree, the commit, or the branch", async () => {
 		const steps = [
 			["POST", "/git/trees"],

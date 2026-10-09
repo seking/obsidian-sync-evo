@@ -206,7 +206,9 @@ export function failureReason(t: Translate, settings: DeviceSettings, error: unk
 			return t("push.error.notAsListed");
 		// The detail is in English and for developers, but it is all there
 		// is to go on. No `default`: a kind added later fails the type
-		// check here.
+		// check here. "too-large" does not come this far from a push,
+		// which leaves the one file out (`PushFile.refused`).
+		case "too-large":
 		case "cancelled":
 		case "other":
 			return t("pull.error.other", { detail });
