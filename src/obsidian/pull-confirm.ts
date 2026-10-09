@@ -61,10 +61,10 @@ export function closeWhenAborted(modal: Modal, signal: AbortSignal | undefined):
 
 /**
  * The dialog a pull stops with. Three questions: a first fetch into a vault
- * that has files of its own (yes or no), many files deleted on the remote
- * (yes or no), and a rewritten history, where the files to delete and to
- * overwrite may exist nowhere else and can also be kept. A request with two
- * reasons to ask is one dialog with both, the first fetch on top.
+ * whose files differ from the remote's (yes or no), many files deleted on
+ * the remote (yes or no), and a rewritten history, where the files to delete
+ * and to overwrite may exist nowhere else and can also be kept. A request
+ * with two reasons to ask is one dialog with both, the first fetch on top.
  */
 class PullConfirmModal extends Modal {
 	private readonly t: Translate;

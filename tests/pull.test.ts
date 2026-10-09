@@ -824,8 +824,9 @@ describe("a conflict inside the configuration folder", () => {
 		const h = harness();
 		const settingsCopy = ".obsidian/app.conflict-from-Mac-20260101-090000.json";
 		const noteCopy = "a.conflict-from-Mac-20260101-090000.md";
-		h.backend.commit({ ".obsidian/app.json": "{}", "a.md": "A" });
-		h.vault.putAll({ ".obsidian/app.json": "{}", "a.md": "A", [settingsCopy]: "old", [noteCopy]: "old" });
+		// A note that differs, for the question to be asked at all.
+		h.backend.commit({ ".obsidian/app.json": "{}", "a.md": "A", "b.md": "theirs" });
+		h.vault.putAll({ ".obsidian/app.json": "{}", "a.md": "A", "b.md": "mine", [settingsCopy]: "old", [noteCopy]: "old" });
 
 		const result = await h.pull();
 
@@ -835,7 +836,7 @@ describe("a conflict inside the configuration folder", () => {
 		expect(h.vault.text(settingsCopy)).toBe("old");
 		expect(h.vault.text(noteCopy)).toBe("old");
 		expect(h.vault.trashed).toEqual([]);
-		expect(await h.records()).toEqual(hashes({ ".obsidian/app.json": "{}", "a.md": "A" }));
+		expect(await h.records()).toEqual(hashes({ ".obsidian/app.json": "{}", "a.md": "A", "b.md": "theirs" }));
 	});
 
 	test("a copy an earlier version made is not used for a conflict either", async () => {
@@ -855,7 +856,8 @@ describe("a conflict inside the configuration folder", () => {
 	test("a no to the question trashes nothing", async () => {
 		const h = harness();
 		h.backend.commit(theirs);
-		h.vault.putAll({ ...defaults, "note.md": "N" });
+		// A note that differs: the files of the configuration folder alone are not asked about.
+		h.vault.putAll({ ...defaults, "a.md": "mine", "note.md": "N" });
 		h.answer = "cancel";
 
 		const result = await h.pull();
@@ -863,11 +865,11 @@ describe("a conflict inside the configuration folder", () => {
 		expect(result.outcome).toBe("declined");
 		expect(h.asked[0]?.firstFetch?.files).toEqual({
 			localOnly: ["note.md"],
-			different: [],
+			different: ["a.md"],
 			differentSettings: Object.keys(defaults),
 			atSymlinks: [],
 		});
-		expect(h.vault.snapshot()).toEqual({ ...defaults, "note.md": "N" });
+		expect(h.vault.snapshot()).toEqual({ ...defaults, "a.md": "mine", "note.md": "N" });
 		expect(h.vault.trashed).toEqual([]);
 		expect(result.replacedSettings).toEqual([]);
 	});
@@ -3157,6 +3159,24 @@ describe("the question before a first fetch", () => {
 		expect(await isFirstFetchConfirmed(same.store)).toBe(true);
 	});
 
+	test("files that are only here are no reason to ask: they stay as they are, for the push that sends them to ask about", async () => {
+		const h = harness();
+		const head = h.backend.commit(remote);
+		const own = { "same.md": "S", "only-here.md": "O", "notes/too.md": "T" };
+		h.vault.putAll(own);
+
+		const result = await h.pull();
+
+		expect(result.outcome).toBe("completed");
+		expect(h.asked).toEqual([]);
+		expect(result.conflicts).toEqual([]);
+		expect(h.vault.snapshot()).toEqual({ ...remote, ...own });
+		expect(await h.records()).toEqual(hashes(remote));
+		expect(await h.base()).toBe(head);
+		// Done, it is no first fetch any more: files that come later are not asked about either.
+		expect(await isFirstFetchConfirmed(h.store)).toBe(true);
+	});
+
 	test("a first fetch that stopped halfway goes on without asking again", async () => {
 		const h = harness();
 		h.backend.commit(remote);
@@ -3207,15 +3227,17 @@ describe("the question before a first fetch", () => {
 		// As a change of the repository or the branch does.
 		h.store.clear();
 		h.vault.put("later.md", "L");
+		h.vault.put("same.md", "edited");
 		h.answer = "cancel";
 		await h.pull();
 
 		expect(h.asked).toHaveLength(2);
-		// Not compared by the records of before: nothing is a deletion, and
-		// what the vault holds beyond the remote is only on this device.
+		// Not compared by the records of before: nothing is a deletion, the
+		// edit is a file that differs and not a change to send, and what the
+		// vault holds beyond the remote is only on this device.
 		expect(h.asked[1]?.firstFetch?.files).toEqual({
 			localOnly: [copy, "later.md", "only-here.md"],
-			different: [],
+			different: ["same.md"],
 			differentSettings: [],
 			atSymlinks: [],
 		});
@@ -3225,7 +3247,7 @@ describe("the question before a first fetch", () => {
 	test("the answer stays when the remote became empty and took the base with it", async () => {
 		const h = harness();
 		h.backend.commit({ "a.md": "A" });
-		h.vault.put("only-here.md", "O");
+		h.vault.put("a.md", "mine");
 		await h.pull();
 		expect(h.asked).toHaveLength(1);
 
@@ -3283,10 +3305,11 @@ describe("the question before a first fetch", () => {
 		expect(await isFirstFetchConfirmed(h.store)).toBe(false);
 
 		h.vault.before = undefined;
+		h.vault.put("b.md", "mine");
 		h.vault.put("mine.md", "M");
 		expect((await h.pull()).outcome).toBe("completed");
 		expect(h.asked).toHaveLength(1);
-		expect(h.asked[0]?.firstFetch?.files.localOnly).toEqual(["mine.md"]);
+		expect(h.asked[0]?.firstFetch?.files).toMatchObject({ localOnly: ["mine.md"], different: ["b.md"] });
 	});
 
 	test("a file at the path of a symlink is counted, and is no reason to ask by itself", async () => {
@@ -3303,11 +3326,11 @@ describe("the question before a first fetch", () => {
 		const other = harness();
 		other.backend.symlinks.add("link");
 		other.backend.commit({ link: "../target", "a.md": "A" });
-		other.vault.putAll({ link: "a file here", "only-here.md": "O" });
+		other.vault.putAll({ link: "a file here", "a.md": "mine", "only-here.md": "O" });
 		await other.pull();
 		expect(other.asked[0]?.firstFetch?.files).toEqual({
 			localOnly: ["only-here.md"],
-			different: [],
+			different: ["a.md"],
 			differentSettings: [],
 			atSymlinks: ["link"],
 		});
@@ -3328,9 +3351,14 @@ describe("the question before a first fetch", () => {
 
 		const other = harness();
 		other.backend.commit(remote);
-		other.vault.putAll({ ".obsidian/plugins/sync-evo/main.js": "M", "drafts/secret.md": "D", "mine.md": "X" });
+		other.vault.putAll({
+			".obsidian/plugins/sync-evo/main.js": "M",
+			"drafts/secret.md": "D",
+			"different.md": "mine",
+			"mine.md": "X",
+		});
 		await other.pull();
-		expect(other.asked[0]?.firstFetch?.files.localOnly).toEqual(["mine.md"]);
+		expect(other.asked[0]?.firstFetch?.files).toMatchObject({ localOnly: ["mine.md"], different: ["different.md"] });
 	});
 
 	test("with deletions to confirm in the same pull, both are one question", async () => {
@@ -3353,20 +3381,22 @@ describe("the question before a first fetch", () => {
 		for (let i = 0; i < 8; i++) gone[`f${i}.md`] = null;
 		const head = h.backend.commit(gone);
 		h.vault.put("only-here.md", "O");
+		// The file that was not written yet, with other content: the reason to ask.
+		h.vault.put("z.md", "mine");
 
 		const result = await h.pull();
 
 		expect(h.asked).toHaveLength(1);
 		expect(h.asked[0]?.losses?.deletions).toHaveLength(8);
 		expect(h.asked[0]?.firstFetch).toEqual({
-			files: { localOnly: ["only-here.md"], different: [], differentSettings: [], atSymlinks: [] },
+			files: { localOnly: ["only-here.md"], different: ["z.md"], differentSettings: [], atSymlinks: [] },
 			discardsState: false,
 		});
 		expect(result.outcome).toBe("completed");
 		expect(result.counts.deleted).toBe(8);
 		expect(await h.base()).toBe(head);
 		expect(await isFirstFetchConfirmed(h.store)).toBe(true);
-		expect(h.vault.paths()).toEqual(["f8.md", "f9.md", "only-here.md", "z.md"]);
+		expect(h.vault.paths()).toEqual(["f8.md", "f9.md", "only-here.md", h.copyName("z.md"), "z.md"].sort());
 	});
 });
 

@@ -114,15 +114,43 @@ describe("the files a first fetch asks about", () => {
 		});
 		expect(hasFirstFetchQuestion(fresh, ".obsidian")).toBe(false);
 		expect(hasFirstFetchQuestion(fresh, "/.obsidian/")).toBe(false);
-		// Another name for the folder: these are then files like any other.
-		expect(hasFirstFetchQuestion(fresh, ".config")).toBe(true);
+		// What was listed apart under one name is not counted under another.
+		expect(hasFirstFetchQuestion(fresh, ".config")).toBe(false);
+		// Listed with another name for the folder: the one that differs is then
+		// a file like any other, and is listed as one.
+		expect(hasFirstFetchQuestion(files({ remote, local: config, configDir: ".config" }), ".config")).toBe(true);
 
-		const used = files({ remote, local: { ...config, "note.md": "N" } });
-		expect(used.localOnly).toEqual([".obsidian/appearance.json", "note.md"]);
+		const used = files({ remote, local: { ...config, "a.md": "mine", "note.md": "N" } });
+		expect(used).toEqual({
+			localOnly: [".obsidian/appearance.json", "note.md"],
+			different: ["a.md"],
+			differentSettings: [".obsidian/app.json"],
+			atSymlinks: [],
+		});
 		expect(hasFirstFetchQuestion(used, ".obsidian")).toBe(true);
 		// A folder that only begins like it is not it.
-		const beside = files({ remote, local: { ".obsidian-old/app.json": "{}" } });
+		const beside = files({ remote: { ".obsidian-old/app.json": "theirs" }, local: { ".obsidian-old/app.json": "{}" } });
+		expect(beside.different).toEqual([".obsidian-old/app.json"]);
 		expect(hasFirstFetchQuestion(beside, ".obsidian")).toBe(true);
+	});
+
+	test("files that are only here are nothing to ask about: the push that sends them asks", () => {
+		const remote = { "a.md": "A" };
+		const only = files({ remote, local: { "a.md": "A", "only-here.md": "O", "notes/too.md": "T" } });
+		expect(only).toEqual({
+			localOnly: ["notes/too.md", "only-here.md"],
+			different: [],
+			differentSettings: [],
+			atSymlinks: [],
+		});
+		expect(hasFirstFetchQuestion(only, ".obsidian")).toBe(false);
+		// An empty remote: every file is only here.
+		expect(hasFirstFetchQuestion(files({ local: { "a.md": "A" } }), ".obsidian")).toBe(false);
+
+		// One file that differs is the reason to ask, and the others are shown with it.
+		const both = files({ remote, local: { "a.md": "mine", "only-here.md": "O" } });
+		expect(both).toEqual({ localOnly: ["only-here.md"], different: ["a.md"], differentSettings: [], atSymlinks: [] });
+		expect(hasFirstFetchQuestion(both, ".obsidian")).toBe(true);
 	});
 
 	test("files in the configuration folder that differ are listed apart, at any depth and of any kind", () => {

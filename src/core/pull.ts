@@ -31,7 +31,8 @@
 //    written by the plan, like any other.
 // 4. The scan, the hashing of what it found, and the plan.
 // 5. Asking the user, when the plan takes away too much, or when this is a
-//    first fetch into a vault that has files of its own (`first-fetch.ts`).
+//    first fetch into a vault whose files differ from the remote's
+//    (`first-fetch.ts`).
 //    One question, also when both are reasons to ask.
 // 6. The plan, step by step.
 // 7. The base revision, when nothing was put off.
@@ -707,8 +708,8 @@ class PullRun {
 				// Before anything is changed, so that a first fetch that stops
 				// halfway goes on without asking again. When there was nothing
 				// to ask it is stored at the end instead, with the base
-				// revision: until a first fetch is done, files that come to a
-				// vault which had none are asked about by the next sync.
+				// revision: until a first fetch is done, files that come to
+				// the vault and differ are asked about by the next sync.
 				if (firstDue) await markFirstFetchConfirmed(store);
 				if (keep) {
 					const all = [...losses.deletions, ...losses.overwrites];

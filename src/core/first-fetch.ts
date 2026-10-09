@@ -16,9 +16,11 @@
 // connection it has now to the end. Files that are in the vault then are not
 // known to belong to that remote: the vault may be another one, or the
 // connection may have been pointed elsewhere. So the user is shown what is
-// there before the first sync goes on, once. Nothing here asks; it only
-// counts and remembers, so that a pull and a push can ask the same question
-// and share the one answer.
+// there before the first sync changes any of it, once: a pull asks when it
+// would write over a file and keep the vault's content as a copy, and what
+// is only in the vault is left to the push that sends it, which asks with
+// its own list. Nothing here asks; it only counts and remembers, so that a
+// pull and a push can ask the same question and share the one answer.
 
 import { isInConfigDir } from "./exclusion";
 import type { PullPlan } from "./pull-plan";
@@ -38,7 +40,7 @@ export const FIRST_FETCH_CONFIRMED_KEY = "first-fetch-confirmed";
 export interface FirstFetchFiles {
 	/**
 	 * Files the remote does not hold. A pull leaves them as they are; a
-	 * later push sends them.
+	 * later push sends them, and asks first. Shown, but no reason to ask.
 	 */
 	readonly localOnly: readonly string[];
 	/**
@@ -121,16 +123,25 @@ export function firstFetchFiles(plan: PullPlan, configDir: string): FirstFetchFi
 }
 
 /**
- * Whether there is something to ask about. A vault that holds nothing of
- * its own (an empty one, or one whose files are all the remote's) is not
- * asked; files at the path of a symlink alone are no reason either.
+ * Whether there is something to ask about: a file that is kept under the
+ * name of a conflict copy. A vault that holds nothing of its own (an empty
+ * one, or one whose files are all the remote's) is not asked; files at the
+ * path of a symlink alone are no reason either.
+ *
+ * Files the remote does not hold are no reason: a pull leaves them as they
+ * are, and the push that would send them asks first, with the list of what
+ * it sends (`push.ts`). Asked here too, a sync would show the same list
+ * twice in a row.
  *
  * Files in the configuration folder alone are no reason: Obsidian writes
  * a few there when it creates a vault, so a vault that is new would always
- * be asked. They are still among the files shown when something else is.
+ * be asked. Both are still among the files shown when something else is.
  */
 export function hasFirstFetchQuestion(files: FirstFetchFiles, configDir: string): boolean {
-	return [...files.localOnly, ...files.different].some((path) => !isInConfigDir(path, configDir));
+	// `different` holds no path of the configuration folder as `firstFetchFiles`
+	// makes it, given the same name of the folder. Under another name, only
+	// what is outside both folders is left.
+	return files.different.some((path) => !isInConfigDir(path, configDir));
 }
 
 export async function isFirstFetchConfirmed(store: Pick<StateStore, "getMeta">): Promise<boolean> {

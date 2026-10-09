@@ -1536,6 +1536,48 @@ describe("a sync: a pull, and then a push", () => {
 		await expectNothingToPull(h);
 	});
 
+	test("a first sync of a vault with files that are only here: the pull does not ask, and the push asks once, with the list", async () => {
+		const h = harness();
+		h.backend.commit({ "a.md": "A", "theirs.md": "T" });
+		h.vault.putAll({ "a.md": "A", "mine.md": "M", "notes/too.md": "N" });
+
+		const { pull, push } = await h.sync();
+
+		expect(pull).toMatchObject({ outcome: "completed", counts: { fetched: 1, conflicts: 0 } });
+		expect(h.pullAsked).toEqual([]);
+		expect(h.asked).toEqual([
+			{
+				firstPush: { added: ["mine.md", "notes/too.md"], modified: [], deleted: [] },
+				remoteEmpty: false,
+				deletions: null,
+				largeFiles: null,
+				recordCount: 2,
+			},
+		]);
+		expect(push).toMatchObject({ outcome: "pushed", counts: { added: 2, modified: 0, deleted: 0 } });
+		expect(await h.remote()).toEqual({ "a.md": "A", "theirs.md": "T", "mine.md": "M", "notes/too.md": "N" });
+		expect(h.vault.snapshot()).toEqual(await h.remote());
+		await expectNothingToPull(h);
+	});
+
+	test("a no to that push sends nothing and changes no file, and the next push asks again", async () => {
+		const h = harness();
+		const head = h.backend.commit({ "a.md": "A" });
+		h.vault.putAll({ "mine.md": "M" });
+		h.answer = "cancel";
+
+		const { pull, push } = await h.sync();
+
+		expect(pull.outcome).toBe("completed");
+		expect(h.pullAsked).toEqual([]);
+		expect(push?.outcome).toBe("declined");
+		expect(h.backend.revision).toBe(head);
+		expect(h.vault.snapshot()).toEqual({ "a.md": "A", "mine.md": "M" });
+		expect((await h.push()).outcome).toBe("declined");
+		expect(h.asked).toHaveLength(2);
+		expect(h.asked[1]?.firstPush).toEqual({ added: ["mine.md"], modified: [], deleted: [] });
+	});
+
 	test("no push after a pull the user declined", async () => {
 		const files = Object.fromEntries(Array.from({ length: 10 }, (_, i) => [`n${i}.md`, `note ${i}`]));
 		const h = await synced(files);

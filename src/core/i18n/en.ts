@@ -333,8 +333,8 @@ export const en = baseCatalog({
 		other: "{count} files in the configuration folder have other content than the remote. They get the content of the remote, and the content on this device is moved to .trash/ in this vault:",
 	},
 	"confirm.firstFetch.localOnly": {
-		one: "{count} file is only on this device. It stays on this device as it is, and the next push sends it to the remote, unless it is excluded:",
-		other: "{count} files are only on this device. They stay on this device as they are, and the next push sends them to the remote, except files that are excluded:",
+		one: "{count} file is only on this device. It stays on this device as it is. The next push sends it to the remote, unless it is excluded; before it sends, it shows the list of the files to send and asks once more:",
+		other: "{count} files are only on this device. They stay on this device as they are. The next push sends them to the remote, except files that are excluded; before it sends, it shows the list of the files to send and asks once more:",
 	},
 	"confirm.firstFetch.atSymlinks": {
 		one: "{count} file is at a path that is a symbolic link on the remote. It is not compared and stays as it is:",

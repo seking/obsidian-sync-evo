@@ -267,7 +267,7 @@ export const ja = completeTranslation(en, {
 	"confirm.firstFetch.differentSettings":
 		"保存先と中身が違う設定フォルダのファイル：{count} 件。保存先の内容に書き換えます。このデバイスの内容は、この保管庫の .trash/ へ移します。",
 	"confirm.firstFetch.localOnly":
-		"このデバイスにだけあるファイル：{count} 件。このデバイスに、そのまま残します。次の送信（push）で、保存先に送ります。除外するファイルは、送りません。",
+		"このデバイスにだけあるファイル：{count} 件。このデバイスに、そのまま残します。次の送信（push）で、保存先に送ります。送信の前に、送るファイルの一覧を示して、もう一度確認を求めます。除外するファイルは、送りません。",
 	"confirm.firstFetch.atSymlinks":
 		"保存先でシンボリックリンクになっているパスにあるファイル：{count} 件。比べずに、そのまま残します。",
 	"confirm.firstPush.title": "最初の送信の確認",
