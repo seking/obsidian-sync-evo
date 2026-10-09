@@ -71,13 +71,31 @@ const EXECUTABLE_MODE = "100755";
 
 /**
  * How much content one request for a tree carries inside it, in bytes
- * before it is escaped. GitHub does not say how large such a request may
- * be. A push with more than this builds its tree in several requests, each
- * on top of the tree of the one before, so that thousands of notes cost a
- * handful of requests against the limit on creating content, and not one
- * each.
+ * before it is escaped. A push with more than this builds its tree in
+ * several requests, each on top of the tree of the one before, so that
+ * thousands of notes cost a handful of requests against the limit on
+ * creating content, and not one each. GitHub took a request of 40MB and
+ * refused one of 61MB (measured 2026-10-10), so this is far inside.
  */
 export const TREE_CHUNK_BYTES = 3 * 1024 * 1024;
+
+/**
+ * How many files one request for a tree carries the content of. GitHub
+ * gives a request about nine seconds and makes a blob of each content
+ * inside that: 2,000 small files were taken in seven seconds, and 3,000
+ * were taken once in nine and otherwise answered 422 "your request timed
+ * out", whatever their size (measured 2026-10-10). 500 take about two.
+ */
+export const TREE_CHUNK_INLINE_FILES = 500;
+
+/**
+ * How many entries one request for a tree carries in all. An entry that
+ * names a blob or removes a path costs GitHub far less than a content:
+ * 30,000 that name a blob were taken in four seconds and 100,000 timed
+ * out, 20,000 removals were taken in three and a half, and 9,500 removals
+ * with 500 contents in three and a half (measured 2026-10-10).
+ */
+export const TREE_CHUNK_ENTRIES = 10_000;
 
 /**
  * The largest file whose content is sent inside a tree. A larger one would
@@ -268,6 +286,7 @@ export class GitHubBackend implements Backend {
 		let current = parent.treeSha;
 		let chunk: TreeChange[] = [];
 		let chunkBytes = 0;
+		let chunkInline = 0;
 		// The files whose entries are in a tree or a chunk, by path, and
 		// what was noted of them: taken back when the tree is refused for them.
 		const sent = new Map<string, PushFile>();
@@ -308,12 +327,19 @@ export class GitHubBackend implements Backend {
 			}
 			chunk = [];
 			chunkBytes = 0;
+			chunkInline = 0;
 		};
 		const add = async (change: TreeChange, bytes: number): Promise<void> => {
 			const size = bytes + change.path.length * 3 + TREE_ENTRY_BYTES;
-			if (chunk.length > 0 && chunkBytes + size > TREE_CHUNK_BYTES) await flush();
+			const inline = "content" in change ? 1 : 0;
+			const full =
+				chunkBytes + size > TREE_CHUNK_BYTES ||
+				chunkInline + inline > TREE_CHUNK_INLINE_FILES ||
+				chunk.length + 1 > TREE_CHUNK_ENTRIES;
+			if (chunk.length > 0 && full) await flush();
 			chunk.push(change);
 			chunkBytes += size;
+			chunkInline += inline;
 		};
 
 		for (const removal of removals) await add(removal, 0);

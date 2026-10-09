@@ -12,7 +12,14 @@
 import { describe, expect, test } from "vitest";
 import { BackendError, type BackendErrorKind, type PushFile, type RemoteEntry } from "../src/core/backend";
 import { COMMIT_BODY_LIMIT, commitMessage } from "../src/core/commit-message";
-import { GitHubBackend, INLINE_FILE_BYTES, inlineText, TREE_CHUNK_BYTES } from "../src/core/github/backend";
+import {
+	GitHubBackend,
+	INLINE_FILE_BYTES,
+	inlineText,
+	TREE_CHUNK_BYTES,
+	TREE_CHUNK_ENTRIES,
+	TREE_CHUNK_INLINE_FILES,
+} from "../src/core/github/backend";
 import { GitHubClient } from "../src/core/github/client";
 import { timerSleep } from "../src/core/github/timer-sleep";
 import { runPull } from "../src/core/pull";
@@ -275,6 +282,60 @@ describe("a push to GitHub", () => {
 		expect(github.writes().filter((line) => line === "POST /git/commits").length).toBe(1);
 		expect([...github.files().keys()].sort()).toEqual(["a.md", ...writes.map((write) => write.path)]);
 		expect(github.text("big6.md")?.length).toBe(size);
+	});
+
+	test("more small files than one tree carries the content of is a chain of trees", async () => {
+		const { github, backend } = setup();
+		const base = github.commit({ "a.md": "A" });
+		const count = TREE_CHUNK_INLINE_FILES * 2 + 1;
+		const writes = Array.from({ length: count }, (_, i) => file(`notes/n${i}.md`, `note ${i}`));
+
+		const result = await backend.push({ baseRevision: base, writes, deletes: [] });
+
+		expect(result.status).toBe("pushed");
+		expect(sentTrees(github).map((sent) => sent.tree.length)).toEqual([
+			TREE_CHUNK_INLINE_FILES,
+			TREE_CHUNK_INLINE_FILES,
+			1,
+		]);
+		expect(github.writes().includes("POST /git/blobs")).toBe(false);
+		expect(github.writes().filter((line) => line === "POST /git/commits").length).toBe(1);
+		expect(github.files().size).toBe(count + 1);
+	});
+
+	test("entries that carry no content are not counted as contents", async () => {
+		const { github, backend } = setup();
+		const count = TREE_CHUNK_INLINE_FILES * 2;
+		const names = Array.from({ length: count }, (_, i) => `old/o${i}.md`);
+		const base = github.commit(Object.fromEntries([["a.md", "A"], ...names.map((name) => [name, name])]));
+		const entries = await entriesOf(backend);
+		github.requests.length = 0;
+		const deletes = names.map((path) => listed(entries, path));
+
+		const result = await backend.push({ baseRevision: base, writes: [file("new.md", "n")], deletes });
+
+		expect(result.status).toBe("pushed");
+		expect(count + 1).toBeLessThan(TREE_CHUNK_ENTRIES);
+		expect(sentTrees(github).map((sent) => sent.tree.length)).toEqual([count + 1]);
+		expect([...github.files().keys()].sort()).toEqual(["a.md", "new.md"]);
+	});
+
+	test("more entries than one tree carries is a chain of trees, with no content among them", async () => {
+		const { github, backend } = setup();
+		const names = Array.from({ length: TREE_CHUNK_ENTRIES + 1 }, (_, i) => `old/o${i}.md`);
+		const base = github.commit(Object.fromEntries([["a.md", "A"], ...names.map((name) => [name, "same"])]));
+		const entries = await entriesOf(backend);
+		github.requests.length = 0;
+
+		const result = await backend.push({
+			baseRevision: base,
+			writes: [],
+			deletes: names.map((path) => listed(entries, path)),
+		});
+
+		expect(result.status).toBe("pushed");
+		expect(sentTrees(github).map((sent) => sent.tree.length)).toEqual([TREE_CHUNK_ENTRIES, 1]);
+		expect([...github.files().keys()]).toEqual(["a.md"]);
 	});
 
 	test("an empty file goes as a blob, and many empty files as one", async () => {
