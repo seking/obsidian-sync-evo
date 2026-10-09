@@ -208,11 +208,13 @@ function isTooLargeRefusal(error: BackendError): boolean {
 }
 
 /**
- * Whether a refused write was refused because the token may not touch workflow
- * files. Unverified until the device test: what the Git Data API answers to a
- * token without the Workflows permission is not documented, so this goes by
- * the one thing every known wording has in common, the word itself. If GitHub
- * turns out to answer with a bare "Not Found", this needs another signal.
+ * Whether a refused write says in words that the token may not touch
+ * workflow files. A fine-grained token without the Workflows permission
+ * is not told so: creating the tree answers 403, "Resource not accessible
+ * by personal access token" (measured 2026-10-09), and the push finds out
+ * by sending the tree again without those files (`GitHubBackend.push`).
+ * This is for the wordings that do name it, as git's own refusal of a
+ * classic token does; none has been seen from this API.
  */
 export function isWorkflowsRefusal(status: number, message: string): boolean {
 	return (status === 403 || status === 404 || status === 422) && /workflow/i.test(message);

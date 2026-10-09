@@ -376,9 +376,206 @@ describe("a push to GitHub", () => {
 		expect(github.writes().filter((line) => line === "POST /git/blobs").length).toBe(1);
 	});
 
-	test("a refusal over workflow files is told as that, wherever GitHub gives it: the tree, the commit, or the branch", async () => {
+	/** What GitHub answers to a fine-grained token without the Workflows permission (measured 2026-10-09). */
+	const refusesWorkflows = (request: SentRequest) => {
+		if (request.method !== "POST" || request.path !== "/git/trees") return undefined;
+		const tree = (request.body as { tree: { path: string; sha?: string | null }[] }).tree;
+		return tree.some((entry) => entry.path.startsWith(".github/workflows/") && entry.sha !== null)
+			? respond(403, { message: "Resource not accessible by personal access token" })
+			: undefined;
+	};
+
+	test("workflow files a token may not write are left out, told to the caller, and the rest is sent", async () => {
+		const { github, backend } = setup();
+		const base = github.commit({ "a.md": "A", ".github/workflows/old.yml": "old", ".github/workflows/gone.yml": "gone" });
+		const entries = await entriesOf(backend);
+		github.before = refusesWorkflows;
+		const refused: string[] = [];
+		const told = (path: string, content: string, replaces?: RemoteEntry): PushFile => ({
+			...file(path, content, replaces),
+			refused: (reason) => refused.push(`${path} ${reason}`),
+		});
+
+		const result = await backend.push({
+			baseRevision: base,
+			writes: [
+				told(".github/workflows/new.yml", "on: push\n"),
+				told(".github/workflows/old.yml", "changed", entries.get(".github/workflows/old.yml")),
+				told(".github/workflows/sub/README.md", "any file below the folder"),
+				told(".GitHub/Workflows/x.yml", "not the folder GitHub means"),
+				told(".github/other.yml", "beside the folder"),
+				told("b.md", "B"),
+			],
+			deletes: [listed(entries, ".github/workflows/gone.yml")],
+		});
+
+		expect(result.status).toBe("pushed");
+		if (result.status !== "pushed") return;
+		expect(refused).toEqual([
+			".github/workflows/new.yml workflows",
+			".github/workflows/old.yml workflows",
+			".github/workflows/sub/README.md workflows",
+		]);
+		expect(result.written.map((entry) => entry.path)).toEqual([".GitHub/Workflows/x.yml", ".github/other.yml", "b.md"]);
+		// Removing a workflow file needs no permission, and went through.
+		expect([...github.files().keys()].sort()).toEqual(
+			[".GitHub/Workflows/x.yml", ".github/other.yml", ".github/workflows/old.yml", "a.md", "b.md"].sort(),
+		);
+		expect(github.text(".github/workflows/old.yml")).toBe("old");
+		expect(github.headCommit()?.message.split("\n")[0]).toBe("Sync Evo: unnamed device (3 added, 1 deleted)");
+	});
+
+	test("a push of nothing but a workflow file the token may not write makes no commit, once a blob shows the token can write", async () => {
+		const { github, backend } = setup();
+		const base = github.commit({ "a.md": "A" });
+		github.before = refusesWorkflows;
+		let refused = 0;
+
+		const result = await backend.push({
+			baseRevision: base,
+			writes: [{ ...file(".github/workflows/ci.yml", "on: push\n"), refused: () => void (refused += 1) }],
+			deletes: [],
+		});
+
+		expect(result.status).toBe("unchanged");
+		expect(refused).toBe(1);
+		expect(github.head).toBe(base);
+		expect(github.writes()).toEqual(["POST /git/trees", "POST /git/blobs"]);
+	});
+
+	test("a token that may not write at all fails the push, also when a workflow file is among the files", async () => {
+		for (const writes of [
+			[file(".github/workflows/ci.yml", "on: push\n"), file("b.md", "B")],
+			[file(".github/workflows/ci.yml", "on: push\n")],
+		]) {
+			const { github, backend } = setup();
+			const base = github.commit({ "a.md": "A" });
+			github.before = (request: SentRequest) =>
+				request.method === "POST" ? respond(403, { message: "Resource not accessible by personal access token" }) : undefined;
+
+			expect(await kindOf(backend.push({ baseRevision: base, writes, deletes: [] }))).toBe("forbidden");
+			expect(github.head).toBe(base);
+		}
+	});
+
+	test("a later tree of nothing but workflow files is left out, and the commit is of the trees before it", async () => {
+		const { github, backend } = setup();
+		const base = github.commit({ "a.md": "A" });
+		github.before = refusesWorkflows;
+		const refused: string[] = [];
+		// Two of these fill a tree, so the workflow file is alone in the third.
+		const big = (letter: string) => letter.repeat(INLINE_FILE_BYTES - 10);
+
+		const result = await backend.push({
+			baseRevision: base,
+			writes: [
+				file("one.md", big("1")),
+				file("two.md", big("2")),
+				file("three.md", big("3")),
+				file("four.md", big("4")),
+				{ ...file(".github/workflows/ci.yml", big("w")), refused: () => refused.push("ci.yml") },
+			],
+			deletes: [],
+		});
+
+		expect(result.status).toBe("pushed");
+		if (result.status !== "pushed") return;
+		expect(refused).toEqual(["ci.yml"]);
+		expect(result.written.map((entry) => entry.path)).toEqual(["one.md", "two.md", "three.md", "four.md"]);
+		expect([...github.files().keys()].sort()).toEqual(["a.md", "four.md", "one.md", "three.md", "two.md"]);
+		// Two trees that pass, the one that is refused, and the blob that shows the token can write.
+		expect(github.writes()).toEqual([
+			"POST /git/trees",
+			"POST /git/trees",
+			"POST /git/trees",
+			"POST /git/blobs",
+			"POST /git/commits",
+			"PATCH /git/refs/heads/main",
+		]);
+	});
+
+	test("an empty workflow file, which goes as a blob, is left out the same", async () => {
+		const { github, backend } = setup();
+		const base = github.commit({ "a.md": "A" });
+		github.before = refusesWorkflows;
+		let refused = 0;
+
+		const result = await backend.push({
+			baseRevision: base,
+			writes: [{ ...file(".github/workflows/empty.yml", ""), refused: () => void (refused += 1) }, file("b.md", "B")],
+			deletes: [],
+		});
+
+		expect(result.status).toBe("pushed");
+		expect(refused).toBe(1);
+		expect([...github.files().keys()].sort()).toEqual(["a.md", "b.md"]);
+	});
+
+	test("a second try that fails for another reason fails the push with that reason", async () => {
+		const { github, backend } = setup();
+		const base = github.commit({ "a.md": "A" });
+		let trees = 0;
+		github.before = (request: SentRequest) => {
+			if (request.method !== "POST" || request.path !== "/git/trees") return undefined;
+			trees += 1;
+			return trees === 1 ? respond(403, { message: "Resource not accessible by personal access token" }) : respond(500, { message: "boom" });
+		};
+		let refused = 0;
+
+		const push = backend.push({
+			baseRevision: base,
+			writes: [{ ...file(".github/workflows/ci.yml", "on: push\n"), refused: () => void (refused += 1) }, file("b.md", "B")],
+			deletes: [],
+		});
+
+		expect(await kindOf(push)).toBe("unreachable");
+		expect(refused).toBe(0);
+		expect(github.head).toBe(base);
+	});
+
+	test("a refusal of a tree that names workflow files in words is handled the same, and stands when no such file is in the tree", async () => {
+		const words = "refusing to allow a Personal Access Token to create or update workflow `.github/workflows/ci.yml` without `workflow` scope";
+		const refuses = (request: SentRequest) => {
+			if (request.method !== "POST" || request.path !== "/git/trees") return undefined;
+			const tree = (request.body as { tree: { path: string }[] }).tree;
+			return tree.some((entry) => entry.path.startsWith(".github/workflows/")) ? respond(404, { message: words }) : undefined;
+		};
+		const { github, backend } = setup();
+		const base = github.commit({ "a.md": "A" });
+		github.before = refuses;
+		let refused = 0;
+		const result = await backend.push({
+			baseRevision: base,
+			writes: [{ ...file(".github/workflows/ci.yml", "on: push\n"), refused: () => void (refused += 1) }, file("b.md", "B")],
+			deletes: [],
+		});
+		expect(result.status).toBe("pushed");
+		expect(refused).toBe(1);
+		expect(github.text("b.md")).toBe("B");
+
+		const other = setup();
+		const otherBase = other.github.commit({ "a.md": "A" });
+		other.github.before = (request: SentRequest) =>
+			request.method === "POST" && request.path === "/git/trees" ? respond(404, { message: words }) : undefined;
+		expect(await kindOf(other.backend.push({ baseRevision: otherBase, writes: [file("b.md", "B")], deletes: [] }))).toBe(
+			"workflows-permission",
+		);
+	});
+
+	test("a tree refused with no workflow file in it fails the push", async () => {
+		const { github, backend } = setup();
+		const base = github.commit({ "a.md": "A" });
+		github.before = (request: SentRequest) =>
+			request.method === "POST" && request.path === "/git/trees"
+				? respond(403, { message: "Resource not accessible by personal access token" })
+				: undefined;
+
+		expect(await kindOf(backend.push({ baseRevision: base, writes: [file("b.md", "B")], deletes: [] }))).toBe("forbidden");
+		expect(github.writes()).toEqual(["POST /git/trees"]);
+	});
+
+	test("a refusal that names workflow files where no file can be left out is told as that: the commit, or the branch", async () => {
 		const steps = [
-			["POST", "/git/trees"],
 			["POST", "/git/commits"],
 			["PATCH", "/git/refs/heads/main"],
 		] as const;

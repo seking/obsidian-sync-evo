@@ -302,6 +302,7 @@ describe("how a push ended", () => {
 					leftOut: [
 						{ path: "grown.mov", reason: "too-large" },
 						{ path: "big.mov", reason: "refused-size" },
+						{ path: ".github/workflows/ci.yml", reason: "refused-workflows" },
 						{ path: "a.md", reason: "gone" },
 					],
 				}),
@@ -309,11 +310,15 @@ describe("how a push ended", () => {
 			).details;
 		expect(said(t)).toEqual([
 			"1 file was not sent: it grew past 50 MB while the push ran. Files over 50 MB are not synced:\ngrown.mov",
-			"1 file was not sent: GitHub refused it as too large. The other files were sent. Make this file smaller or move it out of the vault. A file the remote does not hold yet is also left alone once it is in .gitignore. If it is a conflict copy, check its content and then delete it:\nbig.mov",
+			"1 file was not sent: GitHub refused it as too large. Make this file smaller or move it out of the vault. A file the remote does not hold yet is also left alone once it is in .gitignore. If it is a conflict copy, check its content and then delete it:\nbig.mov",
+			"1 file was not sent: adding or changing a file under .github/workflows/ needs the Workflows read and write permission on the token. Give the token that permission and the next sync sends it. Otherwise, put this file back as it was and change it on a device that has git. If it is a conflict copy, check its content and then delete it:\n.github/workflows/ci.yml",
 			"1 file was left out: it changed or could not be read while the push ran, or an editor could not save it. The next push looks at it again:\na.md",
 		]);
+		expect(said(ja)[2]).toBe(
+			"1 件のファイルを、送信していません。.github/workflows/ の下のファイルを足すか変えるには、トークンに Workflows の読み取りと書き込みの権限が要ります。トークンに権限を足すと、次の同期で送信します。足さない時は、このファイルを元の内容に戻して、変更は git が使えるデバイスで行ってください。競合で残した別名のファイルなら、中身を確かめてから削除してください：\n.github/workflows/ci.yml",
+		);
 		expect(said(ja)[1]).toBe(
-			"1 件のファイルを、送信していません。GitHub が、大きすぎるとして受け付けませんでした。ほかのファイルは送信しました。このファイルは、小さくするか、保管庫の外へ移してください。保存先にまだ無いファイルは、.gitignore に足しても送らなくなります。競合で残した別名のファイルなら、中身を確かめてから削除してください：\nbig.mov",
+			"1 件のファイルを、送信していません。GitHub が、大きすぎるとして受け付けませんでした。このファイルは、小さくするか、保管庫の外へ移してください。保存先にまだ無いファイルは、.gitignore に足しても送らなくなります。競合で残した別名のファイルなら、中身を確かめてから削除してください：\nbig.mov",
 		);
 	});
 

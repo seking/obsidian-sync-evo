@@ -86,6 +86,23 @@ export const TREE_CHUNK_BYTES = 3 * 1024 * 1024;
  */
 export const INLINE_FILE_BYTES = 1024 * 1024;
 
+/** Where GitHub keeps workflow files. Spelled exactly so: `.GitHub/Workflows/` is not refused. */
+const WORKFLOWS_FOLDER = ".github/workflows/";
+
+/**
+ * Whether the change adds or changes a file that needs the Workflows
+ * permission: any file below the folder, of any name and at any depth.
+ * Removing one does not need it (measured 2026-10-09).
+ */
+function isWorkflowWrite(change: TreeChange): boolean {
+	return change.path.startsWith(WORKFLOWS_FOLDER) && !("sha" in change && change.sha === null);
+}
+
+/** A "no" for lack of permission, in either of the forms it is told in. */
+function isRefusal(error: unknown): boolean {
+	return error instanceof BackendError && (error.kind === "forbidden" || error.kind === "workflows-permission");
+}
+
 const CONTROL_CHARACTER = /[\u0000-\u0008\u000b\u000e-\u001f]/;
 
 // What a path and the fields around it add to the body of a request.
@@ -251,10 +268,44 @@ export class GitHubBackend implements Backend {
 		let current = parent.treeSha;
 		let chunk: TreeChange[] = [];
 		let chunkBytes = 0;
+		// The files whose entries are in a tree or a chunk, by path, and
+		// what was noted of them: taken back when the tree is refused for them.
+		const sent = new Map<string, PushFile>();
+		const changes: CommitChange[] = removals.map((removal) => ({ kind: "deleted", path: removal.path }));
+		const written: RemoteEntry[] = [];
 		const flush = async (): Promise<void> => {
 			if (chunk.length === 0) return;
 			this.throwIfStopped();
-			current = await this.client.createTree(current, chunk);
+			try {
+				current = await this.client.createTree(current, chunk);
+			} catch (error) {
+				const kept = chunk.filter((change) => !isWorkflowWrite(change));
+				if (kept.length === chunk.length || !isRefusal(error)) throw error;
+				// GitHub refuses a tree that adds or changes a file under
+				// `.github/workflows/` to a token without the Workflows
+				// permission, with the words it has for any lack of
+				// permission. The same tree without those files tells:
+				// taken, and it was them. With nothing else in the tree,
+				// a blob tells whether the token may write at all.
+				this.throwIfStopped();
+				try {
+					if (kept.length > 0) current = await this.client.createTree(current, kept);
+					else await this.client.createBlob(new Uint8Array());
+				} catch (second) {
+					if (!isRefusal(second)) throw second;
+					throw error;
+				}
+				for (const change of chunk) {
+					if (!isWorkflowWrite(change)) continue;
+					const drop = (list: { path: string }[]): void => {
+						const at = list.findIndex((entry) => entry.path === change.path);
+						if (at >= 0) list.splice(at, 1);
+					};
+					drop(written);
+					drop(changes);
+					sent.get(change.path)?.refused?.("workflows");
+				}
+			}
 			chunk = [];
 			chunkBytes = 0;
 		};
@@ -272,8 +323,6 @@ export class GitHubBackend implements Backend {
 		// written is not documented.
 		if (targets.some((target) => target.swaps)) await flush();
 
-		const changes: CommitChange[] = removals.map((removal) => ({ kind: "deleted", path: removal.path }));
-		const written: RemoteEntry[] = [];
 		// The blobs this push has made, so that many files of one content
 		// (empty ones, most of all) cost one request.
 		const blobs = new Set<string>();
@@ -323,6 +372,7 @@ export class GitHubBackend implements Backend {
 				}
 				await add({ path, mode, sha: hash }, 0);
 			}
+			sent.set(path, file);
 			written.push(entry);
 			changes.push({ kind: target.existing === undefined ? "added" : "modified", path });
 		}

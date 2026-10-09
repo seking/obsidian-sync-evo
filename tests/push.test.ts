@@ -10,7 +10,7 @@
  */
 
 import { describe, expect, test } from "vitest";
-import { BackendError, type EntryKind, type ListResult } from "../src/core/backend";
+import { BackendError, type EntryKind, type ListResult, type PushRefusal } from "../src/core/backend";
 import { conflictCopyPath } from "../src/core/conflict-name";
 import { readNotices } from "../src/core/notices";
 import type { PullAnswer, PullConfirmRequest, PullDeps, PullResult } from "../src/core/pull";
@@ -47,6 +47,8 @@ class TestBackend extends MemoryBackend {
 	pushes = 0;
 	/** Paths whose content the remote will not take because of its size. */
 	readonly refusesForSize = new Set<string>();
+	/** Whether the credentials lack the permission for workflow files. */
+	refusesWorkflows = false;
 	/** How many times it was asked whether one revision is built on another. */
 	checks = 0;
 	/** Whether that question fails, as on a connection that drops. */
@@ -73,17 +75,20 @@ class TestBackend extends MemoryBackend {
 		this.pushes += 1;
 		// A refused file was read, and then not taken: the same as the
 		// GitHub backend does with a blob that is too large for GitHub.
-		const writes = request.writes.map((file) =>
-			this.refusesForSize.has(file.path)
-				? {
+		const refusal = (path: string): PushRefusal | undefined =>
+			this.refusesForSize.has(path) ? "too-large" : this.refusesWorkflows && path.startsWith(".github/workflows/") ? "workflows" : undefined;
+		const writes = request.writes.map((file) => {
+			const reason = refusal(file.path);
+			return reason === undefined
+				? file
+				: {
 						...file,
 						read: async () => {
-							if ((await file.read()) !== null) file.refused?.("too-large");
+							if ((await file.read()) !== null) file.refused?.(reason);
 							return null;
 						},
-					}
-				: file,
-		);
+					};
+		});
 		const pushed = await super.push({ ...request, writes });
 		if (pushed.status !== "pushed" || pushed.listing === undefined) return pushed;
 		const entries = pushed.listing.entries.map((entry) => ({ ...entry, kind: this.kinds.get(entry.path) ?? entry.kind }));
@@ -685,6 +690,31 @@ describe("content that changes while the push runs", () => {
 		// Small enough again, and it is sent.
 		h.backend.refusesForSize.clear();
 		expect(await h.push()).toMatchObject({ outcome: "pushed", counts: { added: 1, modified: 1 }, leftOut: [] });
+		await expectNothingToPull(h);
+	});
+
+	test("a workflow file the token may not write is left out and told, the rest is sent, and it is sent once the token may", async () => {
+		const h = await synced({ "a.md": "A", ".github/workflows/ci.yml": "old" });
+		h.vault.put("a.md", "A2");
+		h.vault.put(".github/workflows/ci.yml", "changed on this device");
+		h.backend.refusesWorkflows = true;
+
+		const result = await h.push();
+
+		expect(result).toMatchObject({
+			outcome: "pushed",
+			counts: { added: 0, modified: 1, deleted: 0 },
+			leftOut: [{ path: ".github/workflows/ci.yml", reason: "refused-workflows" }],
+		});
+		expect(await h.remote()).toEqual({ "a.md": "A2", ".github/workflows/ci.yml": "old" });
+		expect((await h.records())[".github/workflows/ci.yml"]).toBe(blobHash("old"));
+		expect(await readPushFailure(h.store)).toBeNull();
+		// The change stays on this device, and a pull does not take it back.
+		expect((await h.pull()).counts).toMatchObject({ fetched: 0, deleted: 0, conflicts: 0 });
+		expect(h.vault.text(".github/workflows/ci.yml")).toBe("changed on this device");
+
+		h.backend.refusesWorkflows = false;
+		expect(await h.push()).toMatchObject({ outcome: "pushed", counts: { modified: 1 }, leftOut: [] });
 		await expectNothingToPull(h);
 	});
 

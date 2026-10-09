@@ -74,6 +74,9 @@ export interface ArchiveContents {
 	read(path: string): Uint8Array;
 }
 
+/** Why a remote would not take one file of a push (`PushFile.refused`). */
+export type PushRefusal = "too-large" | "workflows";
+
 export interface PushFile {
 	/** Path as it should appear on the remote. */
 	readonly path: string;
@@ -100,13 +103,17 @@ export interface PushFile {
 	 */
 	read(): Promise<Uint8Array | null>;
 	/**
-	 * Told when the remote would not take the content that `read` gave,
-	 * because of its size. The file is left out of this push like one that
-	 * read as `null`, and everything else is sent. A remote's own limit is
-	 * not always known before it is met, and one file must not keep the
-	 * others from being sent.
+	 * Told when the remote would not take the file that `read` gave. The
+	 * file is left out of this push like one that read as `null`, and
+	 * everything else is sent: what a remote refuses is not always known
+	 * before it is met, and one file must not keep the others from being
+	 * sent.
+	 *
+	 * "too-large": the content, because of its size. "workflows": the
+	 * path, because the credentials lack the permission the host asks for
+	 * workflow files.
 	 */
-	refused?(reason: "too-large"): void;
+	refused?(reason: PushRefusal): void;
 }
 
 /** A revision that was made and is not the head of the remote yet. */

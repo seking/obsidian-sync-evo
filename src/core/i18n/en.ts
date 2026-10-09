@@ -286,8 +286,12 @@ export const en = baseCatalog({
 		other: "{count} files were not sent: they grew past {limit} MB while the push ran. Files over {limit} MB are not synced:\n{list}",
 	},
 	"push.refusedSize": {
-		one: "{count} file was not sent: GitHub refused it as too large. The other files were sent. Make this file smaller or move it out of the vault. A file the remote does not hold yet is also left alone once it is in .gitignore. If it is a conflict copy, check its content and then delete it:\n{list}",
-		other: "{count} files were not sent: GitHub refused them as too large. The other files were sent. Make these files smaller or move them out of the vault. A file the remote does not hold yet is also left alone once it is in .gitignore. If one is a conflict copy, check its content and then delete it:\n{list}",
+		one: "{count} file was not sent: GitHub refused it as too large. Make this file smaller or move it out of the vault. A file the remote does not hold yet is also left alone once it is in .gitignore. If it is a conflict copy, check its content and then delete it:\n{list}",
+		other: "{count} files were not sent: GitHub refused them as too large. Make these files smaller or move them out of the vault. A file the remote does not hold yet is also left alone once it is in .gitignore. If one is a conflict copy, check its content and then delete it:\n{list}",
+	},
+	"push.refusedWorkflows": {
+		one: "{count} file was not sent: adding or changing a file under .github/workflows/ needs the Workflows read and write permission on the token. Give the token that permission and the next sync sends it. Otherwise, put this file back as it was and change it on a device that has git. If it is a conflict copy, check its content and then delete it:\n{list}",
+		other: "{count} files were not sent: adding or changing a file under .github/workflows/ needs the Workflows read and write permission on the token. Give the token that permission and the next sync sends them. Otherwise, put these files back as they were and change them on a device that has git. If one is a conflict copy, check its content and then delete it:\n{list}",
 	},
 	"push.leftOut": {
 		one: "{count} file was left out: it changed or could not be read while the push ran, or an editor could not save it. The next push looks at it again:\n{list}",

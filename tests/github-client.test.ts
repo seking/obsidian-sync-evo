@@ -413,7 +413,9 @@ describe("writing", () => {
 	});
 
 	test("the workflows check goes by status and wording only", () => {
-		expect(isWorkflowsRefusal(403, "Resource not accessible: Workflows permission required")).toBe(true);
+		expect(isWorkflowsRefusal(403, "refusing to allow a Personal Access Token to create or update workflow")).toBe(true);
+		// What a fine-grained token without the permission is told: not by this.
+		expect(isWorkflowsRefusal(403, "Resource not accessible by personal access token")).toBe(false);
 		expect(isWorkflowsRefusal(404, "Not Found")).toBe(false);
 		expect(isWorkflowsRefusal(500, "workflow")).toBe(false);
 	});

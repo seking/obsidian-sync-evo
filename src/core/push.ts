@@ -232,10 +232,18 @@ export type PullFirstReason =
  *
  * "too-large": the file grew past the size limit after the push was
  * planned. "refused-size": the remote would not take its content because
- * of its size, though it is within the limit. The next push meets the
- * same answer unless the file has changed.
+ * of its size, though it is within the limit. "refused-workflows": the
+ * remote would not take a workflow file from these credentials. The next
+ * push meets the same answer unless something has changed.
  */
-export type LeftOutReason = "save-failed" | "gone" | "too-large" | "refused-size" | "unreadable" | "not-downloaded";
+export type LeftOutReason =
+	| "save-failed"
+	| "gone"
+	| "too-large"
+	| "refused-size"
+	| "refused-workflows"
+	| "unreadable"
+	| "not-downloaded";
 
 export interface LeftOutFile {
 	readonly path: string;
@@ -628,9 +636,9 @@ class PushRun {
 						return leave("unreadable");
 					}
 				},
-				refused: () => {
+				refused: (reason) => {
 					stats.delete(pathKey(send.path));
-					leave("refused-size");
+					leave(reason === "workflows" ? "refused-workflows" : "refused-size");
 				},
 			};
 		});
@@ -662,7 +670,7 @@ class PushRun {
 		if (pushed.status === "unchanged") {
 			// The user has answered for this remote, also when the remote
 			// then took none of the files: not asked again for that.
-			if (this.leftOut.some((file) => file.reason === "refused-size")) await store.setMeta(FIRST_PUSH_CONFIRMED_KEY, true);
+			if (this.leftOut.some((file) => file.reason === "refused-size" || file.reason === "refused-workflows")) await store.setMeta(FIRST_PUSH_CONFIRMED_KEY, true);
 			if (started === 0) return this.result("nothing-to-push");
 			// The first commit was made, and nothing could be read of the rest.
 			await store.setMeta(FIRST_PUSH_CONFIRMED_KEY, true);

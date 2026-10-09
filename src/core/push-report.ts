@@ -189,6 +189,10 @@ export function pushReport(t: Translate, result: PushRunResult, options: PushRep
 	if (refusedSize.length > 0) {
 		details.push(t("push.refusedSize", { count: refusedSize.length, list: listText(t, refusedSize) }));
 	}
+	const workflows = leftOut("refused-workflows");
+	if (workflows.length > 0) {
+		details.push(t("push.refusedWorkflows", { count: workflows.length, list: listText(t, workflows) }));
+	}
 	const others = leftOut("save-failed", "gone", "unreadable");
 	if (others.length > 0) {
 		details.push(t("push.leftOut", { count: others.length, list: listText(t, others) }));
