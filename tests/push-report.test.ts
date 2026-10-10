@@ -21,6 +21,7 @@ import {
 	pushProgressText,
 	pushQuestion,
 	pushReport,
+	sectionAddedText,
 } from "../src/core/push-report";
 
 const t = translatorFor("en");
@@ -158,6 +159,176 @@ describe("the question before the first push to a remote without commits", () =>
 		expect(pushQuestion(ja, target, request).parts[1]?.text).toContain("保存先は空で");
 		// Not when the remote has commits.
 		expect(pushQuestion(t, target, { ...request, remoteEmpty: false }).parts).toHaveLength(2);
+	});
+});
+
+describe("the section a push added to .gitignore", () => {
+	const lines = ["# >>> Sync Evo: start >>>", "/.trash/", ".DS_Store", "# <<< Sync Evo: end <<<"];
+	const added = { lines, created: false, tracked: [] };
+	const outside = "Nothing else in .gitignore was changed.";
+	const howTo =
+		"You can change these lines in the settings of Sync Evo. If you do not want them, delete the lines in between and keep the first and the last line (the two that start with #): if those two are deleted as well, the next sync adds the lines again.";
+	const request = {
+		firstPush: { added: ["new.md"], modified: [".gitignore"], deleted: [] },
+		remoteEmpty: false,
+		deletions: null,
+		recordCount: 2,
+	};
+
+	test("the question before the first push shows the lines, before the lists, and what a no leaves behind", () => {
+		const question = pushQuestion(t, target, { ...request, sectionAdded: added });
+		expect(question.parts.slice(1)).toEqual([
+			{
+				text: "Sync Evo added the lines below to the top of the .gitignore of this vault. They are the lines Sync Evo manages, and say what is not synced:",
+				paths: { shown: lines, more: 0 },
+			},
+			{ text: outside },
+			{ text: "This push sends the change to the remote." },
+			{ text: howTo },
+			{ text: "1 file to add:", paths: { shown: ["new.md"], more: 0 } },
+			{ text: "1 file to modify:", paths: { shown: [".gitignore"], more: 0 } },
+		]);
+		expect(question.note).toBe(
+			"If you cancel, nothing is sent. The lines added to .gitignore stay on this device, and the next push sends them.",
+		);
+		// Without it, the question is the one it was.
+		expect(pushQuestion(t, target, request).parts).toHaveLength(3);
+		expect(question.parts).toHaveLength(7);
+		expect(pushQuestion(t, target, request).note).toBe("If you cancel, nothing is sent and nothing is changed.");
+	});
+
+	test("the files of the remote the lines match are counted, with a few of them", () => {
+		const tracked = Array.from({ length: 7 }, (_, index) => `.trash/${index}.md`);
+		const question = pushQuestion(t, target, { ...request, sectionAdded: { ...added, tracked } });
+		expect(question.parts[5]).toEqual({
+			text: "7 files that these lines match are already on the remote, so they stay synced:",
+			paths: { shown: tracked.slice(0, 5), more: 2 },
+		});
+		const one = pushQuestion(t, target, { ...request, sectionAdded: { ...added, tracked: [".DS_Store"] } });
+		expect(one.parts[5]?.text).toBe("1 file that these lines match is already on the remote, so it stays synced:");
+	});
+
+	test("a .gitignore that was made says so, and nothing about the rest of the file; no empty one is promised for an empty remote", () => {
+		const question = pushQuestion(t, target, { ...request, remoteEmpty: true, sectionAdded: { ...added, created: true } });
+		expect(question.parts.slice(1, 5).map((part) => part.text)).toEqual([
+			"The remote is empty: it has no commits yet. A first commit with the .gitignore alone is made, and the rest is sent after it.",
+			"This vault had no .gitignore, so Sync Evo created one with the lines below. They are the lines Sync Evo manages, and say what is not synced:",
+			"This push sends the change to the remote.",
+			howTo,
+		]);
+	});
+
+	test("the question in Japanese", () => {
+		const tracked = [".trash/old.md"];
+		const question = pushQuestion(ja, target, { ...request, sectionAdded: { ...added, tracked } });
+		expect(question.parts.slice(1, 6)).toEqual([
+			{
+				text: "この保管庫の .gitignore の先頭に、下の行を足しました。Sync Evo が管理する行で、同期しない物を決めます：",
+				paths: { shown: lines, more: 0 },
+			},
+			{ text: ".gitignore のほかの部分は、変えていません。" },
+			{ text: "この変更は、この送信で保存先に届きます。" },
+			{
+				text: "これらの行は、Sync Evo の設定画面で変えられます。要らない時は、最初と最後の行（# で始まる2行）だけを残して、間の行を消してください。その2行も消すと、次の同期でまた足します。",
+			},
+			{ text: "これらの行に当たるファイルが、保存先に 1 件あります。これらは同期を続けます：", paths: { shown: tracked, more: 0 } },
+		]);
+		expect(question.note).toBe("やめた場合は、何も送信しません。.gitignore に足した行は、このデバイスに残り、次の送信で届きます。");
+		const created = pushQuestion(ja, target, { ...request, sectionAdded: { ...added, created: true } });
+		expect(created.parts[1]?.text).toBe(
+			"この保管庫に .gitignore が無かったので、下の行で作りました。Sync Evo が管理する行で、同期しない物を決めます：",
+		);
+	});
+
+	test("a push that asked nothing tells it with its result, first, with every line", () => {
+		const many = { ...added, lines: Array.from({ length: 15 }, (_, index) => `line ${index}`) };
+		const report = pushReport(
+			t,
+			result({ counts: { added: 0, modified: 1, deleted: 0 }, held: ["a.md"], sectionAdded: { ...many, asked: false, sent: true } }),
+			options,
+		);
+		expect(report.details).toHaveLength(2);
+		expect(report.details[0]).toBe(
+			[
+				"Sync Evo added the lines below to the top of the .gitignore of this vault. They are the lines Sync Evo manages, and say what is not synced:",
+				...many.lines,
+				outside,
+				"This push sent the change to the remote.",
+				howTo,
+			].join("\n"),
+		);
+	});
+
+	test("with the files of the remote the lines match, a few of them", () => {
+		const tracked = Array.from({ length: 6 }, (_, index) => `.trash/${index}.md`);
+		const text = sectionAddedText(t, { ...added, tracked }, "sent");
+		expect(text.endsWith(`\n6 files that these lines match are already on the remote, so they stay synced:\n${tracked.slice(0, 5).join("\n")}\n…and 1 more`)).toBe(true);
+	});
+
+	test("a push whose question showed it and that sent it does not tell it again", () => {
+		expect(pushReport(t, result({ sectionAdded: { ...added, asked: true, sent: true } }), options).details).toEqual([]);
+	});
+
+	test("whether it was sent is the push's to say, not how the push ended: the first commit of a remote holds it though the rest was turned down", () => {
+		const turnedDown = result({ outcome: "pull-first", reason: "remote-moved", revision: null, sectionAdded: { ...added, asked: false, sent: true } });
+		expect(pushReport(t, turnedDown, options).details[0]).toContain("This push sent the change to the remote.");
+		// And then it is not told again after a question that showed it.
+		const asked = result({ outcome: "pull-first", reason: "remote-moved", revision: null, sectionAdded: { ...added, asked: true, sent: true } });
+		expect(pushReport(t, asked, options).details).toEqual([]);
+	});
+
+	test("a push that failed does not know whether it was sent, and says so", () => {
+		expect(sectionAddedText(t, added, "unknown")).toBe(
+			[
+				"Sync Evo added the lines below to the top of the .gitignore of this vault. They are the lines Sync Evo manages, and say what is not synced:",
+				...lines,
+				outside,
+				"Whether this push sent the change to the remote is not known. If it did not, the next push sends it.",
+				howTo,
+			].join("\n"),
+		);
+		expect(sectionAddedText(ja, added, "unknown")).toContain(
+			"この変更が、この送信で保存先に届いたかは、分かりません。届いていなければ、次の送信で届きます。",
+		);
+	});
+
+	test.each<[string, Partial<PushRunResult>]>([
+		["declined", { outcome: "declined", revision: null }],
+		["stopped", { outcome: "cancelled", revision: null }],
+		["turned down by the remote", { outcome: "pull-first", reason: "remote-moved", revision: null }],
+		["left without anything sent", { outcome: "nothing-to-push", revision: null }],
+		["sent without the .gitignore", { leftOut: [{ path: ".gitignore", reason: "save-failed" }] }],
+	])("a push that was %s tells it all the same, as not sent yet, also after a question that showed it", (_name, ended) => {
+		for (const asked of [true, false]) {
+			const [first] = pushReport(t, result({ ...ended, sectionAdded: { ...added, asked, sent: false } }), options).details;
+			expect(first).toBe(
+				[
+					"Sync Evo added the lines below to the top of the .gitignore of this vault. They are the lines Sync Evo manages, and say what is not synced:",
+					...lines,
+					outside,
+					"The change has not been sent to the remote yet. The next push sends it.",
+					howTo,
+				].join("\n"),
+			);
+		}
+	});
+
+	test("the result in Japanese", () => {
+		expect(sectionAddedText(ja, { ...added, created: true, tracked: [".DS_Store"] }, "unsent")).toBe(
+			[
+				"この保管庫に .gitignore が無かったので、下の行で作りました。Sync Evo が管理する行で、同期しない物を決めます：",
+				...lines,
+				"この変更は、まだ保存先に届いていません。次の送信で届きます。",
+				"これらの行は、Sync Evo の設定画面で変えられます。要らない時は、最初と最後の行（# で始まる2行）だけを残して、間の行を消してください。その2行も消すと、次の同期でまた足します。",
+				"これらの行に当たるファイルが、保存先に 1 件あります。これらは同期を続けます：",
+				".DS_Store",
+			].join("\n"),
+		);
+		expect(sectionAddedText(ja, added, "sent")).toContain("この変更は、この送信で保存先に届きました。");
+	});
+
+	test("a push that added none says nothing of it", () => {
+		expect(pushReport(t, result(), options).details).toEqual([]);
 	});
 });
 

@@ -12,6 +12,9 @@
 import { describe, expect, test } from "vitest";
 import { BackendError, type EntryKind, type ListResult, type PushRefusal } from "../src/core/backend";
 import { conflictCopyPath } from "../src/core/conflict-name";
+import { defaultSectionLines } from "../src/core/exclusion";
+import { GITIGNORE_WRITE_KEY } from "../src/core/gitignore-file";
+import { SECTION_END, SECTION_START, withSection } from "../src/core/gitignore-section";
 import { readNotices } from "../src/core/notices";
 import type { PullAnswer, PullConfirmRequest, PullDeps, PullResult } from "../src/core/pull";
 import { runPull } from "../src/core/pull";
@@ -203,6 +206,10 @@ function harness(options: { caseSensitive?: boolean } = {}): Harness {
 		paths,
 		deviceName: "iPhone",
 		now,
+		// Off, unlike in the app: the tests below are about what a push
+		// sends, and each would otherwise also send a `.gitignore` with the
+		// section in it. The tests of the section turn it on (`ADDING`).
+		addSection: false,
 		confirm: async (request) => {
 			asked.push(request);
 			return typeof h.answer === "function" ? h.answer() : h.answer;
@@ -2748,5 +2755,861 @@ describe("what a push never turns into a deletion or an upload", () => {
 		h.vault.remove(".trash/kept.md");
 		expect(await h.push()).toMatchObject({ outcome: "pushed", counts: { deleted: 1 } });
 		expect(await h.remote()).toEqual({ "a.md": "A" });
+	});
+});
+
+// The harness leaves the section out of every push above. These are the
+// pushes of the app, which add it.
+const ADDING = { addSection: true } as const;
+
+describe("the section a push adds to a .gitignore that has none", () => {
+	const lines = defaultSectionLines(paths);
+	const shown = [SECTION_START, ...lines, SECTION_END];
+	const top = `${shown.join("\n")}\n`;
+
+	test("a push alone puts it at the top, changes nothing below it, and sends the file", async () => {
+		const h = await synced({ ".gitignore": "# mine\n*.log\n", "a.md": "A" });
+
+		const result = await h.push(ADDING);
+
+		expect(result).toMatchObject({ outcome: "pushed", counts: { added: 0, modified: 1, deleted: 0 } });
+		expect(h.vault.text(".gitignore")).toBe(`${top}# mine\n*.log\n`);
+		expect(h.vault.text(".gitignore")).toBe(withSection("# mine\n*.log\n", lines));
+		expect(await h.remote()).toEqual({ ".gitignore": `${top}# mine\n*.log\n`, "a.md": "A" });
+		expect(result.sectionAdded).toEqual({ lines: shown, created: false, tracked: [], asked: false, sent: true });
+		expect(await h.store.readMarkers()).toEqual([]);
+		await expectNothingToPull(h);
+		// Once: the file has the section now.
+		const again = await h.push(ADDING);
+		expect(again.outcome).toBe("nothing-to-push");
+		expect(again.sectionAdded).toBeUndefined();
+	});
+
+	test("a sync adds it after the pull, on top of the .gitignore the pull wrote", async () => {
+		const h = await synced({ ".gitignore": "*.log\n", "a.md": "A" });
+		h.backend.commit({ ".gitignore": "*.log\n*.tmp\n", "theirs.md": "T" });
+
+		const { pull, push } = await h.sync({ push: ADDING });
+
+		expect(pull).toMatchObject({ outcome: "completed", counts: { fetched: 2 } });
+		expect(push).toMatchObject({ outcome: "pushed", counts: { modified: 1 } });
+		expect(h.vault.text(".gitignore")).toBe(`${top}*.log\n*.tmp\n`);
+		expect((await h.remote())[".gitignore"]).toBe(`${top}*.log\n*.tmp\n`);
+		await expectNothingToPull(h);
+	});
+
+	test("a vault and a remote without a .gitignore get one that holds the section alone", async () => {
+		const h = await synced({ "a.md": "A" });
+
+		const result = await h.push(ADDING);
+
+		expect(result).toMatchObject({ outcome: "pushed", counts: { added: 1, modified: 0 } });
+		expect(result.sectionAdded).toEqual({ lines: shown, created: true, tracked: [], asked: false, sent: true });
+		expect(h.vault.text(".gitignore")).toBe(top);
+		expect(await h.remote()).toEqual({ ".gitignore": top, "a.md": "A" });
+		await expectNothingToPull(h);
+	});
+
+	test("not one byte outside it changes: a byte order mark, line ends of Windows, a last line without an end", async () => {
+		const text = "﻿# mine\r\n*.log\r\n!keep.log";
+		const h = await synced({ ".gitignore": text });
+
+		expect((await h.push(ADDING)).outcome).toBe("pushed");
+
+		const expected = `﻿${shown.join("\r\n")}\r\n# mine\r\n*.log\r\n!keep.log`;
+		const sent = h.backend.read(".gitignore") ?? new Uint8Array();
+		expect([...sent]).toEqual([...new TextEncoder().encode(expected)]);
+		expect([...(await h.vault.read(".gitignore"))]).toEqual([...sent]);
+	});
+
+	test("a pull alone never adds it", async () => {
+		const h = await synced({ ".gitignore": "*.log\n", "a.md": "A" });
+		h.backend.commit({ "theirs.md": "T" });
+
+		expect((await h.pull()).outcome).toBe("completed");
+
+		expect(h.vault.text(".gitignore")).toBe("*.log\n");
+		expect(h.vault.log).toEqual(["write theirs.md"]);
+	});
+
+	describe("is not added", () => {
+		/** Nothing was written to the `.gitignore`, and nothing of it was sent. */
+		async function expectLeft(h: Harness, text: string | undefined, remote: string | undefined): Promise<void> {
+			expect(h.vault.text(".gitignore")).toBe(text);
+			expect(h.vault.log.filter((line) => line.includes(".gitignore"))).toEqual([]);
+			expect((await h.remote())[".gitignore"]).toBe(remote);
+		}
+
+		test.each([
+			["an empty one", `${SECTION_START}\n${SECTION_END}\n*.log\n`],
+			["one the user moved down", `*.log\n${SECTION_START}\n/.trash/\n${SECTION_END}\n`],
+			["a broken one: a start without an end", `${SECTION_START}\n/.trash/\n*.log\n`],
+			["a broken one: two starts", `${SECTION_START}\n${SECTION_START}\n${SECTION_END}\n`],
+			["a broken one: an end alone", `*.log\n${SECTION_END}\n`],
+		])("to a file that has a section: %s", async (_name, text) => {
+			const h = await synced({ ".gitignore": text, "a.md": "A" });
+
+			const result = await h.push(ADDING);
+
+			expect(result.outcome).toBe("nothing-to-push");
+			expect(result.sectionAdded).toBeUndefined();
+			await expectLeft(h, text, text);
+		});
+
+		test("to a file over the size limit", async () => {
+			const text = `${"# a long comment\n".repeat(10)}*.log\n`;
+			const h = await synced({ ".gitignore": text, "a.md": "A" });
+
+			const result = await h.push({ ...ADDING, sizeLimit: 100 });
+
+			expect(result.sectionAdded).toBeUndefined();
+			await expectLeft(h, text, text);
+		});
+
+		test("to a file that would be over the size limit with it", async () => {
+			const h = await synced({ ".gitignore": "*.log\n", "a.md": "A" });
+
+			const result = await h.push({ ...ADDING, sizeLimit: 100 });
+
+			expect(result.sectionAdded).toBeUndefined();
+			await expectLeft(h, "*.log\n", "*.log\n");
+		});
+
+		test("to a file that is not text", async () => {
+			const bytes = new Uint8Array([0x2a, 0x2e, 0xff, 0xfe, 0x0a]);
+			const h = await synced({ ".gitignore": bytes, "a.md": "A" });
+
+			const result = await h.push(ADDING);
+
+			expect(result).toMatchObject({ outcome: "nothing-to-push" });
+			expect(result.sectionAdded).toBeUndefined();
+			expect([...(await h.vault.read(".gitignore"))]).toEqual([...bytes]);
+			expect(h.vault.log).toEqual([]);
+		});
+
+		test("where a folder has the name", async () => {
+			const h = await synced({ "a.md": "A" });
+			h.vault.makeFolder(".gitignore");
+
+			const result = await h.push(ADDING);
+
+			expect(result.sectionAdded).toBeUndefined();
+			expect(h.vault.log).toEqual([]);
+			expect((await h.vault.stat(".gitignore"))?.type).toBe("folder");
+		});
+
+		test("where the vault spells the file in another case", async () => {
+			const h = await synced({ "a.md": "A" });
+			h.vault.put(".GITIGNORE", "*.log\n");
+
+			const result = await h.push(ADDING);
+
+			expect(result.sectionAdded).toBeUndefined();
+			expect(h.vault.log).toEqual([]);
+			expect(h.vault.paths()).toEqual([".GITIGNORE", "a.md"]);
+		});
+
+		test("where a cloud drive has taken the file off the device", async () => {
+			const h = await synced({ ".gitignore": "*.log\n", "a.md": "A" });
+			h.vault.remove(".gitignore");
+			h.vault.put("..gitignore.icloud", "");
+
+			const result = await h.push(ADDING);
+
+			expect(result).toMatchObject({ outcome: "pull-first", reason: "gitignore-unreadable" });
+			expect(result.sectionAdded).toBeUndefined();
+			expect(h.vault.log).toEqual([]);
+			expect(h.vault.paths()).toEqual(["..gitignore.icloud", "a.md"]);
+		});
+
+		test("where the file cannot be read", async () => {
+			const h = await synced({ ".gitignore": "*.log\n", "a.md": "A" });
+			let reads = 0;
+			h.vault.before = (op, path) => {
+				if (op === "read" && path === ".gitignore" && reads++ === 0) throw new Error("locked");
+			};
+
+			const result = await h.push(ADDING);
+
+			expect(result.sectionAdded).toBeUndefined();
+			await expectLeft(h, "*.log\n", "*.log\n");
+		});
+
+		test("while a write of a pull that stopped is not settled: the push sends nothing", async () => {
+			const h = await synced({ ".gitignore": "*.log\n", "a.md": "A" });
+			await h.store.putMarker(makeMarker(".gitignore", blobHash("*.log\n"), blobHash("new"), false));
+			h.vault.put("b.md", "B");
+
+			const result = await h.push(ADDING);
+
+			expect(result).toMatchObject({ outcome: "pull-first", reason: "gitignore-unsettled" });
+			expect(result.sectionAdded).toBeUndefined();
+			expect(h.backend.pushes).toBe(0);
+			await expectLeft(h, "*.log\n", "*.log\n");
+		});
+
+		test("while an editor that has it open cannot save", async () => {
+			const h = await synced({ ".gitignore": "*.log\n", "a.md": "A" });
+			h.vault.openFailing(".gitignore");
+
+			const result = await h.push(ADDING);
+
+			expect(result).toMatchObject({ outcome: "pull-first", reason: "gitignore-unsettled" });
+			expect(result.sectionAdded).toBeUndefined();
+			expect(h.vault.text(".gitignore")).toBe("*.log\n");
+			expect(h.vault.log).toEqual(["save .gitignore"]);
+		});
+
+		test("what an editor had not saved is saved first, and the section goes on top of that", async () => {
+			const h = await synced({ ".gitignore": "*.log\n", "a.md": "A" });
+			h.vault.open(".gitignore", "*.log\n*.tmp\n");
+
+			expect((await h.push(ADDING)).outcome).toBe("pushed");
+
+			expect(h.vault.text(".gitignore")).toBe(`${top}*.log\n*.tmp\n`);
+			expect((await h.remote())[".gitignore"]).toBe(`${top}*.log\n*.tmp\n`);
+		});
+
+		test("by a push alone when another device has changed the .gitignore since the last pull", async () => {
+			const h = await synced({ ".gitignore": "*.log\n", "a.md": "A" });
+			h.backend.commit({ ".gitignore": "*.log\n*.tmp\n" });
+			h.vault.put("b.md", "B");
+
+			const result = await h.push(ADDING);
+
+			// The push would not send the file, and the section would be a
+			// change of this device alone: a conflict at the next pull.
+			expect(result).toMatchObject({ outcome: "pushed", counts: { added: 1, modified: 0 } });
+			expect(result.sectionAdded).toBeUndefined();
+			await expectLeft(h, "*.log\n", "*.log\n*.tmp\n");
+			// The sync after it pulls the file, and then adds the section.
+			const { pull, push } = await h.sync({ push: ADDING });
+			expect(pull).toMatchObject({ outcome: "completed", conflicts: [] });
+			expect(push?.sectionAdded).toMatchObject({ created: false });
+			expect((await h.remote())[".gitignore"]).toBe(`${top}*.log\n*.tmp\n`);
+		});
+
+		test("by a push alone when another device has added a .gitignore", async () => {
+			const h = await synced({ "a.md": "A" });
+			h.backend.commit({ ".gitignore": "*.tmp\n" });
+
+			const result = await h.push(ADDING);
+
+			expect(result.sectionAdded).toBeUndefined();
+			await expectLeft(h, undefined, "*.tmp\n");
+		});
+
+		test("before this device has pulled to the end", async () => {
+			const h = harness();
+			h.backend.commit({ "a.md": "A" });
+			h.vault.put("mine.md", "M");
+
+			const result = await h.push(ADDING);
+
+			expect(result).toMatchObject({ outcome: "pull-first", reason: "no-base" });
+			expect(result.sectionAdded).toBeUndefined();
+			expect(h.vault.snapshot()).toEqual({ "mine.md": "M" });
+		});
+
+		test("once the push was stopped", async () => {
+			const h = await synced({ ".gitignore": "*.log\n", "a.md": "A" });
+			const controller = new AbortController();
+			// Stopped after the push has begun, right before the section is due.
+			h.vault.before = (op, path) => {
+				if (op === "save" && path === ".gitignore") controller.abort();
+			};
+
+			const result = await h.push({ ...ADDING, signal: controller.signal });
+
+			expect(result.outcome).toBe("cancelled");
+			expect(result.sectionAdded).toBeUndefined();
+			await expectLeft(h, "*.log\n", "*.log\n");
+		});
+
+		test("by a sync whose pull the user declined: no push follows", async () => {
+			const h = harness();
+			h.backend.commit({ "a.md": "A" });
+			h.vault.put("a.md", "mine");
+			h.pullAnswer = "cancel";
+
+			const { pull, push } = await h.sync({ push: ADDING });
+
+			expect(pull.outcome).toBe("declined");
+			expect(push).toBeNull();
+			expect(h.vault.snapshot()).toEqual({ "a.md": "mine" });
+		});
+
+		test("by a sync whose pull was stopped", async () => {
+			const h = await synced({ ".gitignore": "*.log\n", "a.md": "A" });
+			h.backend.commit({ "theirs.md": "T" });
+			const controller = new AbortController();
+			h.vault.before = (op) => {
+				if (op === "write") controller.abort();
+			};
+
+			const { pull, push } = await h.sync({ pull: { signal: controller.signal }, push: { ...ADDING, signal: controller.signal } });
+
+			expect(pull.outcome).toBe("cancelled");
+			expect(push).toBeNull();
+			expect(h.vault.text(".gitignore")).toBe("*.log\n");
+		});
+
+		test("by a sync whose pull failed", async () => {
+			const h = await synced({ ".gitignore": "*.log\n", "a.md": "A" });
+			const backend = Object.create(h.backend) as TestBackend;
+			backend.list = async () => {
+				throw new BackendError("unreachable", "offline");
+			};
+
+			await expect(h.sync({ pull: { backend }, push: ADDING })).rejects.toMatchObject({ kind: "unreachable" });
+
+			expect(h.vault.text(".gitignore")).toBe("*.log\n");
+			expect(h.vault.log).toEqual([]);
+		});
+
+		test("by a sync whose pull put the .gitignore off: the push sends nothing", async () => {
+			const h = await synced({ ".gitignore": "*.log\n", "a.md": "A" });
+			h.backend.commit({ ".gitignore": "*.log\n*.tmp\n" });
+			h.vault.openFailing(".gitignore");
+
+			const { pull, push } = await h.sync({ push: ADDING });
+
+			expect(pull).toMatchObject({ outcome: "incomplete", deferred: [{ path: ".gitignore", reason: "save-failed" }] });
+			expect(push).toMatchObject({ outcome: "pull-first", reason: "gitignore-unsettled" });
+			expect(push?.sectionAdded).toBeUndefined();
+			expect(h.vault.text(".gitignore")).toBe("*.log\n");
+			expect(h.vault.log.filter((line) => line.startsWith("write"))).toEqual([]);
+		});
+	});
+
+	test("a sync whose pull put another file off adds it: the .gitignore is the remote's, and the push sends it", async () => {
+		const h = await synced({ ".gitignore": "*.log\n", "a.md": "A" });
+		h.backend.commit({ "a.md": "A from the Mac" });
+		h.vault.openFailing("a.md");
+
+		const { pull, push } = await h.sync({ push: ADDING });
+
+		expect(pull).toMatchObject({ outcome: "incomplete", deferred: [{ path: "a.md", reason: "save-failed" }] });
+		expect(push).toMatchObject({ outcome: "pushed", counts: { modified: 1 } });
+		expect(push?.sectionAdded).toMatchObject({ created: false });
+		expect(await h.remote()).toEqual({ ".gitignore": `${top}*.log\n`, "a.md": "A from the Mac" });
+	});
+
+	describe("to a remote without commits", () => {
+		test("the first revision is the .gitignore with the section, made for a vault that had none", async () => {
+			const h = harness();
+
+			const result = await h.push(ADDING);
+
+			// Nothing else to send: the one revision is the first.
+			expect(result).toMatchObject({ outcome: "pushed", counts: { added: 1, modified: 0, deleted: 0 } });
+			expect(h.backend.revisionCount).toBe(1);
+			expect(await h.remote()).toEqual({ ".gitignore": top });
+			expect(h.vault.snapshot()).toEqual({ ".gitignore": top });
+			expect(result.sectionAdded).toEqual({ lines: shown, created: true, tracked: [], asked: true, sent: true });
+			await expectNothingToPull(h);
+		});
+
+		test("the .gitignore of the vault gets the section before it becomes the first revision, and the rest follows", async () => {
+			const h = harness();
+			h.vault.putAll({ ".gitignore": "private/\n", "a.md": "A", "private/x.md": "X", ".trash/old.md": "O" });
+			const revisions: Record<string, string>[] = [];
+			const start = h.backend.start.bind(h.backend);
+			const backend = Object.create(h.backend) as TestBackend;
+			backend.start = async (request) => {
+				const started = await start(request);
+				revisions.push(await h.remote());
+				return started;
+			};
+
+			const result = await h.push({ ...ADDING, backend });
+
+			expect(result).toMatchObject({ outcome: "pushed", counts: { added: 2 } });
+			expect(revisions).toEqual([{ ".gitignore": `${top}private/\n` }]);
+			expect(h.backend.revisionCount).toBe(2);
+			expect(await h.remote()).toEqual({ ".gitignore": `${top}private/\n`, "a.md": "A" });
+			expect(h.asked).toEqual([
+				{
+					firstPush: { added: [".gitignore", "a.md"], modified: [], deleted: [] },
+					remoteEmpty: true,
+					deletions: null,
+					recordCount: 0,
+					sectionAdded: { lines: shown, created: false, tracked: [] },
+				},
+			]);
+			await expectNothingToPull(h);
+		});
+
+		test("a no sends nothing; the section stays in the vault, the result says so, and the next push sends it", async () => {
+			const h = harness();
+			h.vault.put("a.md", "A");
+			h.answer = "cancel";
+
+			const declined = await h.push(ADDING);
+
+			expect(declined.outcome).toBe("declined");
+			expect(declined.sectionAdded).toEqual({ lines: shown, created: true, tracked: [], asked: true, sent: false });
+			expect(h.backend.revision).toBeNull();
+			expect(h.vault.snapshot()).toEqual({ ".gitignore": top, "a.md": "A" });
+
+			h.answer = "proceed";
+			const pushed = await h.push(ADDING);
+			expect(pushed).toMatchObject({ outcome: "pushed", counts: { added: 2 } });
+			// Written by the push before: this one added nothing.
+			expect(pushed.sectionAdded).toBeUndefined();
+			expect(h.asked[1]?.sectionAdded).toBeUndefined();
+			expect(await h.remote()).toEqual({ ".gitignore": top, "a.md": "A" });
+		});
+	});
+
+	describe("is shown", () => {
+		test("in the question before the first push, with the files of the remote its lines match", async () => {
+			const h = await synced(
+				{ ".gitignore": "!.DS_Store\n", ".obsidian/workspace.json": "{}", ".trash/old.md": "O", ".DS_Store": "", "a.md": "A" },
+				{ firstPush: true },
+			);
+			h.vault.put("new.md", "N");
+
+			const result = await h.push(ADDING);
+
+			// `.DS_Store` is not among them: the line of the user undoes the one added.
+			const added = { lines: shown, created: false, tracked: [".obsidian/workspace.json", ".trash/old.md"] };
+			expect(h.asked).toEqual([
+				{
+					firstPush: { added: ["new.md"], modified: [".gitignore"], deleted: [] },
+					remoteEmpty: false,
+					deletions: null,
+					recordCount: 5,
+					sectionAdded: added,
+				},
+			]);
+			expect(result.outcome).toBe("pushed");
+			expect(result.sectionAdded).toEqual({ ...added, asked: true, sent: true });
+			// They stay synced.
+			expect(Object.keys(await h.remote()).sort()).toEqual(
+				[".DS_Store", ".gitignore", ".obsidian/workspace.json", ".trash/old.md", "a.md", "new.md"].sort(),
+			);
+		});
+
+		test("by the result alone when no question is due", async () => {
+			const h = await synced({ ".gitignore": "*.log\n", "a.md": "A" });
+
+			const result = await h.push(ADDING);
+
+			expect(h.asked).toEqual([]);
+			expect(result.sectionAdded).toMatchObject({ asked: false });
+		});
+
+		test("by the result and not by a question that is about deletions alone", async () => {
+			const files: Record<string, string> = { ".gitignore": "*.log\n" };
+			for (let index = 0; index < 12; index++) files[`notes/${index}.md`] = String(index);
+			const h = await synced(files);
+			for (let index = 0; index < 12; index++) h.vault.remove(`notes/${index}.md`);
+
+			const result = await h.push(ADDING);
+
+			expect(h.asked).toHaveLength(1);
+			expect(h.asked[0]).toMatchObject({ firstPush: null });
+			expect(h.asked[0]?.deletions).toHaveLength(12);
+			expect(h.asked[0]?.sectionAdded).toBeUndefined();
+			expect(result.sectionAdded).toMatchObject({ asked: false });
+		});
+
+		test("to whoever started the push, also when the push then fails", async () => {
+			const h = await synced({ ".gitignore": "*.log\n", "a.md": "A" });
+			const backend = Object.create(h.backend) as TestBackend;
+			backend.push = async () => {
+				throw new BackendError("unreachable", "offline");
+			};
+			const told: unknown[] = [];
+
+			await expect(h.push({ ...ADDING, backend, onSectionAdded: (added) => told.push(added) })).rejects.toMatchObject({
+				kind: "unreachable",
+			});
+
+			expect(told).toEqual([{ lines: shown, created: false, tracked: [] }]);
+			// The file on this device has it, and the next push sends it.
+			expect(h.vault.text(".gitignore")).toBe(`${top}*.log\n`);
+			const next = await h.push(ADDING);
+			expect(next.outcome).toBe("pushed");
+			expect(next.sectionAdded).toBeUndefined();
+			expect((await h.remote())[".gitignore"]).toBe(`${top}*.log\n`);
+		});
+
+		test("by a push the remote turned down: the section is in the vault all the same", async () => {
+			const h = await synced({ ".gitignore": "*.log\n", "a.md": "A" });
+			const push = h.backend.push.bind(h.backend);
+			const backend = Object.create(h.backend) as TestBackend;
+			backend.push = async (request) => {
+				h.backend.commit({ "theirs.md": "T" });
+				return push(request);
+			};
+
+			const result = await h.push({ ...ADDING, backend });
+
+			expect(result).toMatchObject({ outcome: "pull-first", reason: "remote-moved" });
+			expect(result.sectionAdded).toEqual({ lines: shown, created: false, tracked: [], asked: false, sent: false });
+			expect(h.vault.text(".gitignore")).toBe(`${top}*.log\n`);
+		});
+
+		test("by a push that was turned down after the first commit of the remote was made: that commit holds it, and it counts as sent", async () => {
+			const h = harness();
+			h.vault.put("a.md", "A");
+			// Another device pushes between the first commit and the rest.
+			const push = h.backend.push.bind(h.backend);
+			h.backend.push = async (request) => {
+				h.backend.commit({ "theirs.md": "T" });
+				return push(request);
+			};
+
+			const result = await h.push(ADDING);
+
+			expect(result).toMatchObject({ outcome: "pull-first", reason: "remote-moved" });
+			expect(h.backend.revisionCount).toBe(2);
+			expect(result.sectionAdded).toMatchObject({ created: true, asked: true, sent: true });
+			expect((await h.remote())[".gitignore"]).toBe(top);
+		});
+	});
+
+	describe("when the write does not get to its end", () => {
+		const remembered = (h: Harness): Promise<unknown> => h.store.getMeta(GITIGNORE_WRITE_KEY);
+
+		test("no marker of a pull is put for it: what is remembered is the write itself, until it is done", async () => {
+			const h = await synced({ ".gitignore": "*.log\n", "a.md": "A" });
+			let during: unknown;
+			let markers: unknown;
+			h.vault.before = async (op, path) => {
+				if (op !== "write" || path !== ".gitignore") return;
+				during = await remembered(h);
+				markers = await h.store.readMarkers();
+			};
+
+			expect((await h.push(ADDING)).outcome).toBe("pushed");
+
+			expect(during).toEqual({ before: "*.log\n", writing: `${top}*.log\n` });
+			expect(markers).toEqual([]);
+			expect(await remembered(h)).toBeUndefined();
+		});
+
+		test("the vault fails halfway through the write: this push sends nothing, and the next finishes the file and sends it", async () => {
+			const h = await synced({ ".gitignore": "*.log\n", "a.md": "A" });
+			h.vault.put("b.md", "B");
+			h.vault.before = (op, path) => {
+				if (op !== "write" || path !== ".gitignore") return;
+				h.vault.put(".gitignore", top.slice(0, 40));
+				throw new Error("disk full");
+			};
+
+			const result = await h.push(ADDING);
+
+			expect(result).toMatchObject({ outcome: "pull-first", reason: "gitignore-unsettled" });
+			expect(result.sectionAdded).toBeUndefined();
+			expect(h.backend.pushes).toBe(0);
+			expect(await remembered(h)).toEqual({ before: "*.log\n", writing: `${top}*.log\n` });
+			expect(await h.remote()).toEqual({ ".gitignore": "*.log\n", "a.md": "A" });
+			// Still failing: still nothing sent.
+			expect(await h.push(ADDING)).toMatchObject({ outcome: "pull-first", reason: "gitignore-unsettled" });
+			expect(h.backend.pushes).toBe(0);
+
+			h.vault.before = undefined;
+			expect((await h.push(ADDING)).outcome).toBe("pushed");
+			expect(await h.remote()).toEqual({ ".gitignore": `${top}*.log\n`, "a.md": "A", "b.md": "B" });
+			expect(await remembered(h)).toBeUndefined();
+		});
+
+		test("the vault refuses the write and the file is as it was: the push goes on without the section", async () => {
+			const h = await synced({ ".gitignore": "*.log\n", "a.md": "A" });
+			h.vault.putAll({ "b.md": "B", ".trash/old.md": "O" });
+			h.vault.before = (op, path) => {
+				if (op === "write" && path === ".gitignore") throw new Error("read-only");
+			};
+
+			const result = await h.push(ADDING);
+
+			// Its lines are applied all the same: the trash is not sent.
+			expect(result).toMatchObject({ outcome: "pushed", counts: { added: 1, modified: 0 } });
+			expect(result.sectionAdded).toBeUndefined();
+			expect(await remembered(h)).toBeUndefined();
+			expect(await h.remote()).toEqual({ ".gitignore": "*.log\n", "a.md": "A", "b.md": "B" });
+		});
+
+		// The app is killed while the section is written. Two moments: right
+		// after the write, before it is forgotten ("written"), and in the
+		// middle of the write ("half"). Three vaults: one whose `.gitignore`
+		// has an edit that was never sent, one whose `.gitignore` is only on
+		// this device, and one before the first push to a remote without
+		// commits. Nothing of the user's is lost in any of them, and the
+		// next sync gets on.
+		type Moment = "written" | "half";
+		const moments: readonly Moment[] = ["written", "half"];
+
+		/** The vault as the kill left it: the file, and the write still remembered. */
+		async function killed(h: Harness, before: string | null, moment: Moment): Promise<string> {
+			const writing = withSection(before, lines);
+			h.vault.put(".gitignore", moment === "written" ? writing : writing.slice(0, 57));
+			await h.store.setMeta(GITIGNORE_WRITE_KEY, { before, writing });
+			return writing;
+		}
+
+		test.each(moments)("an edit of the .gitignore that was never sent is kept and sent (%s)", async (moment) => {
+			const h = await synced({ ".gitignore": "*.log\n", "a.md": "A" });
+			const writing = await killed(h, "*.log\n# my edit\n", moment);
+
+			const { pull, push } = await h.sync({ push: ADDING });
+
+			expect(pull).toMatchObject({ outcome: "completed", counts: { fetched: 0, deleted: 0, conflicts: 0 }, halfWritten: [] });
+			expect(push).toMatchObject({ outcome: "pushed", counts: { added: 0, modified: 1 } });
+			expect(h.vault.text(".gitignore")).toBe(writing);
+			expect(writing.endsWith("*.log\n# my edit\n")).toBe(true);
+			expect((await h.remote())[".gitignore"]).toBe(writing);
+			expect(h.vault.trashed).toEqual([]);
+			expect(await remembered(h)).toBeUndefined();
+			await expectNothingToPull(h);
+		});
+
+		test.each(moments)("so is it when the remote changed the file meanwhile: a conflict, with the edit in the copy (%s)", async (moment) => {
+			const h = await synced({ ".gitignore": "*.log\n", "a.md": "A" });
+			const writing = await killed(h, "*.log\n# my edit\n", moment);
+			h.backend.commit({ ".gitignore": "*.log\n*.tmp\n" });
+
+			const { pull } = await h.sync({ push: ADDING });
+
+			expect(pull).toMatchObject({ outcome: "completed", counts: { conflicts: 1 } });
+			const copy = pull.conflicts[0]?.copyPath ?? "";
+			expect(h.vault.text(copy)).toBe(writing);
+			expect(h.vault.trashed).toEqual([]);
+		});
+
+		test.each(moments)("a .gitignore that is only on this device is kept and sent (%s)", async (moment) => {
+			const h = await synced({ "a.md": "A" });
+			const writing = await killed(h, "# my own, never sent\n", moment);
+
+			const { pull, push } = await h.sync({ push: ADDING });
+
+			expect(pull).toMatchObject({ outcome: "completed", counts: { fetched: 0, deleted: 0, conflicts: 0 } });
+			expect(push).toMatchObject({ outcome: "pushed", counts: { added: 1, modified: 0 } });
+			expect(h.vault.text(".gitignore")).toBe(writing);
+			expect(writing.endsWith("# my own, never sent\n")).toBe(true);
+			expect(await h.remote()).toEqual({ ".gitignore": writing, "a.md": "A" });
+			expect(h.vault.trashed).toEqual([]);
+			await expectNothingToPull(h);
+		});
+
+		test.each(moments)("the first push to a remote without commits goes through, by a sync or by a push alone (%s)", async (moment) => {
+			for (const run of ["sync", "push"] as const) {
+				const h = harness();
+				h.vault.put("a.md", "A");
+				const writing = await killed(h, null, moment);
+
+				const push = run === "sync" ? (await h.sync({ push: ADDING })).push : await h.push(ADDING);
+
+				expect(push).toMatchObject({ outcome: "pushed", counts: { added: 2 } });
+				expect(await h.remote()).toEqual({ ".gitignore": writing, "a.md": "A" });
+				expect(await remembered(h)).toBeUndefined();
+				await expectNothingToPull(h);
+			}
+		});
+
+		test.each(moments)("so does it for a vault that had a .gitignore of its own (%s)", async (moment) => {
+			const h = harness();
+			h.vault.put("a.md", "A");
+			const writing = await killed(h, "private/\n", moment);
+
+			expect(await h.push(ADDING)).toMatchObject({ outcome: "pushed", counts: { added: 2 } });
+
+			expect(await h.remote()).toEqual({ ".gitignore": writing, "a.md": "A" });
+			expect(writing.endsWith("private/\n")).toBe(true);
+		});
+
+		test("killed before anything was written: the file is as it was, and the next push adds the section", async () => {
+			const h = await synced({ ".gitignore": "*.log\n", "a.md": "A" });
+			await h.store.setMeta(GITIGNORE_WRITE_KEY, { before: "*.log\n", writing: `${top}*.log\n` });
+
+			const result = await h.push(ADDING);
+
+			expect(result).toMatchObject({ outcome: "pushed", counts: { modified: 1 } });
+			expect(result.sectionAdded).toMatchObject({ created: false });
+			expect((await h.remote())[".gitignore"]).toBe(`${top}*.log\n`);
+		});
+
+		test("a pull alone settles it too, and stores no record of a text the remote does not have", async () => {
+			const h = await synced({ ".gitignore": "*.log\n", "a.md": "A" });
+			const writing = await killed(h, "*.log\n", "half");
+
+			expect(await h.pull()).toMatchObject({ outcome: "completed", counts: { fetched: 0 }, deferred: [] });
+
+			expect(h.vault.text(".gitignore")).toBe(writing);
+			expect(await remembered(h)).toBeUndefined();
+			expect((await h.records())[".gitignore"]).toBe(blobHash("*.log\n"));
+		});
+
+		test("a file the user changed after the kill is theirs: it is not finished, and not written over", async () => {
+			const h = await synced({ ".gitignore": "*.log\n", "a.md": "A" });
+			await killed(h, "*.log\n", "half");
+			h.vault.put(".gitignore", "# rewritten by hand\n");
+
+			const { push } = await h.sync({ push: ADDING });
+
+			// It has no section, so the push adds one, to what the user wrote.
+			expect(push).toMatchObject({ outcome: "pushed" });
+			expect((await h.remote())[".gitignore"]).toBe(`${top}# rewritten by hand\n`);
+		});
+
+		test("while the file cannot be looked at, it stays remembered: the pull puts the file off, and the push sends nothing", async () => {
+			const h = await synced({ ".gitignore": "*.log\n", "a.md": "A" });
+			const writing = await killed(h, "*.log\n", "half");
+			h.vault.put("b.md", "B");
+			h.vault.before = (op, path) => {
+				if (op === "read" && path === ".gitignore") throw new Error("locked");
+			};
+
+			const { pull, push } = await h.sync({ push: ADDING });
+
+			expect(pull).toMatchObject({ outcome: "incomplete", deferred: [{ path: ".gitignore", reason: "unreadable" }] });
+			expect(push).toMatchObject({ outcome: "pull-first", reason: "gitignore-unsettled" });
+			expect(h.backend.pushes).toBe(0);
+			expect(await remembered(h)).toEqual({ before: "*.log\n", writing });
+			// By a push alone as well.
+			expect(await h.push(ADDING)).toMatchObject({ outcome: "pull-first", reason: "gitignore-unsettled" });
+
+			h.vault.before = undefined;
+			expect((await h.sync({ push: ADDING })).push).toMatchObject({ outcome: "pushed" });
+			expect(await h.remote()).toEqual({ ".gitignore": writing, "a.md": "A", "b.md": "B" });
+		});
+
+		test("a first fetch that starts over settles it before the sync state goes, and what could not be settled goes along", async () => {
+			const h = await synced({ ".gitignore": "*.log\n", "a.md": "A" });
+			const writing = await killed(h, "*.log\n", "half");
+			const discardState = async (seed: Parameters<MemoryStateStore["startOver"]>[0]): Promise<StateStore> => {
+				await h.store.startOver(seed);
+				return h.store;
+			};
+
+			expect((await h.pull({ discardState })).outcome).toBe("completed");
+
+			expect(await remembered(h)).toBeUndefined();
+			// Finished, and so not the remote's text: kept as the copy of a
+			// conflict by the first fetch, like any file that differs.
+			expect(Object.values(h.vault.snapshot())).toContain(writing);
+
+			const stuck = await synced({ ".gitignore": "*.log\n", "a.md": "A" });
+			const left = await killed(stuck, "*.log\n", "half");
+			stuck.vault.before = (op, path) => {
+				if (op === "write" && path === ".gitignore") throw new Error("disk full");
+			};
+			await stuck.pull({
+				discardState: async (seed) => {
+					await stuck.store.startOver(seed);
+					return stuck.store;
+				},
+			});
+			expect(await remembered(stuck)).toEqual({ before: "*.log\n", writing: left });
+		});
+	});
+});
+
+describe("the notices that follow from the rules", () => {
+	const lines = defaultSectionLines(paths);
+	const nested = (path: string) => ({ kind: "nested-gitignore", path }) as const;
+
+	test("a .gitignore in a subfolder is told once, by the pull that finds it; the push after it does not tell it again", async () => {
+		const h = harness();
+		h.backend.commit({ ".gitignore": "/drafts/\n", "notes/.gitignore": "*.tmp\n", "notes/a.md": "A" });
+
+		const { pull, push } = await h.sync({ push: ADDING });
+
+		expect(pull.notices).toEqual([nested("notes/.gitignore")]);
+		expect(push).toMatchObject({ outcome: "pushed", notices: [] });
+		expect((await h.sync({ push: ADDING })).pull.notices).toEqual([]);
+		expect(await readNotices(h.store)).toEqual([nested("notes/.gitignore")]);
+	});
+
+	test("a push alone tells one that is only in the vault, and forgets it once it is gone", async () => {
+		const h = await synced({ ".gitignore": withSection("/drafts/\n", lines), "a.md": "A" });
+		h.vault.putAll({ "notes/.gitignore": "*.tmp\n", "drafts/.gitignore": "x\n", ".trash/.gitignore": "y\n" });
+
+		const pushed = await h.push(ADDING);
+
+		expect(pushed).toMatchObject({ outcome: "pushed", counts: { added: 1 } });
+		// Not the ones below a folder a rule leaves out.
+		expect(pushed.notices).toEqual([nested("notes/.gitignore")]);
+		expect((await h.pull()).notices).toEqual([]);
+
+		// Deleted here, it is on the remote until this push has deleted it
+		// there: forgotten by the sync after it.
+		h.vault.remove("notes/.gitignore");
+		expect(await h.push(ADDING)).toMatchObject({ outcome: "pushed", counts: { deleted: 1 }, notices: [] });
+		expect(await readNotices(h.store)).toEqual([nested("notes/.gitignore")]);
+		expect((await h.push(ADDING)).notices).toEqual([]);
+		expect(await readNotices(h.store)).toEqual([]);
+	});
+
+	test("not one the remote holds below a folder a rule matches, below the plugin's own folder, or below a submodule", async () => {
+		const h = harness();
+		h.backend.commit({
+			".gitignore": "/knowledge/\n",
+			"knowledge/.gitignore": "*.tmp\n",
+			"knowledge/a.md": "A",
+			".obsidian/plugins/sync-evo/.gitignore": "x\n",
+			"sub/.gitignore": "y\n",
+			sub: "0".repeat(40),
+			"deep/er/.gitignore": "z\n",
+		});
+		h.backend.kinds.set("sub", "submodule");
+
+		const { pull, push } = await h.sync({ push: ADDING });
+
+		expect(pull.notices.filter((notice) => notice.kind === "nested-gitignore")).toEqual([nested("deep/er/.gitignore")]);
+		expect(push?.notices).toEqual([]);
+	});
+
+	test("a fixed exclusion that is not in effect is told once, by its line, and forgotten once it is back", async () => {
+		const off = (line: string) => ({ kind: "fixed-exclusion-off", path: line }) as const;
+		const without = lines.filter((line) => line !== "/.trash/" && line !== ".DS_Store");
+		const h = harness();
+		h.backend.commit({ ".gitignore": withSection("!*.icloud\n", without), "a.md": "A" });
+
+		const { pull, push } = await h.sync({ push: ADDING });
+
+		expect(pull.notices).toEqual([off("/.trash/"), off(".DS_Store"), off("*.icloud")]);
+		expect(push?.notices).toEqual([]);
+		expect((await h.push(ADDING)).notices).toEqual([]);
+
+		// Restored on this device: the push finds it so, and forgets them.
+		h.vault.put(".gitignore", withSection("", lines));
+		expect((await h.push(ADDING)).notices).toEqual([]);
+		expect(await readNotices(h.store)).toEqual([]);
+		// Deleted again: told again.
+		h.vault.put(".gitignore", withSection("", without));
+		expect((await h.push(ADDING)).notices).toEqual([off("/.trash/"), off(".DS_Store")]);
+	});
+
+	test("none while the .gitignore has no section: its lines count as there", async () => {
+		const h = harness();
+		h.backend.commit({ ".gitignore": "*.log\n", "a.md": "A" });
+
+		expect((await h.pull()).notices).toEqual([]);
+		expect((await h.push(ADDING)).notices).toEqual([]);
+	});
+
+	test("a push leaves what only a pull finds as it is remembered, and a pull what only a push finds", async () => {
+		const h = await synced({ ".gitignore": withSection("", lines), "Case.md": "C" }, { caseSensitive: true });
+		await h.store.setMeta("notices", [{ kind: "git-at-root", path: ".git" }]);
+		h.vault.putAll({ "case.md": "c", "notes/.gitignore": "x\n" });
+
+		const pushed = await h.push(ADDING);
+
+		expect(pushed.notices).toEqual([nested("notes/.gitignore"), { kind: "local-path-collision", path: "case.md" }]);
+		expect(await readNotices(h.store)).toEqual([
+			{ kind: "git-at-root", path: ".git" },
+			nested("notes/.gitignore"),
+			{ kind: "local-path-collision", path: "case.md" },
+		]);
+		// The pull finds no `.git`, and forgets that; the collision is the push's to forget.
+		expect((await h.pull()).notices).toEqual([]);
+		expect(await readNotices(h.store)).toEqual([
+			{ kind: "local-path-collision", path: "case.md" },
+			nested("notes/.gitignore"),
+		]);
 	});
 });

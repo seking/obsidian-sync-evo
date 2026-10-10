@@ -112,6 +112,30 @@ export const en = baseCatalog({
 		"Some new files were not sent. Their paths differ only in upper and lower case from another path on the remote, or from another new file. Rename them, and the next push sends them. Other files are sent as usual:\n{list}",
 	"notice.renameNotSent":
 		"Some files were renamed on this device in upper and lower case only, and the new name is not sent: a rule of .gitignore excludes it, or it differs only in case from another path. The file under the old name was therefore not deleted on the remote either:\n{list}",
+	"notice.nestedGitignore":
+		"There are .gitignore files in subfolders. Sync Evo syncs them as ordinary files and does not read them as rules: only the .gitignore at the root of the vault decides what is synced. Git on a computer does apply them, so the same vault is treated differently there. Put the rules you need into the .gitignore at the root:\n{list}",
+	"notice.fixedExclusionOff":
+		"Some of the lines Sync Evo manages in .gitignore are not in effect: they were deleted, or a later line undoes them. What they left out is synced now (the trash, the layout of the workspace, files an operating system leaves behind). Only Sync Evo's own folder is still not synced by Sync Evo, but git on a computer commits it. Deleted lines can be restored in the settings of Sync Evo; where a later line that starts with ! undoes one, change that line:\n{list}",
+
+	// The lines Sync Evo manages in .gitignore, added by a push without
+	// asking. In the question before a first push, and else in a message of
+	// its own.
+	"section.added.intro":
+		"Sync Evo added the lines below to the top of the .gitignore of this vault. They are the lines Sync Evo manages, and say what is not synced:",
+	"section.added.created":
+		"This vault had no .gitignore, so Sync Evo created one with the lines below. They are the lines Sync Evo manages, and say what is not synced:",
+	"section.added.outside": "Nothing else in .gitignore was changed.",
+	"section.added.sends": "This push sends the change to the remote.",
+	"section.added.sent": "This push sent the change to the remote.",
+	"section.added.unsent": "The change has not been sent to the remote yet. The next push sends it.",
+	"section.added.unknown":
+		"Whether this push sent the change to the remote is not known. If it did not, the next push sends it.",
+	"section.added.howTo":
+		"You can change these lines in the settings of Sync Evo. If you do not want them, delete the lines in between and keep the first and the last line (the two that start with #): if those two are deleted as well, the next sync adds the lines again.",
+	"section.added.tracked": {
+		one: "{count} file that these lines match is already on the remote, so it stays synced:",
+		other: "{count} files that these lines match are already on the remote, so they stay synced:",
+	},
 
 	// Lists inside a message.
 	"list.separator": ", ",
@@ -347,6 +371,8 @@ export const en = baseCatalog({
 		"This is the first push from this device to {repository}, branch {branch}. It changes the remote as listed below. Once a push has gone through, later pushes do not show this list.",
 	"confirm.firstPush.remoteEmpty":
 		"The remote is empty: it has no commits yet. A first commit with the .gitignore alone is made, and the rest is sent after it. If this vault has no .gitignore, an empty one is created.",
+	"confirm.firstPush.remoteEmptyWithGitignore":
+		"The remote is empty: it has no commits yet. A first commit with the .gitignore alone is made, and the rest is sent after it.",
 	"confirm.firstPush.added": { one: "{count} file to add:", other: "{count} files to add:" },
 	"confirm.firstPush.modified": { one: "{count} file to modify:", other: "{count} files to modify:" },
 	"confirm.firstPush.deleted": { one: "{count} file to delete:", other: "{count} files to delete:" },
@@ -355,6 +381,8 @@ export const en = baseCatalog({
 		other: "{count} files were deleted on this device. The push deletes them on the remote, and a pull then deletes them on your other devices.",
 	},
 	"confirm.push.note": "If you cancel, nothing is sent and nothing is changed.",
+	"confirm.push.noteSection":
+		"If you cancel, nothing is sent. The lines added to .gitignore stay on this device, and the next push sends them.",
 	"confirm.startOver.title": "Discard the sync state and start over",
 	"confirm.startOver.body":
 		"This discards the sync state of this device and builds it again by pulling from {repository}, branch {branch}. The sync state is only Sync Evo's own record of what has been synced: no file is deleted, on this device or on the remote.",

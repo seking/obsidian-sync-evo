@@ -33,8 +33,14 @@ import {
 	stateProblemText,
 	stoppedText,
 } from "../core/pull-report";
-import { type PushDeps, type PushProgress, type PushRunResult, runPush } from "../core/push";
-import { pushFailureText, pushProgressText, pushReport, pushStoppedText } from "../core/push-report";
+import { type PushDeps, type PushProgress, type PushRunResult, runPush, type SectionAdded } from "../core/push";
+import {
+	pushFailureText,
+	pushProgressText,
+	pushReport,
+	pushStoppedText,
+	sectionAddedText,
+} from "../core/push-report";
 import type { DeviceSettings } from "../core/settings";
 import { runSync } from "../core/sync";
 import { exclusionPathsOf } from "./exclusion-paths";
@@ -149,6 +155,8 @@ export class SyncRunner {
 			end = resolve;
 		});
 		this.direction = mode === "push" ? "push" : "pull";
+		// What the push wrote to `.gitignore`, until its result has told it.
+		let sectionAdded: SectionAdded | null = null;
 		this.progress = new Notice(t(mode === "push" ? "push.progress.starting" : "pull.progress.starting"), 0);
 		try {
 			this.opening = true;
@@ -264,6 +272,9 @@ export class SyncRunner {
 					}
 					return answer;
 				},
+				onSectionAdded: (added) => {
+					sectionAdded = added;
+				},
 				onProgress: (progress) => this.showPushProgress(progress),
 				signal: controller.signal,
 				yieldControl,
@@ -272,7 +283,9 @@ export class SyncRunner {
 			};
 
 			if (mode === "push") {
-				this.reportPush(await runPush(pushDeps));
+				const result = await runPush(pushDeps);
+				sectionAdded = null;
+				this.reportPush(result);
 			} else if (mode === "sync") {
 				// The pull is told before the push begins: its result is
 				// not held back by a push that asks, or fails.
@@ -284,6 +297,7 @@ export class SyncRunner {
 						this.direction = "push";
 					},
 				});
+				sectionAdded = null;
 				if (push !== null) this.reportPush(push);
 			} else {
 				this.report(await runPull(pullDeps), settings);
@@ -295,6 +309,10 @@ export class SyncRunner {
 			if (!this.stopped && !cancelled) console.error(`Sync Evo: the ${this.direction} failed`, error);
 			const failure = this.direction === "push" ? pushFailureText : pullFailureText;
 			this.show(failure(t, settings, error, this.connectionChanged), 0);
+			// A push that failed has no result to tell it with, and the file
+			// on this device is changed all the same. Whether it reached the
+			// remote before the failure is not known.
+			if (sectionAdded !== null) this.show(sectionAddedText(t, sectionAdded, "unknown"), 0);
 		} finally {
 			this.wakeLock.release();
 			this.opening = false;

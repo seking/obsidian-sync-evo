@@ -17,6 +17,7 @@ import type { Translate } from "./i18n";
 import type { PushFailure } from "./push-failure";
 import {
 	CONFIRM_LIST_LIMIT,
+	NOTICE_LIST_LIMIT,
 	capList,
 	clockTime,
 	dateTime,
@@ -30,7 +31,13 @@ import {
 	type QuestionPart,
 	recoveredPushText,
 } from "./pull-report";
-import { type LeftOutReason, type PushConfirmRequest, type PushProgress, type PushRunResult } from "./push";
+import {
+	type LeftOutReason,
+	type PushConfirmRequest,
+	type PushProgress,
+	type PushRunResult,
+	type SectionAdded,
+} from "./push";
 import type { Connection, DeviceSettings } from "./settings";
 import { BackendError } from "./backend";
 
@@ -85,7 +92,25 @@ export function pushQuestion(
 	if (firstPush !== null) {
 		const target = { repository: connection.repository, branch: connection.branch };
 		parts.push({ text: t("confirm.firstPush.body", target) });
-		if (request.remoteEmpty) parts.push({ text: t("confirm.firstPush.remoteEmpty") });
+		// The vault has a `.gitignore` once the section was added to it: no
+		// empty one is made for the first commit.
+		if (request.remoteEmpty) {
+			const text =
+				request.sectionAdded === undefined
+					? t("confirm.firstPush.remoteEmpty")
+					: t("confirm.firstPush.remoteEmptyWithGitignore");
+			parts.push({ text });
+		}
+		// Before the lists: the `.gitignore` is in one of them because of this.
+		if (request.sectionAdded !== undefined) {
+			const section = request.sectionAdded;
+			parts.push({ text: sectionIntro(t, section), paths: capList(section.lines, CONFIRM_LIST_LIMIT) });
+			for (const text of sectionNotes(t, section, "sends")) parts.push({ text });
+			if (section.tracked.length > 0) {
+				const text = t("section.added.tracked", { count: section.tracked.length });
+				parts.push({ text, paths: capList(section.tracked, NOTICE_LIST_LIMIT) });
+			}
+		}
 		const { added, modified, deleted } = firstPush;
 		if (added.length > 0) listed(t("confirm.firstPush.added", { count: added.length }), added);
 		if (modified.length > 0) listed(t("confirm.firstPush.modified", { count: modified.length }), modified);
@@ -97,7 +122,61 @@ export function pushQuestion(
 		else parts.push({ text });
 	}
 	const title = firstPush !== null ? t("confirm.firstPush.title") : t("confirm.delete.title");
-	return { title, parts, note: t("confirm.push.note") };
+	// "Nothing is changed" would not be true of a file that was written.
+	const note = request.sectionAdded === undefined ? t("confirm.push.note") : t("confirm.push.noteSection");
+	return { title, parts, note };
+}
+
+/**
+ * Whether the section a push added is on the remote:
+ *
+ * - "sends": the push is about to send it. For the question.
+ * - "sent": the push sent it.
+ * - "unsent": the push ended without sending it. The file on this device
+ *   has it all the same, and the next push sends it.
+ * - "unknown": the push failed, and no result says how far it got. The
+ *   first commit of a remote without commits may have been made with it,
+ *   or the branch moved before the failure.
+ */
+export type SectionDelivery = "sends" | "sent" | "unsent" | "unknown";
+
+/**
+ * The text for the section a push added to `.gitignore` without asking: the
+ * lines, that nothing else in the file changed, whether they are on the
+ * remote, where to change them, and how to say that they are not wanted.
+ * With the files of the remote the lines match, which stay synced. Every
+ * added line is shown, however many: they are what was written.
+ */
+export function sectionAddedText(t: Translate, section: SectionAdded, delivery: SectionDelivery): string {
+	const lines = [
+		sectionIntro(t, section),
+		listText(t, section.lines, section.lines.length),
+		...sectionNotes(t, section, delivery),
+	];
+	if (section.tracked.length > 0) {
+		lines.push(t("section.added.tracked", { count: section.tracked.length }), listText(t, section.tracked));
+	}
+	return lines.join("\n");
+}
+
+function sectionIntro(t: Translate, section: SectionAdded): string {
+	return section.created ? t("section.added.created") : t("section.added.intro");
+}
+
+// One paragraph each: no language joins two sentences the way another does.
+function sectionNotes(t: Translate, section: SectionAdded, delivery: SectionDelivery): string[] {
+	const delivered = t(
+		(
+			{
+				sends: "section.added.sends",
+				sent: "section.added.sent",
+				unsent: "section.added.unsent",
+				unknown: "section.added.unknown",
+			} as const
+		)[delivery],
+	);
+	// A file that was made had nothing else in it to leave alone.
+	return [...(section.created ? [] : [t("section.added.outside")]), delivered, t("section.added.howTo")];
 }
 
 /** The text for a push that was stopped. Nothing of it shows on the remote. */
@@ -134,6 +213,15 @@ export interface PushReportOptions {
 /** Words what a push answered. */
 export function pushReport(t: Translate, result: PushRunResult, options: PushReportOptions): PullReport {
 	const details: string[] = [];
+	// First: it is what this push wrote to the vault. Not a second time when
+	// the question showed it and the push then sent it. A push that was
+	// declined or turned down after the question is told again, since the
+	// file on this device is changed and the remote's is not. Whether it was
+	// sent is the push's to say, and not read from how it ended.
+	const section = result.sectionAdded;
+	if (section !== undefined && !(section.asked && section.sent)) {
+		details.push(sectionAddedText(t, section, section.sent ? "sent" : "unsent"));
+	}
 	if (result.recovered !== null) details.push(recoveredPushText(t, result.recovered));
 	if (result.held.length > 0) {
 		details.push(t("push.held", { count: result.held.length, list: listText(t, result.held) }));

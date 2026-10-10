@@ -26,6 +26,14 @@
 // 3. The paths that are not looked at: what a pull that stopped left half
 //    written, and what the pull before this push put off. A push settles
 //    neither; it leaves them alone, and sends the rest.
+// 3a. The section Sync Evo keeps in the root `.gitignore`, added when the
+//    file has none (`addSection`). Here and not in a step between the pull
+//    and the push: only from here on is it known that this push gets as far
+//    as sending, and a section that is written and not sent is a change on
+//    this device alone, which the remote's next change to the file turns
+//    into a conflict. Before the scan, so that the file is planned, shown in
+//    the question and sent like any other the user edited; a remote without
+//    commits gets it as its first (`start`).
 // 4. The scan, with every open editor saved, the hashing, and the plan.
 // 5. Asking the user: before the first push of a sync state, and when the
 //    plan deletes too much. One question, also when both are a reason.
@@ -39,10 +47,20 @@
 import { untilAborted } from "./archive-fetch";
 import { type Backend, BackendError, type PushFile, type RemoteEntry, type RemoteListing } from "./backend";
 import { originalPathOfConflictCopy } from "./conflict-name";
-import { createExclusion, type ExclusionPaths } from "./exclusion";
+import { createExclusion, type Exclusion, type ExclusionPaths, remoteFilesMatchingRules } from "./exclusion";
 import { isFirstFetchConfirmed, markFirstFetchConfirmed } from "./first-fetch";
+import { addDefaultSection, isGitignoreAsRecorded, settleGitignoreWrite } from "./gitignore-file";
+import { withSection } from "./gitignore-section";
 import { readLocal, saved } from "./local-read";
-import { type NoticeRef, PUSH_NOTICE_KINDS, readNotices, reconcileNotices, writeNotices } from "./notices";
+import {
+	type NoticeRef,
+	PUSH_NOTICE_KINDS,
+	readNotices,
+	reconcileNotices,
+	ruleNotices,
+	SHARED_NOTICE_KINDS,
+	writeNotices,
+} from "./notices";
 import { foldedKey, pathKey } from "./paths";
 import { DEFAULT_SIZE_LIMIT } from "./plan";
 import type { PullVault } from "./pull-io";
@@ -57,20 +75,22 @@ import {
 } from "./push-pending";
 import { clearPushFailure, markPushFailure, readPushFailure, restorePushFailure } from "./push-failure";
 import { type HeldRename, needsPushConfirmation, type PushPlan, type PushRefusal, planPush } from "./push-plan";
-import { scanVault } from "./scan";
+import { type ScanResult, scanVault } from "./scan";
 import {
 	currentListing,
 	type FileStat,
 	makeRecord,
 	readBaseRevision,
 	type StateStore,
+	type StoredRecord,
 	writeBaseRevision,
 } from "./state";
 
 /**
- * The vault, as far as a push needs it: it reads. The one thing it ever
- * writes is an empty `.gitignore`, for the first commit of a remote that
- * has none, in a vault that has none either.
+ * The vault, as far as a push needs it: it reads. The one file it ever
+ * writes is the root `.gitignore`: the section Sync Evo keeps in it, when
+ * it has none (`addSection`), and an empty file for the first commit of a
+ * remote that has none, in a vault that still has none either.
  */
 export type PushVault = Pick<PullVault, "list" | "stat" | "read" | "saveOpenEditors" | "write">;
 
@@ -79,6 +99,22 @@ export interface FirstPushFiles {
 	readonly added: readonly string[];
 	readonly modified: readonly string[];
 	readonly deleted: readonly string[];
+}
+
+/**
+ * The section this push added to the root `.gitignore`, for telling the
+ * user: it was written without asking.
+ */
+export interface SectionAdded {
+	/** Every line that was put at the top of the file, the two markers included. */
+	readonly lines: readonly string[];
+	/** Whether the vault had no `.gitignore`, and the file was made. */
+	readonly created: boolean;
+	/**
+	 * The files the remote holds that the added lines match, as the remote
+	 * spells them, sorted. They stay synced (`remoteFilesMatchingRules`).
+	 */
+	readonly tracked: readonly string[];
 }
 
 /**
@@ -103,6 +139,12 @@ export interface PushConfirmRequest {
 	readonly deletions: readonly string[] | null;
 	/** The number of records before the push, of every kind. */
 	readonly recordCount: number;
+	/**
+	 * Set when this push added the section to `.gitignore` and `firstPush`
+	 * is set: the question about everything that is sent is where what was
+	 * written without asking is shown, before it goes to the remote.
+	 */
+	readonly sectionAdded?: SectionAdded;
 }
 
 /** "proceed": send all of it. "cancel": send none of it. */
@@ -137,6 +179,18 @@ export interface PushDeps {
 	 * middle of something only a pull can finish.
 	 */
 	readonly hold?: readonly string[];
+	/**
+	 * Whether the default section is added to a root `.gitignore` that has
+	 * none, before the vault is looked at. Left out, it is. The app never
+	 * says no; it is there for a caller that is about something else.
+	 */
+	readonly addSection?: boolean;
+	/**
+	 * Called once the section is written, with what the result will carry.
+	 * For a push that then rejects: the file was changed all the same, and
+	 * no result says so.
+	 */
+	readonly onSectionAdded?: (added: SectionAdded) => void;
 	readonly onProgress?: (progress: PushProgress) => void;
 	/**
 	 * Stops the push before the next thing it would do, for as long as
@@ -178,8 +232,10 @@ export type PushOutcome = "pushed" | "nothing-to-push" | "pull-first" | "decline
  *   found before anything was sent, or when the branch was to be moved.
  *   The branch is never forced.
  * - "gitignore-unsettled": the root `.gitignore` could not be relied on: a
- *   pull that stopped was writing it, or an editor that has it open could
- *   not save. Its rules decide what is sent, so nothing is.
+ *   pull that stopped was writing it, a write of Sync Evo's own to it did
+ *   not get to its end and could not be settled (`settleGitignoreWrite`),
+ *   or an editor that has it open could not save. Its rules decide what is
+ *   sent, so nothing is.
  * - "gitignore-unreadable": the root `.gitignore` is there and cannot be
  *   read as the file it is: a cloud drive has taken it off the device, it
  *   is a folder, or (before the first commit of a remote, which is this
@@ -269,6 +325,16 @@ export interface PushRunResult {
 	 * the remote changed, and writes the remote's content over the file.
 	 */
 	readonly storedOtherwise: readonly string[];
+	/**
+	 * Set when this push added the section to `.gitignore`, however it
+	 * ended: the file on this device was changed. `asked`: whether the
+	 * question of this push showed it (`PushConfirmRequest.sectionAdded`).
+	 * `sent`: whether the remote holds the file with the section now. Not
+	 * told by the outcome: the first commit of a remote without commits is
+	 * this file, and it stays there when the push that follows it is
+	 * turned down or stopped.
+	 */
+	readonly sectionAdded?: SectionAdded & { readonly asked: boolean; readonly sent: boolean };
 }
 
 const GITIGNORE = ".gitignore";
@@ -300,6 +366,11 @@ class PushRun {
 	private remembered = false;
 	/** Whether the request that moves the branch was sent, or was about to be. */
 	private publishing = false;
+	/** The section this push added to `.gitignore`, and whether its question showed it. */
+	private sectionAdded: SectionAdded | null = null;
+	private sectionAsked = false;
+	/** Whether the `.gitignore` with the section is on the remote. */
+	private sectionSent = false;
 
 	constructor(private readonly deps: PushDeps) {
 		this.startedAt = deps.now();
@@ -393,6 +464,9 @@ class PushRun {
 			leftOut: this.leftOut,
 			notices: this.notices,
 			storedOtherwise: [],
+			...(this.sectionAdded === null
+				? {}
+				: { sectionAdded: { ...this.sectionAdded, asked: this.sectionAsked, sent: this.sectionSent } }),
 			...extra,
 		};
 	}
@@ -438,7 +512,12 @@ class PushRun {
 		// nothing, and after a pull they are the remote's. They decide what
 		// is sent, so a `.gitignore` that may be half written, or behind
 		// what an editor holds, is not gone by.
-		if (this.held.has(GITIGNORE) || !(await saved(vault, GITIGNORE))) {
+		// Nor one that Sync Evo itself was writing when it was stopped: that
+		// is settled here, and only what could not be stops the push.
+		if (this.held.has(GITIGNORE) || !(await settleGitignoreWrite({ store, vault })) || !(await saved(vault, GITIGNORE))) {
+			return this.result("pull-first", { reason: "gitignore-unsettled" });
+		}
+		if (deps.addSection !== false && !(await this.addSection(listing, records))) {
 			return this.result("pull-first", { reason: "gitignore-unsettled" });
 		}
 		const exclusion = createExclusion({ ...deps.paths, gitignore: await this.rootGitignore() });
@@ -511,7 +590,7 @@ class PushRun {
 		// user is shown them with: a push that is declined, stopped at the
 		// question, or fails while it sends, tells them the next time
 		// instead.
-		const notices = await this.noticeUpdate(plan);
+		const notices = await this.noticeUpdate(plan, exclusion, listing, scan);
 		const tell = async (): Promise<void> => {
 			await writeNotices(store, notices.remember);
 			this.notices = [...notices.show];
@@ -532,11 +611,14 @@ class PushRun {
 			(await store.getMeta(FIRST_PUSH_CONFIRMED_KEY)) !== true || (starting && !(await isFirstFetchConfirmed(store)));
 		const guardDue = needsPushConfirmation(plan);
 		if (firstDue || guardDue) {
+			const added = firstDue ? this.sectionAdded : null;
+			this.sectionAsked = added !== null;
 			const answer = await deps.confirm({
 				firstPush: firstDue ? firstPushFiles(plan) : null,
 				remoteEmpty: starting,
 				deletions: guardDue ? plan.countedDeletions : null,
 				recordCount: plan.recordCount,
+				...(added === null ? {} : { sectionAdded: added }),
 			});
 			// A question that was closed because the push was stopped is no
 			// answer of the user's: told as the stop it is.
@@ -560,6 +642,8 @@ class PushRun {
 			if ("outcome" in first) return first;
 			parent = first.revision;
 			started = 1;
+			// The first commit is the `.gitignore` of the vault, as it is.
+			this.sectionSent = this.sectionAdded !== null;
 		}
 		const onto = parent;
 		const sends = started === 0 ? plan.sends : plan.sends.filter((send) => send.key !== GITIGNORE);
@@ -639,6 +723,7 @@ class PushRun {
 			return this.result("pushed", { revision: onto, counts: { ...NO_COUNTS, added: 1 } });
 		}
 		const { revision, written } = pushed;
+		if (written.some((entry) => pathKey(entry.path) === GITIGNORE)) this.sectionSent = this.sectionAdded !== null;
 		if (revision === null) throw new Error("The remote answered a push without a revision.");
 
 		// From here on the push has happened, and is recorded whatever the
@@ -669,9 +754,11 @@ class PushRun {
 
 	/**
 	 * Makes the first commit of a remote that has none: the `.gitignore`
-	 * of the vault, or an empty one. An empty one is written to the vault
-	 * once the remote has it, and not before: a file the remote did not
-	 * take would be one the user never made. Recorded as a pull of that
+	 * of the vault, which holds the section by now (`addSection`), or an
+	 * empty one where the vault still has none: the section could not be
+	 * written, or was not to be. An empty one is written to the vault once
+	 * the remote has it, and not before: a file the remote did not take
+	 * would be one the user never made. Recorded as a pull of that
 	 * one file would be: the commit is the base revision from here on, and
 	 * the push that follows is one like any other. Answers how the push
 	 * ends instead when no commit was made.
@@ -741,6 +828,57 @@ class PushRun {
 		};
 	}
 
+	/**
+	 * Adds the default section to a root `.gitignore` that has none, or
+	 * makes the file with it. Answers `false` when the write failed halfway
+	 * and the file can no longer be gone by; `true` in every other case,
+	 * also when nothing was added. Then the lines of the section are applied
+	 * without being written (`effectiveRules`), as they were by the pull, and
+	 * the next sync tries again.
+	 *
+	 * Called with the `.gitignore` known to be settled: no marker, no write
+	 * of its own left unfinished, not put off by the pull before, saved by
+	 * every editor. Not added:
+	 *
+	 * - once the push was stopped;
+	 * - when the remote's `.gitignore` is not the one this device last
+	 *   synced (`isGitignoreAsRecorded`): the push would not send the file.
+	 *   That is the pull that did not get to this file, and a push alone
+	 *   after another device changed it;
+	 * - when the file has a section, an empty or a broken one included, or
+	 *   is there and cannot be read (`SectionLeftReason`).
+	 */
+	private async addSection(listing: RemoteListing, records: readonly StoredRecord[]): Promise<boolean> {
+		const { deps } = this;
+		if (this.aborted()) return true;
+		if (!isGitignoreAsRecorded(listing.entries, records)) {
+			deps.log?.("push: no section was added to .gitignore: the remote's is not the one this device last synced");
+			return true;
+		}
+		const addition = await addDefaultSection({
+			store: deps.store,
+			vault: deps.vault,
+			paths: deps.paths,
+			sizeLimit: this.sizeLimit,
+		});
+		if (addition.kind === "unsettled") return false;
+		if (addition.kind === "left") {
+			if (addition.reason !== "present") deps.log?.(`push: no section was added to .gitignore: ${addition.reason}`);
+			return true;
+		}
+		// By the added lines, and by the file as it is now: a line that a
+		// later one of the user's undoes leaves nothing out.
+		const lines = createExclusion({ ...deps.paths, gitignore: withSection(null, addition.lines.slice(1, -1)) });
+		const rules = createExclusion({ ...deps.paths, gitignore: addition.text });
+		const tracked = remoteFilesMatchingRules(lines, listing.entries)
+			.filter((entry) => rules.matchesRule(entry.path, "file"))
+			.map((entry) => entry.path)
+			.sort();
+		this.sectionAdded = { lines: addition.lines, created: addition.created, tracked };
+		deps.onSectionAdded?.(this.sectionAdded);
+		return true;
+	}
+
 	/** The `.gitignore` at the vault root, as it is now. */
 	private async rootGitignore(): Promise<string | null> {
 		const { vault } = this.deps;
@@ -754,11 +892,27 @@ class PushRun {
 	 * remember, and the ones that apply for the first time. What only a
 	 * pull finds out is left as it is remembered. Nothing is stored here.
 	 */
-	private async noticeUpdate(plan: PushPlan): Promise<ReturnType<typeof reconcileNotices>> {
-		const { store } = this.deps;
+	private async noticeUpdate(
+		plan: PushPlan,
+		exclusion: Exclusion,
+		listing: RemoteListing,
+		scan: ScanResult,
+	): Promise<ReturnType<typeof reconcileNotices>> {
+		const { store, paths } = this.deps;
 		const remembered = await readNotices(store);
-		const mine = (notice: NoticeRef): boolean => notice.kind === "too-large" || PUSH_NOTICE_KINDS.includes(notice.kind);
+		const mine = (notice: NoticeRef): boolean =>
+			SHARED_NOTICE_KINDS.includes(notice.kind) || PUSH_NOTICE_KINDS.includes(notice.kind);
 		const current: NoticeRef[] = remembered.filter((notice) => !mine(notice));
+		// By the rules this push goes by: the file as it is on this device,
+		// with the section when this push added it.
+		current.push(
+			...ruleNotices(
+				exclusion,
+				paths,
+				listing.entries,
+				scan.paths.map((scanned) => scanned.path),
+			),
+		);
 		for (const skip of plan.skipped) {
 			if (skip.reason !== "too-large") continue;
 			// Named as a pull names it, so that the two tell it once between them.

@@ -59,12 +59,6 @@ export interface ExclusionPaths {
 export interface ExclusionInput extends ExclusionPaths {
 	/** The text of the `.gitignore` at the vault root, or `null` when there is none. */
 	readonly gitignore: string | null;
-	/**
-	 * Whether the user was asked to have the section added to `.gitignore`
-	 * and said no. Left out, the question has not been answered yet. It only
-	 * matters while the file has no section; see `effectiveRules`.
-	 */
-	readonly sectionDeclined?: boolean;
 }
 
 export interface Exclusion {
@@ -271,9 +265,8 @@ export function defaultSectionLines(paths: ExclusionPaths): string[] {
  * own folder, which the code leaves out, while a `git add -A` on a Mac
  * commits it.
  *
- * While the file has no section and the user has not answered whether to
- * add one, the lines of the default section count as there, so nothing is
- * off but what a `!` of the file undoes.
+ * While the file has no section, the lines of the default section count as
+ * there, so nothing is off but what a `!` of the file undoes.
  */
 export function fixedExclusionsOff(exclusion: Exclusion, paths: ExclusionPaths): string[] {
 	return fixedExclusions(paths)
@@ -295,16 +288,7 @@ export function remoteFilesMatchingRules<T extends { readonly path: string; read
 	exclusion: Exclusion,
 	entries: readonly T[],
 ): T[] {
-	const submodules = new Set<string>();
-	for (const entry of entries) {
-		if (entry.kind === "submodule") submodules.add(pathKey(entry.path));
-	}
-	const isBelowSubmodule = (key: string): boolean => {
-		for (let slash = key.indexOf("/"); slash !== -1; slash = key.indexOf("/", slash + 1)) {
-			if (submodules.has(key.slice(0, slash))) return true;
-		}
-		return false;
-	};
+	const isBelowSubmodule = belowSubmodules(entries);
 	return entries.filter((entry) => {
 		const key = pathKey(entry.path);
 		if (entry.kind === "submodule" || !isPathFromRoot(key) || isBelowSubmodule(key)) return false;
@@ -312,23 +296,78 @@ export function remoteFilesMatchingRules<T extends { readonly path: string; read
 	});
 }
 
+/**
+ * The `.gitignore` files below the root, of the remote and of the vault:
+ * they are synced as the files they are, and none of their rules is read,
+ * which is not what git on a Mac does with them. Each path once, as the
+ * remote spells it where it holds it, sorted.
+ *
+ * Not in it: one below either of the two fixed exclusions; one below a
+ * submodule, whose rules are for the repository it is; and one that a rule
+ * matches, itself or a folder above it. That is asked of the rules alone
+ * (`matchesRule`), since `excludes` leaves nothing out that the remote
+ * holds: a `knowledge/.gitignore` inside a folder the root leaves out would
+ * be told on every device for good. `local` is what the scan found, which
+ * does not go below a folder a rule matches unless something there is known.
+ */
+export function nestedGitignores(
+	exclusion: Exclusion,
+	remote: readonly { readonly path: string; readonly kind: EntryKind }[],
+	local: readonly string[],
+): string[] {
+	const isBelowSubmodule = belowSubmodules(remote);
+	const counts = (key: string): boolean => {
+		const slash = key.lastIndexOf("/");
+		if (slash === -1 || key.slice(slash + 1) !== ROOT_GITIGNORE) return false;
+		if (!isPathFromRoot(key) || isBelowSubmodule(key) || exclusion.hardExclusionOf(key) !== undefined) return false;
+		if (exclusion.matchesRule(key, "file")) return false;
+		for (let at = key.indexOf("/"); at !== -1; at = key.indexOf("/", at + 1)) {
+			if (exclusion.matchesRule(key.slice(0, at), "folder")) return false;
+		}
+		return true;
+	};
+	const found = new Map<string, string>();
+	const remoteFiles = remote.filter((entry) => entry.kind === "file").map((entry) => entry.path);
+	for (const path of [...remoteFiles, ...local]) {
+		const key = pathKey(path);
+		if (!found.has(key) && counts(key)) found.set(key, path);
+	}
+	return [...found.values()].sort();
+}
+
+// Whether a key lies below one of the submodules of a listing.
+function belowSubmodules(
+	entries: readonly { readonly path: string; readonly kind: EntryKind }[],
+): (key: string) => boolean {
+	const submodules = new Set<string>();
+	for (const entry of entries) {
+		if (entry.kind === "submodule") submodules.add(pathKey(entry.path));
+	}
+	return (key) => {
+		for (let slash = key.indexOf("/"); slash !== -1; slash = key.indexOf("/", slash + 1)) {
+			if (submodules.has(key.slice(0, slash))) return true;
+		}
+		return false;
+	};
+}
+
 const ROOT_GITIGNORE = ".gitignore";
 
 // The rules that are in effect. Once the file has a section they are the
 // file and nothing else: a user may delete a line of the section, and it
 // must not come back from here. A broken section counts as one, since its
-// lines are still rules. The same holds once the user declined to have a
-// section added.
+// lines are still rules, and so does an empty one, which is how a user says
+// that the section is not wanted.
 //
-// Only while the file has no section and the question is not answered are
-// the lines of the default section put in front, for the pull that runs
-// before the question can be asked. In front, so that what the user wrote
+// Only while the file has no section are the lines of the default section
+// put in front: for the pull that runs before a sync adds the section, and
+// for a device that only ever pulls. In front, so that what the user wrote
 // wins where the two disagree (in git the later line does).
 function effectiveRules(input: ExclusionInput): string {
 	// Git skips a byte order mark at the start of the file; the library would
 	// take it for the first character of the first rule.
 	const text = (input.gitignore ?? "").replace(/^\uFEFF/, "");
-	if (input.sectionDeclined === true || findSection(text).kind !== "none") return text;
+	if (findSection(text).kind !== "none") return text;
 	return [...defaultSectionLines(input), text].join("\n");
 }
 

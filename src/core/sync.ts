@@ -33,6 +33,15 @@ import { markPushFailure } from "./push-failure";
  *
  * After a pull that found a remote without commits, it does: the push
  * gives the remote its first commit.
+ *
+ * The section Sync Evo keeps in the root `.gitignore` is added by the push
+ * (`addSection` in `push.ts`), and so only where one follows: between the
+ * pull and what the push sends, on top of the file the pull left. No step of
+ * its own does it here. Whether the file is the one to build on is not told
+ * by how the pull ended but by the file: after a pull that put it off, the
+ * push leaves it alone (`pathsToHold`) and sends nothing; after one that
+ * put other files off, or found a remote without commits, the file is as
+ * the remote has it, and gets the section.
  */
 export function pushFollows(pull: PullResult): boolean {
 	switch (pull.outcome) {

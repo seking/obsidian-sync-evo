@@ -676,6 +676,10 @@ describe("what the user has to know", () => {
 					{ kind: "archive-limited", path: String(140 * 1024 * 1024 + 5) },
 					{ kind: "local-path-collision", path: "case.md" },
 					{ kind: "rename-not-sent", path: "Drafts/a.md" },
+					{ kind: "nested-gitignore", path: "notes/.gitignore" },
+					{ kind: "nested-gitignore", path: "src/lib/.gitignore" },
+					{ kind: "fixed-exclusion-off", path: "/.trash/" },
+					{ kind: "fixed-exclusion-off", path: "*.icloud" },
 				],
 				unwritable: [
 					{ path: "notes", reason: "blocked", inTheWay: ["notes/draft.md", "notes/sub/idea.md"], isNew: true },
@@ -684,6 +688,12 @@ describe("what the user has to know", () => {
 			options,
 		);
 		expect(report.details).toHaveLength(NOTICE_KINDS.length);
+		expect(report.details[13]).toBe(
+			"There are .gitignore files in subfolders. Sync Evo syncs them as ordinary files and does not read them as rules: only the .gitignore at the root of the vault decides what is synced. Git on a computer does apply them, so the same vault is treated differently there. Put the rules you need into the .gitignore at the root:\nnotes/.gitignore\nsrc/lib/.gitignore",
+		);
+		expect(report.details[14]).toBe(
+			"Some of the lines Sync Evo manages in .gitignore are not in effect: they were deleted, or a later line undoes them. What they left out is synced now (the trash, the layout of the workspace, files an operating system leaves behind). Only Sync Evo's own folder is still not synced by Sync Evo, but git on a computer commits it. Deleted lines can be restored in the settings of Sync Evo; where a later line that starts with ! undoes one, change that line:\n/.trash/\n*.icloud",
+		);
 		expect(report.details[9]).toBe(
 			"Downloading all files at once did not work on this device, so Sync Evo no longer tries it here. When there are many files to fetch, they are now fetched one by one, which takes longer.",
 		);
@@ -703,6 +713,25 @@ describe("what the user has to know", () => {
 		expect(report.details[8]).toBe(
 			"The file notes of the remote could not be written: files that are only on this device are in its place. Move or rename them, and the next pull writes it:\nnotes/draft.md\nnotes/sub/idea.md",
 		);
+	});
+
+	test("the notices that follow from the rules, in Japanese: one text per kind, and every line that is off", () => {
+		const off = ["/.obsidian/workspace.json", "/.trash/", ".DS_Store", "._*", "Thumbs.db", "ehthumbs.db", "*.icloud"];
+		const report = pullReport(
+			ja,
+			result({
+				notices: [
+					...off.map((path) => ({ kind: "fixed-exclusion-off", path }) as const),
+					{ kind: "nested-gitignore", path: "notes/.gitignore" },
+				],
+			}),
+			options,
+		);
+		expect(report.details).toEqual([
+			"下位のフォルダに .gitignore があります。Sync Evo は、これらを通常のファイルとして同期しますが、規則としては読みません。何を同期するかは、保管庫のルートの .gitignore だけで決まります。Mac などの git はこれらの規則も使うため、同じ保管庫でも効き方が違います。要る規則は、ルートの .gitignore に書いてください：\nnotes/.gitignore",
+			// Not cut off at five, like a list of paths: which lines are off is what there is to tell.
+			`Sync Evo が管理する .gitignore の行のうち、次の行が効いていません。行が消されたか、後ろの行で打ち消されています。これらの行で除いていた物（ゴミ箱、画面の配置のファイル、OS が残すファイル）も、同期されます。Sync Evo 自身のフォルダだけは、Sync Evo は同期しませんが、Mac などの git ではコミットされます。消した行は、Sync Evo の設定画面で元に戻せます。! で始まる行で打ち消している時は、その行を直してください：\n${off.join("\n")}`,
+		]);
 	});
 
 	test("a device that no longer downloads all files at once from some size on is told the size", () => {

@@ -501,6 +501,12 @@ function noticeText(
 			return [t("notice.localPathCollision", { list })];
 		case "rename-not-sent":
 			return [t("notice.renameNotSent", { list })];
+		case "nested-gitignore":
+			return [t("notice.nestedGitignore", { list })];
+		case "fixed-exclusion-off":
+			// The "paths" are lines of `.gitignore`, and all of them are shown:
+			// which ones are off is the whole of the notice.
+			return [t("notice.fixedExclusionOff", { list: listText(t, paths, paths.length) })];
 	}
 }
 

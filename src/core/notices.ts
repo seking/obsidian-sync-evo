@@ -15,6 +15,8 @@
 // it does. Once it no longer applies it is forgotten, so that it is shown
 // again if it ever comes back.
 
+import type { EntryKind } from "./backend";
+import { type Exclusion, type ExclusionPaths, fixedExclusionsOff, nestedGitignores } from "./exclusion";
 import type { StateStore } from "./state";
 
 /**
@@ -58,6 +60,14 @@ import type { StateStore } from "./state";
  *   case alone, and the new spelling is not sent, so the old one was not
  *   deleted on the remote either. The path is the new one. Found by a push
  *   alone.
+ * - "nested-gitignore": a `.gitignore` below the root, on the remote or in
+ *   the vault. It is synced as a file, and its rules are not read, unlike in
+ *   git on a Mac. The path is that file's. Not told for one a rule matches,
+ *   or one below a submodule (`nestedGitignores`).
+ * - "fixed-exclusion-off": a fixed exclusion of the section in the root
+ *   `.gitignore` is not in effect (`fixedExclusionsOff`), so what it is
+ *   there to leave out is synced. Its path is no path: it is the line, as
+ *   the default section writes it.
  *
  * A new kind is a new name here and a text in the catalog.
  */
@@ -75,6 +85,8 @@ export const NOTICE_KINDS = [
 	"archive-limited",
 	"local-path-collision",
 	"rename-not-sent",
+	"nested-gitignore",
+	"fixed-exclusion-off",
 ] as const;
 
 export type NoticeKind = (typeof NOTICE_KINDS)[number];
@@ -82,9 +94,17 @@ export type NoticeKind = (typeof NOTICE_KINDS)[number];
 /**
  * The kinds only a push finds out about. A push works out which of them
  * apply and leaves the others as they are remembered; a pull does the
- * reverse. "too-large" is found by both, from the same plan.
+ * reverse. Some are found by both (`SHARED_NOTICE_KINDS`).
  */
 export const PUSH_NOTICE_KINDS: readonly NoticeKind[] = ["local-path-collision", "rename-not-sent"];
+
+/**
+ * The kinds a pull and a push both find out about, each from what it has
+ * looked at itself: the listing of the remote, the scan of the vault, and
+ * the rules. Whichever runs works them out anew, so that a device that only
+ * ever pulls is told, and one that only ever pushes.
+ */
+export const SHARED_NOTICE_KINDS: readonly NoticeKind[] = ["too-large", "nested-gitignore", "fixed-exclusion-off"];
 
 export interface NoticeRef {
 	readonly kind: NoticeKind;
@@ -122,6 +142,24 @@ export function reconcileNotices(remembered: readonly NoticeRef[], current: read
 // No kind has a line break in it, so two different pairs never share an id.
 function pairId(notice: NoticeRef): string {
 	return `${notice.kind}\n${notice.path}`;
+}
+
+/**
+ * The notices that follow from the rules: the `.gitignore` files below the
+ * root, and the fixed exclusions that are not in effect. Made the same way
+ * by a pull and by a push (`SHARED_NOTICE_KINDS`). `remote` is the listing
+ * and `local` the paths the scan found.
+ */
+export function ruleNotices(
+	exclusion: Exclusion,
+	paths: ExclusionPaths,
+	remote: readonly { readonly path: string; readonly kind: EntryKind }[],
+	local: readonly string[],
+): NoticeRef[] {
+	return [
+		...nestedGitignores(exclusion, remote, local).map((path): NoticeRef => ({ kind: "nested-gitignore", path })),
+		...fixedExclusionsOff(exclusion, paths).map((line): NoticeRef => ({ kind: "fixed-exclusion-off", path: line })),
+	];
 }
 
 /** The key of the remembered notices among the other values (`getMeta`). */

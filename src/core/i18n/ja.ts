@@ -105,6 +105,23 @@ export const ja = completeTranslation(en, {
 		"一部の新しいファイルを、送信していません。保存先のほかのパス、またはほかの新しいファイルと、大文字と小文字だけが違います。名前を変えると、次の送信で送ります。ほかのファイルは、通常どおり送信します：\n{list}",
 	"notice.renameNotSent":
 		"このデバイスで、大文字と小文字だけを変えて名前を変えたファイルがあります。新しい名前は、.gitignore の規則で除外されるか、ほかのパスと大文字と小文字だけが違うため、送信していません。そのため、保存先にある古い名前のファイルも削除していません：\n{list}",
+	"notice.nestedGitignore":
+		"下位のフォルダに .gitignore があります。Sync Evo は、これらを通常のファイルとして同期しますが、規則としては読みません。何を同期するかは、保管庫のルートの .gitignore だけで決まります。Mac などの git はこれらの規則も使うため、同じ保管庫でも効き方が違います。要る規則は、ルートの .gitignore に書いてください：\n{list}",
+	"notice.fixedExclusionOff":
+		"Sync Evo が管理する .gitignore の行のうち、次の行が効いていません。行が消されたか、後ろの行で打ち消されています。これらの行で除いていた物（ゴミ箱、画面の配置のファイル、OS が残すファイル）も、同期されます。Sync Evo 自身のフォルダだけは、Sync Evo は同期しませんが、Mac などの git ではコミットされます。消した行は、Sync Evo の設定画面で元に戻せます。! で始まる行で打ち消している時は、その行を直してください：\n{list}",
+
+	"section.added.intro":
+		"この保管庫の .gitignore の先頭に、下の行を足しました。Sync Evo が管理する行で、同期しない物を決めます：",
+	"section.added.created":
+		"この保管庫に .gitignore が無かったので、下の行で作りました。Sync Evo が管理する行で、同期しない物を決めます：",
+	"section.added.outside": ".gitignore のほかの部分は、変えていません。",
+	"section.added.sends": "この変更は、この送信で保存先に届きます。",
+	"section.added.sent": "この変更は、この送信で保存先に届きました。",
+	"section.added.unsent": "この変更は、まだ保存先に届いていません。次の送信で届きます。",
+	"section.added.unknown": "この変更が、この送信で保存先に届いたかは、分かりません。届いていなければ、次の送信で届きます。",
+	"section.added.howTo":
+		"これらの行は、Sync Evo の設定画面で変えられます。要らない時は、最初と最後の行（# で始まる2行）だけを残して、間の行を消してください。その2行も消すと、次の同期でまた足します。",
+	"section.added.tracked": "これらの行に当たるファイルが、保存先に {count} 件あります。これらは同期を続けます：",
 
 	"list.separator": "、",
 	"list.more": "…ほか {count} 件",
@@ -277,12 +294,16 @@ export const ja = completeTranslation(en, {
 		"このデバイスから {repository} のブランチ {branch} へ、初めて送信します。保存先を、下のとおりに変更します。送信が1回済むと、次からの送信では、この一覧を出しません。",
 	"confirm.firstPush.remoteEmpty":
 		"保存先は空で、コミットがまだありません。最初に .gitignore だけのコミットを作り、続けて残りを送信します。この保管庫に .gitignore が無い時は、空の .gitignore を作ります。",
+	"confirm.firstPush.remoteEmptyWithGitignore":
+		"保存先は空で、コミットがまだありません。最初に .gitignore だけのコミットを作り、続けて残りを送信します。",
 	"confirm.firstPush.added": "追加するファイル：{count} 件",
 	"confirm.firstPush.modified": "変更するファイル：{count} 件",
 	"confirm.firstPush.deleted": "削除するファイル：{count} 件",
 	"confirm.pushDelete.body":
 		"このデバイスで削除したファイル {count} 件を、保存先からも削除します。ほかのデバイスでも、取り込むと削除されます。",
 	"confirm.push.note": "やめた場合は、何も送信せず、何も変更しません。",
+	"confirm.push.noteSection":
+		"やめた場合は、何も送信しません。.gitignore に足した行は、このデバイスに残り、次の送信で届きます。",
 	"confirm.startOver.title": "同期の状態を捨ててやり直す",
 	"confirm.startOver.body":
 		"このデバイスの同期の状態を捨てて、{repository} のブランチ {branch} から取り込み直して作り直します。同期の状態は、何を同期したかを Sync Evo が覚えておくための記録です。ファイルは、このデバイスでも保存先でも削除しません。",

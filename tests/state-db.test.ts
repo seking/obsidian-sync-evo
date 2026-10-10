@@ -188,9 +188,13 @@ describe("starting over", () => {
 		const factory = new IDBFactory();
 		const store = await open("vault-id", factory);
 		await fill(store);
+		// A value of the sync state like any other: a write of the root
+		// `.gitignore` that did not get to its end (`gitignore-file.ts`).
+		await store.setMeta("gitignore-write", { before: null, writing: "x\n" });
 
 		await store.startOver(seed);
 
+		expect(await store.getMeta("gitignore-write")).toBeUndefined();
 		expect(store.closed).toBe(false);
 		expect(await store.readRecords()).toEqual([]);
 		expect(await store.readMarkers()).toEqual(seed.markers);

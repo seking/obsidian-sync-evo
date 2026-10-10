@@ -23,7 +23,9 @@ import {
 import { GitHubClient } from "../src/core/github/client";
 import { timerSleep } from "../src/core/github/timer-sleep";
 import { runPull } from "../src/core/pull";
-import { type PushDeps, type PushRunResult, runPush } from "../src/core/push";
+import { defaultSectionLines } from "../src/core/exclusion";
+import { withSection } from "../src/core/gitignore-section";
+import { type PushConfirmRequest, type PushDeps, type PushRunResult, runPush } from "../src/core/push";
 import { PENDING_PUSH_KEY, readPendingPush } from "../src/core/push-pending";
 import { pushReport } from "../src/core/push-report";
 import { translatorFor } from "../src/core/i18n";
@@ -1053,7 +1055,8 @@ describe("a pull and a push of a vault, against GitHub", () => {
 		vault.put("img2.png", new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x01]));
 		vault.remove("old.md");
 		time += 60_000;
-		const pushed = await runPush({ ...common, confirm: async () => "proceed" });
+		// Without the section: this is about what GitHub is sent, file by file.
+		const pushed = await runPush({ ...common, addSection: false, confirm: async () => "proceed" });
 
 		expect(pushed).toMatchObject({ outcome: "pushed", counts: { added: 2, modified: 2, deleted: 1 } });
 		const files = github.files();
@@ -1110,7 +1113,9 @@ describe("a push of a vault against GitHub, where it does not go as planned", ()
 		};
 		const push = (overrides: Partial<PushDeps> = {}): Promise<PushRunResult> => {
 			time += 60_000;
-			return runPush({ ...common, confirm: async () => "proceed", ...overrides });
+			// Without the section: these are about the first commit of a
+			// repository, and the files that follow it.
+			return runPush({ ...common, addSection: false, confirm: async () => "proceed", ...overrides });
 		};
 		expect((await pull()).outcome).toBe("completed");
 		return { github, backend, store, vault, base, pull, push };
@@ -1244,6 +1249,46 @@ describe("a push of a vault against GitHub, where it does not go as planned", ()
 });
 
 describe("the first commit of a repository without commits", () => {
+	test("a push of the app, which adds the section: the first commit is the .gitignore with it, and the rest follows", async () => {
+		const { github, backend } = setup();
+		const paths = { configDir: ".obsidian", pluginDir: ".obsidian/plugins/sync-evo" };
+		const now = (): number => Date.UTC(2026, 9, 3, 12, 0, 0);
+		const vault = new MemoryPullVault({ caseSensitive: true, now });
+		vault.putAll({ ".gitignore": "private/\n", "a.md": "A", "notes/b.md": "B", "private/x.md": "X", ".trash/old.md": "O" }, now() - 60_000);
+		const expected = withSection("private/\n", defaultSectionLines(paths));
+		const asked: PushConfirmRequest[] = [];
+
+		// As the app runs it: `addSection` is left out.
+		const pushed = await runPush({
+			store: new MemoryStateStore(),
+			backend,
+			vault,
+			paths,
+			deviceName: "iPhone",
+			now,
+			confirm: async (request) => {
+				asked.push(request);
+				return "proceed";
+			},
+		});
+
+		expect(pushed).toMatchObject({ outcome: "pushed", counts: { added: 3, modified: 0, deleted: 0 } });
+		expect(pushed.sectionAdded).toMatchObject({ created: false, tracked: [], asked: true, sent: true });
+		expect(asked[0]?.sectionAdded?.lines).toEqual(expected.split("\n").slice(0, -2));
+		expect(vault.text(".gitignore")).toBe(expected);
+		// Two commits: the `.gitignore` alone, by the one request that works
+		// in an empty repository, and the rest on top of it.
+		expect(github.writes()[0]).toBe("PUT /contents/.gitignore");
+		const first = github.requests.find((request) => request.method === "PUT")?.body as { content?: string };
+		expect(Buffer.from(first.content ?? "", "base64").toString("utf8")).toBe(expected);
+		const head = github.headCommit();
+		const parent = github.commits.get(head?.parents[0] ?? "");
+		expect(parent?.parents).toEqual([]);
+		expect([...(github.trees.get(parent?.tree ?? "")?.keys() ?? [])]).toEqual([".gitignore"]);
+		expect(github.text(".gitignore")).toBe(expected);
+		expect([...github.files().keys()].sort()).toEqual([".gitignore", "a.md", "notes/b.md"]);
+	});
+
 	test("is one file on the default branch, made with the one request that works there", async () => {
 		const { github, backend } = setup();
 		const content = bytes("private/\n");

@@ -23,11 +23,13 @@ import {
 	isInConfigDir,
 	type KnownPaths,
 	knownPaths,
+	nestedGitignores,
 	type PathType,
 	remoteFilesMatchingRules,
 } from "../src/core/exclusion";
 import {
 	defaultSectionState,
+	findSection,
 	readSectionState,
 	SECTION_END,
 	SECTION_START,
@@ -162,7 +164,7 @@ describe("a vault whose .gitignore has no section", () => {
 	});
 });
 
-describe("a vault whose .gitignore has a section, or whose user declined one", () => {
+describe("a vault whose .gitignore has a section", () => {
 	const defaultOnly = [".obsidian/workspace.json", ".obsidian/plugins/dataview/main.js", ".trash/old.md", "notes/.DS_Store"];
 
 	test("the rules are the file alone: a line deleted from the section does not come back", () => {
@@ -196,30 +198,25 @@ describe("a vault whose .gitignore has a section, or whose user declined one", (
 		for (const path of defaultOnly) expect(exclusion.matchesRule(path, "file")).toBe(true);
 	});
 
-	test("once the user declined, the rules are the file alone, with or without a .gitignore", () => {
+	test("without a section the default lines apply, with or without a .gitignore; nothing else decides it", () => {
 		for (const gitignore of [null, "", "*.log\n"]) {
-			const declined = createExclusion({ ...paths, gitignore, sectionDeclined: true });
-			for (const path of defaultOnly) expect(declined.matchesRule(path, "file")).toBe(false);
-			// Not answered yet, said or left out: the default lines apply.
-			const asked = createExclusion({ ...paths, gitignore, sectionDeclined: false });
-			for (const path of defaultOnly) {
-				expect(asked.matchesRule(path, "file")).toBe(true);
-				expect(exclusionFor(gitignore).matchesRule(path, "file")).toBe(true);
-			}
+			for (const path of defaultOnly) expect(exclusionFor(gitignore).matchesRule(path, "file")).toBe(true);
+			// The one way to have none of them: a section, empty.
+			const emptied = exclusionFor(withSection(gitignore, []));
+			for (const path of defaultOnly) expect(emptied.matchesRule(path, "file")).toBe(false);
 		}
-		expect(createExclusion({ ...paths, gitignore: "*.log\n", sectionDeclined: true }).matchesRule("a.log", "file")).toBe(true);
+		expect(exclusionFor(withSection("*.log\n", [])).matchesRule("a.log", "file")).toBe(true);
 	});
 
 	test("the two fixed exclusions of the code do not depend on any of this", () => {
-		const exclusion = createExclusion({ ...paths, gitignore: withSection(null, []), sectionDeclined: true });
+		const exclusion = createExclusion({ ...paths, gitignore: withSection(null, []) });
 		expect(exclusion.hardExclusionOf(".obsidian/plugins/sync-evo/main.js")).toBe("own-folder");
 		expect(exclusion.excludes(".git/config", "file", known)).toBe(true);
 	});
 });
 
 describe("the fixed exclusions that are not in effect", () => {
-	const off = (gitignore: string | null, sectionDeclined?: boolean): string[] =>
-		fixedExclusionsOff(createExclusion({ ...paths, gitignore, sectionDeclined }), paths);
+	const off = (gitignore: string | null): string[] => fixedExclusionsOff(createExclusion({ ...paths, gitignore }), paths);
 	const section = (change: (lines: string[]) => string[], outside = ""): string =>
 		withSection(outside, change(defaultSectionLines(paths)));
 
@@ -232,8 +229,8 @@ describe("the fixed exclusions that are not in effect", () => {
 	test("all of them, in the order of the section, when there is no line at all", () => {
 		const all = defaultSectionLines(paths).slice(2);
 		expect(all).toHaveLength(11);
-		expect(off(null, true)).toEqual(all);
 		expect(off(withSection(null, []))).toEqual(all);
+		expect(off(withSection("*.log\n", []))).toEqual(all);
 		expect(off(`${SECTION_START}\n`)).toEqual(all);
 	});
 
@@ -287,8 +284,8 @@ describe("the fixed exclusions that are not in effect", () => {
 
 	test("the lines follow the names of the configuration folder and of the plugin's folder", () => {
 		const other = { configDir: ".config[1]", pluginDir: ".config[1]/plugins/evo" };
-		const declined = createExclusion({ ...other, gitignore: null, sectionDeclined: true });
-		expect(fixedExclusionsOff(declined, other).slice(0, 3)).toEqual([
+		const emptied = createExclusion({ ...other, gitignore: withSection(null, []) });
+		expect(fixedExclusionsOff(emptied, other).slice(0, 3)).toEqual([
 			"/.config\\[1\\]/workspace.json",
 			"/.config\\[1\\]/workspace-mobile.json",
 			"/.config\\[1\\]/plugins/evo/",
@@ -296,7 +293,7 @@ describe("the fixed exclusions that are not in effect", () => {
 		expect(fixedExclusionsOff(createExclusion({ ...other, gitignore: null }), other)).toEqual([]);
 		// The lines of `.obsidian` do nothing for it.
 		const wrongName = createExclusion({ ...other, gitignore: withSection(null, defaultSectionLines(paths)) });
-		expect(fixedExclusionsOff(wrongName, other)).toEqual(fixedExclusionsOff(declined, other).slice(0, 3));
+		expect(fixedExclusionsOff(wrongName, other)).toEqual(fixedExclusionsOff(emptied, other).slice(0, 3));
 	});
 });
 
@@ -372,6 +369,68 @@ describe("the files of the remote that a rule matches", () => {
 	test("a copy kept from a conflict is judged by the file it is a copy of, as everywhere", () => {
 		const copy = conflictCopyPath("drafts/a.md", "iPhone", new Date(2026, 9, 3, 22, 15, 0));
 		expect(matched("/drafts/a.md\n", [file(copy), file("drafts/b.md")])).toEqual([copy]);
+	});
+});
+
+describe("the .gitignore files below the root", () => {
+	const file = (path: string) => ({ path, kind: "file" as const });
+	const nested = (gitignore: string | null, remote: readonly string[], local: readonly string[] = []): string[] =>
+		nestedGitignores(exclusionFor(gitignore), remote.map(file), local);
+
+	test("found on the remote and in the vault, each once, sorted; the one at the root is not one of them", () => {
+		expect(
+			nested(null, [".gitignore", "notes/.gitignore", "a.md", "b/c/.gitignore"], ["notes/.gitignore", "a/.gitignore", ".gitignore"]),
+		).toEqual(["a/.gitignore", "b/c/.gitignore", "notes/.gitignore"]);
+	});
+
+	test("only a file of exactly that name", () => {
+		const entries = [
+			file("notes/.gitignore.bak"),
+			file("notes/x.gitignore"),
+			file("notes/.GITIGNORE"),
+			{ path: "link/.gitignore", kind: "symlink" as const },
+		];
+		expect(nestedGitignores(exclusionFor(null), entries, [])).toEqual([]);
+	});
+
+	test("not below either of the two fixed exclusions of the code", () => {
+		expect(nested("", ["sub/.git/.gitignore", ".obsidian/plugins/sync-evo/.gitignore", ".Obsidian/Plugins/Sync-Evo/x/.gitignore"])).toEqual([]);
+	});
+
+	test("not where a rule matches the file or a folder above it, though the remote holds it", () => {
+		const rules = "/knowledge/\nbuild/\n**/.gitignore.d/\ndocs/.gitignore\n";
+		const remote = ["knowledge/.gitignore", "knowledge/deep/.gitignore", "a/build/x/.gitignore", "docs/.gitignore", "kept/.gitignore"];
+		expect(nested(rules, remote, remote)).toEqual(["kept/.gitignore"]);
+		// `excludes` would leave none of them out: the remote holds them all.
+		const known = knownPaths(remote.map(entryAt), []);
+		expect(exclusionFor(rules).excludes("knowledge/.gitignore", "file", known)).toBe(false);
+	});
+
+	test("the lines of the default section count while the file has no section", () => {
+		const remote = [".obsidian/plugins/dataview/.gitignore", ".trash/.gitignore", ".obsidian/snippets/.gitignore"];
+		expect(nested(null, remote)).toEqual([".obsidian/snippets/.gitignore"]);
+		expect(nested(withSection(null, []), remote)).toEqual([...remote].sort());
+	});
+
+	test("a rule undone by a later one leaves the file counted", () => {
+		expect(nested("/drafts/\n!/drafts/\n", ["drafts/.gitignore"])).toEqual(["drafts/.gitignore"]);
+	});
+
+	test("not below a submodule, and not the submodule's own entry", () => {
+		const entries = [
+			{ path: "knowledge", kind: "submodule" as const },
+			file("knowledge/.gitignore"),
+			file("knowledge/deep/.gitignore"),
+			file("knowledgeable/.gitignore"),
+		];
+		expect(nestedGitignores(exclusionFor(""), entries, ["knowledge/local/.gitignore"])).toEqual(["knowledgeable/.gitignore"]);
+	});
+
+	test("one path in NFC and NFD is told once, as the remote spells it; a path that is none is passed over", () => {
+		const nfc = "caf\u00e9/.gitignore";
+		const nfd = "cafe\u0301/.gitignore";
+		expect(nested("", [nfd], [nfc])).toEqual([nfd]);
+		expect(nested("", ["a//.gitignore", "/.gitignore", "../.gitignore"])).toEqual([]);
 	});
 });
 
@@ -726,6 +785,9 @@ describe.skipIf(!gitIsInstalled())("the same answers as git check-ignore", () =>
 	const env = { ...process.env, GIT_CONFIG_GLOBAL: devNull, GIT_CONFIG_NOSYSTEM: "1" };
 
 	/** Builds a repository with these rules and paths, and asks git which of the paths it ignores. */
+	/** A section with no line in it, as `withSection` writes one. */
+	const EMPTY_SECTION = `${SECTION_START}\n${SECTION_END}\n`;
+
 	function ignoredByGit(rules: string, entries: readonly (readonly [string, PathType])[]): Set<string> {
 		const repo = mkdtempSync(join(tmpdir(), "sync-evo-check-ignore-"));
 		try {
@@ -762,12 +824,16 @@ describe.skipIf(!gitIsInstalled())("the same answers as git check-ignore", () =>
 	function expectSameAsGit(rules: string, entries: readonly (readonly [string, PathType])[]): void {
 		const byGit = ignoredByGit(rules, entries);
 		// Without the default section in front: only the rules under test.
-		// `sectionDeclined` keeps it out also for rules that have no section.
+		// Rules that have no section get an empty one after them, which is
+		// what keeps the default lines out, and is two comments to the
+		// library. Git is asked about the rules as they were given.
+		const withoutDefaults =
+			findSection(rules).kind === "none" ? `${rules}${rules.endsWith("\n") || rules === "" ? "" : "\n"}${EMPTY_SECTION}` : rules;
+		expect(findSection(withoutDefaults).kind).not.toBe("none");
 		const exclusion = createExclusion({
 			configDir: "unused-config",
 			pluginDir: "unused-config/own",
-			gitignore: rules,
-			sectionDeclined: true,
+			gitignore: withoutDefaults,
 		});
 		const answers = entries.map(([path, type]) => `${path} (${type}): ${exclusion.matchesRule(path, type)}`);
 		expect(answers).toEqual(entries.map(([path, type]) => `${path} (${type}): ${byGit.has(path)}`));

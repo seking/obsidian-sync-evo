@@ -12,7 +12,18 @@
 import { describe, expect, test } from "vitest";
 import { en } from "../src/core/i18n/en";
 import { translatorFor } from "../src/core/i18n/index";
-import { NOTICES_KEY, type NoticeRef, readNotices, reconcileNotices, writeNotices } from "../src/core/notices";
+import { createExclusion, defaultSectionLines } from "../src/core/exclusion";
+import { withSection } from "../src/core/gitignore-section";
+import {
+	NOTICES_KEY,
+	type NoticeRef,
+	PUSH_NOTICE_KINDS,
+	readNotices,
+	reconcileNotices,
+	ruleNotices,
+	SHARED_NOTICE_KINDS,
+	writeNotices,
+} from "../src/core/notices";
 import { MemoryStateStore } from "./support/memory-state-store";
 
 const ownFolder: NoticeRef = { kind: "own-folder-on-remote", path: ".obsidian/plugins/sync-evo" };
@@ -47,6 +58,44 @@ describe("what to show and what to remember", () => {
 
 	test("the same pair given twice counts once", () => {
 		expect(reconcileNotices([], [git, { ...git }])).toEqual({ show: [git], remember: [git] });
+	});
+});
+
+describe("the notices that follow from the rules", () => {
+	const paths = { configDir: ".obsidian", pluginDir: ".obsidian/plugins/sync-evo" };
+	const file = (path: string) => ({ path, kind: "file" as const });
+
+	test("the .gitignore files below the root, and the fixed exclusions that are off, by their lines", () => {
+		const lines = defaultSectionLines(paths).filter((line) => line !== "/.trash/");
+		const exclusion = createExclusion({ ...paths, gitignore: withSection("/drafts/\n", lines) });
+		const found = ruleNotices(exclusion, paths, [file("notes/.gitignore"), file("drafts/.gitignore")], ["local/.gitignore"]);
+		expect(found).toEqual([
+			{ kind: "nested-gitignore", path: "local/.gitignore" },
+			{ kind: "nested-gitignore", path: "notes/.gitignore" },
+			{ kind: "fixed-exclusion-off", path: "/.trash/" },
+		]);
+	});
+
+	test("none for a vault that has neither", () => {
+		const exclusion = createExclusion({ ...paths, gitignore: null });
+		expect(ruleNotices(exclusion, paths, [file(".gitignore"), file("a.md")], [".gitignore", "a.md"])).toEqual([]);
+	});
+
+	test("both kinds are worked out by a pull and by a push, and so are no kind of a push alone", () => {
+		for (const kind of ["nested-gitignore", "fixed-exclusion-off"] as const) {
+			expect(SHARED_NOTICE_KINDS).toContain(kind);
+			expect(PUSH_NOTICE_KINDS).not.toContain(kind);
+		}
+	});
+
+	test("both are read back from the sync state", async () => {
+		const store = new MemoryStateStore();
+		const stored: NoticeRef[] = [
+			{ kind: "nested-gitignore", path: "notes/.gitignore" },
+			{ kind: "fixed-exclusion-off", path: "*.icloud" },
+		];
+		await writeNotices(store, stored);
+		expect(await readNotices(store)).toEqual(stored);
 	});
 });
 

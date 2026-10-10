@@ -46,7 +46,8 @@ import {
 } from "./archive-fetch";
 import { BackendError, type RemoteEntry, type RemoteListing } from "./backend";
 import { originalPathOfConflictCopy } from "./conflict-name";
-import { createExclusion } from "./exclusion";
+import { createExclusion, type Exclusion } from "./exclusion";
+import { GITIGNORE_WRITE_KEY, settleGitignoreWrite } from "./gitignore-file";
 import { firstFetchFiles, hasFirstFetchQuestion, isFirstFetchConfirmed, markFirstFetchConfirmed } from "./first-fetch";
 import { type LocalRead, readLocal } from "./local-read";
 import {
@@ -55,6 +56,7 @@ import {
 	PUSH_NOTICE_KINDS,
 	readNotices,
 	reconcileNotices,
+	ruleNotices,
 	writeNotices,
 } from "./notices";
 import { foldedKey, pathKey } from "./paths";
@@ -161,6 +163,8 @@ interface Survey {
 	readonly scan: ScanResult;
 	readonly local: { readonly entries: LocalEntry[]; readonly seen: Map<string, Seen>; readonly lfsPointers: string[] };
 	readonly plan: PullPlan;
+	/** The rules the scan and the plan went by. */
+	readonly exclusion: Exclusion;
 }
 
 const GITIGNORE = ".gitignore";
@@ -368,6 +372,20 @@ class PullRun {
 		const waiting = this.awaited.length;
 		await this.tellAwaited(listing);
 		return markers.length + waiting;
+	}
+
+	/**
+	 * Settles a write of Sync Evo's own to the root `.gitignore` that did
+	 * not get to its end (`settleGitignoreWrite`). Where it cannot be
+	 * settled the file may be half written: it is left alone and put off,
+	 * like a path whose marker could not be settled, so that the pull ends
+	 * "incomplete" and the push after it sends nothing.
+	 */
+	private async settleGitignore(): Promise<void> {
+		if (await settleGitignoreWrite({ store: this.store, vault: this.deps.vault })) return;
+		if (this.held.has(GITIGNORE)) return;
+		this.held.add(GITIGNORE);
+		this.tally.deferred.push({ path: GITIGNORE, reason: "unreadable" });
 	}
 
 	/** The marker of the copy of a conflict (`settleMarkers`). */
@@ -616,6 +634,12 @@ class PullRun {
 		// more, which is what a rewritten history is, and nothing can be
 		// asked of the remote about a head it does not have.
 		const nothingToPull = head === null && base === null;
+		// A write of Sync Evo's own to the root `.gitignore` that did not get
+		// to its end (`gitignore-file.ts`), before the file is read as rules,
+		// and also where there is nothing to pull: the push that follows
+		// goes by the file. Like the markers, not yet when the pull starts
+		// over.
+		if (!startOver) await this.settleGitignore();
 		let rewritten = false;
 		if (head === null) {
 			if (base !== null) rewritten = true;
@@ -643,10 +667,10 @@ class PullRun {
 		const records = startOver ? [] : await store.readRecords();
 		const first = await this.survey(listing, records, protect);
 		if (first === null) return finish("cancelled");
-		let { scan, local, plan } = first;
+		let { scan, local, plan, exclusion } = first;
 		// `tried`: whether every write of the plan was attempted.
 		const notices = (tried: boolean): Promise<NoticeRef[]> =>
-			this.updateNotices(plan, scan, listing, local.lfsPointers, tried);
+			this.updateNotices(plan, scan, listing, local.lfsPointers, tried, exclusion);
 
 		// The two reasons to ask. They rarely meet: a first fetch has no
 		// history to be rewritten, and deletes nothing until it has records.
@@ -691,7 +715,10 @@ class PullRun {
 					// for the user's: kept as a copy of a conflict, and sent.
 					const looked = await this.settleMarkers(listing);
 					if (looked === "stopped") return finish("cancelled");
-					settled = looked > 0;
+					const before = this.held.size;
+					const unfinished = (await store.getMeta(GITIGNORE_WRITE_KEY)) !== undefined;
+					await this.settleGitignore();
+					settled = looked > 0 || unfinished || this.held.size !== before;
 					// Looked at right before, with nothing awaited in between:
 					// a change of the connection stops this pull and waits
 					// for it to end before it discards the state itself, and
@@ -707,6 +734,10 @@ class PullRun {
 					const meta: [string, unknown][] = [];
 					if (this.hasUnsaid()) meta.push([HALF_WRITTEN_KEY, this.unsaid()]);
 					if (this.awaited.length > 0) meta.push([AWAITED_CONFLICTS_KEY, this.awaited]);
+					// A write of the `.gitignore` that could not be settled
+					// is as much to be known of as a marker.
+					const unfinishedWrite = await store.getMeta(GITIGNORE_WRITE_KEY);
+					if (unfinishedWrite !== undefined) meta.push([GITIGNORE_WRITE_KEY, unfinishedWrite]);
 					const seed: StateSeed = { listing, markers: this.unsettled, meta };
 					store = await deps.discardState(seed);
 					this.store = store;
@@ -744,7 +775,7 @@ class PullRun {
 					// taken out of the plan above that would have to be again.
 					const again = await this.survey(listing, [], protect);
 					if (again === null) return finish("cancelled");
-					({ scan, local, plan } = again);
+					({ scan, local, plan, exclusion } = again);
 				}
 			}
 		}
@@ -917,7 +948,7 @@ class PullRun {
 			sizeLimit: this.sizeLimit,
 			...(this.held.size === 0 ? {} : { held: this.held }),
 		});
-		return { scan, local, plan };
+		return { scan, local, plan, exclusion };
 	}
 
 	/**
@@ -1166,6 +1197,7 @@ class PullRun {
 		listing: RemoteListing,
 		localLfsPointers: readonly string[],
 		tried: boolean,
+		exclusion: Exclusion,
 	): Promise<NoticeRef[]> {
 		const { deps, tally } = this;
 		const remembered = await readNotices(this.store);
@@ -1179,6 +1211,17 @@ class PullRun {
 			if (PUSH_NOTICE_KINDS.includes(notice.kind)) current.push(notice);
 		}
 		if (scan.rootHasGit) add("git-at-root", ".git");
+		// By the rules this pull went by, which are the ones the root
+		// `.gitignore` has once it is done (`gitignoreAfter`). A `.gitignore`
+		// this pull fetches into a subfolder is in the listing already.
+		current.push(
+			...ruleNotices(
+				exclusion,
+				deps.paths,
+				listing.entries,
+				scan.paths.map((scanned) => scanned.path),
+			),
+		);
 		// Read from the sync state and not handed over by the fetching: the
 		// pull that made the device remember it can have been killed before
 		// it told anything, and the next one tells it then.
