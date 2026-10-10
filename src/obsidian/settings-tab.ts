@@ -16,7 +16,7 @@ import type { SymlinkTarget } from "../core/pull";
 import type { PushFailure } from "../core/push-failure";
 import { pushFailureReminderText } from "../core/push-report";
 import { branchToStore, type DeviceSettings, deviceNameProblem, repositoryToStore } from "../core/settings";
-import { type ExclusionHost, ExclusionSettings } from "./exclusion-settings";
+import { type ExclusionHost, ExclusionSettings, headed } from "./exclusion-settings";
 
 /** What the screen needs from the plugin. */
 export interface SettingsHost extends ExclusionHost {
@@ -211,7 +211,7 @@ export class SyncEvoSettingTab extends PluginSettingTab {
 		const t = this.host.t;
 		const links = await this.host.skippedSymlinks();
 		if (links.length === 0 || drawn !== this.drawn) return;
-		new Setting(el).setName(t("settings.symlinks.name")).setDesc(t("settings.symlinks.desc")).setHeading();
+		headed(el, t("settings.symlinks.name"), t("settings.symlinks.desc"));
 		const list = el.createEl("ul");
 		for (const link of links) {
 			list.createEl("li", { text: t("settings.symlinks.item", { path: link.path, target: link.target }) });

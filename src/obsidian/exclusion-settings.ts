@@ -144,10 +144,7 @@ export class ExclusionSettings {
 		// asking for one would make one.
 		if (load.status === "no-connection") return;
 
-		const heading = new Setting(el)
-			.setName(t("settings.exclusion.heading"))
-			.setDesc(t("settings.exclusion.desc"))
-			.setHeading();
+		const heading = headed(el, t("settings.exclusion.heading"), t("settings.exclusion.desc"));
 		if (load.status === "no-state") {
 			warning(el, t("settings.exclusion.noState"));
 			return;
@@ -206,10 +203,7 @@ export class ExclusionSettings {
 		// A fixed exclusion that is off is not among these: it is listed
 		// above, from the file as it is now.
 		if (notices.length === 0) return;
-		new Setting(el)
-			.setName(t("settings.exclusion.notices.name"))
-			.setDesc(t("settings.exclusion.notices.desc"))
-			.setHeading();
+		headed(el, t("settings.exclusion.notices.name"), t("settings.exclusion.notices.desc"));
 		for (const text of noticeTexts(t, notices, DEFAULT_SIZE_LIMIT)) {
 			// A text that lists paths has one on each line after the first.
 			const [head = "", ...items] = text.split("\n");
@@ -225,10 +219,7 @@ export class ExclusionSettings {
 		const { el, host } = this;
 		const t = host.t;
 
-		new Setting(el)
-			.setName(t("settings.exclusion.fileKinds.name"))
-			.setDesc(t("settings.exclusion.fileKinds.desc"))
-			.setHeading();
+		headed(el, t("settings.exclusion.fileKinds.name"), t("settings.exclusion.fileKinds.desc"));
 		for (const item of SHOWN_FILE_KINDS) {
 			new Setting(el).setName(t(KIND_NAMES[item])).addToggle((toggle) => {
 				toggle
@@ -276,10 +267,7 @@ export class ExclusionSettings {
 			});
 		}
 
-		new Setting(el)
-			.setName(t("settings.exclusion.config.name"))
-			.setDesc(t("settings.exclusion.config.desc"))
-			.setHeading();
+		headed(el, t("settings.exclusion.config.name"), t("settings.exclusion.config.desc"));
 		for (const item of SHOWN_CONFIG_ITEMS) {
 			const setting = new Setting(el).setName(t(CONFIG_NAMES[item]));
 			if (item === "community-plugin-list" || item === "community-plugins") {
@@ -341,7 +329,9 @@ export class ExclusionSettings {
 		// the field a few characters of width.
 		const area = new TextAreaComponent(el.createDiv()).setValue(editorText(opened)).setDisabled(locked);
 		area.inputEl.rows = 12;
-		area.inputEl.cols = 30;
+		// As wide as the screen (`styles.css`): by its columns alone it
+		// stopped short of the edge on a phone.
+		area.inputEl.addClass("sync-evo-gitignore-editor");
 		// A phone would capitalize a rule and turn `--` and quotes into
 		// other characters.
 		area.inputEl.spellcheck = false;
@@ -382,6 +372,16 @@ export class ExclusionSettings {
 
 function warning(el: HTMLElement, text: string): void {
 	el.createEl("p", { text, cls: "mod-warning" });
+}
+
+/**
+ * A heading, and what it says about the settings below it as a setting of
+ * its own, which is answered. On a phone the app draws a heading as a title
+ * of one line and cuts off a description given to the heading itself.
+ */
+export function headed(el: HTMLElement, name: string, desc: string): Setting {
+	new Setting(el).setName(name).setHeading();
+	return new Setting(el).setDesc(desc);
 }
 
 /** A line under the description of a setting, for what the user has to heed. */
