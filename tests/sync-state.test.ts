@@ -11,8 +11,10 @@
 
 import { IDBFactory } from "fake-indexeddb";
 import { describe, expect, test } from "vitest";
+import { GITIGNORE_WRITE_KEY, settleGitignoreWrite } from "../src/core/gitignore-file";
 import type { StateStore } from "../src/core/state";
 import { type DiscardNote, SyncState } from "../src/obsidian/sync-state";
+import { MemoryPullVault } from "./support/memory-pull-vault";
 import { fileRecord } from "./support/state-store-contract";
 
 class MemoryNote implements DiscardNote {
@@ -357,6 +359,127 @@ describe("discarding on a change of the connection", () => {
 		expect(events[events.length - 1]).toBe("reopen");
 		expect(events.indexOf("open")).toBeLessThan(events.lastIndexOf("discard"));
 		expect(note.value).toBe(false);
+	});
+
+	test("what the state remembers of the vault is settled before it goes: a half-written .gitignore is finished", async () => {
+		const state = device().start();
+		const vault = new MemoryPullVault({ caseSensitive: false, now: () => 1_000 });
+		// A write of the settings stopped half way, and the connection is
+		// changed before any sync has come to the file.
+		vault.put(".gitignore", "# >>> Sync");
+		const store = await opened(state);
+		await store.setMeta(GITIGNORE_WRITE_KEY, { before: null, writing: "# >>> Sync Evo\n# <<< Sync Evo\n" });
+
+		state.requestDiscard(undefined, (last) => settleGitignoreWrite({ store: last, vault }));
+
+		const fresh = await opened(state);
+		expect(vault.text(".gitignore")).toBe("# >>> Sync Evo\n# <<< Sync Evo\n");
+		expect(await fresh.getMeta(GITIGNORE_WRITE_KEY)).toBeUndefined();
+		expect(fresh).not.toBe(store);
+	});
+
+	test("the last use comes after the sync that was running has ended, and before the removal", async () => {
+		const { events, start } = device();
+		const state = start();
+		await opened(state);
+		events.length = 0;
+		let end = (): void => {};
+		const running = new Promise<void>((resolve) => {
+			end = () => {
+				events.push("sync ended");
+				resolve();
+			};
+		});
+
+		state.requestDiscard(running, async () => {
+			events.push("last use");
+		});
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		expect(events).toEqual([]);
+
+		end();
+		await opened(state);
+		expect(events).toEqual(["sync ended", "last use", "discard"]);
+	});
+
+	test("the last use is handed the state also when nothing had it open", async () => {
+		const { start } = device();
+		const before = start();
+		await (await opened(before)).setMeta("kept", "from the session before");
+		before.close();
+
+		// After a restart: no sync has opened the state yet.
+		const state = start();
+		let seen: unknown;
+		state.requestDiscard(undefined, async (store) => {
+			seen = await store.getMeta("kept");
+		});
+
+		expect(await (await opened(state)).getMeta("kept")).toBeUndefined();
+		expect(seen).toBe("from the session before");
+	});
+
+	test("a last use that fails does not keep the state from going", async () => {
+		const state = device().start();
+		await (await opened(state)).commitWrite(fileRecord("old.md"));
+
+		state.requestDiscard(undefined, () => Promise.reject(new Error("the vault would not write")));
+
+		expect(await (await opened(state)).readRecords()).toEqual([]);
+	});
+
+	test("a state that cannot be opened is removed without a last use", async () => {
+		const { real, start } = device();
+		await new Promise<void>((resolve, reject) => {
+			const request = real.open("sync-evo-vault-id", 99);
+			request.onsuccess = () => {
+				request.result.close();
+				resolve();
+			};
+			request.onerror = () => reject(request.error);
+		});
+		const state = start();
+		let used = false;
+		state.requestDiscard(undefined, async () => {
+			used = true;
+		});
+
+		expect((await state.open()).status).toBe("ok");
+		expect(used).toBe(false);
+	});
+
+	test("a state whose discard was already due is not used a last time: it is not to be believed", async () => {
+		const { note, start } = device();
+		const before = start();
+		await (await opened(before)).setMeta("kept", "of another connection");
+		before.close();
+		// The session before asked for the discard and was stopped before it was made.
+		note.value = true;
+
+		const state = start();
+		let used = false;
+		state.requestDiscard(undefined, async () => {
+			used = true;
+		});
+
+		expect(await (await opened(state)).getMeta("kept")).toBeUndefined();
+		expect(used).toBe(false);
+	});
+
+	test("the second of two discards asked for in a row has no last use either", async () => {
+		const state = device().start();
+		await opened(state);
+		const used: string[] = [];
+
+		state.requestDiscard(undefined, async () => {
+			used.push("first");
+		});
+		state.requestDiscard(undefined, async () => {
+			used.push("second");
+		});
+
+		await opened(state);
+		expect(used).toEqual(["first"]);
 	});
 
 	test("a state written by a newer version is removed like any other", async () => {

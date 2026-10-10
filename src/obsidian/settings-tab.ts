@@ -16,9 +16,10 @@ import type { SymlinkTarget } from "../core/pull";
 import type { PushFailure } from "../core/push-failure";
 import { pushFailureReminderText } from "../core/push-report";
 import { branchToStore, type DeviceSettings, deviceNameProblem, repositoryToStore } from "../core/settings";
+import { type ExclusionHost, ExclusionSettings } from "./exclusion-settings";
 
 /** What the screen needs from the plugin. */
-export interface SettingsHost {
+export interface SettingsHost extends ExclusionHost {
 	readonly t: Translate;
 	/** `null` when what is stored was written by a newer version; it is then neither shown nor written. */
 	readonly deviceSettings: DeviceSettings | null;
@@ -192,6 +193,11 @@ export class SyncEvoSettingTab extends PluginSettingTab {
 				}
 			});
 		});
+
+		// What is synced: the switches for the root `.gitignore`, and the
+		// file. Read from the vault and the sync state, so filled in later,
+		// like the list below it. Nothing while there is no connection.
+		void new ExclusionSettings(this.app, containerEl.createDiv(), host).draw();
 
 		void this.showSymlinks(containerEl.createDiv(), this.drawn);
 	}

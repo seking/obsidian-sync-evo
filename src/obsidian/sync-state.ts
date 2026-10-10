@@ -14,6 +14,7 @@
 // be opened for another.
 
 import type { App } from "obsidian";
+import type { StateStore } from "../core/state";
 import {
 	discardStateDb,
 	type IdbStateStore,
@@ -123,8 +124,18 @@ export class SyncState {
 	 * running is stopped and awaited first; it must not ask for the state
 	 * again meanwhile, or the two wait for each other. An open asked for
 	 * later waits for all of it, as before.
+	 *
+	 * `lastUse`: what is done with the state right before it goes, after
+	 * `after`: something the state remembers that is about the vault and not
+	 * about the connection, and would be lost with it. It is handed the store
+	 * here, since `open` would wait for this very discard. The state goes
+	 * whether or not it succeeds, and it is not called at all where the state
+	 * cannot be opened, or where a discard was already due before this one:
+	 * that state is not to be believed, and nothing is done by it.
 	 */
-	requestDiscard(after?: Promise<unknown>): void {
+	requestDiscard(after?: Promise<unknown>, lastUse?: (store: StateStore) => Promise<unknown>): void {
+		// Asked before the flag is set: whether an earlier discard is still due.
+		const use = lastUse === undefined || this.discardIsDue() ? undefined : lastUse;
 		this.discardRequested = true;
 		try {
 			this.deps.note.set();
@@ -135,6 +146,7 @@ export class SyncState {
 		this.queue = this.queue
 			// However that sync ended, the state goes.
 			.then(() => after?.catch(() => undefined))
+			.then(() => (use === undefined ? undefined : this.useOnceMore(use)))
 			.then(() => {
 				this.discardsWaiting -= 1;
 				return this.discardIfDue();
@@ -184,6 +196,22 @@ export class SyncState {
 			}
 		}
 		return this.discardRequested;
+	}
+
+	// Hands the state to `use` a last time. Opened here when nothing has it
+	// open, and closed with everything else by the discard that follows.
+	// Never rejects: nothing of this may keep the state from going.
+	private async useOnceMore(use: (store: StateStore) => Promise<unknown>): Promise<void> {
+		try {
+			if (this.current === null || this.current.closed) {
+				const result = await openStateDb(this.deps.appId(), this.deps.indexedDb());
+				if (result.status !== "ok") return;
+				this.current = result.store;
+			}
+			await use(this.current);
+		} catch {
+			// The state goes all the same.
+		}
 	}
 
 	/**

@@ -11,9 +11,19 @@
 
 import { getLanguage, Notice, Platform, Plugin } from "obsidian";
 import { type CheckOutcome, runConnectionCheck } from "./core/connection-check";
+import {
+	applyExclusionEdit,
+	type ExclusionEdit,
+	type ExclusionScreenDeps,
+	type ExclusionWrite,
+	readExclusionScreen,
+	saveGitignoreText,
+} from "./core/exclusion-settings";
+import { settleGitignoreWrite } from "./core/gitignore-file";
 import { GitHubClient } from "./core/github/client";
 import { timerSleep } from "./core/github/timer-sleep";
 import { type Translate, translatorFor } from "./core/i18n";
+import { DEFAULT_SIZE_LIMIT } from "./core/plan";
 import { readSymlinkTargets, type SymlinkTarget } from "./core/pull";
 import { type PushFailure, readPushFailure } from "./core/push-failure";
 import { pushFailureReminderText } from "./core/push-report";
@@ -25,7 +35,10 @@ import {
 	defaultSettings,
 	type DeviceSettings,
 } from "./core/settings";
+import { exclusionPathsOf } from "./obsidian/exclusion-paths";
+import type { ExclusionChange, ExclusionLoad } from "./obsidian/exclusion-settings";
 import { obsidianHttp } from "./obsidian/http";
+import { pullVaultOf } from "./obsidian/pull-vault";
 import { type SyncHost, SyncRunner } from "./obsidian/sync-runner";
 import { SettingsStore } from "./obsidian/settings-store";
 import { type SettingsHost, SyncEvoSettingTab } from "./obsidian/settings-tab";
@@ -150,7 +163,21 @@ export default class SyncEvoPlugin extends Plugin implements SettingsHost, SyncH
 		// it to end. Removed under a pull, the state would lose the marker
 		// of the file being written before that file is whole, and the next
 		// sync would take the half of it for a file of the user's.
-		if (change === "set" || change === "changed") this.syncState.requestDiscard(this.syncs.interrupt());
+		//
+		// A write of the root `.gitignore` that did not get to its end is
+		// remembered in the state too, and is settled before the state goes:
+		// forgotten with it, half a file would be left to be read as rules.
+		// Only on "changed". On "set" the state is one that was left behind,
+		// and nothing is done by what such a state remembers. When settling
+		// fails, the state goes all the same: it is of no use to the new
+		// connection.
+		if (change === "set" || change === "changed") {
+			const vault = pullVaultOf(this.app);
+			this.syncState.requestDiscard(
+				this.syncs.interrupt(),
+				change === "changed" ? (store) => settleGitignoreWrite({ store, vault }) : undefined,
+			);
+		}
 		this.deviceSettings = next;
 		this.store.save(next);
 		return change;
@@ -201,6 +228,70 @@ export default class SyncEvoPlugin extends Plugin implements SettingsHost, SyncH
 		} catch {
 			return null;
 		}
+	}
+
+	/**
+	 * What the settings show of the root `.gitignore`. Read under the mark
+	 * that keeps a sync from starting meanwhile, since it settles a write
+	 * that did not get to its end, which can write the file. While a sync
+	 * runs, it is read without that. Never rejects.
+	 */
+	async exclusionScreen(): Promise<ExclusionLoad> {
+		const settings = this.deviceSettings;
+		if (settings === null || connectionOf(settings) === null) return { status: "no-connection" };
+		try {
+			const deps = await this.exclusionDeps();
+			if (deps === null) return { status: "no-state" };
+			const read = await this.syncs.editGitignore(() => readExclusionScreen(deps, { settle: true }));
+			if (read.status === "done") return { status: "ok", screen: read.value, syncing: false };
+			return { status: "ok", screen: await readExclusionScreen(deps, { settle: false }), syncing: true };
+		} catch {
+			return { status: "no-state" };
+		}
+	}
+
+	editExclusion(edit: ExclusionEdit): Promise<ExclusionChange> {
+		return this.changeGitignore((deps) => applyExclusionEdit(deps, edit));
+	}
+
+	saveGitignore(text: string, opened: string | null): Promise<ExclusionChange> {
+		return this.changeGitignore((deps) => saveGitignoreText(deps, text, opened));
+	}
+
+	/**
+	 * A write of the settings to the root `.gitignore`: turned away while a
+	 * sync runs, and no sync begins while it runs. Never rejects.
+	 */
+	private async changeGitignore(
+		write: (deps: ExclusionScreenDeps) => Promise<ExclusionWrite>,
+	): Promise<ExclusionChange> {
+		const settings = this.deviceSettings;
+		if (settings === null || connectionOf(settings) === null) return "no-state";
+		try {
+			const deps = await this.exclusionDeps();
+			if (deps === null) return "no-state";
+			const written = await this.syncs.editGitignore(() => write(deps));
+			return written.status === "done" ? written.value : "syncing";
+		} catch (error) {
+			return { failed: error instanceof Error ? error.message : String(error) };
+		}
+	}
+
+	/**
+	 * What reading and writing the root `.gitignore` takes, or `null` when
+	 * the sync state cannot be used. The state is opened here, before the
+	 * work is handed to `editGitignore`, and never inside it: a discard of
+	 * the state waits for that work to end, and an open waits for the discard.
+	 */
+	private async exclusionDeps(): Promise<ExclusionScreenDeps | null> {
+		const opened = await this.syncState.open();
+		if (opened.status !== "ok") return null;
+		return {
+			store: opened.store,
+			vault: pullVaultOf(this.app),
+			paths: exclusionPathsOf(this.app, this.manifest),
+			sizeLimit: DEFAULT_SIZE_LIMIT,
+		};
 	}
 
 	/** Asks GitHub for the head of the branch with the settings as given. Sends nothing else. */

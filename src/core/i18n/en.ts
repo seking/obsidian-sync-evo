@@ -67,6 +67,97 @@ export const en = baseCatalog({
 		"Symbolic links on the remote are not written to this device, and are left as they are on the remote. Each is listed with where it points, as of the last pull.",
 	"settings.symlinks.item": "{path} → {target}",
 
+	// The part of the settings screen about what is synced: the switches that
+	// write the lines Sync Evo manages in .gitignore, and the file itself.
+	"settings.exclusion.heading": "What is synced",
+	"settings.exclusion.desc":
+		"These switches write lines into the .gitignore at the root of this vault. That file is synced, so they apply to all your devices, and to git on a computer.",
+	"settings.exclusion.keepsSynced":
+		"Turning a switch off, or excluding a folder, only keeps new files from being sent. What the remote already holds stays synced, and nothing is deleted, on this device or on the remote.",
+	"settings.exclusion.tracked": {
+		one: "{count} file on the remote, as of the last sync, matches a rule of .gitignore. It stays synced.",
+		other: "{count} files on the remote, as of the last sync, match a rule of .gitignore. They stay synced.",
+	},
+	"settings.exclusion.handEdited":
+		"The lines Sync Evo manages in .gitignore were edited by hand. The switches show them as Sync Evo reads them. The next change made with a switch rewrites these lines in Sync Evo's own form. Lines it does not know are kept.",
+	"settings.exclusion.noState":
+		"The sync state of this vault cannot be used at the moment, so what is synced cannot be shown or changed here. Run a sync to see why.",
+	"settings.exclusion.syncRunning":
+		"A sync is running, so nothing can be changed here until it has ended, and what is shown may be out of date. Open the settings again afterwards.",
+	"settings.exclusion.unsettled":
+		"An earlier change to .gitignore did not finish, and the file may be incomplete. It is not shown until that is settled. Check that .gitignore at the root of the vault can be read on this device, then open the settings again.",
+	"settings.exclusion.unreadable.notAFile":
+		"There is a folder named .gitignore at the root of this vault, so there are no rules to show or change. Rename or remove that folder.",
+	"settings.exclusion.unreadable.tooLarge":
+		"The .gitignore of this vault is over {limit} MB, so it is not read and cannot be changed here. Make it smaller on a computer.",
+	"settings.exclusion.unreadable.notDownloaded":
+		"The .gitignore of this vault is not downloaded to this device (a cloud drive keeps only a placeholder), so it cannot be shown or changed here. Download it, then open the settings again.",
+	"settings.exclusion.unreadable.respelled":
+		"The .gitignore of this vault is spelled with other upper and lower case (.GITIGNORE, say), so it is not read as rules and cannot be changed here. Rename it to .gitignore.",
+	"settings.exclusion.unreadable.readFailed":
+		"The .gitignore of this vault could not be read, so it cannot be shown or changed here. Open the settings again to retry.",
+	"settings.exclusion.unreadable.notText":
+		"The .gitignore of this vault is not UTF-8 text, so it cannot be shown or changed here without damaging it. Save it as UTF-8 on a computer.",
+	"settings.exclusion.broken":
+		"The two lines that mark the lines Sync Evo manages in .gitignore (they start with \"# >>> Sync Evo\" and \"# <<< Sync Evo\") do not form one pair: one is missing, one is there twice, or they are in the wrong order. The switches are hidden until that is put right. Correct the file below: keep one of each, the first above the second. Or delete every line that starts with either of the two, and the next sync adds the managed lines again.",
+	"settings.exclusion.noSection.name": "Lines managed by Sync Evo",
+	"settings.exclusion.noSection.desc":
+		"The .gitignore of this vault has no lines managed by Sync Evo yet, so there is nothing to switch. Until it has, Sync Evo applies the default lines as if they were there, on every device. Git on a computer does not, since the lines are not in the file. The next sync that sends changes adds them as well.",
+	"settings.exclusion.noSection.button": "Add the lines Sync Evo manages",
+	"settings.exclusion.noSection.syncFirst":
+		"This device has not pulled from the remote yet, so the lines are not added here: a .gitignore on the remote would then be in conflict with this one. Sync first. The sync adds the lines.",
+	"settings.exclusion.noSection.overLimit":
+		"With these lines .gitignore would be over {limit} MB, so they cannot be added, here or by a sync. Shorten the file first.",
+	"settings.exclusion.fileKinds.name": "File types",
+	"settings.exclusion.fileKinds.desc":
+		"Which kinds of file are synced, outside the configuration folder. Notes, canvases and bases are always synced.",
+	"settings.exclusion.folders.name": "Excluded folders",
+	"settings.exclusion.folders.desc":
+		"Folders that are not synced, as paths from the root of the vault. Adding or removing one deletes nothing.",
+	"settings.exclusion.folders.placeholder": "folder/subfolder",
+	"settings.exclusion.folders.add": "Add",
+	"settings.exclusion.folders.remove": "Remove",
+	"settings.exclusion.folders.invalid":
+		"This is not the path of a folder from the root of the vault, so nothing was added.",
+	"settings.exclusion.config.name": "Vault configuration",
+	"settings.exclusion.config.desc":
+		"Which parts of the configuration folder are synced. A change that is pulled may only take effect after Obsidian is reloaded.",
+	"settings.exclusion.communityPluginList.warning":
+		"While this is on, keep Sync Evo enabled on all your devices. If the list of another device does not include Sync Evo, Sync Evo is turned off on this device the next time Obsidian starts, and syncing stops.",
+	"settings.exclusion.communityPlugins.warning":
+		"While this is on, the data.json of your other plugins is synced, which can hold tokens and other credentials, and plugin code that comes from your other devices runs on this device. Turn it on only with devices and a repository you trust.",
+	"settings.exclusion.fixedOff.name": "Exclusions that are not in effect",
+	"settings.exclusion.fixedOff.desc":
+		"The lines below are there to keep the trash, the layout of the workspace, Sync Evo's own folder, and files an operating system leaves behind out of the sync. They are not in effect: the line was deleted, or a later line that starts with ! undoes it. What they left out is synced now. Only Sync Evo's own folder is still not synced by Sync Evo, but git on a computer commits it.",
+	"settings.exclusion.fixedOff.restore": "Restore",
+	"settings.exclusion.fixedOff.restoreNote":
+		"Restoring puts the deleted lines back among the lines Sync Evo manages. A line that a later line starting with ! undoes stays listed here after that: change that later line in the file below.",
+	"settings.exclusion.fixedOff.undone":
+		"None of these lines is missing, so there is nothing to restore: a later line that starts with ! undoes each of them. Change those lines in the file below.",
+	"settings.exclusion.fixedOff.undoneNoSection":
+		"A line of .gitignore that starts with ! undoes each of them. Change those lines in the file below.",
+	"settings.exclusion.editor.name": "Edit .gitignore",
+	"settings.exclusion.editor.desc":
+		"The whole file at the root of this vault. Nothing is saved while you type: press Save. Rules outside the lines Sync Evo manages are yours, and no switch changes them. Using a switch above discards what is typed here and not saved.",
+	"settings.exclusion.editor.absent": "This vault has no .gitignore yet. Saving creates it.",
+	"settings.exclusion.editor.save": "Save",
+	"settings.exclusion.editor.saved": "Saved .gitignore. The next sync sends it to the remote.",
+	"settings.exclusion.notices.name": "Found by the last sync",
+	"settings.exclusion.notices.desc": "What applies to this vault now, as of the last sync. Each stays listed for as long as it applies.",
+	"settings.exclusion.write.syncing": "A sync is running. .gitignore cannot be changed until it has ended.",
+	"settings.exclusion.write.changed":
+		".gitignore was changed after this screen read it, so nothing was written. The screen now shows the file as it is. Make the change again.",
+	"settings.exclusion.write.refused": "This device refused to write .gitignore. Nothing was changed.",
+	"settings.exclusion.write.unsettled":
+		".gitignore could not be written to its end, or an earlier change to it could not be finished. The file may be incomplete, and no push goes by it until that is settled. Check that the file can be written on this device, then open the settings again.",
+	"settings.exclusion.write.overLimit":
+		"With this change .gitignore would be over {limit} MB, and a file over that is not synced. Nothing was written.",
+	"settings.exclusion.write.unreadable":
+		".gitignore can no longer be read on this device, so nothing was written.",
+	"settings.exclusion.write.noState":
+		"The sync state of this vault cannot be used at the moment, so .gitignore was not changed. Run a sync to see why.",
+	"settings.exclusion.write.failed": ".gitignore was not changed: {detail}",
+
 	// The result of testing the connection.
 	"check.connected": "Connected to {repository}, branch {branch}.",
 	"check.empty": "Connected to {repository}. The remote is empty: it has no commits yet.",

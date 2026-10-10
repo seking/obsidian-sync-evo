@@ -20,6 +20,7 @@ import { ArchiveGate } from "../core/archive-fetch";
 import { BackendError } from "../core/backend";
 import { connectionCheckText, prepareCheck } from "../core/connection-check";
 import { type FetchLimitState, FetchLimitWatch, NO_FETCH_LIMIT, sameFetchLimit } from "../core/fetch-quota";
+import { type GitignoreEdit, GitignoreGate } from "../core/gitignore-gate";
 import { GitHubBackend } from "../core/github/backend";
 import { GitHubClient } from "../core/github/client";
 import { timerSleep } from "../core/github/timer-sleep";
@@ -111,6 +112,11 @@ export class SyncRunner {
 	/** Across pulls: a pull that is stopped leaves the request for the zip of the commit on its way. */
 	private readonly archiveGate = new ArchiveGate();
 	private readonly wakeLock = new ScreenWakeLock();
+	/**
+	 * The one mark of who is at the root `.gitignore`: a sync, or the settings
+	 * screen (`editGitignore`). Held here, where every sync starts.
+	 */
+	private readonly gitignoreGate = new GitignoreGate();
 
 	constructor(host: SyncHost) {
 		this.host = host;
@@ -149,6 +155,10 @@ export class SyncRunner {
 
 		const controller = new AbortController();
 		this.controller = controller;
+		// From here on the settings screen writes nothing to `.gitignore`.
+		// What it is in the middle of is waited for below, not here: nothing
+		// is awaited before the screen is asked to stay on.
+		const gitignoreEdits = this.gitignoreGate.beginSync();
 		this.wakeLock.hold();
 		let end = (): void => {};
 		this.ended = new Promise((resolve) => {
@@ -159,6 +169,9 @@ export class SyncRunner {
 		let sectionAdded: SectionAdded | null = null;
 		this.progress = new Notice(t(mode === "push" ? "push.progress.starting" : "pull.progress.starting"), 0);
 		try {
+			// A read and a write of one small file: waited out rather than
+			// answered with "a sync is already running", which it is not.
+			await gitignoreEdits;
 			this.opening = true;
 			const opened = await host.syncState.open();
 			this.opening = false;
@@ -315,6 +328,7 @@ export class SyncRunner {
 			if (sectionAdded !== null) this.show(sectionAddedText(t, sectionAdded, "unknown"), 0);
 		} finally {
 			this.wakeLock.release();
+			this.gitignoreGate.endSync();
 			this.opening = false;
 			this.controller = null;
 			this.ended = null;
@@ -343,12 +357,26 @@ export class SyncRunner {
 	 * this (`main.ts`), and not under a sync that still writes to it. A
 	 * question the sync has open is closed as a "no", so that this does not
 	 * wait for the user to answer it.
+	 *
+	 * A write of the settings screen to `.gitignore` that is under way is
+	 * waited for as well: it remembers what it writes in the sync state.
 	 */
 	interrupt(): Promise<void> {
-		if (this.controller === null || this.ended === null) return Promise.resolve();
+		// With no sync running, only the settings can be at the file.
+		if (this.controller === null || this.ended === null) return this.gitignoreGate.idle();
 		this.connectionChanged = true;
 		this.controller.abort();
+		// A sync that runs has waited for the settings before anything else.
 		return this.ended;
+	}
+
+	/**
+	 * Runs work of the settings screen on the root `.gitignore`, a read as
+	 * much as a write, unless a sync is running. While it runs no sync
+	 * begins: one that is started waits for it (`run`).
+	 */
+	editGitignore<T>(work: () => Promise<T>): Promise<GitignoreEdit<T>> {
+		return this.gitignoreGate.edit(work);
 	}
 
 	/**

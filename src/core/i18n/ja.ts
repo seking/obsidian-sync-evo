@@ -60,6 +60,91 @@ export const ja = completeTranslation(en, {
 		"保存先のシンボリックリンクは、このデバイスに書き込まず、保存先でもそのままにします。最後に取り込んだ時点のリンクと、そのリンク先です。",
 	"settings.symlinks.item": "{path} → {target}",
 
+	"settings.exclusion.heading": "同期する物",
+	"settings.exclusion.desc":
+		"ここの切り替えは、この保管庫のルートの .gitignore に行を書きます。.gitignore は同期されるので、全デバイスと、Mac などの git に同じに効きます。",
+	"settings.exclusion.keepsSynced":
+		"切にするか、フォルダを除外に足しても、新しいファイルを送らなくなるだけです。すでに保存先にある物は、同期を続けます。このデバイスでも保存先でも、何も削除しません。",
+	"settings.exclusion.tracked":
+		"最後に同期した時点の保存先に、.gitignore の規則に当たるファイルが {count} 件あります。これらは同期を続けます。",
+	"settings.exclusion.handEdited":
+		".gitignore の Sync Evo が管理する行が、手で直されています。切り替えには、Sync Evo が読み取った状態を出しています。次に切り替えると、これらの行を Sync Evo の決まった形に書き直します。Sync Evo が知らない行は残します。",
+	"settings.exclusion.noState":
+		"この保管庫の同期の状態を今は使えないため、同期する物をここで表示も変更もできません。理由は、同期を実行すると表示されます。",
+	"settings.exclusion.syncRunning":
+		"同期中のため、終わるまでここでは何も変えられません。表示が古いことがあります。終わってから、設定画面を開き直してください。",
+	"settings.exclusion.unsettled":
+		"前に行った .gitignore の変更が終わっておらず、ファイルが途中までの可能性があります。片付くまで表示しません。保管庫のルートの .gitignore がこのデバイスで読めるかを確かめて、設定画面を開き直してください。",
+	"settings.exclusion.unreadable.notAFile":
+		"この保管庫のルートに .gitignore という名前のフォルダがあるため、表示や変更ができる規則がありません。フォルダの名前を変えるか、削除してください。",
+	"settings.exclusion.unreadable.tooLarge":
+		"この保管庫の .gitignore は {limit}MB を超えているため、読み取らず、ここでは変えられません。パソコンで小さくしてください。",
+	"settings.exclusion.unreadable.notDownloaded":
+		"この保管庫の .gitignore は、このデバイスにダウンロードされていません（クラウドドライブが、仮のファイルだけを置いています）。そのため、ここでは表示も変更もできません。ダウンロードしてから、設定画面を開き直してください。",
+	"settings.exclusion.unreadable.respelled":
+		"この保管庫の .gitignore は、大文字と小文字が違う名前（.GITIGNORE など）になっているため、規則として読まれず、ここでは変えられません。名前を .gitignore に変えてください。",
+	"settings.exclusion.unreadable.readFailed":
+		"この保管庫の .gitignore を読めなかったため、ここでは表示も変更もできません。設定画面を開き直すと、もう一度試します。",
+	"settings.exclusion.unreadable.notText":
+		"この保管庫の .gitignore は UTF-8 のテキストではないため、ここで表示や変更をすると中身が壊れます。パソコンで、UTF-8 で保存し直してください。",
+	"settings.exclusion.broken":
+		".gitignore の、Sync Evo が管理する行を囲む2つの印の行（「# >>> Sync Evo」と「# <<< Sync Evo」で始まる行）が、1組になっていません。片方が無いか、同じ物が2つあるか、順番が逆です。直るまで、切り替えは出しません。下の欄で直してください。それぞれ1行ずつにし、「# >>>」の行を上にします。この2種類の印の行を全部消すと、次の同期で Sync Evo が管理する行を足し直します。",
+	"settings.exclusion.noSection.name": "Sync Evo が管理する行",
+	"settings.exclusion.noSection.desc":
+		"この保管庫の .gitignore には、Sync Evo が管理する行がまだ無いため、切り替える物がありません。それまでは、どのデバイスの Sync Evo も、初期設定の行があるものとして扱います。行が .gitignore に無いので、Mac などの git には効きません。変更を送信する次の同期でも、行を足します。",
+	"settings.exclusion.noSection.button": "Sync Evo が管理する行を足す",
+	"settings.exclusion.noSection.syncFirst":
+		"このデバイスは、まだ保存先から取り込んでいないため、ここでは行を足しません。保存先に .gitignore があると、競合になるためです。先に同期してください。同期の時に足されます。",
+	"settings.exclusion.noSection.overLimit":
+		"行を足すと .gitignore が {limit}MB を超えるため、ここでも同期でも足せません。先に、ファイルを短くしてください。",
+	"settings.exclusion.fileKinds.name": "ファイルの種類",
+	"settings.exclusion.fileKinds.desc":
+		"設定フォルダの外で、どの種類のファイルを同期するかを選びます。ノート、キャンバス、ベースは、常に同期します。",
+	"settings.exclusion.folders.name": "除外フォルダ",
+	"settings.exclusion.folders.desc":
+		"同期しないフォルダです。保管庫のルートからのパスで書きます。足しても外しても、何も削除しません。",
+	"settings.exclusion.folders.placeholder": "フォルダ/下位のフォルダ",
+	"settings.exclusion.folders.add": "追加",
+	"settings.exclusion.folders.remove": "外す",
+	"settings.exclusion.folders.invalid": "保管庫のルートからのフォルダのパスになっていないため、足していません。",
+	"settings.exclusion.config.name": "保管庫の設定",
+	"settings.exclusion.config.desc":
+		"設定フォルダのどの項目を同期するかを選びます。取り込んだ変更は、Obsidian を再読み込みした後に効くことがあります。",
+	"settings.exclusion.communityPluginList.warning":
+		"入にしている間は、全デバイスで Sync Evo を有効にしておいてください。ほかのデバイスのリストに Sync Evo が無いと、次に Obsidian を起動した時にこのデバイスの Sync Evo が無効になり、同期が止まります。",
+	"settings.exclusion.communityPlugins.warning":
+		"入にしている間は、ほかのプラグインの data.json も同期されます。トークンなどの認証情報が入っていることがあります。また、ほかのデバイスから来たプラグインのコードが、このデバイスで動きます。信頼できるデバイスとリポジトリでだけ、入にしてください。",
+	"settings.exclusion.fixedOff.name": "効いていない除外",
+	"settings.exclusion.fixedOff.desc":
+		"下の行は、ゴミ箱、画面の配置のファイル、Sync Evo 自身のフォルダ、OS が残すファイルを同期から除くための行です。行が消されたか、後ろの ! で始まる行で打ち消されていて、今は効いていません。除いていた物も、同期されます。Sync Evo 自身のフォルダだけは、Sync Evo は同期しませんが、Mac などの git ではコミットされます。",
+	"settings.exclusion.fixedOff.restore": "元に戻す",
+	"settings.exclusion.fixedOff.restoreNote":
+		"元に戻すと、消された行を、Sync Evo が管理する行に足し直します。後ろの ! で始まる行で打ち消されている行は、戻した後もここに残ります。その時は、下の欄で、打ち消している行を直してください。",
+	"settings.exclusion.fixedOff.undone":
+		"消された行は無いため、元に戻す物はありません。どの行も、後ろの ! で始まる行で打ち消されています。下の欄で、打ち消している行を直してください。",
+	"settings.exclusion.fixedOff.undoneNoSection":
+		"どの行も、.gitignore の ! で始まる行で打ち消されています。下の欄で、打ち消している行を直してください。",
+	"settings.exclusion.editor.name": ".gitignore を編集",
+	"settings.exclusion.editor.desc":
+		"この保管庫のルートにある .gitignore の全体です。入力しただけでは保存されません。「保存」を押してください。Sync Evo が管理する行の外に書いた規則は、切り替えでは変わりません。上の切り替えを使うと、ここに入力して保存していない内容は消えます。",
+	"settings.exclusion.editor.absent": "この保管庫には、まだ .gitignore がありません。保存すると作ります。",
+	"settings.exclusion.editor.save": "保存",
+	"settings.exclusion.editor.saved": ".gitignore を保存しました。次の同期で保存先に届きます。",
+	"settings.exclusion.notices.name": "最後の同期で分かったこと",
+	"settings.exclusion.notices.desc": "最後に同期した時点で、この保管庫に当てはまっていることです。当てはまっている間は、ここに出し続けます。",
+	"settings.exclusion.write.syncing": "同期中は変えられません。同期が終わってから、もう一度行ってください。",
+	"settings.exclusion.write.changed":
+		"この画面が読んだ後に .gitignore が変わっていたため、何も書き込んでいません。今の中身で画面を描き直しました。もう一度変更してください。",
+	"settings.exclusion.write.refused": "このデバイスが .gitignore の書き込みを断りました。何も変更していません。",
+	"settings.exclusion.write.unsettled":
+		".gitignore を最後まで書き込めなかったか、前に行った変更を終えられませんでした。ファイルが途中までの可能性があり、片付くまで、この .gitignore に従った送信は行いません。このデバイスで .gitignore に書き込めるかを確かめて、設定画面を開き直してください。",
+	"settings.exclusion.write.overLimit":
+		"この変更をすると .gitignore が {limit}MB を超えます。超えたファイルは同期されないため、何も書き込んでいません。",
+	"settings.exclusion.write.unreadable": "このデバイスで .gitignore を読めなくなったため、何も書き込んでいません。",
+	"settings.exclusion.write.noState":
+		"この保管庫の同期の状態を今は使えないため、.gitignore を変更していません。理由は、同期を実行すると表示されます。",
+	"settings.exclusion.write.failed": ".gitignore を変更していません：{detail}",
+
 	"check.connected": "{repository} のブランチ {branch} に接続できました。",
 	"check.empty": "{repository} に接続できました。保存先は空で、コミットがまだありません。",
 	"check.unauthorized":
