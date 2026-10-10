@@ -19,11 +19,23 @@ import {
 	createExclusion,
 	defaultSectionLines,
 	type Exclusion,
+	fixedExclusionsOff,
 	isInConfigDir,
 	type KnownPaths,
 	knownPaths,
 	type PathType,
+	remoteFilesMatchingRules,
 } from "../src/core/exclusion";
+import {
+	defaultSectionState,
+	readSectionState,
+	SECTION_END,
+	SECTION_START,
+	type SectionState,
+	sectionLines,
+	withFixedExclusions,
+	withSection,
+} from "../src/core/gitignore-section";
 
 const paths = { configDir: ".obsidian", pluginDir: ".obsidian/plugins/sync-evo" };
 
@@ -147,6 +159,219 @@ describe("a vault whose .gitignore has no section", () => {
 		const exclusion = exclusionFor("/drafts/\r\n*.log\r\n");
 		expect(exclusion.matchesRule("drafts", "folder")).toBe(true);
 		expect(exclusion.matchesRule("a.log", "file")).toBe(true);
+	});
+});
+
+describe("a vault whose .gitignore has a section, or whose user declined one", () => {
+	const defaultOnly = [".obsidian/workspace.json", ".obsidian/plugins/dataview/main.js", ".trash/old.md", "notes/.DS_Store"];
+
+	test("the rules are the file alone: a line deleted from the section does not come back", () => {
+		const lines = defaultSectionLines(paths).filter((line) => line !== "/.trash/" && line !== ".DS_Store");
+		const exclusion = exclusionFor(withSection("*.log\n", lines));
+		expect(exclusion.matchesRule(".trash/old.md", "file")).toBe(false);
+		expect(exclusion.matchesRule("notes/.DS_Store", "file")).toBe(false);
+		expect(exclusion.matchesRule(".obsidian/workspace.json", "file")).toBe(true);
+		expect(exclusion.matchesRule("a.log", "file")).toBe(true);
+	});
+
+	test("an empty section leaves nothing out", () => {
+		for (const text of [withSection(null, []), withSection("\uFEFF# mine\r\n", []), `x\n${withSection(null, [])}`]) {
+			const exclusion = exclusionFor(text);
+			for (const path of defaultOnly) expect(exclusion.matchesRule(path, "file")).toBe(false);
+		}
+	});
+
+	test.each([
+		["a start without an end", `${SECTION_START}\n/drafts/\n`],
+		["two starts", `${SECTION_START}\n${SECTION_START}\n/drafts/\n${SECTION_END}\n`],
+		["an end alone", `/drafts/\n${SECTION_END}\n`],
+	])("a broken section counts as one, and its lines are still rules: %s", (_name, text) => {
+		const exclusion = exclusionFor(text);
+		for (const path of defaultOnly) expect(exclusion.matchesRule(path, "file")).toBe(false);
+		expect(exclusion.matchesRule("drafts", "folder")).toBe(true);
+	});
+
+	test("a marker of another name is no section, and the default lines still apply", () => {
+		const exclusion = exclusionFor("# >>> Sync EvoPro\n# <<< Sync EvoPro\n");
+		for (const path of defaultOnly) expect(exclusion.matchesRule(path, "file")).toBe(true);
+	});
+
+	test("once the user declined, the rules are the file alone, with or without a .gitignore", () => {
+		for (const gitignore of [null, "", "*.log\n"]) {
+			const declined = createExclusion({ ...paths, gitignore, sectionDeclined: true });
+			for (const path of defaultOnly) expect(declined.matchesRule(path, "file")).toBe(false);
+			// Not answered yet, said or left out: the default lines apply.
+			const asked = createExclusion({ ...paths, gitignore, sectionDeclined: false });
+			for (const path of defaultOnly) {
+				expect(asked.matchesRule(path, "file")).toBe(true);
+				expect(exclusionFor(gitignore).matchesRule(path, "file")).toBe(true);
+			}
+		}
+		expect(createExclusion({ ...paths, gitignore: "*.log\n", sectionDeclined: true }).matchesRule("a.log", "file")).toBe(true);
+	});
+
+	test("the two fixed exclusions of the code do not depend on any of this", () => {
+		const exclusion = createExclusion({ ...paths, gitignore: withSection(null, []), sectionDeclined: true });
+		expect(exclusion.hardExclusionOf(".obsidian/plugins/sync-evo/main.js")).toBe("own-folder");
+		expect(exclusion.excludes(".git/config", "file", known)).toBe(true);
+	});
+});
+
+describe("the fixed exclusions that are not in effect", () => {
+	const off = (gitignore: string | null, sectionDeclined?: boolean): string[] =>
+		fixedExclusionsOff(createExclusion({ ...paths, gitignore, sectionDeclined }), paths);
+	const section = (change: (lines: string[]) => string[], outside = ""): string =>
+		withSection(outside, change(defaultSectionLines(paths)));
+
+	test("none, with the default section, written or taken as written", () => {
+		expect(off(null)).toEqual([]);
+		expect(off("*.log\n")).toEqual([]);
+		expect(off(section((lines) => lines))).toEqual([]);
+	});
+
+	test("all of them, in the order of the section, when there is no line at all", () => {
+		const all = defaultSectionLines(paths).slice(2);
+		expect(all).toHaveLength(11);
+		expect(off(null, true)).toEqual(all);
+		expect(off(withSection(null, []))).toEqual(all);
+		expect(off(`${SECTION_START}\n`)).toEqual(all);
+	});
+
+	test("a line that was deleted, by the text of the line", () => {
+		const deleted = ["/.obsidian/workspace-mobile.json", "/.trash/", "._*", "$RECYCLE.BIN/"];
+		expect(off(section((lines) => lines.filter((line) => !deleted.includes(line))))).toEqual(deleted);
+	});
+
+	test("a line that a ! outside the section undoes", () => {
+		expect(off(section((lines) => lines, "!.DS_Store\n!/.obsidian/workspace.json\n!*.icloud\n"))).toEqual([
+			"/.obsidian/workspace.json",
+			".DS_Store",
+			"*.icloud",
+		]);
+	});
+
+	test("the same rule written another way, or outside the section, is in effect", () => {
+		const text = section(
+			(lines) => lines.filter((line) => !["/.trash/", ".DS_Store", "/.obsidian/workspace.json", "Thumbs.db"].includes(line)),
+			".trash\n**/.DS_Store\n/.obsidian/workspace*.json\n*.db\n",
+		);
+		expect(off(text)).toEqual([]);
+	});
+
+	test("the plugin's own folder is judged by the rules, though the code leaves it out anyway", () => {
+		const text = section((lines) => lines.filter((line) => line !== "/.obsidian/plugins/sync-evo/"));
+		// The line for all plugins still covers it.
+		expect(off(text)).toEqual([]);
+		const pluginsSynced = section((lines) =>
+			lines.filter((line) => line !== "/.obsidian/plugins/sync-evo/" && line !== "/.obsidian/plugins/"),
+		);
+		expect(off(pluginsSynced)).toEqual(["/.obsidian/plugins/sync-evo/"]);
+		expect(createExclusion({ ...paths, gitignore: pluginsSynced }).hardExclusionOf(".obsidian/plugins/sync-evo")).toBe(
+			"own-folder",
+		);
+	});
+
+	test("what the remote holds is not asked: a tracked .trash does not make its line count as off", () => {
+		// `excludes` would answer false for these, and the warning would never go.
+		const exclusion = exclusionFor(section((lines) => lines));
+		expect(exclusion.excludes(".trash", "folder", known)).toBe(false);
+		expect(fixedExclusionsOff(exclusion, paths)).toEqual([]);
+	});
+
+	test("restoring in the settings brings the deleted lines back into effect, but not the ones undone outside", () => {
+		const text = section((lines) => lines.filter((line) => line !== "/.trash/" && line !== ".DS_Store"), "!*.icloud\n");
+		expect(off(text)).toEqual(["/.trash/", ".DS_Store", "*.icloud"]);
+		const restored = withFixedExclusions(readSectionState(defaultSectionLines(paths).slice(0, 3), paths), paths);
+		expect(off(withSection(text, sectionLines(restored, paths)))).toEqual(["*.icloud"]);
+	});
+
+	test("the lines follow the names of the configuration folder and of the plugin's folder", () => {
+		const other = { configDir: ".config[1]", pluginDir: ".config[1]/plugins/evo" };
+		const declined = createExclusion({ ...other, gitignore: null, sectionDeclined: true });
+		expect(fixedExclusionsOff(declined, other).slice(0, 3)).toEqual([
+			"/.config\\[1\\]/workspace.json",
+			"/.config\\[1\\]/workspace-mobile.json",
+			"/.config\\[1\\]/plugins/evo/",
+		]);
+		expect(fixedExclusionsOff(createExclusion({ ...other, gitignore: null }), other)).toEqual([]);
+		// The lines of `.obsidian` do nothing for it.
+		const wrongName = createExclusion({ ...other, gitignore: withSection(null, defaultSectionLines(paths)) });
+		expect(fixedExclusionsOff(wrongName, other)).toEqual(fixedExclusionsOff(declined, other).slice(0, 3));
+	});
+});
+
+describe("the files of the remote that a rule matches", () => {
+	const file = (path: string) => ({ path, kind: "file" as const, hash: "h" });
+	const matched = (gitignore: string | null, entries: readonly { path: string; kind: "file" | "symlink" | "submodule" }[]) =>
+		remoteFilesMatchingRules(exclusionFor(gitignore), entries).map((entry) => entry.path);
+
+	test("they are the ones the rules would leave out if the remote did not hold them", () => {
+		const entries = [
+			file("notes/a.md"),
+			file("drafts/b.md"),
+			file("Drafts/Sub/c.md"),
+			file("img/IMG_1.PNG"),
+			file(".obsidian/app.json"),
+			file(".obsidian/workspace.json"),
+			file(".obsidian/plugins/dataview/main.js"),
+			file(".trash/old.md"),
+			file("notes/.DS_Store"),
+			file(".gitignore"),
+		];
+		expect(matched("/drafts/\n*.png\n", entries)).toEqual([
+			"drafts/b.md",
+			"Drafts/Sub/c.md",
+			"img/IMG_1.PNG",
+			".obsidian/workspace.json",
+			".obsidian/plugins/dataview/main.js",
+			".trash/old.md",
+			"notes/.DS_Store",
+		]);
+		// By the rules in effect: with an empty section, only what the file says.
+		expect(matched(withSection("/drafts/\n", []), entries)).toEqual(["drafts/b.md", "Drafts/Sub/c.md"]);
+		expect(matched(withSection(null, []), entries)).toEqual([]);
+	});
+
+	test("the entries come back as they were given, in their order", () => {
+		const entries = [file("drafts/b.md"), file("a.md"), file("drafts/a.md")];
+		const result = remoteFilesMatchingRules(exclusionFor("/drafts/\n"), entries);
+		expect(result).toEqual([entries[0], entries[2]]);
+		expect(result[0]).toBe(entries[0]);
+	});
+
+	test("what the code leaves out is not listed, whatever the rules say", () => {
+		const entries = [
+			file(".obsidian/plugins/sync-evo/main.js"),
+			file(".obsidian/plugins/Sync-Evo/data.json"),
+			file("sub/.git/config"),
+			file(".obsidian/plugins/other/main.js"),
+		];
+		expect(matched(null, entries)).toEqual([".obsidian/plugins/other/main.js"]);
+		expect(matched("*\n", entries)).toEqual([".obsidian/plugins/other/main.js"]);
+	});
+
+	test("a submodule and what lies below one are not listed; a symlink is", () => {
+		const entries = [
+			{ path: "drafts/module", kind: "submodule" as const },
+			file("drafts/module/a.md"),
+			file("drafts/module/deep/b.md"),
+			file("drafts/module-notes.md"),
+			{ path: "drafts/link", kind: "symlink" as const },
+			file("drafts/c.md"),
+		];
+		expect(matched("/drafts/\n", entries)).toEqual(["drafts/module-notes.md", "drafts/link", "drafts/c.md"]);
+	});
+
+	test("a path that is not one from the root is passed over, in either normalization", () => {
+		const nfc = "ガイド";
+		const entries = [file("/a.md"), file("a//b.md"), file(""), file("../x"), file(`${nfc.normalize("NFD")}/a.md`)];
+		expect(matched(`*\n`, entries)).toEqual([`${nfc.normalize("NFD")}/a.md`]);
+		expect(matched(`/${nfc}/\n`, entries)).toEqual([`${nfc.normalize("NFD")}/a.md`]);
+	});
+
+	test("a copy kept from a conflict is judged by the file it is a copy of, as everywhere", () => {
+		const copy = conflictCopyPath("drafts/a.md", "iPhone", new Date(2026, 9, 3, 22, 15, 0));
+		expect(matched("/drafts/a.md\n", [file(copy), file("drafts/b.md")])).toEqual([copy]);
 	});
 });
 
@@ -537,7 +762,13 @@ describe.skipIf(!gitIsInstalled())("the same answers as git check-ignore", () =>
 	function expectSameAsGit(rules: string, entries: readonly (readonly [string, PathType])[]): void {
 		const byGit = ignoredByGit(rules, entries);
 		// Without the default section in front: only the rules under test.
-		const exclusion = createExclusion({ configDir: "unused-config", pluginDir: "unused-config/own", gitignore: rules });
+		// `sectionDeclined` keeps it out also for rules that have no section.
+		const exclusion = createExclusion({
+			configDir: "unused-config",
+			pluginDir: "unused-config/own",
+			gitignore: rules,
+			sectionDeclined: true,
+		});
 		const answers = entries.map(([path, type]) => `${path} (${type}): ${exclusion.matchesRule(path, type)}`);
 		expect(answers).toEqual(entries.map(([path, type]) => `${path} (${type}): ${byGit.has(path)}`));
 		// The rules do match some paths and leave others, so the comparison can fail.
@@ -710,6 +941,206 @@ describe.skipIf(!gitIsInstalled())("the same answers as git check-ignore", () =>
 			[".gitmodules", "file"],
 			["notes/a.md", "file"],
 		]);
+	});
+
+	// The forms the settings write into the section, as a whole file: the
+	// section between its markers, and the rules of the user after it.
+	describe("the section the settings write", () => {
+		const defaults = defaultSectionState(paths);
+		const allKinds = { image: true, audio: true, video: true, pdf: true, other: true };
+		const sectionOf = (change: Partial<SectionState>, outside = ""): string =>
+			withSection(outside, sectionLines({ ...defaults, ...change }, paths));
+
+		// The root `.gitignore` is not among them: the helper would write it
+		// over the rules.
+		const notes: readonly (readonly [string, PathType])[] = [
+			["a.md", "file"],
+			["b.canvas", "file"],
+			["c.base", "file"],
+			["d.txt", "file"],
+			["LICENSE", "file"],
+			[".gitmodules", "file"],
+			["notes", "folder"],
+			["notes/e.md", "file"],
+			["notes/e.csv", "file"],
+			["notes/.gitignore", "file"],
+			["notes/deep/er", "folder"],
+			["notes/deep/er/f.md", "file"],
+			["notes/deep/er/f.zip", "file"],
+		];
+		const media: readonly (readonly [string, PathType])[] = [
+			["img/a.png", "file"],
+			["img/IMG_1.JPG", "file"],
+			["img/b.avif", "file"],
+			["rec/a.mp3", "file"],
+			["rec/b.opus", "file"],
+			["rec/c.webm", "file"],
+			["film/a.mp4", "file"],
+			["film/b.MOV", "file"],
+			["docs/a.pdf", "file"],
+			// A folder named like a file of a kind.
+			["album.png", "folder"],
+			["album.png/cover.md", "file"],
+		];
+		const config: readonly (readonly [string, PathType])[] = [
+			[".obsidian", "folder"],
+			[".obsidian/app.json", "file"],
+			[".obsidian/types.json", "file"],
+			[".obsidian/appearance.json", "file"],
+			[".obsidian/hotkeys.json", "file"],
+			[".obsidian/core-plugins.json", "file"],
+			[".obsidian/core-plugins-migration.json", "file"],
+			[".obsidian/graph.json", "file"],
+			[".obsidian/daily-notes.json", "file"],
+			[".obsidian/community-plugins.json", "file"],
+			[".obsidian/workspace.json", "file"],
+			[".obsidian/workspace-mobile.json", "file"],
+			[".obsidian/notes.txt", "file"],
+			[".obsidian/icons/a.png", "file"],
+			[".obsidian/icons/b.webm", "file"],
+			[".obsidian/sub/x.json", "file"],
+			[".obsidian/themes", "folder"],
+			[".obsidian/themes/a/theme.css", "file"],
+			[".obsidian/themes/a/manifest.json", "file"],
+			[".obsidian/snippets/a.css", "file"],
+			[".obsidian/plugins", "folder"],
+			[".obsidian/plugins/dataview/main.js", "file"],
+			[".obsidian/plugins/dataview/data.json", "file"],
+			[".obsidian/plugins/sync-evo", "folder"],
+			[".obsidian/plugins/sync-evo/main.js", "file"],
+			[".obsidian/.DS_Store", "file"],
+			["notes/app.json", "file"],
+			["x.json", "file"],
+		];
+		const fixed: readonly (readonly [string, PathType])[] = [
+			[".trash", "folder"],
+			[".trash/old.md", "file"],
+			["notes/.trash/x.md", "file"],
+			[".DS_Store", "file"],
+			["notes/.DS_Store", "file"],
+			["notes/._e.md", "file"],
+			["img/Thumbs.db", "file"],
+			["img/ehthumbs.db", "file"],
+			["desktop.ini", "file"],
+			["$RECYCLE.BIN", "folder"],
+			["$RECYCLE.BIN/S-1/x.md", "file"],
+			["notes/.e.md.icloud", "file"],
+		];
+		const everything = [...notes, ...media, ...config, ...fixed];
+
+		test("the default section, between its markers", () => {
+			expectSameAsGit(sectionOf({}), everything);
+			expectSameAsGit(sectionOf({}).replace(/\n/g, "\r\n"), everything);
+			expectSameAsGit(`\uFEFF${sectionOf({})}`, everything);
+		});
+
+		test('"other" off, with every kind on and with some off', () => {
+			expectSameAsGit(sectionOf({ kinds: { ...allKinds, other: false } }), everything);
+			expectSameAsGit(sectionOf({ kinds: { ...allKinds, other: false, image: false, pdf: false } }), everything);
+			expectSameAsGit(sectionOf({ kinds: { ...allKinds, other: false, audio: false } }), everything);
+			expectSameAsGit(
+				sectionOf({ kinds: { image: false, audio: false, video: false, pdf: false, other: false } }),
+				everything,
+			);
+		});
+
+		test("kinds off one by one, and webm with sound, with picture, and with both", () => {
+			expectSameAsGit(sectionOf({ kinds: { ...allKinds, image: false } }), everything);
+			expectSameAsGit(sectionOf({ kinds: { ...allKinds, audio: false } }), everything);
+			expectSameAsGit(sectionOf({ kinds: { ...allKinds, video: false, pdf: false } }), everything);
+			expectSameAsGit(sectionOf({ kinds: { ...allKinds, audio: false, video: false } }), everything);
+		});
+
+		test("the settings of the core plugins off, with other parts on and off", () => {
+			const off = { ...defaults.config, "core-plugin-settings": false };
+			expectSameAsGit(sectionOf({ config: off }), everything);
+			expectSameAsGit(
+				sectionOf({
+					config: {
+						...off,
+						appearance: false,
+						"themes-and-snippets": false,
+						"core-plugin-list": false,
+						"community-plugin-list": true,
+						"community-plugins": true,
+					},
+				}),
+				everything,
+			);
+			// Together with "other" off: the two forms that take the folder out and put parts back.
+			expectSameAsGit(
+				sectionOf({ kinds: { ...allKinds, other: false, video: false }, config: { ...off, hotkeys: false } }),
+				everything,
+			);
+		});
+
+		test("parts of the configuration folder off, with the settings of the core plugins on", () => {
+			expectSameAsGit(
+				sectionOf({
+					config: {
+						...defaults.config,
+						"main-settings": false,
+						"themes-and-snippets": false,
+						hotkeys: false,
+						"community-plugins": true,
+					},
+				}),
+				everything,
+			);
+		});
+
+		test("folders with characters that mean something in .gitignore", () => {
+			const folders = ["drafts", "dra[f]ts", "a*b", "what?", "back\\slash", "!bang", "#hash", "end ", "notes/pri[v]ate", "下書き"];
+			const entries: (readonly [string, PathType])[] = [];
+			for (const folder of folders) entries.push([folder, "folder"], [`${folder}/a.md`, "file"]);
+			expectSameAsGit(sectionOf({ folders }), [
+				...entries,
+				// What the lines would match if the characters were not escaped.
+				["draft", "folder"],
+				["drafts2/a.md", "file"],
+				["drafs/a.md", "file"],
+				["aXb/a.md", "file"],
+				["whatX/a.md", "file"],
+				["backslash/a.md", "file"],
+				["bang/a.md", "file"],
+				["end/a.md", "file"],
+				["notes/private/a.md", "file"],
+				// From the root only.
+				["notes/drafts/a.md", "file"],
+				["other/a*b/a.md", "file"],
+				// A file of that name is not the folder.
+				["notes/what?", "file"],
+				...notes,
+			]);
+		});
+
+		test("fixed exclusions that were deleted from the section", () => {
+			const kept = defaults.fixed.filter((line) => !["/.trash/", "._*", "/.obsidian/workspace.json"].includes(line));
+			expectSameAsGit(sectionOf({ fixed: kept }), everything);
+			expectSameAsGit(sectionOf({ fixed: [] }), everything);
+		});
+
+		test("a ! outside the section undoes a line of it, but not inside a folder it left out", () => {
+			const outside = [
+				"!.DS_Store",
+				"!/.obsidian/workspace.json",
+				"!*.png",
+				"!/drafts/keep.md",
+				"!/.obsidian/plugins/dataview/",
+				"!/.obsidian/plugins/dataview/main.js",
+				"!/.trash/",
+				"*.csv",
+				"",
+			].join("\n");
+			const entries: (readonly [string, PathType])[] = [...everything, ["drafts/keep.md", "file"], ["drafts/b.md", "file"]];
+			expectSameAsGit(sectionOf({ kinds: { ...allKinds, image: false }, folders: ["drafts"] }, outside), entries);
+			expectSameAsGit(sectionOf({ kinds: { ...allKinds, other: false, image: false }, folders: ["drafts"] }, outside), entries);
+		});
+
+		test("a section the user moved below their own rules", () => {
+			const section = sectionOf({ kinds: { ...allKinds, pdf: false } });
+			expectSameAsGit(`!*.pdf\n*.md\n${section}!/.trash/\n`, everything);
+		});
 	});
 
 	test("names outside ASCII, where no wildcard is next to them", () => {

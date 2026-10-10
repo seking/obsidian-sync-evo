@@ -25,8 +25,10 @@
 // this file.
 
 import ignore from "ignore";
+import type { EntryKind } from "./backend";
 import { copyFamilyOf } from "./conflict-copies";
 import { originalPathOfConflictCopy } from "./conflict-name";
+import { defaultSectionState, findSection, fixedExclusions, sectionLines, trimSlashes } from "./gitignore-section";
 import { foldedKey, isPathFromRoot, pathKey } from "./paths";
 
 /**
@@ -57,6 +59,12 @@ export interface ExclusionPaths {
 export interface ExclusionInput extends ExclusionPaths {
 	/** The text of the `.gitignore` at the vault root, or `null` when there is none. */
 	readonly gitignore: string | null;
+	/**
+	 * Whether the user was asked to have the section added to `.gitignore`
+	 * and said no. Left out, the question has not been answered yet. It only
+	 * matters while the file has no section; see `effectiveRules`.
+	 */
+	readonly sectionDeclined?: boolean;
 }
 
 export interface Exclusion {
@@ -184,7 +192,7 @@ export function knownPaths(
 export function createExclusion(input: ExclusionInput): Exclusion {
 	// The case is stated rather than left to the default of the library:
 	// `*.png` has to match `IMG_1.PNG`, as it does for git on a Mac.
-	const rules = ignore({ ignorecase: true }).add(effectiveRules(input.gitignore, defaultSectionLines(input)));
+	const rules = ignore({ ignorecase: true }).add(effectiveRules(input));
 	const ownFolder = foldedKey(checkedKey(trimSlashes(input.pluginDir)));
 
 	// Compared without case, unlike the keys of the three sides. On a file
@@ -243,62 +251,85 @@ export function isInConfigDir(path: string, configDir: string): boolean {
  * The lines of the section Sync Evo keeps at the top of `.gitignore`, as
  * they are when nothing has been switched: the two parts of the
  * configuration folder that are off by default, then the fixed exclusions
- * (the layout of the workspace, Sync Evo's own folder, the trash, and what
- * operating systems leave behind).
- *
- * Lines inside the configuration folder are written from the root, with its
- * name: a bare `workspace.json` would match a file of that name anywhere in
- * the vault. The lines for the operating systems have no `/` in front, so
- * that they match in every folder. `.git/` is not listed; git leaves it out
- * by itself, and so does `hardExclusionOf`.
+ * (`fixedExclusions`). They are what the default state writes, and are kept
+ * nowhere else.
  */
 export function defaultSectionLines(paths: ExclusionPaths): string[] {
-	const config = `/${escaped(trimSlashes(paths.configDir))}`;
-	return [
-		`${config}/community-plugins.json`,
-		`${config}/plugins/`,
-		`${config}/workspace.json`,
-		`${config}/workspace-mobile.json`,
-		`/${escaped(trimSlashes(paths.pluginDir))}/`,
-		"/.trash/",
-		".DS_Store",
-		"._*",
-		"Thumbs.db",
-		"ehthumbs.db",
-		"desktop.ini",
-		"$RECYCLE.BIN/",
-		"*.icloud",
-	];
+	return sectionLines(defaultSectionState(paths), paths);
+}
+
+/**
+ * The fixed exclusions that are not in effect, by their lines in the default
+ * section: the user deleted the line, or a `!` after it undoes it. The
+ * warning of the settings is made from this.
+ *
+ * Each line is judged by the rules alone, on a path it is there to leave
+ * out. Whether a line is there is not looked at: the same rule written
+ * another way, or outside the section, is as good. `excludes` is not asked.
+ * It would call the trash of a remote that tracks `.trash/` synced, and warn
+ * forever about a line that works; and it would never warn about Sync Evo's
+ * own folder, which the code leaves out, while a `git add -A` on a Mac
+ * commits it.
+ *
+ * While the file has no section and the user has not answered whether to
+ * add one, the lines of the default section count as there, so nothing is
+ * off but what a `!` of the file undoes.
+ */
+export function fixedExclusionsOff(exclusion: Exclusion, paths: ExclusionPaths): string[] {
+	return fixedExclusions(paths)
+		.filter((fixed) => !exclusion.matchesRule(fixed.path, fixed.type))
+		.map((fixed) => fixed.line);
+}
+
+/**
+ * The files of a remote listing that a rule matches now. They stay synced
+ * (`excludes`), the way git keeps tracking a file that is added to
+ * `.gitignore` later; this is the list to show for that, and the list a
+ * user can take out of the remote.
+ *
+ * Not in it: what the two fixed exclusions cover, which are not synced
+ * whatever the remote holds; a submodule and what lies below one, which is
+ * for git on a Mac to take out; and a path nothing can be decided about.
+ */
+export function remoteFilesMatchingRules<T extends { readonly path: string; readonly kind: EntryKind }>(
+	exclusion: Exclusion,
+	entries: readonly T[],
+): T[] {
+	const submodules = new Set<string>();
+	for (const entry of entries) {
+		if (entry.kind === "submodule") submodules.add(pathKey(entry.path));
+	}
+	const isBelowSubmodule = (key: string): boolean => {
+		for (let slash = key.indexOf("/"); slash !== -1; slash = key.indexOf("/", slash + 1)) {
+			if (submodules.has(key.slice(0, slash))) return true;
+		}
+		return false;
+	};
+	return entries.filter((entry) => {
+		const key = pathKey(entry.path);
+		if (entry.kind === "submodule" || !isPathFromRoot(key) || isBelowSubmodule(key)) return false;
+		return exclusion.hardExclusionOf(key) === undefined && exclusion.matchesRule(key, "file");
+	});
 }
 
 const ROOT_GITIGNORE = ".gitignore";
 
-// The rules that are in effect: the lines of the section first, then the
-// file, so that what the user wrote wins where the two disagree (in git the
-// later line does).
+// The rules that are in effect. Once the file has a section they are the
+// file and nothing else: a user may delete a line of the section, and it
+// must not come back from here. A broken section counts as one, since its
+// lines are still rules. The same holds once the user declined to have a
+// section added.
 //
-// For now the lines are always put in front. No build writes the section
-// into `.gitignore` yet, and the text of the lines that mark it is not
-// decided. The task that adds both (T042) replaces this with "only when the
-// file has no section": a user may then delete a line of the section, and it
-// must not come back from here.
-function effectiveRules(gitignore: string | null, sectionLines: readonly string[]): string {
+// Only while the file has no section and the question is not answered are
+// the lines of the default section put in front, for the pull that runs
+// before the question can be asked. In front, so that what the user wrote
+// wins where the two disagree (in git the later line does).
+function effectiveRules(input: ExclusionInput): string {
 	// Git skips a byte order mark at the start of the file; the library would
 	// take it for the first character of the first rule.
-	const text = (gitignore ?? "").replace(/^\uFEFF/, "");
-	return [...sectionLines, text].join("\n");
-}
-
-// The characters that mean something in a line of `.gitignore` get a `\` in
-// front. A `!` or `#` only means something at the start of a line and a
-// space only at its end; every line built here starts with `/` and ends with
-// `/` or a fixed name, so neither can be at those places.
-function escaped(path: string): string {
-	return path.replace(/[\\[\]*?]/g, "\\$&");
-}
-
-function trimSlashes(path: string): string {
-	return path.replace(/^\/+|\/+$/g, "");
+	const text = (input.gitignore ?? "").replace(/^\uFEFF/, "");
+	if (input.sectionDeclined === true || findSection(text).kind !== "none") return text;
+	return [...defaultSectionLines(input), text].join("\n");
 }
 
 function checkedKey(path: string): string {
