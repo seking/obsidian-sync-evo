@@ -149,6 +149,8 @@ export class ExclusionSettings {
 	private asking: "preparing" | { readonly close: () => void } | null = null;
 	/** The button that asks about untracking, as it was last drawn, and whether a sync locked it then. */
 	private untrackButton: { readonly button: ButtonComponent; readonly locked: boolean } | null = null;
+	/** Counts the questions about untracking that were begun or given up, so that one given up while it is prepared is not put up. */
+	private asked = 0;
 	/** This part was let go of (`dispose`): no question is put up any more. */
 	private disposed = false;
 
@@ -166,6 +168,25 @@ export class ExclusionSettings {
 	dispose(): void {
 		this.disposed = true;
 		if (this.asking !== null && this.asking !== "preparing") this.asking.close();
+	}
+
+	/**
+	 * Gives up a question about untracking, while this part stays: one that
+	 * is open is closed, which is a "no", and one that is being prepared is
+	 * not put up. For a change of the connection (`main.ts`): the question
+	 * lists the files of the remote that was left, and a yes would untrack
+	 * them on the new one.
+	 */
+	closeQuestion(): void {
+		if (this.asking === null) return;
+		if (this.asking !== "preparing") {
+			// Lowers the mark itself, through `closed`.
+			this.asking.close();
+			return;
+		}
+		this.asked += 1;
+		this.asking = null;
+		this.enableUntrackButton();
 	}
 
 	/**
@@ -301,9 +322,14 @@ export class ExclusionSettings {
 		const { host } = this;
 		const t = host.t;
 		if (this.asking !== null || this.disposed) return;
+		this.asked += 1;
+		const asked = this.asked;
 		this.asking = "preparing";
 		this.enableUntrackButton();
 		const request = await host.untrackRequest(list);
+		// Given up meanwhile (`closeQuestion`): the mark was lowered there,
+		// and may be that of a newer question by now.
+		if (asked !== this.asked) return;
 		// Lowered on every way out of here that puts no dialog up.
 		this.asking = null;
 		this.enableUntrackButton();

@@ -64,7 +64,7 @@ export const ja = completeTranslation(en, {
 	"settings.exclusion.desc":
 		"ここの切り替えは、この保管庫のルートの .gitignore に行を書きます。.gitignore は同期されるので、全デバイスと、Mac などの git に同じに効きます。",
 	"settings.exclusion.keepsSynced":
-		"切にするか、フォルダを除外に足しても、新しいファイルを送らなくなるだけです。すでに保存先にある物は、同期を続けます。このデバイスでも保存先でも、何も削除しません。",
+		"切にするか、フォルダを除外に足しても、新しいファイルを送らなくなるだけです。すでに保存先にある物は、保存先にそのまま残ります。このデバイスでも保存先でも、何も削除しません。",
 	"settings.exclusion.tracked":
 		"最後に同期した時点の保存先に、.gitignore の規則に当たるファイルが {count} 件、残っています。",
 	"settings.exclusion.untrack.name": "規則に当たるファイル",
@@ -361,7 +361,7 @@ export const ja = completeTranslation(en, {
 	"untrack.confirm.otherDevices":
 		"ほかのデバイスには、削除として届きます。次の取り込みで、これらのファイルがそのデバイスから削除されます。そのデバイスで変更していたファイルは残ります。",
 	"untrack.confirm.mac":
-		"Mac など、git を使うパソコンにファイルを残したい時は、「同期を続ける」を選び、そのパソコンの git で追跡を外して（git rm --cached）、そこから push してください。",
+		"Mac など、git を使うパソコンにファイルを残したい時は、「同期を続ける」を選び、そのパソコンの git で追跡を外して（git rm --cached）、そこから push してください。その時は、このデバイスに削除として届きます。次の取り込みで、これらのファイルがこのデバイスから削除されます。このデバイスで変更していたファイルは残ります。",
 	"untrack.confirm.syncFirst":
 		"先に取り込みを行います。.gitignore の規則がまだ保存先に届いていなければ、続けて送信も行い、その時は、このデバイスのほかの変更も送ります。取り込みと送信で、それぞれの確認が出ることがあります。",
 	"untrack.confirm.missing":

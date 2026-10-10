@@ -616,6 +616,15 @@ describe("what a change of the screen leaves to ask", () => {
 		const opened = vault.text(".gitignore") ?? null;
 		expect(await saveGitignoreText(deps, "/notes/\n", opened)).toEqual({ write: "written", matched: null });
 	});
+
+	test("the listing cannot be read after the write: the file is written, and there is nothing to ask", async () => {
+		const { vault, store, deps } = setup();
+		vault.put(".gitignore", defaults());
+		await store.putListing({ revision: "abc", entries: listed });
+		store.getListing = () => Promise.reject(new Error("the state would not read"));
+		expect(await applyExclusionEdit(deps, { kind: "add-folder", folder: "drafts" })).toEqual({ write: "written", matched: null });
+		expect(stateOf(vault.text(".gitignore") ?? "").folders).toEqual(["drafts"]);
+	});
 });
 
 describe("reading everything the screen shows", () => {

@@ -73,7 +73,7 @@ export const en = baseCatalog({
 	"settings.exclusion.desc":
 		"These switches write lines into the .gitignore at the root of this vault. That file is synced, so they apply to all your devices, and to git on a computer.",
 	"settings.exclusion.keepsSynced":
-		"Turning a switch off, or excluding a folder, only keeps new files from being sent. What the remote already holds stays synced, and nothing is deleted, on this device or on the remote.",
+		"Turning a switch off, or excluding a folder, only keeps new files from being sent. What the remote already holds stays on the remote as it is, and nothing is deleted, on this device or on the remote.",
 	"settings.exclusion.tracked": {
 		one: "{count} file that matches a rule of .gitignore is still on the remote, as of the last sync.",
 		other: "{count} files that match a rule of .gitignore are still on the remote, as of the last sync.",
@@ -438,7 +438,7 @@ export const en = baseCatalog({
 	"untrack.confirm.otherDevices":
 		"On your other devices this arrives as a deletion: their next pull deletes these files from them, except files that were changed on that device.",
 	"untrack.confirm.mac":
-		"To keep the files on a Mac or another computer that uses git, choose \"Keep syncing\" and untrack them there with git instead (git rm --cached), then push from there.",
+		"To keep the files on a Mac or another computer that uses git, choose \"Keep syncing\" and untrack them there with git instead (git rm --cached), then push from there. That arrives on this device as a deletion: its next pull deletes these files from it, except files that were changed on this device.",
 	"untrack.confirm.syncFirst":
 		"A pull runs first. If the rules of .gitignore are not on the remote yet, a push follows, and it also sends the other changes of this device. The pull and the push may ask their own questions.",
 	"untrack.confirm.missing": {

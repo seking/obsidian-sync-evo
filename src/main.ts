@@ -183,6 +183,10 @@ export default class SyncEvoPlugin extends Plugin implements SettingsHost, SyncH
 		// fails, the state goes all the same: it is of no use to the new
 		// connection.
 		if (change === "set" || change === "changed") {
+			// A question about untracking that is open lists the files of the
+			// remote that is left: answered with a yes after this, it would
+			// untrack them on the new one. It is closed, as a "no".
+			this.settingTab?.closeUntrackQuestion();
 			const vault = pullVaultOf(this.app);
 			this.syncState.requestDiscard(
 				this.syncs.interrupt(),

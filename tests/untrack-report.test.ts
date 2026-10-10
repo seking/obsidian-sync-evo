@@ -97,7 +97,7 @@ describe("the question before untracking", () => {
 				text: "On your other devices this arrives as a deletion: their next pull deletes these files from them, except files that were changed on that device.",
 			},
 			{
-				text: 'To keep the files on a Mac or another computer that uses git, choose "Keep syncing" and untrack them there with git instead (git rm --cached), then push from there.',
+				text: 'To keep the files on a Mac or another computer that uses git, choose "Keep syncing" and untrack them there with git instead (git rm --cached), then push from there. That arrives on this device as a deletion: its next pull deletes these files from it, except files that were changed on this device.',
 			},
 			{
 				text: "A pull runs first. If the rules of .gitignore are not on the remote yet, a push follows, and it also sends the other changes of this device. The pull and the push may ask their own questions.",
@@ -190,7 +190,7 @@ describe("the question before untracking", () => {
 			"このデバイスのファイルは削除しません。そのまま残ります。",
 			"このうち 1 件は、このデバイスにありません。一覧に出した物には、印を付けています。追跡を外すと、中身は保存先の履歴にだけ残ります。",
 			"ほかのデバイスには、削除として届きます。次の取り込みで、これらのファイルがそのデバイスから削除されます。そのデバイスで変更していたファイルは残ります。",
-			"Mac など、git を使うパソコンにファイルを残したい時は、「同期を続ける」を選び、そのパソコンの git で追跡を外して（git rm --cached）、そこから push してください。",
+			"Mac など、git を使うパソコンにファイルを残したい時は、「同期を続ける」を選び、そのパソコンの git で追跡を外して（git rm --cached）、そこから push してください。その時は、このデバイスに削除として届きます。次の取り込みで、これらのファイルがこのデバイスから削除されます。このデバイスで変更していたファイルは残ります。",
 			"規則に当たるサブモジュールも 1 件あります。ここでは追跡を外しません。Mac などの git で外してください：",
 			"先に取り込みを行います。.gitignore の規則がまだ保存先に届いていなければ、続けて送信も行い、その時は、このデバイスのほかの変更も送ります。取り込みと送信で、それぞれの確認が出ることがあります。",
 		]);

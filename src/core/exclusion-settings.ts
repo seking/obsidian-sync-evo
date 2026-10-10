@@ -365,13 +365,20 @@ function unwritten(write: ExclusionWrite): ExclusionChanged {
 
 // An empty text where there is no file is no change either: no file is made
 // to hold nothing. What the change made a rule match is asked of the remote
-// as it was last listed, like everything the screen shows.
+// as it was last listed, like everything the screen shows. When that
+// listing cannot be read, the file is written all the same: the answer is
+// "written" with nothing to ask, and not a failure of the write.
 async function writeChecked(deps: ExclusionScreenDeps, text: string, before: string | null): Promise<ExclusionChanged> {
 	if (text === (before ?? "")) return unwritten("unchanged");
 	if (byteLength(text) > deps.sizeLimit) return unwritten("over-limit");
 	const write = await writeRootGitignore(deps, text, before);
 	if (write !== "written") return unwritten(write);
-	const listing = await deps.store.getListing();
+	let listing: Awaited<ReturnType<typeof deps.store.getListing>>;
+	try {
+		listing = await deps.store.getListing();
+	} catch {
+		return { write, matched: null };
+	}
 	return { write, matched: listing === null ? null : newlyMatched(deps.paths, before, text, listing.entries) };
 }
 

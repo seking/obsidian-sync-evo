@@ -257,6 +257,15 @@ export class SyncEvoSettingTab extends PluginSettingTab {
 		this.exclusion = null;
 	}
 
+	/**
+	 * Gives up a question about untracking that is open or being prepared,
+	 * as a "no", while the screen stays as it is: the connection was changed
+	 * (`main.ts`), and the question is about the remote that was left.
+	 */
+	closeUntrackQuestion(): void {
+		this.exclusion?.closeQuestion();
+	}
+
 	private commit(): void {
 		for (const commit of this.commits) commit();
 	}
