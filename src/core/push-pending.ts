@@ -38,13 +38,6 @@ export const PENDING_PUSH_KEY = "pending-push";
  */
 export const FIRST_PUSH_CONFIRMED_KEY = "first-push-confirmed";
 
-/**
- * The key of the hashes of the files over `LARGE_FILE_BYTES` the user has
- * said "send" to (`push.ts`). The same content is not asked about again. It
- * goes with the sync state when that is discarded.
- */
-export const APPROVED_LARGE_FILES_KEY = "approved-large-files";
-
 /** What a push changed on the remote, as the commit names it. */
 export interface PushCounts {
 	readonly added: number;

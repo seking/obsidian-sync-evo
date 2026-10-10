@@ -60,8 +60,6 @@ export interface Question {
 	readonly parts: readonly QuestionPart[];
 	/** What "cancel" does. The last thing a question says. */
 	readonly note: string;
-	/** The words on the two buttons, where they are not the usual "proceed" and "cancel". */
-	readonly buttons?: { readonly proceed: string; readonly cancel: string };
 }
 
 export type FirstFetchQuestion = Question;

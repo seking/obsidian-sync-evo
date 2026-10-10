@@ -30,7 +30,7 @@ import {
 	type QuestionPart,
 	recoveredPushText,
 } from "./pull-report";
-import { LARGE_FILE_BYTES, type LeftOutReason, type PushConfirmRequest, type PushProgress, type PushRunResult } from "./push";
+import { type LeftOutReason, type PushConfirmRequest, type PushProgress, type PushRunResult } from "./push";
 import type { Connection, DeviceSettings } from "./settings";
 import { BackendError } from "./backend";
 
@@ -68,18 +68,15 @@ export function pushProgressText(t: Translate, progress: PushProgress, waitingUn
 
 /**
  * The words of the question a push stops with: what the first push of a
- * sync state sends, the deletions when there are too many, and the large
- * files. With the first two reasons together, the files to delete are
- * listed once, by the first. The large files are listed with their sizes,
- * also when the first push lists them among the others; with them the
- * buttons say "send" and "cancel the push".
+ * sync state sends, and the deletions when there are too many. With both
+ * reasons together, the files to delete are listed once, by the first.
  */
 export function pushQuestion(
 	t: Translate,
 	connection: Pick<Connection, "repository" | "branch">,
 	request: PushConfirmRequest,
 ): Question {
-	const { firstPush, deletions, largeFiles } = request;
+	const { firstPush, deletions } = request;
 	const parts: QuestionPart[] = [];
 	const listed = (text: string, paths: readonly string[]): void => {
 		parts.push({ text, paths: capList(paths, CONFIRM_LIST_LIMIT) });
@@ -99,32 +96,8 @@ export function pushQuestion(
 		if (firstPush === null) listed(text, deletions);
 		else parts.push({ text });
 	}
-	if (largeFiles !== null) {
-		listed(
-			t("confirm.largeFiles.body", { count: largeFiles.length, limit: megabytes(LARGE_FILE_BYTES) }),
-			largeFiles.map((file) => t("confirm.largeFiles.item", { path: file.path, size: megabytesUp(file.size) })),
-		);
-		if (largeFiles.some((file) => file.conflictCopy)) parts.push({ text: t("confirm.largeFiles.conflictCopy") });
-	}
-	const title =
-		firstPush !== null
-			? t("confirm.firstPush.title")
-			: deletions !== null
-				? t("confirm.delete.title")
-				: t("confirm.largeFiles.title");
-	return {
-		title,
-		parts,
-		note: t("confirm.push.note"),
-		...(largeFiles === null
-			? {}
-			: { buttons: { proceed: t("confirm.largeFiles.send"), cancel: t("confirm.largeFiles.cancel") } }),
-	};
-}
-
-/** A size in MB with one decimal, rounded up: a file just over a limit must not read as the limit. */
-function megabytesUp(bytes: number): string {
-	return (Math.ceil((bytes * 10) / (1024 * 1024)) / 10).toFixed(1);
+	const title = firstPush !== null ? t("confirm.firstPush.title") : t("confirm.delete.title");
+	return { title, parts, note: t("confirm.push.note") };
 }
 
 /** The text for a push that was stopped. Nothing of it shows on the remote. */

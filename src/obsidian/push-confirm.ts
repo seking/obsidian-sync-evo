@@ -30,10 +30,9 @@ export function confirmPushIn(app: App, t: Translate, target: PullTarget, signal
 }
 
 /**
- * The dialog a push stops with. Three questions, each yes or no: what the
- * first push from this device sends, many files deleted on this device, and
- * large files to send. A request with more than one reason to ask is one
- * dialog with all of them.
+ * The dialog a push stops with. Two questions, each yes or no: what the
+ * first push from this device sends, and many files deleted on this device.
+ * A request with both reasons to ask is one dialog with both.
  */
 class PushConfirmModal extends Modal {
 	private readonly t: Translate;
@@ -70,13 +69,11 @@ class PushConfirmModal extends Modal {
 
 		const buttons = contentEl.createDiv({ cls: "modal-button-container" });
 		new ButtonComponent(buttons)
-			.setButtonText(question.buttons?.proceed ?? t("confirm.proceed"))
+			.setButtonText(t("confirm.proceed"))
 			.setWarning()
 			.onClick(() => this.closeWith("proceed"));
 		// The safe answer is the one the keyboard is on.
-		const cancel = new ButtonComponent(buttons)
-			.setButtonText(question.buttons?.cancel ?? t("confirm.cancel"))
-			.onClick(() => this.closeWith("cancel"));
+		const cancel = new ButtonComponent(buttons).setButtonText(t("confirm.cancel")).onClick(() => this.closeWith("cancel"));
 		cancel.buttonEl.focus();
 	}
 

@@ -16,7 +16,6 @@ import { readNotices } from "../src/core/notices";
 import type { PullAnswer, PullConfirmRequest, PullDeps, PullResult } from "../src/core/pull";
 import { runPull } from "../src/core/pull";
 import {
-	LARGE_FILE_BYTES,
 	type PushAnswer,
 	type PushConfirmRequest,
 	type PushDeps,
@@ -25,7 +24,6 @@ import {
 	runPush,
 } from "../src/core/push";
 import {
-	APPROVED_LARGE_FILES_KEY,
 	FIRST_PUSH_CONFIRMED_KEY,
 	PENDING_PUSH_KEY,
 	readPendingPush,
@@ -512,7 +510,6 @@ describe("the question before the first push", () => {
 			{
 				firstPush: { added: [".obsidian/graph.json", "notes/new.md"], modified: ["edit.md"], deleted: ["old.md"] },
 				deletions: null,
-				largeFiles: null,
 				remoteEmpty: false, recordCount: 3,
 			},
 		]);
@@ -567,7 +564,6 @@ describe("the question before the first push", () => {
 		expect(h.asked[0]).toEqual({
 			firstPush: { added: ["new.md"], modified: [], deleted: gone },
 			deletions: gone,
-			largeFiles: null,
 			remoteEmpty: false, recordCount: 10,
 		});
 	});
@@ -591,7 +587,6 @@ describe("the deletion guard", () => {
 			{
 				firstPush: null,
 				deletions: ["n/00.md", "n/01.md", "n/02.md", "n/03.md", "n/04.md", "n/05.md"],
-				largeFiles: null,
 				remoteEmpty: false, recordCount: 30,
 			},
 		]);
@@ -1550,7 +1545,6 @@ describe("a sync: a pull, and then a push", () => {
 				firstPush: { added: ["mine.md", "notes/too.md"], modified: [], deleted: [] },
 				remoteEmpty: false,
 				deletions: null,
-				largeFiles: null,
 				recordCount: 2,
 			},
 		]);
@@ -1870,7 +1864,6 @@ describe("the first push to a remote without commits", () => {
 				firstPush: { added: [".gitignore", "a.md"], modified: [], deleted: [] },
 				remoteEmpty: true,
 				deletions: null,
-				largeFiles: null,
 				recordCount: 0,
 			},
 		]);
@@ -2597,117 +2590,6 @@ describe("the listing a push leaves behind", () => {
 		expect(h.backend.listings).toBe(1);
 		expect(result).toMatchObject({ outcome: "pushed", counts: { added: 0, modified: 1, deleted: 0 } });
 		expect(await h.remote()).toEqual({ "a.md": "A as the remote stored it", "b.md": "B2" });
-	});
-});
-
-describe("the question before a large file is sent", () => {
-	const large = (fill: number): Uint8Array => new Uint8Array(LARGE_FILE_BYTES + 1).fill(fill);
-
-	test("names the file and its size; a no sends nothing, and a yes is asked once", async () => {
-		const h = await synced({ "a.md": "A" });
-		h.vault.put("video.mov", large(1));
-		h.vault.put("small.md", "S");
-		h.answer = "cancel";
-
-		const declined = await h.push();
-
-		expect(declined.outcome).toBe("declined");
-		expect(h.asked).toEqual([
-			{
-				firstPush: null,
-				deletions: null,
-				largeFiles: [{ path: "video.mov", size: LARGE_FILE_BYTES + 1, conflictCopy: false }],
-				remoteEmpty: false, recordCount: 1,
-			},
-		]);
-		expect(h.backend.pushes).toBe(0);
-		expect(await h.store.getMeta(APPROVED_LARGE_FILES_KEY)).toBeUndefined();
-
-		// Asked again, and sent on a yes.
-		h.answer = "proceed";
-		expect(await h.push()).toMatchObject({ outcome: "pushed", counts: { added: 2 } });
-		expect(h.asked.length).toBe(2);
-		expect(await h.store.getMeta(APPROVED_LARGE_FILES_KEY)).toEqual([blobHash(large(1))]);
-	});
-
-	test("a file of exactly the size is not asked about", async () => {
-		const h = await synced({ "a.md": "A" });
-		h.vault.put("video.mov", new Uint8Array(LARGE_FILE_BYTES).fill(1));
-		expect((await h.push()).outcome).toBe("pushed");
-		expect(h.asked).toEqual([]);
-	});
-
-	test("the same content is not asked about again, also when the push it was said to failed; changed content is", async () => {
-		const h = await synced({ "a.md": "A" });
-		h.vault.put("video.mov", large(1));
-		h.backend.publishFault = "lost-request";
-		await expect(h.push()).rejects.toMatchObject({ kind: "unreachable" });
-		expect(h.asked.length).toBe(1);
-		h.backend.publishFault = null;
-
-		expect((await h.push()).outcome).toBe("pushed");
-		expect(h.asked.length).toBe(1);
-
-		// Another content, also at the same path.
-		h.vault.put("video.mov", large(2));
-		expect((await h.push()).outcome).toBe("pushed");
-		expect(h.asked.length).toBe(2);
-		expect(h.asked[1]?.largeFiles).toEqual([{ path: "video.mov", size: LARGE_FILE_BYTES + 1, conflictCopy: false }]);
-
-		// And back to the first: that was said yes to.
-		h.vault.put("video.mov", large(1));
-		expect((await h.push()).outcome).toBe("pushed");
-		expect(h.asked.length).toBe(2);
-	});
-
-	test("content the remote already holds is not asked about: a large file that was moved", async () => {
-		const h = await synced({ "media/video.mov": large(3), "a.md": "A" });
-		h.vault.remove("media/video.mov");
-		h.vault.put("archive/video.mov", large(3));
-
-		expect(await h.push()).toMatchObject({ outcome: "pushed", counts: { added: 1, deleted: 1 } });
-		expect(h.asked).toEqual([]);
-	});
-
-	test("with the first push, and with too many deletions, it is one question about all", async () => {
-		const notes = Object.fromEntries(Array.from({ length: 10 }, (_, i) => [`n${i}.md`, `note ${i}`]));
-		const h = await synced(notes, { firstPush: true });
-		const gone = ["n0.md", "n1.md", "n2.md", "n3.md", "n4.md", "n5.md"];
-		for (const path of gone) h.vault.remove(path);
-		h.vault.put("video.mov", large(4));
-
-		expect((await h.push()).outcome).toBe("pushed");
-
-		expect(h.asked).toEqual([
-			{
-				firstPush: { added: ["video.mov"], modified: [], deleted: gone },
-				deletions: gone,
-				largeFiles: [{ path: "video.mov", size: LARGE_FILE_BYTES + 1, conflictCopy: false }],
-				remoteEmpty: false, recordCount: 10,
-			},
-		]);
-	});
-
-	test("a copy kept from a conflict is marked: no rule keeps it from being sent", async () => {
-		const h = await synced({ "video.mov": "V" });
-		const copy = conflictCopyPath("video.mov", "iPhone", new Date(h.now()));
-		h.vault.put(copy, large(5));
-		h.answer = "cancel";
-
-		await h.push();
-
-		expect(h.asked[0]?.largeFiles).toEqual([{ path: copy, size: LARGE_FILE_BYTES + 1, conflictCopy: true }]);
-	});
-
-	test("a file over the size limit is skipped as before, and not asked about", async () => {
-		const h = await synced({ "a.md": "A" });
-		h.vault.put("huge.mov", large(6));
-		h.vault.put("b.md", "B");
-
-		const result = await h.push({ sizeLimit: LARGE_FILE_BYTES });
-
-		expect(result).toMatchObject({ outcome: "pushed", counts: { added: 1 }, notices: [{ kind: "too-large", path: "huge.mov" }] });
-		expect(h.asked).toEqual([]);
 	});
 });
 

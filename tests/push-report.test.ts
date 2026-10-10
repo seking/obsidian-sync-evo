@@ -76,7 +76,6 @@ describe("the question a push stops with", () => {
 		const question = pushQuestion(t, target, {
 			firstPush: { added: [".obsidian/graph.json", "new.md"], modified: ["edit.md"], deleted: [] },
 			deletions: null,
-			largeFiles: null,
 			remoteEmpty: false, recordCount: 3,
 		});
 		expect(question).toEqual({
@@ -94,13 +93,13 @@ describe("the question a push stops with", () => {
 
 	test("the lists stop at fifty paths", () => {
 		const added = Array.from({ length: 53 }, (_, i) => `n${i}.md`);
-		const question = pushQuestion(t, target, { firstPush: { added, modified: [], deleted: [] }, deletions: null, largeFiles: null, remoteEmpty: false, recordCount: 0 });
+		const question = pushQuestion(t, target, { firstPush: { added, modified: [], deleted: [] }, deletions: null, remoteEmpty: false, recordCount: 0 });
 		expect(question.parts[1]?.paths?.shown.length).toBe(50);
 		expect(question.parts[1]?.paths?.more).toBe(3);
 	});
 
 	test("too many deletions: how many, which, and what follows on the other devices", () => {
-		const question = pushQuestion(t, target, { firstPush: null, deletions: ["a.md", "b.md"], largeFiles: null, remoteEmpty: false, recordCount: 3 });
+		const question = pushQuestion(t, target, { firstPush: null, deletions: ["a.md", "b.md"], remoteEmpty: false, recordCount: 3 });
 		expect(question).toEqual({
 			title: "Confirm deletions",
 			parts: [
@@ -117,7 +116,6 @@ describe("the question a push stops with", () => {
 		const question = pushQuestion(t, target, {
 			firstPush: { added: [], modified: [], deleted: ["a.md", "b.md"] },
 			deletions: ["a.md", "b.md"],
-			largeFiles: null,
 			remoteEmpty: false, recordCount: 3,
 		});
 		expect(question.title).toBe("Confirm the first push");
@@ -129,7 +127,6 @@ describe("the question a push stops with", () => {
 		const question = pushQuestion(ja, target, {
 			firstPush: { added: ["new.md"], modified: ["edit.md"], deleted: ["old.md"] },
 			deletions: ["old.md"],
-			largeFiles: null,
 			remoteEmpty: false, recordCount: 3,
 		});
 		expect(question.title).toBe("最初の送信の確認");
@@ -150,7 +147,6 @@ describe("the question before the first push to a remote without commits", () =>
 			firstPush: { added: [".gitignore", "a.md"], modified: [], deleted: [] },
 			remoteEmpty: true,
 			deletions: null,
-			largeFiles: null,
 			recordCount: 0,
 		};
 		const texts = pushQuestion(t, target, request).parts.map((part) => part.text);
@@ -349,76 +345,6 @@ describe("how a push ended", () => {
 	test("a collision that was told before is not told again", () => {
 		const report = pushReport(t, result({ refused: [{ path: "case.md", reason: "case-collision" }] }), options);
 		expect(report.details).toEqual([]);
-	});
-});
-
-describe("the question before large files are sent", () => {
-	const MB = 1024 * 1024;
-	const video = { path: "media/video.mov", size: 12 * MB, conflictCopy: false };
-
-	test("alone: the files with their sizes, and buttons that say what they do", () => {
-		const question = pushQuestion(t, target, {
-			firstPush: null,
-			deletions: null,
-			largeFiles: [video, { path: "scan.pdf", size: 10 * MB + 1, conflictCopy: false }],
-			remoteEmpty: false, recordCount: 3,
-		});
-		expect(question).toEqual({
-			title: "Confirm large files",
-			parts: [
-				{
-					text: "2 files to send are larger than 10 MB. A file that was sent stays in the history of the repository, also after it is deleted:",
-					paths: { shown: ["media/video.mov (12.0 MB)", "scan.pdf (10.1 MB)"], more: 0 },
-				},
-			],
-			note: "If you cancel, nothing is sent and nothing is changed.",
-			buttons: { proceed: "Send", cancel: "Cancel the push" },
-		});
-	});
-
-	test("a copy kept from a conflict among them: what keeps it from being sent", () => {
-		const question = pushQuestion(t, target, {
-			firstPush: null,
-			deletions: null,
-			largeFiles: [{ path: "video.conflict-iPhone-20261003-120000.mov", size: 11 * MB, conflictCopy: true }],
-			remoteEmpty: false, recordCount: 3,
-		});
-		expect(question.parts.map((part) => part.text)).toEqual([
-			"1 file to send is larger than 10 MB. A file that was sent stays in the history of the repository, also after it is deleted:",
-			"A copy kept from a conflict is among them. A rule in .gitignore does not keep such a copy from being sent. To keep it from being sent, cancel the push, then delete the copy or move it out of the vault.",
-		]);
-	});
-
-	test("with the first push and too many deletions: one question, under the title of the first", () => {
-		const question = pushQuestion(t, target, {
-			firstPush: { added: ["media/video.mov"], modified: [], deleted: ["a.md"] },
-			deletions: ["a.md"],
-			largeFiles: [video],
-			remoteEmpty: false, recordCount: 3,
-		});
-		expect(question.title).toBe("Confirm the first push");
-		expect(question.parts.length).toBe(5);
-		expect(question.parts[4]?.paths?.shown).toEqual(["media/video.mov (12.0 MB)"]);
-		expect(question.buttons).toEqual({ proceed: "Send", cancel: "Cancel the push" });
-		// Without large files, the usual buttons.
-		const usual = pushQuestion(t, target, { firstPush: null, deletions: ["a.md"], largeFiles: null, remoteEmpty: false, recordCount: 3 });
-		expect(usual.buttons).toBeUndefined();
-	});
-
-	test("in Japanese", () => {
-		const question = pushQuestion(ja, target, {
-			firstPush: null,
-			deletions: null,
-			largeFiles: [{ ...video, conflictCopy: true }],
-			remoteEmpty: false, recordCount: 3,
-		});
-		expect(question.title).toBe("大きなファイルの確認");
-		expect(question.parts.map((part) => part.text)).toEqual([
-			"10MB を超えるファイルを送信します：1 件。送信したファイルは、後で削除しても、リポジトリの履歴に残ります。",
-			"この中に、競合で残した別名のファイルがあります。別名のファイルは、.gitignore に書いても送信されます。送信しない時は、送信をやめてから、そのファイルを削除するか、保管庫の外へ移してください。",
-		]);
-		expect(question.parts[0]?.paths?.shown).toEqual(["media/video.mov（12.0MB）"]);
-		expect(question.buttons).toEqual({ proceed: "送る", cancel: "送信をやめる" });
 	});
 });
 

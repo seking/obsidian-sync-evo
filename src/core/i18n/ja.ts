@@ -283,14 +283,6 @@ export const ja = completeTranslation(en, {
 	"confirm.pushDelete.body":
 		"このデバイスで削除したファイル {count} 件を、保存先からも削除します。ほかのデバイスでも、取り込むと削除されます。",
 	"confirm.push.note": "やめた場合は、何も送信せず、何も変更しません。",
-	"confirm.largeFiles.title": "大きなファイルの確認",
-	"confirm.largeFiles.body":
-		"{limit}MB を超えるファイルを送信します：{count} 件。送信したファイルは、後で削除しても、リポジトリの履歴に残ります。",
-	"confirm.largeFiles.item": "{path}（{size}MB）",
-	"confirm.largeFiles.conflictCopy":
-		"この中に、競合で残した別名のファイルがあります。別名のファイルは、.gitignore に書いても送信されます。送信しない時は、送信をやめてから、そのファイルを削除するか、保管庫の外へ移してください。",
-	"confirm.largeFiles.send": "送る",
-	"confirm.largeFiles.cancel": "送信をやめる",
 	"confirm.startOver.title": "同期の状態を捨ててやり直す",
 	"confirm.startOver.body":
 		"このデバイスの同期の状態を捨てて、{repository} のブランチ {branch} から取り込み直して作り直します。同期の状態は、何を同期したかを Sync Evo が覚えておくための記録です。ファイルは、このデバイスでも保存先でも削除しません。",

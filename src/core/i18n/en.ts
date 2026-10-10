@@ -355,16 +355,6 @@ export const en = baseCatalog({
 		other: "{count} files were deleted on this device. The push deletes them on the remote, and a pull then deletes them on your other devices.",
 	},
 	"confirm.push.note": "If you cancel, nothing is sent and nothing is changed.",
-	"confirm.largeFiles.title": "Confirm large files",
-	"confirm.largeFiles.body": {
-		one: "{count} file to send is larger than {limit} MB. A file that was sent stays in the history of the repository, also after it is deleted:",
-		other: "{count} files to send are larger than {limit} MB. A file that was sent stays in the history of the repository, also after it is deleted:",
-	},
-	"confirm.largeFiles.item": "{path} ({size} MB)",
-	"confirm.largeFiles.conflictCopy":
-		"A copy kept from a conflict is among them. A rule in .gitignore does not keep such a copy from being sent. To keep it from being sent, cancel the push, then delete the copy or move it out of the vault.",
-	"confirm.largeFiles.send": "Send",
-	"confirm.largeFiles.cancel": "Cancel the push",
 	"confirm.startOver.title": "Discard the sync state and start over",
 	"confirm.startOver.body":
 		"This discards the sync state of this device and builds it again by pulling from {repository}, branch {branch}. The sync state is only Sync Evo's own record of what has been synced: no file is deleted, on this device or on the remote.",

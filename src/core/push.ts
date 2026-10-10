@@ -27,9 +27,8 @@
 //    written, and what the pull before this push put off. A push settles
 //    neither; it leaves them alone, and sends the rest.
 // 4. The scan, with every open editor saved, the hashing, and the plan.
-// 5. Asking the user: before the first push of a sync state, when the plan
-//    deletes too much, and when it sends a large file. One question, also
-//    when more than one is a reason.
+// 5. Asking the user: before the first push of a sync state, and when the
+//    plan deletes too much. One question, also when both are a reason.
 // 6. For a remote without commits, its first: the `.gitignore` alone
 //    (`start`). The rest is sent on top of it.
 // 7. Sending. Each file is read when it is sent, and recorded as it was
@@ -48,7 +47,6 @@ import { foldedKey, pathKey } from "./paths";
 import { DEFAULT_SIZE_LIMIT } from "./plan";
 import type { PullVault } from "./pull-io";
 import {
-	APPROVED_LARGE_FILES_KEY,
 	FIRST_PUSH_CONFIRMED_KEY,
 	finishPush,
 	forgetPendingPush,
@@ -84,28 +82,8 @@ export interface FirstPushFiles {
 }
 
 /**
- * A new or changed file larger than this is asked about before it is sent:
- * a repository keeps every version of every file for good, and a large
- * file that was sent by mistake cannot be taken out of it again. 10 MB.
- */
-export const LARGE_FILE_BYTES = 10 * 1024 * 1024;
-
-/** A file the push would send that is over `LARGE_FILE_BYTES`. */
-export interface LargeFile {
-	/** As the remote will spell it. */
-	readonly path: string;
-	/** In bytes. */
-	readonly size: number;
-	/**
-	 * Whether it is a copy kept from a conflict. A rule of `.gitignore` does
-	 * not keep such a copy from being sent, so the user is told what does.
-	 */
-	readonly conflictCopy: boolean;
-}
-
-/**
  * What the user is shown when the push stops to ask. One question, also
- * when there is more than one reason to ask: at least one of the three is
+ * when there is more than one reason to ask: at least one of the two is
  * set.
  */
 export interface PushConfirmRequest {
@@ -123,12 +101,6 @@ export interface PushConfirmRequest {
 	 * threshold, when they are past it; `null` when they are not.
 	 */
 	readonly deletions: readonly string[] | null;
-	/**
-	 * The files to send that are over `LARGE_FILE_BYTES`, whose content the
-	 * remote does not hold yet and the user has not said "send" to before.
-	 * Sorted by path. `null` when there is none.
-	 */
-	readonly largeFiles: readonly LargeFile[] | null;
 	/** The number of records before the push, of every kind. */
 	readonly recordCount: number;
 }
@@ -549,8 +521,8 @@ class PushRun {
 			return this.result("nothing-to-push");
 		}
 
-		// The reasons to ask, in one question. For the first two, no answer
-		// is remembered here: a push that fails is counted and asked again,
+		// The reasons to ask, in one question. No answer is remembered
+		// here: a push that fails is counted and asked again,
 		// and the first push counts as asked once one has gone through.
 		// Before anything goes to a remote without commits, the question is
 		// also the one a first fetch would have asked (`first-fetch.ts`),
@@ -559,26 +531,16 @@ class PushRun {
 		const firstDue =
 			(await store.getMeta(FIRST_PUSH_CONFIRMED_KEY)) !== true || (starting && !(await isFirstFetchConfirmed(store)));
 		const guardDue = needsPushConfirmation(plan);
-		const approved = await readApprovedLargeFiles(store);
-		const large = largeFiles(plan, listing, approved);
-		if (firstDue || guardDue || large.length > 0) {
+		if (firstDue || guardDue) {
 			const answer = await deps.confirm({
 				firstPush: firstDue ? firstPushFiles(plan) : null,
 				remoteEmpty: starting,
 				deletions: guardDue ? plan.countedDeletions : null,
-				largeFiles: large.length > 0 ? large.map((file) => file.shown) : null,
 				recordCount: plan.recordCount,
 			});
 			// A question that was closed because the push was stopped is no
 			// answer of the user's: told as the stop it is.
 			if (answer !== "proceed") return this.result(this.aborted() ? "cancelled" : "declined");
-			// A "send" is to the content, and is remembered at once: also
-			// when this push fails, the same content is not asked about
-			// again.
-			if (large.length > 0) {
-				for (const file of large) approved.add(file.hash);
-				await store.setMeta(APPROVED_LARGE_FILES_KEY, [...approved]);
-			}
 		}
 		if (this.aborted()) return this.result("cancelled");
 
@@ -819,39 +781,6 @@ function firstPushFiles(plan: PushPlan): FirstPushFiles {
 		modified: paths(plan.sends.filter((send) => send.replaces !== undefined).map((send) => send.path)),
 		deleted: paths(plan.deletes.map((entry) => entry.remote.path)),
 	};
-}
-
-/** The hashes the user has said "send" to (`APPROVED_LARGE_FILES_KEY`). Anything else that is stored counts as none. */
-async function readApprovedLargeFiles(store: Pick<StateStore, "getMeta">): Promise<Set<string>> {
-	const value = await store.getMeta(APPROVED_LARGE_FILES_KEY);
-	return new Set(Array.isArray(value) ? value.filter((hash): hash is string => typeof hash === "string") : []);
-}
-
-/**
- * The files of the plan to ask about before they are sent: over
- * `LARGE_FILE_BYTES`, with content the remote does not hold anywhere at the
- * head (a file that was only moved is no new content), and not said "send"
- * to before. A file over the size limit is not among the sends at all.
- */
-function largeFiles(
-	plan: PushPlan,
-	listing: RemoteListing,
-	approved: ReadonlySet<string>,
-): { readonly hash: string; readonly shown: LargeFile }[] {
-	const candidates = plan.sends.filter((send) => (send.local.size ?? 0) > LARGE_FILE_BYTES);
-	if (candidates.length === 0) return [];
-	const onRemote = new Set(listing.entries.filter((entry) => entry.kind === "file").map((entry) => entry.hash));
-	return candidates
-		.filter((send) => !onRemote.has(send.local.hash) && !approved.has(send.local.hash))
-		.map((send) => ({
-			hash: send.local.hash,
-			shown: {
-				path: send.path,
-				size: send.local.size ?? 0,
-				conflictCopy: originalPathOfConflictCopy(send.local.path) !== null,
-			},
-		}))
-		.sort((a, b) => (a.shown.path < b.shown.path ? -1 : a.shown.path > b.shown.path ? 1 : 0));
 }
 
 /** The paths of the files that were sent which the listing of the new commit holds under another hash, or not at all. */
