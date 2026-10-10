@@ -92,6 +92,10 @@ A push makes one commit, with the message `Sync Evo: <device name> (<n> added, <
 
 iPhone (iOS) and Mac (macOS). It has not been tried on Android, iPad, Windows, or Linux yet.
 
+## Bugs and requests
+
+Report a bug or ask for a feature in the [issues](https://github.com/seking/obsidian-sync-evo/issues) of the repository. Do not put a token, or a file name you would rather keep to yourself, into a report.
+
 ## Where things are kept
 
 The settings and the record of what was synced are kept on the device, outside the vault (in the app's local storage and in IndexedDB), and are not synced. The token is kept in Obsidian's Keychain; the settings hold only the name it is saved under. Sync Evo writes no `data.json`.
