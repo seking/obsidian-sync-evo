@@ -375,13 +375,13 @@ function warning(el: HTMLElement, text: string): void {
 }
 
 /**
- * A heading, and what it says about the settings below it as a setting of
- * its own, which is answered. On a phone the app draws a heading as a title
- * of one line and cuts off a description given to the heading itself.
+ * A heading with what it says about the settings below it. The description
+ * is the heading's own: the app draws it under the title and outside the
+ * cards of a phone. A theme may cut it off; as a setting of its own it
+ * would be a card with nothing to switch.
  */
 export function headed(el: HTMLElement, name: string, desc: string): Setting {
-	new Setting(el).setName(name).setHeading();
-	return new Setting(el).setDesc(desc);
+	return new Setting(el).setName(name).setDesc(desc).setHeading();
 }
 
 /** A line under the description of a setting, for what the user has to heed. */
