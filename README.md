@@ -151,7 +151,7 @@ On the phone, install [BRAT](https://github.com/TfTHacker/obsidian42-brat) and a
 
 Copyright (C) 2026 seking
 
-Sync Evo is free software licensed under the GNU Affero General Public License, version 3. See [LICENSE](LICENSE) for the full text. It comes with no warranty.
+Sync Evo is free software licensed under the GNU Affero General Public License, version 3 only (`AGPL-3.0-only`). See [LICENSE](LICENSE) for the full text. It comes with no warranty.
 
 The source code is at <https://github.com/seking/obsidian-sync-evo>.
 
