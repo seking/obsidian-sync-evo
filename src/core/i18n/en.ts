@@ -34,9 +34,10 @@ export const en = baseCatalog({
 	"vaultConfig.communityPlugins": "Installed community plugins",
 
 	// The settings screen.
+	"settings.connection.heading": "Connection",
 	"settings.repository.name": "Repository",
 	"settings.repository.desc":
-		"The GitHub repository to sync this vault with, as owner/name. You can also paste its address from the browser.",
+		"The GitHub repository to sync this vault with. Enter it as owner/name, or paste its address from the browser.",
 	"settings.repository.placeholder": "owner/name",
 	"settings.repository.invalid": "This is not in the form owner/name, so it was not saved.",
 	"settings.branch.name": "Branch",
@@ -45,16 +46,14 @@ export const en = baseCatalog({
 	"settings.branch.empty": "Enter a branch. The previous branch is still in use.",
 	"settings.token.name": "Token",
 	"settings.token.desc":
-		"A fine-grained personal access token with Contents read and write on the repository. It is kept in Obsidian's Keychain under the name you give it, and is shared by all vaults on this device.",
+		"A fine-grained personal access token with Contents read and write on the repository. It is kept in Obsidian's Keychain, and is shared by all vaults on this device.",
 	"settings.deviceName.name": "Device name",
-	"settings.deviceName.desc":
-		"Distinguishes this device from your others. It appears in commit messages and in the names of files kept from a conflict.",
+	"settings.deviceName.desc": "It appears in commit messages and in the names of files kept from a conflict.",
 	"settings.deviceName.empty": "Enter a name. The previous name is still in use.",
 	"settings.deviceName.invalidCharacter":
 		"A device name cannot contain a line break, a tab, or any of * \" \\ / < > : | ? # ^ [ ]. The previous name is still in use.",
-	"settings.test.name": "Connection",
-	"settings.test.desc": "Checks that the token can reach the repository and the branch.",
-	"settings.test.button": "Test connection",
+	"settings.test.name": "Connection test",
+	"settings.test.button": "Test",
 	"settings.test.running": "Checking…",
 	"settings.unknownVersion":
 		"The settings of this vault were written by a newer version of Sync Evo. Update the plugin to use them. Until then Sync Evo does not sync and leaves the settings as they are.",
@@ -63,24 +62,23 @@ export const en = baseCatalog({
 		"Discards the settings of this vault on this device so that you can enter them again in this version. The token stays in Obsidian's Keychain.",
 	"settings.reset.button": "Discard settings",
 	"settings.symlinks.name": "Skipped symbolic links",
+	"settings.symlinks.summary": { one: "{count} link", other: "{count} links" },
 	"settings.symlinks.desc":
-		"Symbolic links on the remote are not written to this device, and are left as they are on the remote. Each is listed with where it points, as of the last pull.",
+		"Symbolic links on the remote are not written to this device. Each is listed with where it points, as of the last pull.",
 	"settings.symlinks.item": "{path} → {target}",
 
 	// The part of the settings screen about what is synced: the switches that
 	// write the lines Sync Evo manages in .gitignore, and the file itself.
 	"settings.exclusion.heading": "What is synced",
 	"settings.exclusion.desc":
-		"These switches write lines into the .gitignore at the root of this vault. That file is synced, so they apply to all your devices, and to git on a computer.",
-	"settings.exclusion.keepsSynced":
-		"Turning a switch off, or excluding a folder, only keeps new files from being sent. What the remote already holds stays on the remote as it is, and nothing is deleted, on this device or on the remote.",
+		"These settings are written into the .gitignore at the root of this vault, and apply alike to all your devices and to git on a computer. Excluding something deletes nothing. What the remote already holds stays synced until it is untracked.",
 	"settings.exclusion.tracked": {
-		one: "{count} file that matches a rule of .gitignore is still on the remote, as of the last sync.",
-		other: "{count} files that match a rule of .gitignore are still on the remote, as of the last sync.",
+		one: "{count} file that matches an exclusion rule is still on the remote, as of the last sync.",
+		other: "{count} files that match an exclusion rule are still on the remote, as of the last sync.",
 	},
 	"settings.exclusion.untrack.name": "Files that match a rule",
 	"settings.exclusion.untrack.desc":
-		"Untracking removes them from the remote, and they are no longer synced. The files on this device stay. The list is shown first, and nothing is removed before you confirm.",
+		"Untracking removes them from the remote, and they are no longer synced. The files on this device stay.",
 	"settings.exclusion.handEdited":
 		"The lines Sync Evo manages in .gitignore were edited by hand. The switches show them as Sync Evo reads them. The next change made with a switch rewrites these lines in Sync Evo's own form. Lines it does not know are kept.",
 	"settings.exclusion.noState":
@@ -102,7 +100,7 @@ export const en = baseCatalog({
 	"settings.exclusion.unreadable.notText":
 		"The .gitignore of this vault is not UTF-8 text, so it cannot be shown or changed here without damaging it. Save it as UTF-8 on a computer.",
 	"settings.exclusion.broken":
-		"The two lines that mark the lines Sync Evo manages in .gitignore (they start with \"# >>> Sync Evo\" and \"# <<< Sync Evo\") do not form one pair: one is missing, one is there twice, or they are in the wrong order. The switches are hidden until that is put right. Correct the file below: keep one of each, the first above the second. Or delete every line that starts with either of the two, and the next sync adds the managed lines again.",
+		"The two lines that mark the lines Sync Evo manages in .gitignore (they start with \"# >>> Sync Evo\" and \"# <<< Sync Evo\") do not form one pair: one is missing, one is there twice, or they are in the wrong order. The switches are hidden until that is put right. Correct the file under \"Write rules directly (.gitignore)\": keep one of each, the first above the second. Or delete every line that starts with either of the two, and the next sync adds the managed lines again.",
 	"settings.exclusion.noSection.name": "Lines managed by Sync Evo",
 	"settings.exclusion.noSection.desc":
 		"The .gitignore of this vault has no lines managed by Sync Evo yet, so there is nothing to switch. Until it has, Sync Evo applies the default lines as if they were there, on every device. Git on a computer does not, since the lines are not in the file. The next sync that sends changes adds them as well.",
@@ -113,10 +111,9 @@ export const en = baseCatalog({
 		"With these lines .gitignore would be over {limit} MB, so they cannot be added, here or by a sync. Shorten the file first.",
 	"settings.exclusion.fileKinds.name": "File types",
 	"settings.exclusion.fileKinds.desc":
-		"Which kinds of file are synced, outside the configuration folder. Notes, canvases and bases are always synced.",
+		"Applies to files outside the configuration folder. Notes, canvases and bases are always synced.",
 	"settings.exclusion.folders.name": "Excluded folders",
-	"settings.exclusion.folders.desc":
-		"Folders that are not synced, as paths from the root of the vault. Adding or removing one deletes nothing.",
+	"settings.exclusion.folders.desc": "Add folders that are not synced, as paths from the root of the vault.",
 	"settings.exclusion.folders.placeholder": "folder/subfolder",
 	"settings.exclusion.folders.add": "Add",
 	"settings.exclusion.folders.remove": "Remove",
@@ -125,28 +122,29 @@ export const en = baseCatalog({
 	"settings.exclusion.config.name": "Vault configuration",
 	"settings.exclusion.config.desc":
 		"Which parts of the configuration folder are synced. A change that is pulled may only take effect after Obsidian is reloaded.",
+	"settings.exclusion.config.summary": "{count} of {total} synced",
 	"settings.exclusion.communityPluginList.warning":
-		"While this is on, keep Sync Evo enabled on all your devices. If the list of another device does not include Sync Evo, Sync Evo is turned off on this device the next time Obsidian starts, and syncing stops.",
+		"While this is on, keep Sync Evo enabled on all your devices. If it is not enabled on one of them, Sync Evo is turned off on this device as well the next time Obsidian starts, and syncing stops.",
 	"settings.exclusion.communityPlugins.warning":
-		"While this is on, the data.json of your other plugins is synced, which can hold tokens and other credentials, and plugin code that comes from your other devices runs on this device. Turn it on only with devices and a repository you trust.",
+		"The data.json of your other plugins is synced as well (it can hold tokens and other credentials). Plugin code that comes from your other devices runs on this device. Turn it on only with devices and a repository you trust.",
 	"settings.exclusion.fixedOff.name": "Exclusions that are not in effect",
 	"settings.exclusion.fixedOff.desc":
 		"The lines below are there to keep the trash, the layout of the workspace, Sync Evo's own folder, and files an operating system leaves behind out of the sync. They are not in effect: the line was deleted, or a later line that starts with ! undoes it. What they left out is synced now. Only Sync Evo's own folder is still not synced by Sync Evo, but git on a computer commits it.",
 	"settings.exclusion.fixedOff.restore": "Restore",
 	"settings.exclusion.fixedOff.restoreNote":
-		"Restoring puts the deleted lines back among the lines Sync Evo manages. A line that a later line starting with ! undoes stays listed here after that: change that later line in the file below.",
+		"Restoring puts the deleted lines back among the lines Sync Evo manages. A line that a later line starting with ! undoes stays listed here after that: change that later line under \"Write rules directly (.gitignore)\".",
 	"settings.exclusion.fixedOff.undone":
-		"None of these lines is missing, so there is nothing to restore: a later line that starts with ! undoes each of them. Change those lines in the file below.",
+		"None of these lines is missing, so there is nothing to restore: a later line that starts with ! undoes each of them. Change those lines under \"Write rules directly (.gitignore)\".",
 	"settings.exclusion.fixedOff.undoneNoSection":
-		"A line of .gitignore that starts with ! undoes each of them. Change those lines in the file below.",
-	"settings.exclusion.editor.name": "Edit .gitignore",
+		"A line of .gitignore that starts with ! undoes each of them. Change those lines under \"Write rules directly (.gitignore)\".",
+	"settings.exclusion.editor.name": "Write rules directly (.gitignore)",
 	"settings.exclusion.editor.desc":
-		"The whole file at the root of this vault. Nothing is saved while you type: press Save. Rules outside the lines Sync Evo manages are yours, and no switch changes them. Using a switch above discards what is typed here and not saved.",
+		"The whole .gitignore at the root of this vault. Write your own rules outside the lines Sync Evo manages (between \"# >>> Sync Evo\" and \"# <<< Sync Evo\"). Nothing is saved until you press Save, and using a switch discards what is typed here and not saved.",
 	"settings.exclusion.editor.absent": "This vault has no .gitignore yet. Saving creates it.",
 	"settings.exclusion.editor.save": "Save",
 	"settings.exclusion.editor.saved": "Saved .gitignore. The next sync sends it to the remote.",
 	"settings.exclusion.notices.name": "Found by the last sync",
-	"settings.exclusion.notices.desc": "What applies to this vault now, as of the last sync. Each stays listed for as long as it applies.",
+	"settings.exclusion.notices.desc": "What applies to this vault, as of the last sync.",
 	"settings.exclusion.write.syncing": "A sync is running. .gitignore cannot be changed until it has ended.",
 	"settings.exclusion.write.changed":
 		".gitignore was changed after this screen read it, so nothing was written. The screen now shows the file as it is. Make the change again.",
@@ -235,6 +233,7 @@ export const en = baseCatalog({
 
 	// Lists inside a message.
 	"list.separator": ", ",
+	"list.showRest": "Show {count} more",
 	"list.more": { one: "…and {count} more", other: "…and {count} more" },
 
 	// The commands.
@@ -427,7 +426,7 @@ export const en = baseCatalog({
 	// Untracking: the question before it, and how it ended.
 	"untrack.confirm.title": "Untrack files",
 	"untrack.confirm.proceed": "Untrack",
-	"untrack.confirm.cancel": "Keep syncing",
+	"untrack.confirm.cancel": "Not now",
 	"untrack.confirm.body": {
 		one: "{count} file on the remote matches a rule of .gitignore. Untracking removes it from the remote, and it is no longer synced:",
 		other: "{count} files on the remote match a rule of .gitignore. Untracking removes them from the remote, and they are no longer synced:",
@@ -436,11 +435,11 @@ export const en = baseCatalog({
 		"This removes {count} files from the remote at once. Check the list before you go on.",
 	"untrack.confirm.keeps": "The files on this device are not deleted. They stay as they are.",
 	"untrack.confirm.otherDevices":
-		"On your other devices this arrives as a deletion: their next pull deletes these files from them, except files that were changed on that device.",
+		"On your other devices, the next pull deletes these files, except files that were changed on that device.",
 	"untrack.confirm.mac":
-		"To keep the files on a Mac or another computer that uses git, choose \"Keep syncing\" and untrack them there with git instead (git rm --cached), then push from there. That arrives on this device as a deletion: its next pull deletes these files from it, except files that were changed on this device.",
+		"To keep the files on a computer that uses git, do not untrack them here: run git rm --cached on that computer, and push from there. The next pull then deletes these files from this device.",
 	"untrack.confirm.syncFirst":
-		"A pull runs first. If the rules of .gitignore are not on the remote yet, a push follows, and it also sends the other changes of this device. The pull and the push may ask their own questions.",
+		"A pull runs first. If the rules are not on the remote yet, a push follows, and it also sends the other changes of this device.",
 	"untrack.confirm.missing": {
 		one: "{count} of these files is not on this device. If it is in the list, it is marked there. After untracking, its content is only in the history of the remote.",
 		other: "{count} of these files are not on this device. Those in the list are marked there. After untracking, their content is only in the history of the remote.",
@@ -450,7 +449,7 @@ export const en = baseCatalog({
 		other: "{count} submodules match a rule as well. They are not untracked here. Untrack them with git on a Mac or another computer:",
 	},
 	"untrack.confirm.note":
-		"If you choose \"Keep syncing\", nothing is changed: the rules stay, and these files stay synced. You can untrack them later in the settings of Sync Evo.",
+		"If you choose \"Not now\", the rules stay, and these files stay synced. You can untrack them later in the settings of Sync Evo.",
 	"untrack.item.tagged": "{path} ({tags})",
 	"untrack.tag.symlink": "symbolic link",
 	"untrack.tag.ownFolder": "Sync Evo's own folder",

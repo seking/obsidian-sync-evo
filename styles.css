@@ -1,5 +1,73 @@
+/*
+ * The groups of the settings screen (`grouped`). The app draws them, and puts
+ * a gap between two that follow each other; a part of the screen that is
+ * filled in later has an element of its own, which that gap does not reach
+ * into.
+ */
+.sync-evo-group + .sync-evo-group,
+.sync-evo-part > .sync-evo-group:first-child {
+	margin-top: var(--size-4-6);
+}
+
+/* A group that goes on with the one above it, under the same heading. */
+.sync-evo-group + .sync-evo-group.sync-evo-group-continued {
+	margin-top: var(--size-4-3);
+}
+
+/* What a group says under its heading: in line with the heading, and closer to it than the settings are. */
+.sync-evo-group-text {
+	margin: calc(-1 * var(--size-4-2)) 0 var(--size-4-4);
+	padding: 0 var(--size-4-4);
+}
+
+.sync-evo-group-text:empty,
+.sync-evo-group > .setting-items:empty,
+.sync-evo-group > .sync-evo-folded {
+	display: none;
+}
+
+/* A heading inside what a group says, for the settings right below. */
+.sync-evo-subheading {
+	margin-top: var(--size-4-4);
+	font-weight: var(--font-semibold);
+}
+
+/* The heading of a group that folds: the mark, the name, and what is said of the group while it is closed. */
+.sync-evo-fold {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	column-gap: var(--size-4-2);
+	/* Tall enough for a finger, without making the heading taller. */
+	margin: calc(-1 * var(--size-4-3)) 0;
+	padding: var(--size-4-3) 0;
+	cursor: pointer;
+}
+
+.sync-evo-fold:focus-visible {
+	outline: 2px solid var(--background-modifier-border-focus);
+	outline-offset: 2px;
+}
+
+.sync-evo-fold-icon {
+	display: flex;
+}
+
+.sync-evo-fold-summary {
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
+	font-weight: var(--font-normal);
+}
+
 /* The editor of .gitignore in the settings: as wide as the screen. */
 .sync-evo-gitignore-editor {
 	width: 100%;
 	resize: vertical;
+}
+
+/* The button that saves it: below the editor, at the end of the line. */
+.sync-evo-gitignore-save {
+	display: flex;
+	justify-content: flex-end;
+	margin-top: var(--size-4-2);
 }

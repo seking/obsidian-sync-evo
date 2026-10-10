@@ -27,9 +27,10 @@ export const ja = completeTranslation(en, {
 	"vaultConfig.communityPluginList": "アクティブなコミュニティプラグインのリスト",
 	"vaultConfig.communityPlugins": "インストールされているコミュニティプラグイン",
 
+	"settings.connection.heading": "接続",
 	"settings.repository.name": "リポジトリ",
 	"settings.repository.desc":
-		"この保管庫を同期する GitHub のリポジトリです。owner/name の形で入力します。ブラウザからアドレスを貼り付けることもできます。",
+		"同期先の GitHub のリポジトリです。owner/name の形で入力するか、ブラウザのアドレスを貼り付けます。",
 	"settings.repository.placeholder": "owner/name",
 	"settings.repository.invalid": "owner/name の形になっていないため、保存されていません。",
 	"settings.branch.name": "ブランチ",
@@ -38,16 +39,14 @@ export const ja = completeTranslation(en, {
 	"settings.branch.empty": "ブランチを入力してください。前のブランチのままになっています。",
 	"settings.token.name": "トークン",
 	"settings.token.desc":
-		"このリポジトリの Contents の読み取りと書き込みを許可した、fine-grained personal access token を使います。トークンは、付けた名前で Obsidian のキーチェーンに保存され、このデバイスのすべての保管庫で共有されます。",
+		"このリポジトリの Contents の読み書きを許可した fine-grained personal access token です。Obsidian のキーチェーンに保存され、このデバイスの全保管庫で共有されます。",
 	"settings.deviceName.name": "デバイス名",
-	"settings.deviceName.desc":
-		"ほかのデバイスと見分けるための名前です。コミットメッセージと、競合したときに残すファイルの名前に使われます。",
+	"settings.deviceName.desc": "コミットメッセージと、競合したときに残すファイルの名前に使われます。",
 	"settings.deviceName.empty": "名前を入力してください。前の名前のままになっています。",
 	"settings.deviceName.invalidCharacter":
 		"デバイス名には、改行、タブ、および * \" \\ / < > : | ? # ^ [ ] は使えません。前の名前のままになっています。",
-	"settings.test.name": "接続",
-	"settings.test.desc": "トークンでリポジトリとブランチにアクセスできるかを確かめます。",
-	"settings.test.button": "接続をテスト",
+	"settings.test.name": "接続のテスト",
+	"settings.test.button": "テスト",
 	"settings.test.running": "確認中…",
 	"settings.unknownVersion":
 		"この保管庫の設定は、新しいバージョンの Sync Evo で保存されたものです。使うには、プラグインを更新してください。それまで Sync Evo は同期せず、設定も変更しません。",
@@ -56,20 +55,19 @@ export const ja = completeTranslation(en, {
 		"このデバイスにある、この保管庫の設定を破棄します。破棄すると、このバージョンで設定を入力し直せます。トークンは、Obsidian のキーチェーンに残ります。",
 	"settings.reset.button": "設定を破棄",
 	"settings.symlinks.name": "飛ばしているシンボリックリンク",
+	"settings.symlinks.summary": "{count} 件",
 	"settings.symlinks.desc":
-		"保存先のシンボリックリンクは、このデバイスに書き込まず、保存先でもそのままにします。最後に取り込んだ時点のリンクと、そのリンク先です。",
+		"保存先のシンボリックリンクは、このデバイスに書き込みません。最後に取り込んだ時点のリンクと、リンク先です。",
 	"settings.symlinks.item": "{path} → {target}",
 
 	"settings.exclusion.heading": "同期する物",
 	"settings.exclusion.desc":
-		"ここの切り替えは、この保管庫のルートの .gitignore に行を書きます。.gitignore は同期されるので、全デバイスと、Mac などの git に同じに効きます。",
-	"settings.exclusion.keepsSynced":
-		"切にするか、フォルダを除外に足しても、新しいファイルを送らなくなるだけです。すでに保存先にある物は、保存先にそのまま残ります。このデバイスでも保存先でも、何も削除しません。",
+		"ここの設定は、保管庫のルートの .gitignore に書かれ、全デバイスと、パソコンの git に同じに効きます。除外しても、何も削除しません。すでに保存先にある物は、追跡を外すまで同期を続けます。",
 	"settings.exclusion.tracked":
-		"最後に同期した時点の保存先に、.gitignore の規則に当たるファイルが {count} 件、残っています。",
+		"除外の規則に当たるファイルが、保存先に {count} 件残っています（最後の同期の時点）。",
 	"settings.exclusion.untrack.name": "規則に当たるファイル",
 	"settings.exclusion.untrack.desc":
-		"追跡を外すと、保存先から削除し、同期しなくなります。このデバイスのファイルは残ります。先に一覧を出し、確かめるまで何も削除しません。",
+		"追跡を外すと、保存先から削除し、同期しなくなります。このデバイスのファイルは残ります。",
 	"settings.exclusion.handEdited":
 		".gitignore の Sync Evo が管理する行が、手で直されています。切り替えには、Sync Evo が読み取った状態を出しています。次に切り替えると、これらの行を Sync Evo の決まった形に書き直します。Sync Evo が知らない行は残します。",
 	"settings.exclusion.noState":
@@ -91,7 +89,7 @@ export const ja = completeTranslation(en, {
 	"settings.exclusion.unreadable.notText":
 		"この保管庫の .gitignore は UTF-8 のテキストではないため、ここで表示や変更をすると中身が壊れます。パソコンで、UTF-8 で保存し直してください。",
 	"settings.exclusion.broken":
-		".gitignore の、Sync Evo が管理する行を囲む2つの印の行（「# >>> Sync Evo」と「# <<< Sync Evo」で始まる行）が、1組になっていません。片方が無いか、同じ物が2つあるか、順番が逆です。直るまで、切り替えは出しません。下の欄で直してください。それぞれ1行ずつにし、「# >>>」の行を上にします。この2種類の印の行を全部消すと、次の同期で Sync Evo が管理する行を足し直します。",
+		".gitignore の、Sync Evo が管理する行を囲む2つの印の行（「# >>> Sync Evo」と「# <<< Sync Evo」で始まる行）が、1組になっていません。片方が無いか、同じ物が2つあるか、順番が逆です。直るまで、切り替えは出しません。「規則を直接書く（.gitignore）」の欄で直してください。それぞれ1行ずつにし、「# >>>」の行を上にします。この2種類の印の行を全部消すと、次の同期で Sync Evo が管理する行を足し直します。",
 	"settings.exclusion.noSection.name": "Sync Evo が管理する行",
 	"settings.exclusion.noSection.desc":
 		"この保管庫の .gitignore には、Sync Evo が管理する行がまだ無いため、切り替える物がありません。それまでは、どのデバイスの Sync Evo も、初期設定の行があるものとして扱います。行が .gitignore に無いので、Mac などの git には効きません。変更を送信する次の同期でも、行を足します。",
@@ -102,10 +100,9 @@ export const ja = completeTranslation(en, {
 		"行を足すと .gitignore が {limit}MB を超えるため、ここでも同期でも足せません。先に、ファイルを短くしてください。",
 	"settings.exclusion.fileKinds.name": "ファイルの種類",
 	"settings.exclusion.fileKinds.desc":
-		"設定フォルダの外で、どの種類のファイルを同期するかを選びます。ノート、キャンバス、ベースは、常に同期します。",
+		"設定フォルダの外のファイルに効きます。ノート、キャンバス、ベースは、常に同期します。",
 	"settings.exclusion.folders.name": "除外フォルダ",
-	"settings.exclusion.folders.desc":
-		"同期しないフォルダです。保管庫のルートからのパスで書きます。足しても外しても、何も削除しません。",
+	"settings.exclusion.folders.desc": "同期しないフォルダを、保管庫のルートからのパスで足します。",
 	"settings.exclusion.folders.placeholder": "フォルダ/下位のフォルダ",
 	"settings.exclusion.folders.add": "追加",
 	"settings.exclusion.folders.remove": "外す",
@@ -113,28 +110,29 @@ export const ja = completeTranslation(en, {
 	"settings.exclusion.config.name": "保管庫の設定",
 	"settings.exclusion.config.desc":
 		"設定フォルダのどの項目を同期するかを選びます。取り込んだ変更は、Obsidian を再読み込みした後に効くことがあります。",
+	"settings.exclusion.config.summary": "{total} 項目のうち {count} 項目を同期",
 	"settings.exclusion.communityPluginList.warning":
-		"入にしている間は、全デバイスで Sync Evo を有効にしておいてください。ほかのデバイスのリストに Sync Evo が無いと、次に Obsidian を起動した時にこのデバイスの Sync Evo が無効になり、同期が止まります。",
+		"入にしている間は、全デバイスで Sync Evo を有効にしておいてください。有効でないデバイスがあると、このデバイスの Sync Evo も次の起動で無効になり、同期が止まります。",
 	"settings.exclusion.communityPlugins.warning":
-		"入にしている間は、ほかのプラグインの data.json も同期されます。トークンなどの認証情報が入っていることがあります。また、ほかのデバイスから来たプラグインのコードが、このデバイスで動きます。信頼できるデバイスとリポジトリでだけ、入にしてください。",
+		"ほかのプラグインの data.json も同期されます（トークンなどが入っていることがあります）。ほかのデバイスから来たプラグインのコードが、このデバイスで動きます。信頼できるデバイスとリポジトリでだけ、入にしてください。",
 	"settings.exclusion.fixedOff.name": "効いていない除外",
 	"settings.exclusion.fixedOff.desc":
 		"下の行は、ゴミ箱、画面の配置のファイル、Sync Evo 自身のフォルダ、OS が残すファイルを同期から除くための行です。行が消されたか、後ろの ! で始まる行で打ち消されていて、今は効いていません。除いていた物も、同期されます。Sync Evo 自身のフォルダだけは、Sync Evo は同期しませんが、Mac などの git ではコミットされます。",
 	"settings.exclusion.fixedOff.restore": "元に戻す",
 	"settings.exclusion.fixedOff.restoreNote":
-		"元に戻すと、消された行を、Sync Evo が管理する行に足し直します。後ろの ! で始まる行で打ち消されている行は、戻した後もここに残ります。その時は、下の欄で、打ち消している行を直してください。",
+		"元に戻すと、消された行を、Sync Evo が管理する行に足し直します。後ろの ! で始まる行で打ち消されている行は、戻した後もここに残ります。その時は、「規則を直接書く（.gitignore）」の欄で、打ち消している行を直してください。",
 	"settings.exclusion.fixedOff.undone":
-		"消された行は無いため、元に戻す物はありません。どの行も、後ろの ! で始まる行で打ち消されています。下の欄で、打ち消している行を直してください。",
+		"消された行は無いため、元に戻す物はありません。どの行も、後ろの ! で始まる行で打ち消されています。「規則を直接書く（.gitignore）」の欄で、打ち消している行を直してください。",
 	"settings.exclusion.fixedOff.undoneNoSection":
-		"どの行も、.gitignore の ! で始まる行で打ち消されています。下の欄で、打ち消している行を直してください。",
-	"settings.exclusion.editor.name": ".gitignore を編集",
+		"どの行も、.gitignore の ! で始まる行で打ち消されています。「規則を直接書く（.gitignore）」の欄で、打ち消している行を直してください。",
+	"settings.exclusion.editor.name": "規則を直接書く（.gitignore）",
 	"settings.exclusion.editor.desc":
-		"この保管庫のルートにある .gitignore の全体です。入力しただけでは保存されません。「保存」を押してください。Sync Evo が管理する行の外に書いた規則は、切り替えでは変わりません。上の切り替えを使うと、ここに入力して保存していない内容は消えます。",
+		"保管庫のルートの .gitignore の全体です。自分の規則は、Sync Evo が管理する行（「# >>> Sync Evo」と「# <<< Sync Evo」の間）の外に書きます。「保存」を押すまで保存されず、切り替えを使うと、保存していない入力は消えます。",
 	"settings.exclusion.editor.absent": "この保管庫には、まだ .gitignore がありません。保存すると作ります。",
 	"settings.exclusion.editor.save": "保存",
 	"settings.exclusion.editor.saved": ".gitignore を保存しました。次の同期で保存先に届きます。",
 	"settings.exclusion.notices.name": "最後の同期で分かったこと",
-	"settings.exclusion.notices.desc": "最後に同期した時点で、この保管庫に当てはまっていることです。当てはまっている間は、ここに出し続けます。",
+	"settings.exclusion.notices.desc": "最後の同期の時点で、この保管庫に当てはまっていることです。",
 	"settings.exclusion.write.syncing": "同期中は変えられません。同期が終わってから、もう一度行ってください。",
 	"settings.exclusion.write.changed":
 		"この画面が読んだ後に .gitignore が変わっていたため、何も書き込んでいません。今の中身で画面を描き直しました。もう一度変更してください。",
@@ -214,6 +212,7 @@ export const ja = completeTranslation(en, {
 		"同期をやめるには、Sync Evo の設定画面で追跡を外します。保存先からは消え、このデバイスのファイルは残ります。",
 
 	"list.separator": "、",
+	"list.showRest": "残り {count} 件を表示",
 	"list.more": "…ほか {count} 件",
 
 	"command.sync": "同期する（取り込んでから送信）",
@@ -353,23 +352,23 @@ export const ja = completeTranslation(en, {
 
 	"untrack.confirm.title": "追跡を外す確認",
 	"untrack.confirm.proceed": "追跡を外す",
-	"untrack.confirm.cancel": "同期を続ける",
+	"untrack.confirm.cancel": "今は外さない",
 	"untrack.confirm.body":
 		"保存先に、.gitignore の規則に当たるファイルが {count} 件あります。追跡を外すと、保存先から削除し、同期しなくなります：",
 	"untrack.confirm.threshold": "一度に {count} 件のファイルを、保存先から削除します。一覧を確かめてから進めてください。",
 	"untrack.confirm.keeps": "このデバイスのファイルは削除しません。そのまま残ります。",
 	"untrack.confirm.otherDevices":
-		"ほかのデバイスには、削除として届きます。次の取り込みで、これらのファイルがそのデバイスから削除されます。そのデバイスで変更していたファイルは残ります。",
+		"ほかのデバイスでは、次の取り込みで削除されます。そのデバイスで変更していたファイルは残ります。",
 	"untrack.confirm.mac":
-		"Mac など、git を使うパソコンにファイルを残したい時は、「同期を続ける」を選び、そのパソコンの git で追跡を外して（git rm --cached）、そこから push してください。その時は、このデバイスに削除として届きます。次の取り込みで、これらのファイルがこのデバイスから削除されます。このデバイスで変更していたファイルは残ります。",
+		"git を使うパソコンにファイルを残したい時は、ここでは外さず、そのパソコンで git rm --cached をして push してください。その時は、このデバイスのファイルが、次の取り込みで削除されます。",
 	"untrack.confirm.syncFirst":
-		"先に取り込みを行います。.gitignore の規則がまだ保存先に届いていなければ、続けて送信も行い、その時は、このデバイスのほかの変更も送ります。取り込みと送信で、それぞれの確認が出ることがあります。",
+		"先に取り込みを行います。規則がまだ保存先に届いていなければ、送信も行い、このデバイスのほかの変更も送ります。",
 	"untrack.confirm.missing":
 		"このうち {count} 件は、このデバイスにありません。一覧に出した物には、印を付けています。追跡を外すと、中身は保存先の履歴にだけ残ります。",
 	"untrack.confirm.submodules":
 		"規則に当たるサブモジュールも {count} 件あります。ここでは追跡を外しません。Mac などの git で外してください：",
 	"untrack.confirm.note":
-		"「同期を続ける」を選ぶと、何も変更しません。規則は残り、これらのファイルは同期を続けます。後から、Sync Evo の設定画面で追跡を外せます。",
+		"「今は外さない」を選ぶと、規則は残り、これらのファイルは同期を続けます。後から、Sync Evo の設定画面で外せます。",
 	"untrack.item.tagged": "{path}（{tags}）",
 	"untrack.tag.symlink": "シンボリックリンク",
 	"untrack.tag.ownFolder": "Sync Evo 自身のフォルダ",

@@ -85,7 +85,7 @@ describe("the question before untracking", () => {
 		const question = untrackQuestion(t, request());
 		expect(question.title).toBe("Untrack files");
 		expect(question.proceed).toBe("Untrack");
-		expect(question.cancel).toBe("Keep syncing");
+		expect(question.cancel).toBe("Not now");
 		expect(question.shown).toEqual(["drafts/a.md", "drafts/b.md"]);
 		expect(question.parts).toEqual([
 			{
@@ -94,17 +94,17 @@ describe("the question before untracking", () => {
 			},
 			{ text: "The files on this device are not deleted. They stay as they are." },
 			{
-				text: "On your other devices this arrives as a deletion: their next pull deletes these files from them, except files that were changed on that device.",
+				text: "On your other devices, the next pull deletes these files, except files that were changed on that device.",
 			},
 			{
-				text: 'To keep the files on a Mac or another computer that uses git, choose "Keep syncing" and untrack them there with git instead (git rm --cached), then push from there. That arrives on this device as a deletion: its next pull deletes these files from it, except files that were changed on this device.',
+				text: "A pull runs first. If the rules are not on the remote yet, a push follows, and it also sends the other changes of this device.",
 			},
 			{
-				text: "A pull runs first. If the rules of .gitignore are not on the remote yet, a push follows, and it also sends the other changes of this device. The pull and the push may ask their own questions.",
+				text: "To keep the files on a computer that uses git, do not untrack them here: run git rm --cached on that computer, and push from there. The next pull then deletes these files from this device.",
 			},
 		]);
 		expect(question.note).toBe(
-			'If you choose "Keep syncing", nothing is changed: the rules stay, and these files stay synced. You can untrack them later in the settings of Sync Evo.',
+			'If you choose "Not now", the rules stay, and these files stay synced. You can untrack them later in the settings of Sync Evo.',
 		);
 	});
 
@@ -131,11 +131,11 @@ describe("the question before untracking", () => {
 		]);
 		// What is handed on is the paths, without the marks.
 		expect(question.shown).toEqual(files.map((file) => file.path));
-		// Right after "the files on this device stay", which is not true of these.
-		expect(question.parts[2]).toEqual({
+		// After what becomes of the files on this device and on the others.
+		expect(question.parts[3]).toEqual({
 			text: "2 of these files are not on this device. Those in the list are marked there. After untracking, their content is only in the history of the remote.",
 		});
-		expect(untrackQuestion(t, request({ missing: ["drafts/a.md"] })).parts[2]?.text).toBe(
+		expect(untrackQuestion(t, request({ missing: ["drafts/a.md"] })).parts[3]?.text).toBe(
 			"1 of these files is not on this device. If it is in the list, it is marked there. After untracking, its content is only in the history of the remote.",
 		);
 	});
@@ -149,7 +149,7 @@ describe("the question before untracking", () => {
 	test("submodules a rule matches are listed apart, for git on a computer", () => {
 		const question = untrackQuestion(t, request({ submodules: ["knowledge", "lib"] }));
 		expect(question.parts).toHaveLength(6);
-		expect(question.parts[4]).toEqual({
+		expect(question.parts[3]).toEqual({
 			text: "2 submodules match a rule as well. They are not untracked here. Untrack them with git on a Mac or another computer:",
 			paths: { shown: ["knowledge", "lib"], more: 0 },
 		});
@@ -184,19 +184,19 @@ describe("the question before untracking", () => {
 		const question = untrackQuestion(ja, request({ files, missing: ["drafts/link"], submodules: ["knowledge"] }));
 		expect(question.title).toBe("追跡を外す確認");
 		expect(question.proceed).toBe("追跡を外す");
-		expect(question.cancel).toBe("同期を続ける");
+		expect(question.cancel).toBe("今は外さない");
 		expect(question.parts.map((part) => part.text)).toEqual([
 			"保存先に、.gitignore の規則に当たるファイルが 2 件あります。追跡を外すと、保存先から削除し、同期しなくなります：",
 			"このデバイスのファイルは削除しません。そのまま残ります。",
+			"ほかのデバイスでは、次の取り込みで削除されます。そのデバイスで変更していたファイルは残ります。",
 			"このうち 1 件は、このデバイスにありません。一覧に出した物には、印を付けています。追跡を外すと、中身は保存先の履歴にだけ残ります。",
-			"ほかのデバイスには、削除として届きます。次の取り込みで、これらのファイルがそのデバイスから削除されます。そのデバイスで変更していたファイルは残ります。",
-			"Mac など、git を使うパソコンにファイルを残したい時は、「同期を続ける」を選び、そのパソコンの git で追跡を外して（git rm --cached）、そこから push してください。その時は、このデバイスに削除として届きます。次の取り込みで、これらのファイルがこのデバイスから削除されます。このデバイスで変更していたファイルは残ります。",
 			"規則に当たるサブモジュールも 1 件あります。ここでは追跡を外しません。Mac などの git で外してください：",
-			"先に取り込みを行います。.gitignore の規則がまだ保存先に届いていなければ、続けて送信も行い、その時は、このデバイスのほかの変更も送ります。取り込みと送信で、それぞれの確認が出ることがあります。",
+			"先に取り込みを行います。規則がまだ保存先に届いていなければ、送信も行い、このデバイスのほかの変更も送ります。",
+			"git を使うパソコンにファイルを残したい時は、ここでは外さず、そのパソコンで git rm --cached をして push してください。その時は、このデバイスのファイルが、次の取り込みで削除されます。",
 		]);
 		expect(question.parts[0]?.paths?.shown).toEqual(["drafts/link（シンボリックリンク、このデバイスに無い）", "drafts/a.md"]);
 		expect(question.note).toBe(
-			"「同期を続ける」を選ぶと、何も変更しません。規則は残り、これらのファイルは同期を続けます。後から、Sync Evo の設定画面で追跡を外せます。",
+			"「今は外さない」を選ぶと、規則は残り、これらのファイルは同期を続けます。後から、Sync Evo の設定画面で外せます。",
 		);
 	});
 });

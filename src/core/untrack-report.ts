@@ -93,7 +93,7 @@ export function untrackSubmodulesText(t: Translate, submodules: readonly string[
 export interface UntrackQuestion extends Question {
 	/** The button that untracks. */
 	readonly proceed: string;
-	/** The button that leaves everything as it is: the rules stay, and the files stay synced. */
+	/** The button that does not untrack: the rules stay, and the files stay synced. */
 	readonly cancel: string;
 	/** The paths to hand to `runUntrackSync` when the answer is yes: every file of the question, also past the ones listed. */
 	readonly shown: readonly string[];
@@ -128,9 +128,8 @@ export function untrackQuestion(t: Translate, request: UntrackConfirmRequest): U
 		paths: capList(files.map(line), CONFIRM_LIST_LIMIT),
 	});
 	parts.push({ text: t("untrack.confirm.keeps") });
-	if (absent.size > 0) parts.push({ text: t("untrack.confirm.missing", { count: absent.size }) });
 	parts.push({ text: t("untrack.confirm.otherDevices") });
-	parts.push({ text: t("untrack.confirm.mac") });
+	if (absent.size > 0) parts.push({ text: t("untrack.confirm.missing", { count: absent.size }) });
 	if (submodules.length > 0) {
 		parts.push({
 			text: t("untrack.confirm.submodules", { count: submodules.length }),
@@ -138,6 +137,8 @@ export function untrackQuestion(t: Translate, request: UntrackConfirmRequest): U
 		});
 	}
 	parts.push({ text: t("untrack.confirm.syncFirst") });
+	// Last of these: few keep the files on a computer with git as well.
+	parts.push({ text: t("untrack.confirm.mac") });
 	return {
 		title: t("untrack.confirm.title"),
 		parts,

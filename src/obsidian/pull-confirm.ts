@@ -154,8 +154,19 @@ class PullConfirmModal extends Modal {
 	}
 }
 
-/** A list of paths in a dialog: the ones that are shown, and then only how many more there are. */
-export function renderPathList(container: HTMLElement, t: Translate, paths: CappedList<string>): void {
+/**
+ * A list of paths in a dialog: the ones that are shown, and then only how
+ * many more there are. With `phoneStart`, a phone is shown that many at first,
+ * and the rest of the list once the button below them is pressed: the answers
+ * are below the list, a long way down past fifty paths. The button counts the
+ * paths past the cap as well, so that it adds up to the number said above.
+ */
+export function renderPathList(
+	container: HTMLElement,
+	t: Translate,
+	paths: CappedList<string>,
+	phoneStart?: number,
+): void {
 	const list = container.createEl("ul");
 	// Fifty paths are tall, so on a desktop the list scrolls by itself.
 	// Not on a phone: there the dialog scrolls as a whole, and with two
@@ -166,8 +177,25 @@ export function renderPathList(container: HTMLElement, t: Translate, paths: Capp
 		list.style.maxHeight = "30vh";
 		list.style.overflowY = "auto";
 	}
-	for (const path of paths.shown) list.createEl("li", { text: path });
-	if (paths.more > 0) list.createEl("li", { text: t("list.more", { count: paths.more }) });
+	const fill = (shown: readonly string[]): void => {
+		for (const path of shown) list.createEl("li", { text: path });
+	};
+	const more = (): void => {
+		if (paths.more > 0) list.createEl("li", { text: t("list.more", { count: paths.more }) });
+	};
+	if (!Platform.isPhone || phoneStart === undefined || paths.shown.length <= phoneStart) {
+		fill(paths.shown);
+		more();
+		return;
+	}
+	fill(paths.shown.slice(0, phoneStart));
+	const rest = paths.shown.slice(phoneStart);
+	const open = container.createEl("button", { text: t("list.showRest", { count: rest.length + paths.more }) });
+	open.addEventListener("click", () => {
+		open.remove();
+		fill(rest);
+		more();
+	});
 }
 
 function pathsOf(losses: readonly PullLoss[]): CappedList<string> {

@@ -14,6 +14,9 @@ import type { Translate } from "../core/i18n";
 import { type UntrackConfirmRequest, type UntrackQuestion, untrackQuestion } from "../core/untrack-report";
 import { renderPathList } from "./pull-confirm";
 
+/** How many paths of a list a phone is shown before the rest is asked for: the buttons are below the lists. */
+const PHONE_LIST_START = 10;
+
 /**
  * Asks in a dialog whether to untrack, before the sync that comes first.
  * `proceed` is called with the paths to untrack, from the handler of the
@@ -67,7 +70,7 @@ class UntrackConfirmModal extends Modal {
 		this.setTitle(question.title);
 		for (const part of question.parts) {
 			contentEl.createEl("p", { text: part.text });
-			if (part.paths !== undefined) renderPathList(contentEl, t, part.paths);
+			if (part.paths !== undefined) renderPathList(contentEl, t, part.paths, PHONE_LIST_START);
 		}
 		contentEl.createEl("p", { text: question.note });
 

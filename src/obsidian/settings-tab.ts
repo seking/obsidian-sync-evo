@@ -16,7 +16,7 @@ import type { SymlinkTarget } from "../core/pull";
 import type { PushFailure } from "../core/push-failure";
 import { pushFailureReminderText } from "../core/push-report";
 import { branchToStore, type DeviceSettings, deviceNameProblem, repositoryToStore } from "../core/settings";
-import { type ExclusionHost, ExclusionSettings, headed } from "./exclusion-settings";
+import { type ExclusionHost, ExclusionSettings, type Folds, grouped } from "./exclusion-settings";
 
 /** What the screen needs from the plugin. */
 export interface SettingsHost extends ExclusionHost {
@@ -46,6 +46,8 @@ export class SyncEvoSettingTab extends PluginSettingTab {
 	private drawn = 0;
 	/** The part about what is synced, while the screen is shown. */
 	private exclusion: ExclusionSettings | null = null;
+	/** The groups that are open, for as long as the plugin is loaded: closing the settings does not close them. */
+	private readonly folds: Folds = new Set();
 
 	constructor(app: App, plugin: Plugin, host: SettingsHost) {
 		super(app, plugin);
@@ -83,11 +85,13 @@ export class SyncEvoSettingTab extends PluginSettingTab {
 		// Above everything else: it is what the user has to act on.
 		void this.showPushFailure(containerEl.createDiv(), this.drawn);
 
+		const connection = grouped(containerEl, t("settings.connection.heading"), null).listEl;
+
 		// The repository and the branch are taken over when the field is left
 		// or Enter is pressed (the DOM `change` event), not on each key. Every
 		// change of them that is saved discards the sync state, and a name
 		// half typed is a different repository.
-		const repository = new Setting(containerEl)
+		const repository = new Setting(connection)
 			.setName(t("settings.repository.name"))
 			.setDesc(t("settings.repository.desc"));
 		const repositoryNote = note(repository);
@@ -115,7 +119,7 @@ export class SyncEvoSettingTab extends PluginSettingTab {
 			this.commits.push(commit);
 		});
 
-		const branch = new Setting(containerEl).setName(t("settings.branch.name")).setDesc(t("settings.branch.desc"));
+		const branch = new Setting(connection).setName(t("settings.branch.name")).setDesc(t("settings.branch.desc"));
 		const branchNote = note(branch);
 		let branchRejected = false;
 		branch.addText((text) => {
@@ -139,7 +143,7 @@ export class SyncEvoSettingTab extends PluginSettingTab {
 
 		// The app's own control: it lists the secrets saved on the device and
 		// lets the user add one. Only the chosen name comes back.
-		new Setting(containerEl)
+		new Setting(connection)
 			.setName(t("settings.token.name"))
 			.setDesc(t("settings.token.desc"))
 			.addComponent((el) =>
@@ -148,7 +152,7 @@ export class SyncEvoSettingTab extends PluginSettingTab {
 				}),
 			);
 
-		const deviceName = new Setting(containerEl)
+		const deviceName = new Setting(connection)
 			.setName(t("settings.deviceName.name"))
 			.setDesc(t("settings.deviceName.desc"));
 		const deviceNameNote = note(deviceName);
@@ -166,7 +170,9 @@ export class SyncEvoSettingTab extends PluginSettingTab {
 			});
 		});
 
-		const test = new Setting(containerEl).setName(t("settings.test.name")).setDesc(t("settings.test.desc"));
+		// No description: the name says what it does, and how it went is
+		// put where one would be.
+		const test = new Setting(connection).setName(t("settings.test.name"));
 		const result = test.descEl.createDiv();
 		test.addButton((button) => {
 			button.setButtonText(t("settings.test.button")).onClick(async () => {
@@ -200,10 +206,10 @@ export class SyncEvoSettingTab extends PluginSettingTab {
 		// What is synced: the switches for the root `.gitignore`, and the
 		// file. Read from the vault and the sync state, so filled in later,
 		// like the list below it. Nothing while there is no connection.
-		this.exclusion = new ExclusionSettings(this.app, containerEl.createDiv(), host);
+		this.exclusion = new ExclusionSettings(this.app, containerEl.createDiv("sync-evo-part"), host, this.folds);
 		void this.exclusion.draw();
 
-		void this.showSymlinks(containerEl.createDiv(), this.drawn);
+		void this.showSymlinks(containerEl.createDiv("sync-evo-part"), this.drawn);
 	}
 
 	/**
@@ -215,8 +221,13 @@ export class SyncEvoSettingTab extends PluginSettingTab {
 		const t = this.host.t;
 		const links = await this.host.skippedSymlinks();
 		if (links.length === 0 || drawn !== this.drawn) return;
-		headed(el, t("settings.symlinks.name"), t("settings.symlinks.desc"));
-		const list = el.createEl("ul");
+		// Folded: nothing in it is to be acted on.
+		const group = grouped(el, t("settings.symlinks.name"), t("settings.symlinks.desc"), {
+			folds: this.folds,
+			id: "symlinks",
+			summary: t("settings.symlinks.summary", { count: links.length }),
+		});
+		const list = group.textEl.createEl("ul");
 		for (const link of links) {
 			list.createEl("li", { text: t("settings.symlinks.item", { path: link.path, target: link.target }) });
 		}

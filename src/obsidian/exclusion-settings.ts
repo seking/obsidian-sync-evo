@@ -14,13 +14,18 @@
 // in to untracking what the rules match. Nothing is decided here. What is
 // shown is worked out in `core/exclusion-settings.ts` from the file as it
 // is, and every change is made there, from the file as it is read again.
+//
+// Also the groups the whole screen is laid out in (`grouped`), and how
+// some of them fold.
 
 import {
 	AbstractInputSuggest,
 	type App,
-	type ButtonComponent,
+	ButtonComponent,
 	Notice,
 	Setting,
+	SettingGroup,
+	setIcon,
 	TextAreaComponent,
 	type TextComponent,
 } from "obsidian";
@@ -137,6 +142,7 @@ export class ExclusionSettings {
 	private readonly app: App;
 	private readonly el: HTMLElement;
 	private readonly host: ExclusionHost;
+	private readonly folds: Folds;
 	/** Counts the times this part was asked to be drawn, so that an answer that comes late is not put on a newer one. */
 	private drawn = 0;
 	/**
@@ -154,10 +160,11 @@ export class ExclusionSettings {
 	/** This part was let go of (`dispose`): no question is put up any more. */
 	private disposed = false;
 
-	constructor(app: App, el: HTMLElement, host: ExclusionHost) {
+	constructor(app: App, el: HTMLElement, host: ExclusionHost, folds: Folds) {
 		this.app = app;
 		this.el = el;
 		this.host = host;
+		this.folds = folds;
 	}
 
 	/**
@@ -211,29 +218,31 @@ export class ExclusionSettings {
 		// asking for one would make one.
 		if (load.status === "no-connection") return;
 
-		const heading = headed(el, t("settings.exclusion.heading"), t("settings.exclusion.desc"));
+		// What has to be heeded is said under this heading, outside every
+		// group that folds.
+		const synced = grouped(el, t("settings.exclusion.heading"), t("settings.exclusion.desc"));
 		if (load.status === "no-state") {
-			warning(el, t("settings.exclusion.noState"));
+			warning(synced.textEl, t("settings.exclusion.noState"));
 			return;
 		}
 		const { view, untrack, notices, addSection } = load.screen;
 		const locked = load.syncing;
-		if (locked) warning(el, t("settings.exclusion.syncRunning"));
+		if (locked) warning(synced.textEl, t("settings.exclusion.syncRunning"));
 
 		switch (view.kind) {
 			case "unreadable":
-				warning(el, unreadableGitignoreText(t, view.reason, DEFAULT_SIZE_LIMIT));
+				warning(synced.textEl, unreadableGitignoreText(t, view.reason, DEFAULT_SIZE_LIMIT));
 				break;
 			case "unsettled":
-				warning(el, t("settings.exclusion.unsettled"));
+				warning(synced.textEl, t("settings.exclusion.unsettled"));
 				break;
 			case "broken":
-				warning(el, t("settings.exclusion.broken"));
-				this.showFixedOff(view, locked);
-				this.showEditor(view.text, locked);
+				warning(synced.textEl, t("settings.exclusion.broken"));
+				this.showFixedOff(synced.listEl, view, locked);
+				this.showEditor(view, locked);
 				break;
 			case "none": {
-				const add = new Setting(el)
+				const add = new Setting(synced.listEl)
 					.setName(t("settings.exclusion.noSection.name"))
 					.setDesc(t("settings.exclusion.noSection.desc"));
 				if (addSection === "sync-first") {
@@ -249,32 +258,43 @@ export class ExclusionSettings {
 					const limit = megabytes(DEFAULT_SIZE_LIMIT);
 					note(add).setText(t("settings.exclusion.noSection.overLimit", { limit }));
 				}
-				this.showFixedOff(view, locked);
-				this.showEditor(view.text, locked);
+				this.showFixedOff(synced.listEl, view, locked);
+				this.showEditor(view, locked);
 				break;
 			}
-			case "section":
-				heading.descEl.createDiv({ text: t("settings.exclusion.keepsSynced") });
+			case "section": {
+				if (view.handEdited) warning(synced.textEl, t("settings.exclusion.handEdited"));
+				this.showFileKinds(synced, view.state, locked);
+				// Cards of their own, with no heading: what is said above
+				// the switches for the kinds of file is about those alone.
+				const rest = grouped(el, null, null).listEl;
+				// Still what is synced: closer to the cards above than a
+				// group of its own would be (`styles.css`).
+				rest.parentElement?.addClass("sync-evo-group-continued");
+				this.showFolders(rest, view.state, locked);
 				// As of the last listing of the remote. Without one there is
-				// nothing to count.
-				if (untrack !== null) this.showUntrack(untrack, locked);
-				if (view.handEdited) warning(el, t("settings.exclusion.handEdited"));
-				this.showSwitches(view.state, locked);
-				this.showFixedOff(view, locked);
-				this.showEditor(view.text, locked);
+				// nothing to count. The count is of every rule, and right
+				// below the folders is where it is looked for after one was
+				// added.
+				if (untrack !== null) this.showUntrack(rest, untrack, locked);
+				this.showFixedOff(rest, view, locked);
+				this.showConfig(view.state, locked);
+				this.showEditor(view, locked);
 				break;
+			}
 		}
 
 		// A fixed exclusion that is off is not among these: it is listed
-		// above, from the file as it is now.
+		// above, from the file as it is now. Never folded: each of these
+		// is something to act on.
 		if (notices.length === 0) return;
-		headed(el, t("settings.exclusion.notices.name"), t("settings.exclusion.notices.desc"));
+		const found = grouped(el, t("settings.exclusion.notices.name"), t("settings.exclusion.notices.desc")).textEl;
 		for (const text of noticeTexts(t, notices, DEFAULT_SIZE_LIMIT)) {
 			// A text that lists paths has one on each line after the first.
 			const [head = "", ...items] = text.split("\n");
-			el.createEl("p", { text: head });
+			found.createEl("p", { text: head });
 			if (items.length === 0) continue;
-			const list = el.createEl("ul");
+			const list = found.createEl("ul");
 			for (const item of items) list.createEl("li", { text: item });
 		}
 	}
@@ -285,11 +305,11 @@ export class ExclusionSettings {
 	 * A setting of its own and not a line of the heading: the button needs
 	 * one. Nothing when there is neither.
 	 */
-	private showUntrack(list: UntrackList, locked: boolean): void {
+	private showUntrack(el: HTMLElement, list: UntrackList, locked: boolean): void {
 		const t = this.host.t;
 		const { files, submodules } = list;
 		if (files.length === 0 && submodules.length === 0) return;
-		const setting = new Setting(this.el).setName(t("settings.exclusion.untrack.name"));
+		const setting = new Setting(el).setName(t("settings.exclusion.untrack.name"));
 		if (files.length > 0) {
 			setting.descEl.createDiv({ text: t("settings.exclusion.tracked", { count: files.length }) });
 			setting.descEl.createDiv({ text: t("settings.exclusion.untrack.desc") });
@@ -358,21 +378,30 @@ export class ExclusionSettings {
 		this.asking = { close };
 	}
 
-	/** The switches of a section, and the list of the folders that are left out. */
-	private showSwitches(state: SectionState, locked: boolean): void {
-		const { el, host } = this;
+	/**
+	 * The switches for the kinds of file, as the settings of a group, under a
+	 * heading of their own in what the group says above them: as a setting,
+	 * that heading would be a card with nothing to switch.
+	 */
+	private showFileKinds(group: Group, state: SectionState, locked: boolean): void {
+		const host = this.host;
 		const t = host.t;
-
-		headed(el, t("settings.exclusion.fileKinds.name"), t("settings.exclusion.fileKinds.desc"));
+		group.textEl.createDiv({ cls: "sync-evo-subheading", text: t("settings.exclusion.fileKinds.name") });
+		described(group.textEl, t("settings.exclusion.fileKinds.desc"));
 		for (const item of SHOWN_FILE_KINDS) {
-			new Setting(el).setName(t(KIND_NAMES[item])).addToggle((toggle) => {
+			new Setting(group.listEl).setName(t(KIND_NAMES[item])).addToggle((toggle) => {
 				toggle
 					.setValue(state.kinds[item])
 					.setDisabled(locked)
 					.onChange((synced) => void this.change(host.editExclusion({ kind: "file-kind", item, synced })));
 			});
 		}
+	}
 
+	/** The field a folder to leave out is added with, and the folders that are left out. */
+	private showFolders(el: HTMLElement, state: SectionState, locked: boolean): void {
+		const host = this.host;
+		const t = host.t;
 		const folders = new Setting(el)
 			.setName(t("settings.exclusion.folders.name"))
 			.setDesc(t("settings.exclusion.folders.desc"));
@@ -410,8 +439,22 @@ export class ExclusionSettings {
 					.onClick(() => void this.change(host.editExclusion({ kind: "remove-folder", folder })));
 			});
 		}
+	}
 
-		headed(el, t("settings.exclusion.config.name"), t("settings.exclusion.config.desc"));
+	/**
+	 * The switches for the parts of the configuration folder: folded, with
+	 * how many of them are on beside the heading, to be read while it is.
+	 */
+	private showConfig(state: SectionState, locked: boolean): void {
+		const host = this.host;
+		const t = host.t;
+		const count = SHOWN_CONFIG_ITEMS.filter((item) => state.config[item]).length;
+		const summary = t("settings.exclusion.config.summary", { count, total: SHOWN_CONFIG_ITEMS.length });
+		const el = grouped(this.el, t("settings.exclusion.config.name"), t("settings.exclusion.config.desc"), {
+			folds: this.folds,
+			id: "config",
+			summary,
+		}).listEl;
 		for (const item of SHOWN_CONFIG_ITEMS) {
 			const setting = new Setting(el).setName(t(CONFIG_NAMES[item]));
 			if (item === "community-plugin-list" || item === "community-plugins") {
@@ -431,8 +474,8 @@ export class ExclusionSettings {
 	 * the button that puts back the lines a section lacks. Without a section
 	 * there is no such button: adding the section adds every line.
 	 */
-	private showFixedOff(view: Extract<ExclusionView, { fixedOff: readonly string[] }>, locked: boolean): void {
-		const { el, host } = this;
+	private showFixedOff(el: HTMLElement, view: FileView, locked: boolean): void {
+		const host = this.host;
 		const t = host.t;
 		if (view.fixedOff.length === 0) return;
 		const setting = new Setting(el).setName(t("settings.exclusion.fixedOff.name"));
@@ -458,19 +501,25 @@ export class ExclusionSettings {
 	}
 
 	/**
-	 * The whole file, to edit. Saved by the button and not while typing: a
-	 * rule half typed is another rule. `opened` is the file as it was read,
-	 * which the save is checked against, or `null` when there is none.
+	 * The whole file, to edit: folded, since few write rules by hand, but
+	 * drawn open while something is to be put right in it, which the
+	 * warnings above then send the user here for. Saved by the button and
+	 * not while typing: a rule half typed is another rule. `view.text` is
+	 * the file as it was read, which the save is checked against, or `null`
+	 * when there is none.
 	 */
-	private showEditor(opened: string | null, locked: boolean): void {
-		const { el, host } = this;
+	private showEditor(view: FileView, locked: boolean): void {
+		const host = this.host;
 		const t = host.t;
-		const setting = new Setting(el)
-			.setName(t("settings.exclusion.editor.name"))
-			.setDesc(t("settings.exclusion.editor.desc"));
-		if (opened === null) setting.descEl.createDiv({ text: t("settings.exclusion.editor.absent") });
-		// Below the description and not beside it: beside it, a phone leaves
-		// the field a few characters of width.
+		const opened = view.text;
+		const el = grouped(this.el, t("settings.exclusion.editor.name"), t("settings.exclusion.editor.desc"), {
+			folds: this.folds,
+			id: "gitignore",
+			forced: view.kind !== "section" || view.fixedOff.length > 0,
+		}).textEl;
+		if (opened === null) described(el, t("settings.exclusion.editor.absent"));
+		// Not a setting with the field beside its description: beside it, a
+		// phone leaves the field a few characters of width.
 		const area = new TextAreaComponent(el.createDiv()).setValue(editorText(opened)).setDisabled(locked);
 		area.inputEl.rows = 12;
 		// As wide as the screen (`styles.css`): by its columns alone it
@@ -481,16 +530,14 @@ export class ExclusionSettings {
 		area.inputEl.spellcheck = false;
 		area.inputEl.setAttr("autocapitalize", "off");
 		area.inputEl.setAttr("autocorrect", "off");
-		new Setting(el).addButton((button) => {
-			button
-				.setButtonText(t("settings.exclusion.editor.save"))
-				.setCta()
-				.setDisabled(locked)
-				.onClick(() => {
-					const text = textFromEditor(area.getValue(), opened);
-					void this.change(host.saveGitignore(text, opened), t("settings.exclusion.editor.saved"));
-				});
-		});
+		new ButtonComponent(el.createDiv("sync-evo-gitignore-save"))
+			.setButtonText(t("settings.exclusion.editor.save"))
+			.setCta()
+			.setDisabled(locked)
+			.onClick(() => {
+				const text = textFromEditor(area.getValue(), opened);
+				void this.change(host.saveGitignore(text, opened), t("settings.exclusion.editor.saved"));
+			});
 	}
 
 	/**
@@ -528,14 +575,98 @@ function warning(el: HTMLElement, text: string): void {
 	el.createEl("p", { text, cls: "mod-warning" });
 }
 
+/** The views that show the file: the ones that list the fixed exclusions that are not in effect. */
+type FileView = Extract<ExclusionView, { fixedOff: readonly string[] }>;
+
+/** The groups of the screen that fold. */
+export type FoldId = "config" | "gitignore" | "symlinks";
+
 /**
- * A heading with what it says about the settings below it. The description
- * is the heading's own: the app draws it under the title and outside the
- * cards of a phone. A theme may cut it off; as a setting of its own it
- * would be a card with nothing to switch.
+ * The groups the user has opened; every one starts closed. Kept by the
+ * settings tab, and so until the plugin is loaded anew, and saved nowhere:
+ * closing the settings, or drawing a part again, does not close a group.
  */
-export function headed(el: HTMLElement, name: string, desc: string): Setting {
-	return new Setting(el).setName(name).setDesc(desc).setHeading();
+export type Folds = Set<FoldId>;
+
+/** How a group folds. */
+export interface Fold {
+	readonly folds: Folds;
+	readonly id: FoldId;
+	/**
+	 * Drawn open and without the means to close it: something in it has to
+	 * be put right. What the user chose is back once it is not.
+	 */
+	readonly forced?: boolean;
+	/** Said beside the name, to be read while the group is closed. */
+	readonly summary?: string;
+}
+
+/** A group of the screen, as it is filled in. */
+export interface Group {
+	/** What the group says under its heading: outside the cards a phone draws the settings as. */
+	readonly textEl: HTMLElement;
+	/** Where the settings of the group go. Not shown while it holds none. */
+	readonly listEl: HTMLElement;
+}
+
+/**
+ * A group of the screen, drawn by the app's own `SettingGroup`: a heading
+ * (none when `name` is `null`), what it says about the group, and the
+ * settings. The heading of the app is a name alone, so the description is a
+ * text of its own between the heading and the settings: as the first setting
+ * it would be a card with nothing to switch.
+ *
+ * The app has no group that folds, so that is made here, with `fold`: the
+ * heading is then what opens and closes the group, by a click or, with the
+ * keyboard on it, by Enter or the space bar, and says which of the two it is
+ * (`aria-expanded`). Closed, only the heading is left.
+ */
+export function grouped(el: HTMLElement, name: string | null, desc: string | null, fold?: Fold): Group {
+	const group = new SettingGroup(el).addClass("sync-evo-group");
+	const listEl = group.listEl;
+	const textEl = createDiv("sync-evo-group-text");
+	listEl.before(textEl);
+	if (desc !== null) described(textEl, desc);
+	if (fold === undefined || fold.forced === true) {
+		if (name !== null) group.setHeading(name);
+		return { textEl, listEl };
+	}
+
+	const heading = createFragment();
+	const toggle = heading.createDiv({ cls: "sync-evo-fold", attr: { role: "button", tabindex: "0" } });
+	const icon = toggle.createSpan("sync-evo-fold-icon");
+	toggle.createSpan({ text: name ?? "" });
+	if (fold.summary !== undefined) toggle.createSpan({ cls: "sync-evo-fold-summary", text: fold.summary });
+	group.setHeading(heading);
+
+	let open = fold.folds.has(fold.id);
+	const show = (): void => {
+		toggle.setAttr("aria-expanded", String(open));
+		setIcon(icon, open ? "chevron-down" : "chevron-right");
+		// Hidden by `styles.css`.
+		textEl.toggleClass("sync-evo-folded", !open);
+		listEl.toggleClass("sync-evo-folded", !open);
+	};
+	const flip = (): void => {
+		open = !open;
+		if (open) fold.folds.add(fold.id);
+		else fold.folds.delete(fold.id);
+		show();
+	};
+	toggle.addEventListener("click", flip);
+	toggle.addEventListener("keydown", (event) => {
+		if (event.key !== "Enter" && event.key !== " ") return;
+		// The space bar would scroll the screen as well.
+		event.preventDefault();
+		flip();
+	});
+	show();
+	return { textEl, listEl };
+}
+
+/** A line of what a group says about itself, in the look of the description of a setting. */
+function described(el: HTMLElement, text: string): void {
+	el.createDiv({ cls: "setting-item-description", text });
 }
 
 /** A line under the description of a setting, for what the user has to heed. */

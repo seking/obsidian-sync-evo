@@ -12,9 +12,9 @@ The settings and the record of what was synced are kept on the device, outside t
 
 ## Network use
 
-Sync Evo makes network requests only when you press "Test connection" in its settings or run the "Pull" command. All of them go to GitHub (`api.github.com`) and carry the token and the names of the repository and the branch. One kind of request, the download of a zip described below, is redirected by GitHub to another of its hosts (`codeload.github.com`).
+Sync Evo makes network requests only when you press "Connection test" in its settings or run the "Pull" command. All of them go to GitHub (`api.github.com`) and carry the token and the names of the repository and the branch. One kind of request, the download of a zip described below, is redirected by GitHub to another of its hosts (`codeload.github.com`).
 
-- "Test connection" asks for the branch you entered, and for the repository when the branch is not found, to tell you whether the token can reach them.
+- "Connection test" asks for the branch you entered, and for the repository when the branch is not found, to tell you whether the token can reach them.
 - "Pull" asks for the branch (and, like the test, for the repository when the branch is not found), for the list of files in its latest commit, and for the content of each file that is new or changed. For a symbolic link, which is not written to the vault, it reads where the link points: one small request per link that is new or changed. When the branch has moved since the last pull, it also asks whether the new commit builds on the old one. When more than 1,000 files are new or changed (a first pull of a large repository, for one), it asks for the zip of that commit in one request instead of for each file, and then only for the files the zip does not hold as they are listed. The zip is kept in memory and never saved.
 
 Nothing from the vault is sent: no file, no file name, and no content.
