@@ -37,7 +37,13 @@
 // 6. The plan, step by step.
 // 7. The base revision, when nothing was put off.
 
-import { type ArchiveDownload, archiveContentSource, isArchiveDisabled, untilAborted } from "./archive-fetch";
+import {
+	type ArchiveDownload,
+	archiveContentSource,
+	isArchiveDisabled,
+	readArchiveCeiling,
+	untilAborted,
+} from "./archive-fetch";
 import { BackendError, type RemoteEntry, type RemoteListing } from "./backend";
 import { originalPathOfConflictCopy } from "./conflict-name";
 import { createExclusion } from "./exclusion";
@@ -1177,6 +1183,11 @@ class PullRun {
 		// pull that made the device remember it can have been killed before
 		// it told anything, and the next one tells it then.
 		if (await isArchiveDisabled(this.store)) add("archive-given-up", "");
+		else {
+			// The path is the ceiling: one that came down is told again.
+			const ceiling = await readArchiveCeiling(this.store);
+			if (ceiling !== null) add("archive-limited", String(ceiling));
+		}
 		for (const collision of plan.collisions) {
 			for (const spelling of collision.spellings) add("remote-path-collision", spelling);
 		}

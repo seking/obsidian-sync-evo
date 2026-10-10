@@ -673,6 +673,7 @@ describe("what the user has to know", () => {
 					{ kind: "invalid-path", path: "a//b" },
 					{ kind: "blocked-path", path: "notes" },
 					{ kind: "archive-given-up", path: "" },
+					{ kind: "archive-limited", path: String(140 * 1024 * 1024 + 5) },
 					{ kind: "local-path-collision", path: "case.md" },
 					{ kind: "rename-not-sent", path: "Drafts/a.md" },
 				],
@@ -685,6 +686,9 @@ describe("what the user has to know", () => {
 		expect(report.details).toHaveLength(NOTICE_KINDS.length);
 		expect(report.details[9]).toBe(
 			"Downloading all files at once did not work on this device, so Sync Evo no longer tries it here. When there are many files to fetch, they are now fetched one by one, which takes longer.",
+		);
+		expect(report.details[10]).toBe(
+			"Downloading all files at once did not work on this device. From now on Sync Evo does not try it here when the download is expected to be about 140 MB or more. Many files are then fetched one by one, which takes longer.",
 		);
 		expect(report.details[0]).toContain(".obsidian/plugins/sync-evo");
 		expect(report.details[1]).toContain(".git");
@@ -699,6 +703,17 @@ describe("what the user has to know", () => {
 		expect(report.details[8]).toBe(
 			"The file notes of the remote could not be written: files that are only on this device are in its place. Move or rename them, and the next pull writes it:\nnotes/draft.md\nnotes/sub/idea.md",
 		);
+	});
+
+	test("a device that no longer downloads all files at once from some size on is told the size", () => {
+		const limited = (bytes: number) => pullReport(ja, result({ notices: [{ kind: "archive-limited", path: String(bytes) }] }), options).details;
+		expect(limited(133_537_570)).toEqual([
+			"このデバイスでは、全ファイルをまとめて取得できませんでした。今後このデバイスでは、まとめた大きさの見込みが約 127MB 以上のときは、まとめて取得しません。ファイルが多いときも1件ずつ取得するため、時間が長くかかります。",
+		]);
+		expect(limited(147_371)[0]).toContain("約 0.1MB 以上");
+		// Never "0.0": a ceiling that small is as good as none, and is said as the smallest size there is a text for.
+		expect(limited(1500)[0]).toContain("約 0.1MB 以上");
+		expect(limited(0)[0]).toContain("約 0.1MB 以上");
 	});
 
 	test("a device that stopped downloading all files at once is told so, apart from the summary", () => {

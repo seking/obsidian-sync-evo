@@ -4851,7 +4851,7 @@ describe("going on after a pull that stopped while writing", () => {
 		await expect(h.pull()).rejects.toThrow("the app is gone");
 		expect(downloads).toBe(1);
 		expect(await markerPaths(h)).toEqual(["n0000.md"]);
-		expect(await h.store.getMeta(ARCHIVE_ATTEMPT_KEY)).toEqual({ retries: 0 });
+		expect(await h.store.getMeta(ARCHIVE_ATTEMPT_KEY)).toMatchObject({ retries: 0 });
 
 		restart(h);
 		h.progress.length = 0;

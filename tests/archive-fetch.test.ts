@@ -12,6 +12,7 @@
 import { describe, expect, test } from "vitest";
 import {
 	ARCHIVE_ATTEMPT_KEY,
+	ARCHIVE_CEILING_KEY,
 	ARCHIVE_DISABLED_KEY,
 	ARCHIVE_FILE_THRESHOLD,
 	ArchiveGate,
@@ -20,6 +21,7 @@ import {
 	SHRINKING_EXTENSIONS,
 	estimateArchiveSize,
 	isArchiveDisabled,
+	readArchiveCeiling,
 	MAX_ARCHIVE_ESTIMATE_BYTES,
 } from "../src/core/archive-fetch";
 import { BackendError, type RemoteEntry } from "../src/core/backend";
@@ -111,6 +113,14 @@ describe("the estimate of the size of an archive", () => {
 });
 
 describe("the choice of the means", () => {
+	test("a ceiling the device remembers is the limit from that estimate on", () => {
+		const input = { fetchCount: 2000, disabled: false, available: true };
+		expect(chooseFetchMeans({ ...input, estimate: 99, ceiling: 100 })).toBe("archive");
+		expect(chooseFetchMeans({ ...input, estimate: 100, ceiling: 100 })).toBe("per-file");
+		expect(chooseFetchMeans({ ...input, estimate: 100, ceiling: null })).toBe("archive");
+		expect(chooseFetchMeans({ ...input, estimate: MAX_ARCHIVE_ESTIMATE_BYTES + 1, ceiling: Number.MAX_SAFE_INTEGER })).toBe("per-file");
+	});
+
 	const base = { fetchCount: 5000, estimate: 50 * MB, disabled: false, available: true };
 
 	test("the archive is for more files than the threshold", () => {
@@ -162,6 +172,7 @@ interface Harness<B extends MemoryBackend = ZipBackend> {
 	records(): Promise<Record<string, string>>;
 	attempt(): Promise<unknown>;
 	disabled(): Promise<boolean>;
+	ceiling(): Promise<number | null>;
 }
 
 function harness<B extends MemoryBackend = ZipBackend>(backend: B = new ZipBackend() as MemoryBackend as B): Harness<B> {
@@ -231,8 +242,16 @@ function harness<B extends MemoryBackend = ZipBackend>(backend: B = new ZipBacke
 		},
 		attempt: () => h.store.getMeta(ARCHIVE_ATTEMPT_KEY),
 		disabled: () => isArchiveDisabled(h.store),
+		ceiling: () => readArchiveCeiling(h.store),
 	};
 	return h;
+}
+
+/** The estimate of the archive of what the remote holds now. */
+async function estimateOf(h: Harness<MemoryBackend>): Promise<number> {
+	const listed = await h.backend.list(null);
+	if (!listed.changed) throw new Error("expected a listing");
+	return estimateArchiveSize(listed.listing.entries);
 }
 
 /** The one-time notice that this device no longer fetches all at once. */
@@ -692,7 +711,7 @@ describe("the mark of an attempt", () => {
 
 		expect((await h.pull()).outcome).toBe("completed");
 		// At the request, at the first write, at the second write.
-		expect(seen).toEqual([{ retries: 0 }, { retries: 0 }, undefined]);
+		expect(seen).toEqual([expect.objectContaining({ retries: 0 }), expect.objectContaining({ retries: 0 }), undefined]);
 		expect(await h.attempt()).toBeUndefined();
 		expect(await h.disabled()).toBe(false);
 	});
@@ -765,7 +784,7 @@ describe("the mark of an attempt", () => {
 
 		const result = await h.pull({ signal: stop.signal });
 		expect(result.outcome).toBe("cancelled");
-		expect(marks).toEqual([{ retries: 0 }]);
+		expect(marks).toEqual([expect.objectContaining({ retries: 0 })]);
 		expect(h.backend.zipRequests).toEqual([]);
 		expect(h.perFile).toEqual([]);
 		expect(h.vault.paths()).toEqual([]);
@@ -795,7 +814,7 @@ describe("the mark of an attempt", () => {
 		h.backend.commit(files);
 		h.backend.beforeZip = () => h.kill();
 		await expect(h.pull()).rejects.toThrow("the app is gone");
-		expect(await h.attempt()).toEqual({ retries: 0 });
+		expect(await h.attempt()).toMatchObject({ retries: 0 });
 		expect(h.progress.filter((event) => event.archive !== undefined).map((event) => event.archive)).toEqual([
 			"downloading",
 		]);
@@ -808,7 +827,7 @@ describe("the mark of an attempt", () => {
 		};
 		const result = await h.pull();
 		expect(result.outcome).toBe("completed");
-		expect(during).toEqual({ retries: 1 });
+		expect(during).toMatchObject({ retries: 1 });
 		expect(h.backend.zipRequests).toHaveLength(2);
 		expect(h.perFile).toEqual([]);
 		expect(h.vault.snapshot()).toEqual(files);
@@ -836,7 +855,7 @@ describe("the mark of an attempt", () => {
 		h.backend.commit(notes(1001, " v2"));
 		h.backend.beforeZip = () => h.kill();
 		await expect(h.pull()).rejects.toThrow();
-		expect(await h.attempt()).toEqual({ retries: 0 });
+		expect(await h.attempt()).toMatchObject({ retries: 0 });
 
 		h.restart();
 		h.backend.beforeZip = undefined;
@@ -855,7 +874,8 @@ describe("the mark of an attempt", () => {
 		await expect(h.pull()).rejects.toThrow();
 		h.restart();
 		await expect(h.pull()).rejects.toThrow();
-		expect(await h.attempt()).toEqual({ retries: 1 });
+		const estimate = await estimateOf(h);
+		expect(await h.attempt()).toEqual({ retries: 1, estimate });
 		expect(h.backend.zipRequests).toHaveLength(2);
 
 		h.restart();
@@ -867,7 +887,51 @@ describe("the mark of an attempt", () => {
 		expect(h.vault.snapshot()).toEqual(files);
 		expect(h.progress.some((event) => event.archive !== undefined)).toBe(false);
 		expect(await h.attempt()).toBeUndefined();
-		expect(await h.disabled()).toBe(true);
+		// Not for good and not for every size: from half that estimate on.
+		expect(await h.disabled()).toBe(false);
+		expect(await h.ceiling()).toBe(Math.floor(estimate / 2));
+	});
+
+	test("an archive estimated below the ceiling is used, one at it or above is not", async () => {
+		const h = harness();
+		const files = notes(1001);
+		h.backend.commit(files);
+		const estimate = await estimateOf(h);
+
+		await h.store.setMeta(ARCHIVE_CEILING_KEY, estimate);
+		expect((await h.pull()).outcome).toBe("completed");
+		expect(h.backend.zipRequests).toEqual([]);
+		expect(h.perFile.map((asked) => asked.length)).toEqual([1001]);
+
+		await h.store.setMeta(ARCHIVE_CEILING_KEY, estimate + 3000);
+		h.backend.commit(notes(1001, " v2"));
+		expect((await h.pull()).outcome).toBe("completed");
+		expect(h.backend.zipRequests).toHaveLength(1);
+		expect(await h.ceiling()).toBe(estimate + 3000);
+	});
+
+	test("two more attempts that do not end, at an archive below the ceiling, bring the ceiling down", async () => {
+		const h = harness();
+		h.backend.commit(notes(1001));
+		const estimate = await estimateOf(h);
+		await h.store.setMeta(ARCHIVE_CEILING_KEY, estimate * 4);
+		h.backend.beforeZip = () => h.kill();
+		await expect(h.pull()).rejects.toThrow();
+		h.restart();
+		await expect(h.pull()).rejects.toThrow();
+		h.restart();
+		expect((await h.pull()).outcome).toBe("completed");
+		expect(h.backend.zipRequests).toHaveLength(2);
+		expect(await h.ceiling()).toBe(Math.floor(estimate / 2));
+	});
+
+	test("a ceiling is never raised by a larger estimate that did not end", async () => {
+		const h = harness();
+		h.backend.commit(notes(10));
+		await h.store.setMeta(ARCHIVE_CEILING_KEY, 1000);
+		await h.store.setMeta(ARCHIVE_ATTEMPT_KEY, { retries: 1, estimate: 1_000_000 });
+		expect((await h.pull()).outcome).toBe("completed");
+		expect(await h.ceiling()).toBe(1000);
 	});
 
 	test("killed after the first file was written: nothing is left, and the next pull chooses by what remains", async () => {
@@ -938,11 +1002,32 @@ describe("the mark of an attempt", () => {
 		expect(h.perFile.map((asked) => asked.length)).toEqual([10]);
 		expect(h.vault.snapshot()).toEqual(files);
 		expect(await h.attempt()).toBeUndefined();
-		expect(await h.disabled()).toBe(true);
-		expect(result.notices).toEqual([GIVEN_UP]);
+		expect(await h.disabled()).toBe(false);
+		// A mark of a version that kept no estimate: the estimate of this pull.
+		const ceiling = Math.floor(await estimateOf(h) / 2);
+		expect(await h.ceiling()).toBe(ceiling);
+		expect(result.notices).toEqual([{ kind: "archive-limited", path: String(ceiling) }]);
 		expect(h.logs[0]).toBe(
-			"archive: two attempts in a row did not end. This device fetches one file at a time from now on.",
+			"archive: two attempts in a row did not end. " +
+				`This device fetches one file at a time when the archive is estimated at ${ceiling} bytes or more.`,
 		);
+	});
+
+	test("a mark of a retry from a version that kept no estimate, found by a pull of many files: one at a time, and half the estimate of this pull", async () => {
+		const h = harness();
+		const files = notes(1001);
+		h.backend.commit(files);
+		await h.store.setMeta(ARCHIVE_ATTEMPT_KEY, { retries: 1 });
+
+		const result = await h.pull();
+		expect(result.outcome).toBe("completed");
+		expect(h.backend.zipRequests).toEqual([]);
+		expect(h.perFile.map((asked) => asked.length)).toEqual([1001]);
+		expect(h.vault.snapshot()).toEqual(files);
+		expect(await h.attempt()).toBeUndefined();
+		const ceiling = Math.floor((await estimateOf(h)) / 2);
+		expect(await h.ceiling()).toBe(ceiling);
+		expect(result.notices).toEqual([{ kind: "archive-limited", path: String(ceiling) }]);
 	});
 
 	test("a mark that is left is not counted by a pull that asks for no archive", async () => {
@@ -950,7 +1035,7 @@ describe("the mark of an attempt", () => {
 		h.backend.commit(notes(10));
 		await h.store.setMeta(ARCHIVE_ATTEMPT_KEY, { retries: 0 });
 		expect((await h.pull()).outcome).toBe("completed");
-		expect(await h.attempt()).toEqual({ retries: 0 });
+		expect(await h.attempt()).toMatchObject({ retries: 0 });
 		expect(await h.disabled()).toBe(false);
 	});
 
@@ -991,8 +1076,13 @@ describe("a device that stops using the archive", () => {
 		h.restart();
 		const result = await h.pull();
 		expect(result.outcome).toBe("completed");
-		expect(result.notices).toEqual([GIVEN_UP]);
+		expect(result.notices).toEqual([{ kind: "archive-limited", path: String(await h.ceiling()) }]);
 		h.backend.commit({ "new.md": "new" });
+		expect((await h.pull()).notices).toEqual([]);
+
+		// A ceiling that came down is another thing to tell.
+		await h.store.setMeta(ARCHIVE_CEILING_KEY, 5);
+		expect((await h.pull()).notices).toEqual([{ kind: "archive-limited", path: "5" }]);
 		expect((await h.pull()).notices).toEqual([]);
 	});
 

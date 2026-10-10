@@ -494,6 +494,11 @@ function noticeText(
 			return paths.map((path) => t("notice.blockedPath", { path, list: listText(t, inTheWay(path)) }));
 		case "archive-given-up":
 			return [t("notice.archiveGivenUp")];
+		case "archive-limited":
+			return paths.map((bytes) => {
+				const size = Number(bytes) / (1024 * 1024);
+				return t("notice.archiveLimited", { size: size >= 10 ? String(Math.floor(size)) : Math.max(size, 0.1).toFixed(1) });
+			});
 		case "local-path-collision":
 			return [t("notice.localPathCollision", { list })];
 		case "rename-not-sent":

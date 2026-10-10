@@ -46,6 +46,10 @@ import type { StateStore } from "./state";
  *   once (`archive-fetch.ts`), and fetches them one at a time from now on.
  *   About the device and no path: its path is empty. Told once, by the pull
  *   that finds it so, and not again for as long as the sync state lasts.
+ * - "archive-limited": this device remembers an estimate from which on it
+ *   does not fetch many files at once (`archive-fetch.ts`). Its path is that
+ *   estimate, in bytes, so that it is told again when it comes down. Not
+ *   told beside "archive-given-up".
  * - "local-path-collision": a file that is new on this device was not sent,
  *   because its path differs only in upper and lower case from another
  *   path the remote holds or the same push sends. Told once for as long as
@@ -68,6 +72,7 @@ export const NOTICE_KINDS = [
 	"unwritable-path",
 	"blocked-path",
 	"archive-given-up",
+	"archive-limited",
 	"local-path-collision",
 	"rename-not-sent",
 ] as const;

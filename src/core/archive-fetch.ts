@@ -103,6 +103,8 @@ export interface FetchMeansInput {
 	readonly estimate: number;
 	/** Whether this device remembers not to use the archive. */
 	readonly disabled: boolean;
+	/** The estimate from which on this device does not use the archive, when it remembers one. */
+	readonly ceiling?: number | null;
 	/** Whether the remote has an archive to fetch. */
 	readonly available: boolean;
 }
@@ -112,21 +114,39 @@ export function chooseFetchMeans(input: FetchMeansInput): FetchMeans {
 	if (!input.available || input.disabled) return "per-file";
 	if (input.fetchCount <= ARCHIVE_FILE_THRESHOLD) return "per-file";
 	if (input.estimate > MAX_ARCHIVE_ESTIMATE_BYTES) return "per-file";
+	if (input.ceiling !== undefined && input.ceiling !== null && input.estimate >= input.ceiling) return "per-file";
 	return "archive";
 }
 
 // ---------------------------------------------------------------------------
-// What the sync state remembers of it. Both go when the state is discarded.
+// What the sync state remembers of it. All of it goes when the state is discarded.
 
 /**
  * The key of the mark of an attempt that is under way: from before the
  * archive is asked for until the first file out of it has been dealt with.
- * Its value is `{ retries }`, how many attempts before this one did not end.
+ * Its value is `{ retries, estimate }`: how many attempts before this one
+ * did not end, and what the archive was estimated at.
  */
 export const ARCHIVE_ATTEMPT_KEY = "archive-attempt";
 
-/** The key of the memory that this device does not use the archive. `true`, or absent. */
+/**
+ * The key of the memory that this device does not use the archive at all,
+ * for a reason that has nothing to do with its size. `true`, or absent.
+ */
 export const ARCHIVE_DISABLED_KEY = "archive-disabled";
+
+/**
+ * The key of the estimate from which on this device does not use the
+ * archive, in bytes, or absent. Set when two attempts in a row did not end.
+ */
+export const ARCHIVE_CEILING_KEY = "archive-ceiling";
+
+/**
+ * How much of the estimate that did not end is the ceiling from then on.
+ * The real size of an archive that never arrived is not known, and the
+ * estimate of the one that had a phone killed was half of it.
+ */
+export const ARCHIVE_CEILING_RATIO = 0.5;
 
 type MetaStore = Pick<StateStore, "getMeta" | "setMeta" | "deleteMeta">;
 
@@ -152,16 +172,28 @@ function stateOf(store: MetaStore): MetaStore {
 }
 
 /** The attempt that is marked, or `null`. A mark that cannot be read is one of a first attempt. */
-async function readAttempt(store: MetaStore): Promise<{ readonly retries: number } | null> {
+async function readAttempt(
+	store: MetaStore,
+): Promise<{ readonly retries: number; readonly estimate: number | null } | null> {
 	const value = await store.getMeta(ARCHIVE_ATTEMPT_KEY);
 	if (value === undefined || value === null) return null;
-	const retries = typeof value === "object" ? (value as { retries?: unknown }).retries : undefined;
-	return { retries: typeof retries === "number" && retries > 0 ? Math.floor(retries) : 0 };
+	const { retries, estimate } = typeof value === "object" ? (value as { retries?: unknown; estimate?: unknown }) : {};
+	return {
+		retries: typeof retries === "number" && retries > 0 ? Math.floor(retries) : 0,
+		// A mark of a version before the estimate was kept has none.
+		estimate: typeof estimate === "number" && estimate >= 0 ? estimate : null,
+	};
 }
 
-/** Whether this device remembers not to use the archive. */
+/** Whether this device remembers not to use the archive at all. */
 export async function isArchiveDisabled(store: Pick<StateStore, "getMeta">): Promise<boolean> {
 	return (await store.getMeta(ARCHIVE_DISABLED_KEY)) === true;
+}
+
+/** The estimate from which on this device does not use the archive, or `null`. */
+export async function readArchiveCeiling(store: Pick<StateStore, "getMeta">): Promise<number | null> {
+	const value = await store.getMeta(ARCHIVE_CEILING_KEY);
+	return typeof value === "number" && value >= 0 ? value : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -266,13 +298,16 @@ export interface ArchiveSourceDeps {
  *
  * A mark that is found, left by an attempt that did not end: the archive is
  * tried once more, with the user told to keep the app in front. A mark left
- * by that attempt as well makes this device remember not to use the archive.
- * Why an attempt did not end is not told apart.
+ * by that attempt as well makes this device remember a ceiling: a part of
+ * the estimate of that archive (`ARCHIVE_CEILING_RATIO`), from which on it
+ * fetches one file at a time. A smaller archive is still used, and when two
+ * attempts at one do not end either, the ceiling comes down again. Why an
+ * attempt did not end is not told apart.
  *
  * A failure that says something about the device (a redirect it did not
- * follow, or no memory for the archive) is remembered in the same way. Any
- * other is not, and the next pull tries the archive again: see
- * `saysDeviceCannot`.
+ * follow, or no memory for the archive) makes it remember not to use the
+ * archive at all. Any other is not remembered, and the next pull tries the
+ * archive again: see `saysDeviceCannot`.
  *
  * A failure of the sync state is not one of the fetching: it is thrown as a
  * `SourcedStateError`, and ends the pull.
@@ -290,26 +325,33 @@ async function* fetchByMeans(
 	const store = stateOf(deps.store);
 	const log = deps.log ?? ((): void => {});
 
+	const estimate = estimateArchiveSize(deps.listing.entries);
 	let left = await readAttempt(store);
-	let disabled = await isArchiveDisabled(store);
+	const disabled = await isArchiveDisabled(store);
+	let ceiling = await readArchiveCeiling(store);
 	if (left !== null && left.retries >= MAX_ARCHIVE_RETRIES) {
-		// Twice in a row. Whatever the reason, it is not tried for ever.
-		await store.setMeta(ARCHIVE_DISABLED_KEY, true);
+		// Twice in a row. Whatever the reason, it is not tried for ever: an
+		// archive of that estimate is not asked for again, nor one near it.
+		const lowered = Math.floor((left.estimate ?? estimate) * ARCHIVE_CEILING_RATIO);
+		ceiling = ceiling === null ? lowered : Math.min(ceiling, lowered);
+		await store.setMeta(ARCHIVE_CEILING_KEY, ceiling);
 		await store.deleteMeta(ARCHIVE_ATTEMPT_KEY);
-		log("archive: two attempts in a row did not end. This device fetches one file at a time from now on.");
-		disabled = true;
+		log(
+			"archive: two attempts in a row did not end. " +
+				`This device fetches one file at a time when the archive is estimated at ${ceiling} bytes or more.`,
+		);
 		left = null;
 	}
 
-	const estimate = estimateArchiveSize(deps.listing.entries);
 	const fetchArchive = backend.fetchArchive?.bind(backend);
 	const means =
 		revision === null || fetchArchive === undefined
 			? "per-file"
-			: chooseFetchMeans({ fetchCount: entries.length, estimate, disabled, available: true });
+			: chooseFetchMeans({ fetchCount: entries.length, estimate, disabled, ceiling, available: true });
 	log(
 		`fetch: ${entries.length} files to fetch, archive estimated at ${estimate} bytes` +
-			`${disabled ? ", archive not used on this device" : ""}: ${means}`,
+			`${disabled ? ", archive not used on this device" : ""}` +
+			`${ceiling === null ? "" : `, not used from ${ceiling} bytes on`}: ${means}`,
 	);
 	if (revision === null || fetchArchive === undefined || means === "per-file") {
 		// A mark that is left stays for the next time the archive is chosen.
@@ -329,7 +371,7 @@ async function* fetchByMeans(
 		}
 	}
 
-	await store.setMeta(ARCHIVE_ATTEMPT_KEY, { retries: left === null ? 0 : left.retries + 1 });
+	await store.setMeta(ARCHIVE_ATTEMPT_KEY, { retries: left === null ? 0 : left.retries + 1, estimate });
 	let marked = true;
 	const unmark = async (): Promise<void> => {
 		if (!marked) return;

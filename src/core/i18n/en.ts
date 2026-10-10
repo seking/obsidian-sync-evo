@@ -104,6 +104,8 @@ export const en = baseCatalog({
 		"This device refused to write, move, or delete some files, so the pull skipped them. Nothing about them was changed on the remote, and each pull tries them again:\n{list}",
 	"notice.blockedPath":
 		"The file {path} of the remote could not be written: files that are only on this device are in its place. Move or rename them, and the next pull writes it:\n{list}",
+	"notice.archiveLimited":
+		"Downloading all files at once did not work on this device. From now on Sync Evo does not try it here when the download is expected to be about {size} MB or more. Many files are then fetched one by one, which takes longer.",
 	"notice.archiveGivenUp":
 		"Downloading all files at once did not work on this device, so Sync Evo no longer tries it here. When there are many files to fetch, they are now fetched one by one, which takes longer.",
 	"notice.localPathCollision":
