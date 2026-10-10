@@ -16,7 +16,8 @@ import {
 	ARCHIVE_FILE_THRESHOLD,
 	ArchiveGate,
 	chooseFetchMeans,
-	COMPRESSED_EXTENSIONS,
+	ARCHIVE_ENTRY_BYTES,
+	SHRINKING_EXTENSIONS,
 	estimateArchiveSize,
 	isArchiveDisabled,
 	MAX_ARCHIVE_ESTIMATE_BYTES,
@@ -39,53 +40,73 @@ const entry = (path: string, size?: number): RemoteEntry => ({
 });
 
 describe("the estimate of the size of an archive", () => {
-	test("a file of a kind that is compressed already counts whole, any other by half", () => {
-		expect(estimateArchiveSize([entry("photo.png", 1000)])).toBe(1000);
-		expect(estimateArchiveSize([entry("note.md", 1000)])).toBe(500);
-		expect(estimateArchiveSize([entry("a/photo.png", 1000), entry("a/note.md", 1000), entry("b.pdf", 10)])).toBe(1510);
+	/** The estimate without what the archive holds of each file beside its content. */
+	const contentOf = (entries: readonly RemoteEntry[]): number =>
+		estimateArchiveSize(entries) - entries.length * ARCHIVE_ENTRY_BYTES;
+
+	test("every entry adds what an archive holds beside its content, whatever its size", () => {
+		expect(estimateArchiveSize([entry("a.md", 0)])).toBe(ARCHIVE_ENTRY_BYTES);
+		expect(estimateArchiveSize([entry("a.md", 100), entry("b.bin", 100)])).toBe(150 + 2 * ARCHIVE_ENTRY_BYTES);
+		// 100,000 notes of 100 bytes: the content is the smaller part.
+		const many = Array.from({ length: 100_000 }, (_, i) => entry(`n/${i}.md`, 100));
+		expect(estimateArchiveSize(many)).toBe(100_000 * (50 + ARCHIVE_ENTRY_BYTES));
 	});
 
-	test("every extension of the list counts whole", () => {
+	test("a file of a kind that shrinks counts by half, any other whole", () => {
+		expect(contentOf([entry("photo.png", 1000)])).toBe(1000);
+		expect(contentOf([entry("note.md", 1000)])).toBe(500);
+		expect(contentOf([entry("a/photo.png", 1000), entry("a/note.md", 1000), entry("b.pdf", 10)])).toBe(1510);
+	});
+
+	test("every extension of the list counts by half", () => {
 		const list =
-			"png jpg jpeg gif webp heic heif avif pdf mp4 mov m4v webm mkv avi mp3 m4a aac ogg opus flac " +
-			"zip gz tgz bz2 xz 7z rar zst docx xlsx pptx epub woff woff2";
-		expect([...COMPRESSED_EXTENSIONS].sort()).toEqual(list.split(" ").sort());
+			"md markdown txt canvas base org rst tex bib json jsonl csv tsv yaml yml toml xml ini plist log sql " +
+			"html htm css svg js mjs cjs ts tsx jsx py sh";
+		expect([...SHRINKING_EXTENSIONS].sort()).toEqual(list.split(" ").sort());
 		for (const extension of list.split(" ")) {
-			expect(estimateArchiveSize([entry(`files/x.${extension}`, 100)]), extension).toBe(100);
+			expect(contentOf([entry(`files/x.${extension}`, 100)]), extension).toBe(50);
 		}
 	});
 
-	test("what shrinks is not on the list", () => {
-		for (const extension of ["svg", "bmp", "wav", "tiff", "ttf", "otf", "md", "json", "canvas", "txt"]) {
-			expect(estimateArchiveSize([entry(`x.${extension}`, 100)]), extension).toBe(50);
+	test("what is not on the list counts whole, whether it would shrink or not", () => {
+		for (const extension of ["bin", "png", "pdf", "zip", "sqlite", "age", "dmg", "bmp", "wav", "ttf", "unknown"]) {
+			expect(contentOf([entry(`x.${extension}`, 100)]), extension).toBe(100);
 		}
 	});
 
 	test("the case of the extension does not matter", () => {
-		expect(estimateArchiveSize([entry("IMG_0001.JPG", 100), entry("Scan.Pdf", 100), entry("a.tar.GZ", 100)])).toBe(300);
+		expect(contentOf([entry("README.MD", 100), entry("Data.Json", 100), entry("IMG_0001.JPG", 100)])).toBe(200);
 	});
 
 	test("only the last extension of the name counts, and only of the name", () => {
-		expect(estimateArchiveSize([entry("photo.png.md", 100)])).toBe(50);
-		expect(estimateArchiveSize([entry("archive.zip/readme", 100)])).toBe(50);
-		expect(estimateArchiveSize([entry("png", 100)])).toBe(50);
-		expect(estimateArchiveSize([entry("notes/png", 100)])).toBe(50);
+		expect(contentOf([entry("photo.png.md", 100)])).toBe(50);
+		expect(contentOf([entry("note.md.bin", 100)])).toBe(100);
+		expect(contentOf([entry("notes.md/blob", 100)])).toBe(100);
+		expect(contentOf([entry("md", 100)])).toBe(100);
+		expect(contentOf([entry("notes/md", 100)])).toBe(100);
 	});
 
-	test("a file without an extension, and one whose name ends with a dot, count by half", () => {
-		expect(estimateArchiveSize([entry("LICENSE", 100), entry("Makefile", 100), entry("odd.", 100)])).toBe(150);
-		expect(estimateArchiveSize([entry(".gitignore", 100)])).toBe(50);
+	test("a file without an extension, and one whose name ends with a dot, count whole", () => {
+		expect(contentOf([entry("LICENSE", 100), entry("Makefile", 100), entry("odd.", 100)])).toBe(300);
+		expect(contentOf([entry(".gitignore", 100)])).toBe(100);
+	});
+
+	test("files of random bytes are not taken to shrink: the branch that had a phone killed", () => {
+		// 267 MB of `.bin` among small notes. The archive was 270 MB.
+		const entries = [entry("big/all.bin", 267 * MB), entry("notes/all.md", 0.2 * MB)];
+		expect(contentOf(entries) / MB).toBeCloseTo(267.1, 1);
+		expect(chooseFetchMeans({ fetchCount: 3000, estimate: estimateArchiveSize(entries), disabled: false, available: true })).toBe("per-file");
 	});
 
 	test("an entry without a size counts as empty, and no entries as nothing", () => {
-		expect(estimateArchiveSize([entry("a.png"), { path: "sub", kind: "submodule", hash: "1".repeat(40) }])).toBe(0);
-		expect(estimateArchiveSize([])).toBe(0);
+		expect(contentOf([entry("a.png"), { path: "sub", kind: "submodule", hash: "1".repeat(40) }])).toBe(0);
+		expect(contentOf([])).toBe(0);
 	});
 
 	test("the half is of the sum: a repository of notes with a few images", () => {
 		// The numbers of the repository the limit was measured with.
 		const entries = [entry("images/all.png", 0.5 * MB), entry("notes/all.md", 143.4 * MB)];
-		expect(estimateArchiveSize(entries) / MB).toBeCloseTo(72.2, 1);
+		expect(contentOf(entries) / MB).toBeCloseTo(72.2, 1);
 	});
 });
 

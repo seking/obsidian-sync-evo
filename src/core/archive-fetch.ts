@@ -43,33 +43,38 @@ export const MAX_ARCHIVE_ESTIMATE_BYTES = 150 * 1024 * 1024;
 export const MAX_ARCHIVE_RETRIES = 1;
 
 /**
- * The extensions of files that are compressed already, in lower case. An
- * archive holds such a file at about its size. What shrinks (`svg`, `bmp`,
- * `wav`, `tiff`, `ttf`, `otf`) is left out on purpose.
+ * The extensions of files that shrink in an archive, in lower case: text
+ * in its many forms. Every other file is taken to keep its size, also one
+ * that would shrink (`bmp`, `wav`, `ttf`): an estimate that is too large
+ * costs a slower fetch, one that is too small has the app killed. A list
+ * of what is compressed already, with the rest counted by half, put an
+ * archive of 270 MB at 134 MB for files of random bytes named `.bin`.
  */
-export const COMPRESSED_EXTENSIONS: ReadonlySet<string> = new Set([
-	// Images
-	...["png", "jpg", "jpeg", "gif", "webp", "heic", "heif", "avif"],
-	"pdf",
-	// Video
-	...["mp4", "mov", "m4v", "webm", "mkv", "avi"],
-	// Audio
-	...["mp3", "m4a", "aac", "ogg", "opus", "flac"],
-	// Archives
-	...["zip", "gz", "tgz", "bz2", "xz", "7z", "rar", "zst"],
-	// Documents that are zips inside
-	...["docx", "xlsx", "pptx", "epub"],
-	// Fonts
-	...["woff", "woff2"],
+export const SHRINKING_EXTENSIONS: ReadonlySet<string> = new Set([
+	// Notes and what Obsidian keeps beside them
+	...["md", "markdown", "txt", "canvas", "base", "org", "rst", "tex", "bib"],
+	// Data
+	...["json", "jsonl", "csv", "tsv", "yaml", "yml", "toml", "xml", "ini", "plist", "log", "sql"],
+	// The web
+	...["html", "htm", "css", "svg"],
+	// Code
+	...["js", "mjs", "cjs", "ts", "tsx", "jsx", "py", "sh"],
 ]);
 
-/** How much of its size a file that is not compressed already is taken to keep in an archive. */
+/** How much of its size a file that shrinks is taken to keep in an archive. */
 export const ASSUMED_COMPRESSION_RATIO = 0.5;
 
-function isCompressed(path: string): boolean {
+/**
+ * What an archive holds of a file beside its content, in bytes: its name,
+ * twice, and the fields around it. An archive of 1,120 files of ten bytes
+ * was 326,274 bytes (measured 2026-10-07).
+ */
+export const ARCHIVE_ENTRY_BYTES = 290;
+
+function shrinks(path: string): boolean {
 	const name = path.slice(path.lastIndexOf("/") + 1);
 	const dot = name.lastIndexOf(".");
-	return dot >= 0 && COMPRESSED_EXTENSIONS.has(name.slice(dot + 1).toLowerCase());
+	return dot >= 0 && SHRINKING_EXTENSIONS.has(name.slice(dot + 1).toLowerCase());
 }
 
 /**
@@ -79,14 +84,14 @@ function isCompressed(path: string): boolean {
  * entry without a size counts as empty.
  */
 export function estimateArchiveSize(entries: readonly RemoteEntry[]): number {
-	let compressed = 0;
+	let shrinking = 0;
 	let other = 0;
 	for (const entry of entries) {
 		const size = entry.size ?? 0;
-		if (isCompressed(entry.path)) compressed += size;
+		if (shrinks(entry.path)) shrinking += size;
 		else other += size;
 	}
-	return compressed + Math.ceil(other * ASSUMED_COMPRESSION_RATIO);
+	return other + Math.ceil(shrinking * ASSUMED_COMPRESSION_RATIO) + entries.length * ARCHIVE_ENTRY_BYTES;
 }
 
 export type FetchMeans = "archive" | "per-file";
