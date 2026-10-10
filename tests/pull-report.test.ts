@@ -680,6 +680,8 @@ describe("what the user has to know", () => {
 					{ kind: "nested-gitignore", path: "src/lib/.gitignore" },
 					{ kind: "fixed-exclusion-off", path: "/.trash/" },
 					{ kind: "fixed-exclusion-off", path: "*.icloud" },
+					{ kind: "submodule", path: "knowledge" },
+					{ kind: "submodule", path: "vendor/lib" },
 				],
 				unwritable: [
 					{ path: "notes", reason: "blocked", inTheWay: ["notes/draft.md", "notes/sub/idea.md"], isNew: true },
@@ -693,6 +695,9 @@ describe("what the user has to know", () => {
 		);
 		expect(report.details[14]).toBe(
 			"Some of the lines Sync Evo manages in .gitignore are not in effect: they were deleted, or a later line undoes them. What they left out is synced now (the trash, the layout of the workspace, files an operating system leaves behind). Only Sync Evo's own folder is still not synced by Sync Evo, but git on a computer commits it. Deleted lines can be restored in the settings of Sync Evo; where a later line that starts with ! undoes one, change that line:\n/.trash/\n*.icloud",
+		);
+		expect(report.details[15]).toBe(
+			"The remote has submodules. Sync Evo does not sync what is inside a submodule yet: its folder is not created on this device, and nothing in it is fetched or sent. Everything else is synced as usual:\nknowledge\nvendor/lib",
 		);
 		expect(report.details[9]).toBe(
 			"Downloading all files at once did not work on this device, so Sync Evo no longer tries it here. When there are many files to fetch, they are now fetched one by one, which takes longer.",

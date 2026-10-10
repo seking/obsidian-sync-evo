@@ -517,6 +517,8 @@ function noticeText(
 			// The "paths" are lines of `.gitignore`, and all of them are shown:
 			// which ones are off is the whole of the notice.
 			return [t("notice.fixedExclusionOff", { list: listText(t, paths, paths.length) })];
+		case "submodule":
+			return [t("notice.submodule", { list })];
 	}
 }
 

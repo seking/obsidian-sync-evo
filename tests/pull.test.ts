@@ -51,9 +51,10 @@ const reportOptions = {
 	sizeLimit: 50 * 1024 * 1024,
 } as const;
 
-/** A remote a test can bend: symlinks, no content at all, a history that cannot be checked. */
+/** A remote a test can bend: symlinks, submodules, no content at all, a history that cannot be checked. */
 class TestBackend extends MemoryBackend {
 	readonly symlinks = new Set<string>();
+	readonly submodules = new Set<string>();
 	emptied = false;
 	checkBaseFails = false;
 	checkedBase = 0;
@@ -62,9 +63,10 @@ class TestBackend extends MemoryBackend {
 		if (this.emptied) return { changed: true, listing: { revision: null, entries: [] } };
 		const listed = await super.list(known);
 		if (!listed.changed) return listed;
-		const entries = listed.listing.entries.map((entry) =>
-			this.symlinks.has(entry.path) ? ({ ...entry, kind: "symlink" } as const) : entry,
-		);
+		const entries = listed.listing.entries.map((entry) => {
+			if (this.symlinks.has(entry.path)) return { ...entry, kind: "symlink" } as const;
+			return this.submodules.has(entry.path) ? ({ ...entry, kind: "submodule" } as const) : entry;
+		});
 		return { changed: true, listing: { revision: listed.listing.revision, entries } };
 	}
 
@@ -2576,6 +2578,25 @@ describe("what is skipped, and what the user is told once", () => {
 		expect(await readNotices(h.store)).toEqual([{ kind: "lfs-pointer", path: "img.png" }]);
 
 		h.backend.commit({ "img.png": "a real image" });
+		await h.pull();
+		expect(await readNotices(h.store)).toEqual([]);
+	});
+
+	test("a submodule on the remote is told once, for as long as the remote has it, and its folder is not made", async () => {
+		const h = harness();
+		h.backend.commit({ "a.md": "A", knowledge: "the commit it points to" });
+		h.backend.submodules.add("knowledge");
+
+		const first = await h.pull();
+
+		expect(first.notices).toEqual([{ kind: "submodule", path: "knowledge" }]);
+		expect(h.vault.paths()).toEqual(["a.md"]);
+
+		h.backend.commit({ "a.md": "A2" });
+		expect((await h.pull()).notices).toEqual([]);
+		expect(await readNotices(h.store)).toEqual([{ kind: "submodule", path: "knowledge" }]);
+
+		h.backend.commit({ knowledge: null });
 		await h.pull();
 		expect(await readNotices(h.store)).toEqual([]);
 	});

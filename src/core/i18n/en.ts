@@ -208,6 +208,8 @@ export const en = baseCatalog({
 		"There are .gitignore files in subfolders. Sync Evo syncs them as ordinary files and does not read them as rules: only the .gitignore at the root of the vault decides what is synced. Git on a computer does apply them, so the same vault is treated differently there. Put the rules you need into the .gitignore at the root:\n{list}",
 	"notice.fixedExclusionOff":
 		"Some of the lines Sync Evo manages in .gitignore are not in effect: they were deleted, or a later line undoes them. What they left out is synced now (the trash, the layout of the workspace, files an operating system leaves behind). Only Sync Evo's own folder is still not synced by Sync Evo, but git on a computer commits it. Deleted lines can be restored in the settings of Sync Evo; where a later line that starts with ! undoes one, change that line:\n{list}",
+	"notice.submodule":
+		"The remote has submodules. Sync Evo does not sync what is inside a submodule yet: its folder is not created on this device, and nothing in it is fetched or sent. Everything else is synced as usual:\n{list}",
 
 	// The lines Sync Evo manages in .gitignore, added by a push without
 	// asking. In the question before a first push, and else in a message of

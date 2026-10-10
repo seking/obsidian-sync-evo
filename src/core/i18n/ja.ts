@@ -195,6 +195,8 @@ export const ja = completeTranslation(en, {
 		"下位のフォルダに .gitignore があります。Sync Evo は、これらを通常のファイルとして同期しますが、規則としては読みません。何を同期するかは、保管庫のルートの .gitignore だけで決まります。Mac などの git はこれらの規則も使うため、同じ保管庫でも効き方が違います。要る規則は、ルートの .gitignore に書いてください：\n{list}",
 	"notice.fixedExclusionOff":
 		"Sync Evo が管理する .gitignore の行のうち、次の行が効いていません。行が消されたか、後ろの行で打ち消されています。これらの行で除いていた物（ゴミ箱、画面の配置のファイル、OS が残すファイル）も、同期されます。Sync Evo 自身のフォルダだけは、Sync Evo は同期しませんが、Mac などの git ではコミットされます。消した行は、Sync Evo の設定画面で元に戻せます。! で始まる行で打ち消している時は、その行を直してください：\n{list}",
+	"notice.submodule":
+		"保存先にサブモジュールがあります。Sync Evo は、サブモジュールの中身にまだ対応していません。このデバイスにはそのフォルダを作らず、中のファイルは取得も送信もしません。ほかは通常どおり同期します：\n{list}",
 
 	"section.added.intro":
 		"この保管庫の .gitignore の先頭に、下の行を足しました。Sync Evo が管理する行で、同期しない物を決めます：",

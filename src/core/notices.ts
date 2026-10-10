@@ -68,6 +68,10 @@ import type { StateStore } from "./state";
  *   `.gitignore` is not in effect (`fixedExclusionsOff`), so what it is
  *   there to leave out is synced. Its path is no path: it is the line, as
  *   the default section writes it.
+ * - "submodule": the remote holds a submodule. What is inside one is not
+ *   synced: its folder is not made on this device. The path is the
+ *   submodule's. Not told for one a rule matches (`unsyncedSubmodules`).
+ *   Found by a pull alone, from the listing.
  *
  * A new kind is a new name here and a text in the catalog.
  */
@@ -87,6 +91,7 @@ export const NOTICE_KINDS = [
 	"rename-not-sent",
 	"nested-gitignore",
 	"fixed-exclusion-off",
+	"submodule",
 ] as const;
 
 export type NoticeKind = (typeof NOTICE_KINDS)[number];

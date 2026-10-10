@@ -688,7 +688,7 @@ describe("reading everything the screen shows", () => {
 		expect(screen.tracked).toBe(1);
 	});
 
-	test("of the remembered notices, the three about the vault are listed, and not the fixed exclusions", async () => {
+	test("of the remembered notices, the ones about the vault are listed, and not the fixed exclusions", async () => {
 		const { store, deps } = setup();
 		await writeNotices(store, [
 			{ kind: "fixed-exclusion-off", path: "/.trash/" },
@@ -696,11 +696,13 @@ describe("reading everything the screen shows", () => {
 			{ kind: "too-large", path: "big.bin" },
 			{ kind: "git-at-root", path: ".git" },
 			{ kind: "own-folder-on-remote", path: ".obsidian/plugins/sync-evo" },
+			{ kind: "submodule", path: "knowledge" },
 		]);
 		expect((await readExclusionScreen(deps, { settle: true })).notices).toEqual([
 			{ kind: "nested-gitignore", path: "notes/.gitignore" },
 			{ kind: "git-at-root", path: ".git" },
 			{ kind: "own-folder-on-remote", path: ".obsidian/plugins/sync-evo" },
+			{ kind: "submodule", path: "knowledge" },
 		]);
 	});
 

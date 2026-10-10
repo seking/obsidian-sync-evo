@@ -24,6 +24,7 @@ import {
 	type KnownPaths,
 	knownPaths,
 	nestedGitignores,
+	unsyncedSubmodules,
 	type PathType,
 	remoteFilesMatchingRules,
 	untrackableByAddedLines,
@@ -474,6 +475,29 @@ describe("the files of the remote that can be untracked", () => {
 			own(".obsidian/plugins/sync-evo/main.js"),
 		]);
 		expect(found.submodules).toEqual([".obsidian/plugins/dataview"]);
+	});
+});
+
+describe("the submodules whose content is not synced", () => {
+	const submodule = (path: string) => ({ path, kind: "submodule" as const });
+
+	test("each submodule of the remote, sorted; a file or a symlink is none", () => {
+		const entries = [
+			submodule("vendor/lib"),
+			{ path: "a.md", kind: "file" as const },
+			{ path: "link", kind: "symlink" as const },
+			submodule("knowledge"),
+		];
+		expect(unsyncedSubmodules(exclusionFor(null), entries)).toEqual(["knowledge", "vendor/lib"]);
+	});
+
+	test("not one that a rule matches, itself or a folder above it", () => {
+		const entries = [submodule("knowledge"), submodule("vendor/lib"), submodule("kept")];
+		expect(unsyncedSubmodules(exclusionFor("/knowledge/\n/vendor/\n"), entries)).toEqual(["kept"]);
+	});
+
+	test("a rule undone by a later one leaves it counted", () => {
+		expect(unsyncedSubmodules(exclusionFor("/knowledge/\n!/knowledge/\n"), [submodule("knowledge")])).toEqual(["knowledge"]);
 	});
 });
 

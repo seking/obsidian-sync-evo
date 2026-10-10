@@ -423,6 +423,34 @@ export function nestedGitignores(
 	return [...found.values()].sort();
 }
 
+/**
+ * The submodules of the remote that the user is told about, since what is
+ * inside one is not synced: each path as the remote spells it, sorted.
+ *
+ * Not in it: one that a rule matches, itself or a folder above it. Whoever
+ * left it out does not wait for what is in it. Asked of the rules alone
+ * (`matchesRule`), as for `nestedGitignores`.
+ */
+export function unsyncedSubmodules(
+	exclusion: Exclusion,
+	remote: readonly { readonly path: string; readonly kind: EntryKind }[],
+): string[] {
+	const found: string[] = [];
+	for (const entry of remote) {
+		if (entry.kind !== "submodule") continue;
+		const key = pathKey(entry.path);
+		if (!isPathFromRoot(key)) continue;
+		// As `untrackableFiles` asks of one: a submodule is a folder to git on a Mac and one entry of the listing.
+		if (exclusion.matchesRule(key, "file") || exclusion.matchesRule(key, "folder")) continue;
+		let below = false;
+		for (let at = key.indexOf("/"); at !== -1 && !below; at = key.indexOf("/", at + 1)) {
+			below = exclusion.matchesRule(key.slice(0, at), "folder");
+		}
+		if (!below) found.push(entry.path);
+	}
+	return found.sort();
+}
+
 // Whether a key lies below one of the submodules of a listing.
 function belowSubmodules(
 	entries: readonly { readonly path: string; readonly kind: EntryKind }[],

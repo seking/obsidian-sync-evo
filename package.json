@@ -1,7 +1,7 @@
 {
 	"name": "obsidian-sync-evo",
 	"version": "0.0.1",
-	"description": "Sync Evo: vault sync for Obsidian (under development).",
+	"description": "Sync Evo: sync an Obsidian vault with a GitHub repository.",
 	"private": true,
 	"type": "module",
 	"main": "main.js",

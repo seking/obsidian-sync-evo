@@ -392,7 +392,12 @@ function byteLength(text: string): number {
  * A fixed exclusion that is off is not among them, since the screen asks the
  * file itself about those (`ExclusionView`).
  */
-export const SCREEN_NOTICE_KINDS: readonly NoticeKind[] = ["nested-gitignore", "own-folder-on-remote", "git-at-root"];
+export const SCREEN_NOTICE_KINDS: readonly NoticeKind[] = [
+	"nested-gitignore",
+	"own-folder-on-remote",
+	"git-at-root",
+	"submodule",
+];
 
 /** Everything this part of the screen shows. */
 export interface ExclusionScreen {
