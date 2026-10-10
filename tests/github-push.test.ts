@@ -11,7 +11,7 @@
 
 import { describe, expect, test } from "vitest";
 import { BackendError, type BackendErrorKind, type PushFile, type RemoteEntry } from "../src/core/backend";
-import { COMMIT_BODY_LIMIT, commitMessage } from "../src/core/commit-message";
+import { COMMIT_BODY_LIMIT, commitMessage, untrackMessage } from "../src/core/commit-message";
 import {
 	GitHubBackend,
 	INLINE_FILE_BYTES,
@@ -147,6 +147,146 @@ describe("the message of the commit", () => {
 		expect(commitMessage("my\nphone", [{ kind: "added", path: "a.md" }]).split("\n")[0]).toBe(
 			"Sync Evo: my phone (1 added)",
 		);
+	});
+});
+
+describe("the message of a commit that untracks", () => {
+	test("one file", () => {
+		expect(untrackMessage("iPhone", ["drafts/a.md"])).toBe("Sync Evo: iPhone untrack 1 file\n\nD  drafts/a.md");
+	});
+
+	test("several: the count, and a D line per path in order, written as it is", () => {
+		expect(untrackMessage("iPhone", ["z.md", "日記/メモ.md", ".obsidian/workspace.json"])).toBe(
+			["Sync Evo: iPhone untrack 3 files", "", "D  .obsidian/workspace.json", "D  z.md", "D  日記/メモ.md"].join("\n"),
+		);
+	});
+
+	test("fifty-one: the body stops at fifty paths and counts the rest", () => {
+		const paths = Array.from({ length: 51 }, (_, i) => `n${String(i).padStart(2, "0")}.md`);
+		const lines = untrackMessage("iPhone", [...paths].reverse()).split("\n");
+		expect(lines[0]).toBe("Sync Evo: iPhone untrack 51 files");
+		expect(lines[1]).toBe("");
+		expect(lines.length).toBe(2 + COMMIT_BODY_LIMIT + 1);
+		expect(lines[2]).toBe("D  n00.md");
+		expect(lines[51]).toBe("D  n49.md");
+		expect(lines[52]).toBe("... and 1 more");
+	});
+
+	test("the device name is treated as in any commit", () => {
+		expect(untrackMessage("my\nphone", ["a.md"]).split("\n")[0]).toBe("Sync Evo: my phone untrack 1 file");
+		expect(untrackMessage(" ", ["a.md", "b.md"]).split("\n")[0]).toBe("Sync Evo: unnamed device untrack 2 files");
+	});
+});
+
+describe("a push to GitHub that untracks", () => {
+	test("is one commit that removes the files, described as an untrack", async () => {
+		const { github, backend } = setup();
+		github.commit({ "keep.md": "K", "drafts/a.md": "A", "drafts/b.md": "B", ".gitignore": "/drafts/\n" });
+		const base = github.head;
+		const entries = await entriesOf(backend);
+		const pending: string[] = [];
+
+		const pushed = await backend.push({
+			baseRevision: base,
+			writes: [],
+			deletes: [listed(entries, "drafts/b.md"), listed(entries, "drafts/a.md")],
+			deviceName: "iPhone",
+			untrack: true,
+			beforePublish: async ({ revision, written }) => {
+				expect(written).toEqual([]);
+				pending.push(revision);
+			},
+		});
+
+		expect(pushed.status).toBe("pushed");
+		expect(github.headCommit()?.message).toBe(
+			["Sync Evo: iPhone untrack 2 files", "", "D  drafts/a.md", "D  drafts/b.md"].join("\n"),
+		);
+		expect(github.headCommit()?.parents).toEqual([base]);
+		expect(pending).toEqual([github.head]);
+		expect([...github.files().keys()].sort()).toEqual([".gitignore", "keep.md"]);
+		if (pushed.status !== "pushed") throw new Error("expected a push");
+		expect(pushed.written).toEqual([]);
+		expect(pushed.listing?.entries.map((entry) => entry.path).sort()).toEqual([".gitignore", "keep.md"]);
+	});
+
+	test("the same deletes without the mark are described as any push", async () => {
+		const { github, backend } = setup();
+		github.commit({ "keep.md": "K", "drafts/a.md": "A" });
+		const entries = await entriesOf(backend);
+		await backend.push({ baseRevision: github.head, writes: [], deletes: [listed(entries, "drafts/a.md")], deviceName: "iPhone" });
+		expect(github.headCommit()?.message).toBe("Sync Evo: iPhone (1 deleted)\n\nD  drafts/a.md");
+	});
+
+	test("may remove a symlink, as it was listed", async () => {
+		const { github, backend } = setup();
+		github.commit({ "keep.md": "K", link: { content: "../target", mode: "120000" } });
+		const entries = await entriesOf(backend);
+		expect(listed(entries, "link").kind).toBe("symlink");
+		const pushed = await backend.push({
+			baseRevision: github.head,
+			writes: [],
+			deletes: [listed(entries, "link")],
+			deviceName: "iPhone",
+			untrack: true,
+		});
+		expect(pushed.status).toBe("pushed");
+		expect([...github.files().keys()]).toEqual(["keep.md"]);
+		expect(github.headCommit()?.message).toBe("Sync Evo: iPhone untrack 1 file\n\nD  link");
+	});
+
+	test("is refused, with nothing sent, for what is not as it was listed, and for a submodule", async () => {
+		const remote = {
+			"a.md": "A",
+			link: { content: "../target", mode: "120000" },
+			lib: { submodule: "c".repeat(40) },
+		};
+		const refused = async (deletes: (entries: Map<string, RemoteEntry>) => RemoteEntry[]): Promise<void> => {
+			const { github, backend } = setup();
+			github.commit(remote);
+			const head = github.head;
+			const entries = await entriesOf(backend);
+			const push = backend.push({ baseRevision: head, writes: [], deletes: deletes(entries), deviceName: "iPhone", untrack: true });
+			expect(await kindOf(push)).toBe("not-as-listed");
+			expect(github.head).toBe(head);
+			expect(github.writes()).toEqual([]);
+		};
+		await refused((entries) => [listed(entries, "lib")]);
+		await refused((entries) => [{ ...listed(entries, "lib"), kind: "symlink" }]);
+		await refused((entries) => [{ ...listed(entries, "link"), kind: "file" }]);
+		await refused((entries) => [{ ...listed(entries, "link"), hash: "d".repeat(40) }]);
+		await refused((entries) => [{ ...listed(entries, "a.md"), kind: "symlink" }]);
+		await refused((entries) => [{ ...listed(entries, "a.md"), hash: "d".repeat(40) }]);
+		await refused(() => [{ path: "gone.md", kind: "file", hash: "d".repeat(40) }]);
+	});
+
+	test("carries no writes", async () => {
+		const { github, backend } = setup();
+		github.commit({ "a.md": "A" });
+		const head = github.head;
+		const entries = await entriesOf(backend);
+		const push = backend.push({
+			baseRevision: head,
+			writes: [file("new.md", "N")],
+			deletes: [listed(entries, "a.md")],
+			untrack: true,
+		});
+		expect(await kindOf(push)).toBe("other");
+		expect(github.head).toBe(head);
+		expect(github.writes()).toEqual([]);
+	});
+
+	test("on a head that has moved, nothing is sent", async () => {
+		const { github, backend } = setup();
+		github.commit({ "a.md": "A" });
+		const base = github.head;
+		const entries = await entriesOf(backend);
+		github.commit({ "b.md": "B" });
+		const head = github.head;
+		const pushed = await backend.push({ baseRevision: base, writes: [], deletes: [listed(entries, "a.md")], untrack: true });
+		expect(pushed).toEqual({ status: "stale" });
+		expect(github.head).toBe(head);
+		expect(github.writes()).toEqual([]);
 	});
 });
 

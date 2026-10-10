@@ -26,6 +26,8 @@ import {
 	nestedGitignores,
 	type PathType,
 	remoteFilesMatchingRules,
+	untrackableByAddedLines,
+	untrackableFiles,
 } from "../src/core/exclusion";
 import {
 	defaultSectionState,
@@ -369,6 +371,109 @@ describe("the files of the remote that a rule matches", () => {
 	test("a copy kept from a conflict is judged by the file it is a copy of, as everywhere", () => {
 		const copy = conflictCopyPath("drafts/a.md", "iPhone", new Date(2026, 9, 3, 22, 15, 0));
 		expect(matched("/drafts/a.md\n", [file(copy), file("drafts/b.md")])).toEqual([copy]);
+	});
+});
+
+describe("the files of the remote that can be untracked", () => {
+	const file = (path: string) => ({ path, kind: "file" as const, hash: "h" });
+	const link = (path: string) => ({ path, kind: "symlink" as const, hash: "h" });
+	const submodule = (path: string) => ({ path, kind: "submodule" as const, hash: "h" });
+	const own = (path: string) => ({ path, ownFolder: true });
+	const other = (path: string) => ({ path, ownFolder: false });
+	const untrackable = (gitignore: string | null, entries: Parameters<typeof untrackableFiles>[1]) => {
+		const found = untrackableFiles(exclusionFor(gitignore), entries);
+		return {
+			files: found.files.map(({ entry, ownFolder }) => ({ path: entry.path, ownFolder })),
+			submodules: found.submodules,
+		};
+	};
+
+	test("Sync Evo's own folder is listed where a rule matches it, and marked; a .git never is", () => {
+		const entries = [
+			file("notes/a.md"),
+			file(".obsidian/plugins/sync-evo/main.js"),
+			file(".obsidian/plugins/Sync-Evo/data.json"),
+			file(".obsidian/plugins/other/main.js"),
+			file("sub/.git/config"),
+			file(".trash/old.md"),
+		];
+		// The default lines count as there, and leave the folder out.
+		expect(untrackable(null, entries).files).toEqual([
+			own(".obsidian/plugins/sync-evo/main.js"),
+			own(".obsidian/plugins/Sync-Evo/data.json"),
+			other(".obsidian/plugins/other/main.js"),
+			other(".trash/old.md"),
+		]);
+		// The same files without the own folder are the ones that stay synced.
+		expect(remoteFilesMatchingRules(exclusionFor(null), entries).map((entry) => entry.path)).toEqual([
+			".obsidian/plugins/other/main.js",
+			".trash/old.md",
+		]);
+	});
+
+	test("the own folder is not listed once no rule matches it: the line was deleted, or a ! outside the section undoes it", () => {
+		const entries = [file(".obsidian/plugins/sync-evo/main.js"), file(".trash/old.md")];
+		const lines = defaultSectionLines(paths);
+		const without = lines.filter((line) => !line.startsWith("/.obsidian/plugins/"));
+		expect(untrackable(withSection(null, without), entries).files).toEqual([other(".trash/old.md")]);
+		expect(untrackable(withSection(null, []), entries).files).toEqual([]);
+		// A folder that is left out whole cannot be taken back in from below.
+		expect(untrackable(withSection("!/.obsidian/plugins/sync-evo/main.js\n", lines), entries).files).toEqual([
+			own(".obsidian/plugins/sync-evo/main.js"),
+			other(".trash/old.md"),
+		]);
+		expect(untrackable(withSection("!/.trash/\n", lines), entries).files).toEqual([own(".obsidian/plugins/sync-evo/main.js")]);
+		expect(untrackable(withSection("!/.obsidian/plugins/\n!/.obsidian/plugins/sync-evo/\n", lines), entries).files).toEqual([
+			other(".trash/old.md"),
+		]);
+	});
+
+	test("a symlink is listed, and told by its kind", () => {
+		const entries = [link("drafts/link"), file("drafts/a.md"), link("notes/link")];
+		const found = untrackableFiles(exclusionFor("/drafts/\n"), entries);
+		expect(found.files.map((entry) => entry.entry)).toEqual([entries[0], entries[1]]);
+		expect(found.files[0]?.entry.kind).toBe("symlink");
+		// A rule for a folder does not match a link of that name: to git it is a file.
+		expect(untrackable("/notes/link/\n", entries).files).toEqual([]);
+	});
+
+	test("a submodule is not listed, and is answered apart when a rule matches it, as a file or as a folder", () => {
+		const entries = [submodule("knowledge"), submodule("lib"), submodule("vendor/x"), file("vendor/a.md"), file("knowledge/a.md")];
+		// `/knowledge/` only matches a folder, `/lib` either, and `/vendor/` what is below it.
+		expect(untrackable("/knowledge/\n/lib\n/vendor/\n", entries)).toEqual({
+			files: [other("vendor/a.md")],
+			submodules: ["knowledge", "lib", "vendor/x"],
+		});
+		expect(untrackable(withSection(null, []), entries)).toEqual({ files: [], submodules: [] });
+		// What lies below one is not listed whatever matches it.
+		expect(untrackable("*.md\n", entries)).toEqual({ files: [other("vendor/a.md")], submodules: [] });
+	});
+
+	test("a path that is not one from the root is passed over", () => {
+		expect(untrackable("*\n", [file("/a.md"), file("a//b.md"), file(""), submodule("../x"), file("b.md")])).toEqual({
+			files: [other("b.md")],
+			submodules: [],
+		});
+	});
+
+	test("by lines that were added: what they match, and the file as it is now matches too", () => {
+		const entries = [
+			file(".trash/old.md"),
+			file(".obsidian/workspace.json"),
+			file(".obsidian/plugins/sync-evo/main.js"),
+			file("debug.log"),
+			submodule(".obsidian/plugins/dataview"),
+		];
+		const lines = defaultSectionLines(paths);
+		const text = withSection("*.log\n!/.trash/\n", lines);
+		const found = untrackableByAddedLines(paths, lines, text, entries);
+		// Not the trash, which a line of the user's takes back in; not the
+		// log, which no added line matches.
+		expect(found.files.map(({ entry, ownFolder }) => ({ path: entry.path, ownFolder }))).toEqual([
+			other(".obsidian/workspace.json"),
+			own(".obsidian/plugins/sync-evo/main.js"),
+		]);
+		expect(found.submodules).toEqual([".obsidian/plugins/dataview"]);
 	});
 });
 

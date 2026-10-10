@@ -47,10 +47,9 @@
 import { untilAborted } from "./archive-fetch";
 import { type Backend, BackendError, type PushFile, type RemoteEntry, type RemoteListing } from "./backend";
 import { originalPathOfConflictCopy } from "./conflict-name";
-import { createExclusion, type Exclusion, type ExclusionPaths, remoteFilesMatchingRules } from "./exclusion";
+import { createExclusion, type Exclusion, type ExclusionPaths, untrackableByAddedLines } from "./exclusion";
 import { isFirstFetchConfirmed, markFirstFetchConfirmed } from "./first-fetch";
 import { addDefaultSection, isGitignoreAsRecorded, settleGitignoreWrite } from "./gitignore-file";
-import { withSection } from "./gitignore-section";
 import { readLocal, saved } from "./local-read";
 import {
 	type NoticeRef,
@@ -295,6 +294,13 @@ export interface PushRunResult {
 	 * changed. It is recorded now, and told as a success.
 	 */
 	readonly recovered: PushCounts | null;
+	/**
+	 * Set when the earlier push this one found to have gone through was one
+	 * that untracked (`untrack.ts`): how many files it took out of the
+	 * remote. `recovered` is `null` then. They are still on this device, and
+	 * are told as untracked and not as deleted.
+	 */
+	readonly recoveredUntrack?: number;
 	/** New files that are not sent (`PushRefusalReason`), by every push for as long as that is so. */
 	readonly refused: readonly PushRefusal[];
 	readonly heldRenames: readonly HeldRename[];
@@ -357,6 +363,7 @@ class PushRun {
 	/** The paths the plan leaves alone (`PlanInput.held`), without the cases. */
 	private readonly held = new Set<string>();
 	private recovered: PushCounts | null = null;
+	private recoveredUntrack: number | null = null;
 	private plan: PushPlan | null = null;
 	private notices: NoticeRef[] = [];
 	private readonly leftOut: LeftOutFile[] = [];
@@ -455,6 +462,7 @@ class PushRun {
 			revision: null,
 			counts: NO_COUNTS,
 			recovered: this.recovered,
+			...(this.recoveredUntrack === null ? {} : { recoveredUntrack: this.recoveredUntrack }),
 			refused: plan?.refused ?? [],
 			heldRenames: plan?.heldRenames ?? [],
 			held: (plan?.skipped ?? [])
@@ -476,9 +484,11 @@ class PushRun {
 		const { store, vault } = deps;
 		this.progress("listing");
 		const listing = await currentListing(store, (known) => this.asked(() => deps.backend.list(known)));
-		this.recovered = await settlePendingPush(store, listing.revision, (base, head) =>
+		const settled = await settlePendingPush(store, listing.revision, (base, head) =>
 			this.asked(() => deps.backend.checkBase(base, head)),
 		);
+		if (settled?.untrack === true) this.recoveredUntrack = settled.counts.deleted;
+		else this.recovered = settled?.counts ?? null;
 		const base = await readBaseRevision(store);
 		const records = await store.readRecords();
 		// A remote without commits is given its first one by this push,
@@ -866,13 +876,12 @@ class PushRun {
 			if (addition.reason !== "present") deps.log?.(`push: no section was added to .gitignore: ${addition.reason}`);
 			return true;
 		}
-		// By the added lines, and by the file as it is now: a line that a
-		// later one of the user's undoes leaves nothing out.
-		const lines = createExclusion({ ...deps.paths, gitignore: withSection(null, addition.lines.slice(1, -1)) });
-		const rules = createExclusion({ ...deps.paths, gitignore: addition.text });
-		const tracked = remoteFilesMatchingRules(lines, listing.entries)
-			.filter((entry) => rules.matchesRule(entry.path, "file"))
-			.map((entry) => entry.path)
+		// By the added lines, and by the file as it is now. Without Sync
+		// Evo's own folder, which is not synced: these are told as files
+		// that stay synced.
+		const tracked = untrackableByAddedLines(deps.paths, addition.lines.slice(1, -1), addition.text, listing.entries)
+			.files.filter((file) => !file.ownFolder)
+			.map((file) => file.entry.path)
 			.sort();
 		this.sectionAdded = { lines: addition.lines, created: addition.created, tracked };
 		deps.onSectionAdded?.(this.sectionAdded);

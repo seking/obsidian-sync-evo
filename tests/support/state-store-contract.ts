@@ -186,6 +186,10 @@ export function describeStateStore(name: string, open: () => Promise<StateStore>
 			await store.deleteRecord("b.md", { withMarker: true });
 			// Removing what is not there is not an error.
 			await store.deleteRecord("missing.md", { withMarker: true });
+			// Nor is removing the record of a key that never had one: a file
+			// that is untracked in Sync Evo's own folder is such a key.
+			await store.deleteRecord("never.md");
+			await store.deleteRecord(".obsidian/plugins/sync-evo/main.js");
 
 			expect(await store.readRecords()).toEqual([fileRecord("c.md")]);
 			expect(await store.readMarkers()).toEqual([makeMarker("a.md", HASH_A, HASH_B, false)]);

@@ -66,7 +66,10 @@ export const ja = completeTranslation(en, {
 	"settings.exclusion.keepsSynced":
 		"切にするか、フォルダを除外に足しても、新しいファイルを送らなくなるだけです。すでに保存先にある物は、同期を続けます。このデバイスでも保存先でも、何も削除しません。",
 	"settings.exclusion.tracked":
-		"最後に同期した時点の保存先に、.gitignore の規則に当たるファイルが {count} 件あります。これらは同期を続けます。",
+		"最後に同期した時点の保存先に、.gitignore の規則に当たるファイルが {count} 件、残っています。",
+	"settings.exclusion.untrack.name": "規則に当たるファイル",
+	"settings.exclusion.untrack.desc":
+		"追跡を外すと、保存先から削除し、同期しなくなります。このデバイスのファイルは残ります。先に一覧を出し、確かめるまで何も削除しません。",
 	"settings.exclusion.handEdited":
 		".gitignore の Sync Evo が管理する行が、手で直されています。切り替えには、Sync Evo が読み取った状態を出しています。次に切り替えると、これらの行を Sync Evo の決まった形に書き直します。Sync Evo が知らない行は残します。",
 	"settings.exclusion.noState":
@@ -164,7 +167,7 @@ export const ja = completeTranslation(en, {
 		"シークレット {name} に値がありません。トークンをこの名前で保存するか、別のシークレットを選んでください。",
 
 	"notice.ownFolderOnRemote":
-		"保存先に Sync Evo 自身のフォルダ（{path}）があります。Sync Evo はこのフォルダを同期しません。保存先でも、このデバイスでも、そのままにします。ほかのファイルは、通常どおり同期されます。",
+		"保存先に Sync Evo 自身のフォルダ（{path}）があります。Sync Evo はこのフォルダを同期しません。保存先でも、このデバイスでも、そのままにします。ほかのファイルは、通常どおり同期されます。保存先から消すには、Sync Evo の設定画面で追跡を外します（.gitignore にこのフォルダの行がある時）。",
 	"notice.gitAtRoot":
 		"この保管庫のルートに .git があり、git のリポジトリになっています。このデバイスでは、git か Obsidian Git プラグインで同期してください。Sync Evo が送った内容を git は知らないため、次の git pull が止まります。Sync Evo は、その間も同期を続けます。",
 
@@ -207,6 +210,8 @@ export const ja = completeTranslation(en, {
 	"section.added.howTo":
 		"これらの行は、Sync Evo の設定画面で変えられます。要らない時は、最初と最後の行（# で始まる2行）だけを残して、間の行を消してください。その2行も消すと、次の同期でまた足します。",
 	"section.added.tracked": "これらの行に当たるファイルが、保存先に {count} 件あります。これらは同期を続けます：",
+	"section.added.untrackHint":
+		"同期をやめるには、Sync Evo の設定画面で追跡を外します。保存先からは消え、このデバイスのファイルは残ります。",
 
 	"list.separator": "、",
 	"list.more": "…ほか {count} 件",
@@ -305,6 +310,8 @@ export const ja = completeTranslation(en, {
 	"push.nothing": "送信するものはありません。保存先は最新です。",
 	"push.nothingSent": "何も送信していません。",
 	"push.recovered": "前回の送信は、保存先に届いていました：{details}。このデバイスに記録しました。",
+	"push.recoveredUntrack":
+		"前に行った追跡を外す操作は、保存先に届いていました（{count} 件）。このデバイスに記録しました。このデバイスのファイルは、そのままです。",
 	"push.pullFirst.noBase":
 		"何も送信していません。このデバイスは、保存先からの最初の取り込みをまだ終えていません。先に取り込み（pull）を行ってから、送信してください。",
 	"push.pullFirst.remoteEmpty":
@@ -343,6 +350,63 @@ export const ja = completeTranslation(en, {
 		"{count} 件のファイルを、送信していません。.github/workflows/ の下のファイルを足すか変えるには、トークンに Workflows の読み取りと書き込みの権限が要ります。トークンに権限を足すと、次の同期で送信します。足さない時は、このファイルを元の内容に戻して、変更は git が使えるデバイスで行ってください。競合で残した別名のファイルなら、中身を確かめてから削除してください：\n{list}",
 	"push.leftOut":
 		"{count} 件のファイルを、送信していません。送信の途中で変わったか、読めなかったか、エディタが保存できませんでした。次の送信で、もう一度確かめます：\n{list}",
+
+	"untrack.confirm.title": "追跡を外す確認",
+	"untrack.confirm.proceed": "追跡を外す",
+	"untrack.confirm.cancel": "同期を続ける",
+	"untrack.confirm.body":
+		"保存先に、.gitignore の規則に当たるファイルが {count} 件あります。追跡を外すと、保存先から削除し、同期しなくなります：",
+	"untrack.confirm.threshold": "一度に {count} 件のファイルを、保存先から削除します。一覧を確かめてから進めてください。",
+	"untrack.confirm.keeps": "このデバイスのファイルは削除しません。そのまま残ります。",
+	"untrack.confirm.otherDevices":
+		"ほかのデバイスには、削除として届きます。次の取り込みで、これらのファイルがそのデバイスから削除されます。そのデバイスで変更していたファイルは残ります。",
+	"untrack.confirm.mac":
+		"Mac など、git を使うパソコンにファイルを残したい時は、「同期を続ける」を選び、そのパソコンの git で追跡を外して（git rm --cached）、そこから push してください。",
+	"untrack.confirm.syncFirst":
+		"先に取り込みを行います。.gitignore の規則がまだ保存先に届いていなければ、続けて送信も行い、その時は、このデバイスのほかの変更も送ります。取り込みと送信で、それぞれの確認が出ることがあります。",
+	"untrack.confirm.missing":
+		"このうち {count} 件は、このデバイスにありません。一覧に出した物には、印を付けています。追跡を外すと、中身は保存先の履歴にだけ残ります。",
+	"untrack.confirm.submodules":
+		"規則に当たるサブモジュールも {count} 件あります。ここでは追跡を外しません。Mac などの git で外してください：",
+	"untrack.confirm.note":
+		"「同期を続ける」を選ぶと、何も変更しません。規則は残り、これらのファイルは同期を続けます。後から、Sync Evo の設定画面で追跡を外せます。",
+	"untrack.item.tagged": "{path}（{tags}）",
+	"untrack.tag.symlink": "シンボリックリンク",
+	"untrack.tag.ownFolder": "Sync Evo 自身のフォルダ",
+	"untrack.tag.missing": "このデバイスに無い",
+	"untrack.done": "追跡を外しました：{count} 件。保存先から削除しました。このデバイスのファイルは、そのままです。",
+	"untrack.nothing":
+		"追跡を外す物はありませんでした。一覧のファイルは、もう保存先に無いか、規則に当たらなくなっています。何も変更していません。",
+	"untrack.remoteMoved":
+		"追跡を外していません。その間に、保存先がほかのデバイスから変更されました。Sync Evo の設定画面から、もう一度行ってください。",
+	"untrack.cancelled": "追跡を外す操作を中止しました。保存先からは、何も削除していません。",
+	"untrack.connectionChanged":
+		"接続先が変わったため、追跡を外す操作を中止しました。保存先からは、何も削除していません。",
+	"untrack.progress.running": "追跡を外す操作：保存先から削除しています…",
+	"untrack.progress.stopping": "追跡を外す操作：中止しています…",
+	"untrack.submodules":
+		"保存先に、.gitignore の規則に当たるサブモジュールが {count} 件あります。Sync Evo では、サブモジュールの追跡を外せません。Mac などの git で外してください。",
+	"untrack.failed": "追跡を外せませんでした。{reason}",
+	"untrack.syncFirst.remoteEmpty":
+		"追跡を外していません。保存先にコミットがありません。先に同期してから、Sync Evo の設定画面で、もう一度行ってください。",
+	"untrack.syncFirst.pullUnfinished":
+		"追跡を外していません。このデバイスは、保存先からの取り込みをまだ終えていません。次の同期に残るファイルが無くなるまで同期してから、Sync Evo の設定画面で、もう一度行ってください。",
+	"untrack.syncFirst.gitignoreUnsettled":
+		"追跡を外していません。この保管庫の .gitignore の内容を確かめられませんでした。エディタが .gitignore を保存できなかったか、前の書き込みが終わっていません。保存するか閉じてから同期し、Sync Evo の設定画面で、もう一度行ってください。",
+	"untrack.syncFirst.gitignoreUnreadable":
+		"追跡を外していません。この保管庫の .gitignore を、このデバイスで読めません。理由は、Sync Evo の設定画面に出ます。直してから、もう一度行ってください。",
+	"untrack.syncFirst.noSection":
+		"追跡を外していません。この保管庫の .gitignore に Sync Evo が管理する行が無く、当てている規則がファイルに書かれていません。Sync Evo の設定画面で行を足して同期してから、もう一度行ってください。",
+	"untrack.syncFirst.sectionBroken":
+		"追跡を外していません。.gitignore の、Sync Evo が管理する行を囲む2つの印の行が、1組になっていません。Sync Evo の設定画面で直して同期してから、もう一度行ってください。",
+	"untrack.syncFirst.gitignoreNotSent":
+		"追跡を外していません。このデバイスの .gitignore が、保存先の .gitignore と同じではなく、規則がまだ保存先に届いていません。.gitignore が届くまで同期してから、Sync Evo の設定画面で、もう一度行ってください。",
+	"untrack.skipped.pullDeclined":
+		"取り込みをやめたため、追跡を外していません。規則は残っています。後から、Sync Evo の設定画面で追跡を外せます。",
+	"untrack.skipped.pullCancelled":
+		"取り込みを中止したため、追跡を外していません。規則は残っています。後から、Sync Evo の設定画面で追跡を外せます。",
+	"untrack.skipped.pushNotDone":
+		".gitignore を保存先に届ける送信が済まなかったため、追跡を外していません。規則は残っています。後から、Sync Evo の設定画面で追跡を外せます。",
 
 	"state.waiting": "前の接続先の同期の状態を削除し終えるまで待っています…",
 	"state.newerVersion":

@@ -224,6 +224,8 @@ class PullRun {
 	private awaited: AwaitedConflict[] = [];
 	/** What a push that this pull found to have gone through had changed (`settlePendingPush`). */
 	private recoveredPush: PushCounts | null = null;
+	/** How many files such a push took out of the remote, when it was one that untracked. */
+	private recoveredUntrack: number | null = null;
 
 	constructor(private readonly deps: PullDeps) {
 		this.store = deps.store;
@@ -607,15 +609,22 @@ class PullRun {
 		// rejecting, with the push still remembered. Not when the pull
 		// starts over: the sync state is not touched then.
 		if (!startOver) {
-			this.recoveredPush = await settlePendingPush(store, head, (from, to) =>
+			const settled = await settlePendingPush(store, head, (from, to) =>
 				this.asked(deps.backend.checkBase(from, to)),
 			);
-			if (this.recoveredPush !== null) {
+			if (settled !== null) {
 				base = await readBaseRevision(store);
-				// The push that had not got to its end, as far as this
-				// device knew, has. A push that finds this out is itself
-				// under way, and takes the note away when it is through.
-				await clearPushFailure(store);
+				if (settled.untrack) {
+					// It sent none of the vault's changes: a push that did
+					// not get to its end is as unsent as it was.
+					this.recoveredUntrack = settled.counts.deleted;
+				} else {
+					this.recoveredPush = settled.counts;
+					// The push that had not got to its end, as far as this
+					// device knew, has. A push that finds this out is itself
+					// under way, and takes the note away when it is through.
+					await clearPushFailure(store);
+				}
 			}
 		}
 
@@ -890,6 +899,7 @@ class PullRun {
 			refetched: tally.refetched,
 			...(tally.fetchError === undefined ? {} : { fetchError: tally.fetchError }),
 			...(this.recoveredPush === null ? {} : { recoveredPush: this.recoveredPush }),
+			...(this.recoveredUntrack === null ? {} : { recoveredUntrack: this.recoveredUntrack }),
 			...extra,
 		};
 	}

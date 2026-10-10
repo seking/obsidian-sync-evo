@@ -64,6 +64,8 @@ export class MemoryBackend implements Backend {
 	listingFault = false;
 	/** The device name the last push that went through was given. */
 	lastDeviceName: string | undefined;
+	/** Whether the last push that went through was one that untracks (`PushRequest.untrack`). */
+	lastUntrack: boolean | undefined;
 
 	/** How many revisions the history holds. */
 	get revisionCount(): number {
@@ -133,6 +135,7 @@ export class MemoryBackend implements Backend {
 		for (const entry of request.deletes) this.files.delete(entry.path);
 		for (const { path, content } of sent) this.store(path, content);
 		this.lastDeviceName = request.deviceName;
+		this.lastUntrack = request.untrack === true;
 		this.advance(revision);
 		if (this.publishFault === "lost-answer") throw new BackendError("unreachable", "timed out");
 		if (this.listingFault) return { status: "pushed", revision, written };

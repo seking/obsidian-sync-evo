@@ -28,7 +28,14 @@ import ignore from "ignore";
 import type { EntryKind } from "./backend";
 import { copyFamilyOf } from "./conflict-copies";
 import { originalPathOfConflictCopy } from "./conflict-name";
-import { defaultSectionState, findSection, fixedExclusions, sectionLines, trimSlashes } from "./gitignore-section";
+import {
+	defaultSectionState,
+	findSection,
+	fixedExclusions,
+	sectionLines,
+	trimSlashes,
+	withSection,
+} from "./gitignore-section";
 import { foldedKey, isPathFromRoot, pathKey } from "./paths";
 
 /**
@@ -277,23 +284,104 @@ export function fixedExclusionsOff(exclusion: Exclusion, paths: ExclusionPaths):
 /**
  * The files of a remote listing that a rule matches now. They stay synced
  * (`excludes`), the way git keeps tracking a file that is added to
- * `.gitignore` later; this is the list to show for that, and the list a
- * user can take out of the remote.
+ * `.gitignore` later; this is the list to show for that.
  *
  * Not in it: what the two fixed exclusions cover, which are not synced
  * whatever the remote holds; a submodule and what lies below one, which is
  * for git on a Mac to take out; and a path nothing can be decided about.
+ * What a user can take out of the remote is one list more
+ * (`untrackableFiles`): it also holds Sync Evo's own folder.
  */
 export function remoteFilesMatchingRules<T extends { readonly path: string; readonly kind: EntryKind }>(
 	exclusion: Exclusion,
 	entries: readonly T[],
 ): T[] {
+	return untrackableFiles(exclusion, entries)
+		.files.filter((file) => !file.ownFolder)
+		.map((file) => file.entry);
+}
+
+/** A file of the remote that can be taken out of it, and stays on the device (`untrackableFiles`). */
+export interface UntrackableEntry<T> {
+	/** As the listing gave it. A symlink is told by its kind. */
+	readonly entry: T;
+	/**
+	 * Whether it lies in the folder Sync Evo itself is installed in. No sync
+	 * touches it there; taking it out of the remote is the user's to ask for.
+	 */
+	readonly ownFolder: boolean;
+}
+
+export interface Untrackable<T> {
+	/** In the order of the listing. */
+	readonly files: readonly UntrackableEntry<T>[];
+	/**
+	 * The submodules a rule matches, by their paths in the order of the
+	 * listing. They are not taken out here: that is for git on a Mac.
+	 */
+	readonly submodules: readonly string[];
+}
+
+/**
+ * The files of a remote listing that can be untracked: taken out of the
+ * remote and left on the device, as `git rm --cached` does. Every file and
+ * symlink a rule matches now, also in Sync Evo's own folder: no sync reads
+ * or writes there, and the files of another device's plugin stay on the
+ * remote until someone takes them out. Without a rule that matches them they
+ * are not listed, like any other file.
+ *
+ * Not in it: a `.git` and what lies below it, which no tree holds; what lies
+ * below a submodule; and a path nothing can be decided about. A submodule
+ * itself is answered apart, when a rule matches it. The tree holds one line
+ * for it and nothing of what is below, so it is asked about as a file and as
+ * a folder: `/knowledge/` only matches a folder.
+ */
+export function untrackableFiles<T extends { readonly path: string; readonly kind: EntryKind }>(
+	exclusion: Exclusion,
+	entries: readonly T[],
+): Untrackable<T> {
 	const isBelowSubmodule = belowSubmodules(entries);
-	return entries.filter((entry) => {
+	const files: UntrackableEntry<T>[] = [];
+	const submodules: string[] = [];
+	for (const entry of entries) {
 		const key = pathKey(entry.path);
-		if (entry.kind === "submodule" || !isPathFromRoot(key) || isBelowSubmodule(key)) return false;
-		return exclusion.hardExclusionOf(key) === undefined && exclusion.matchesRule(key, "file");
-	});
+		if (!isPathFromRoot(key) || isBelowSubmodule(key)) continue;
+		const hard = exclusion.hardExclusionOf(key);
+		if (hard === "dot-git") continue;
+		if (entry.kind === "submodule") {
+			if (exclusion.matchesRule(key, "file") || exclusion.matchesRule(key, "folder")) submodules.push(entry.path);
+		} else if (exclusion.matchesRule(key, "file")) {
+			files.push({ entry, ownFolder: hard === "own-folder" });
+		}
+	}
+	return { files, submodules };
+}
+
+/**
+ * What can be untracked because of lines that were just added to the section
+ * of a file that had none: what the lines match, and the file as it is now
+ * matches too. Not what the file matches now and did not before: before, the
+ * lines of the default section counted as there (`effectiveRules`), so that
+ * list would be empty. And not by the lines alone: a line that a later one of
+ * the user's undoes leaves nothing out.
+ *
+ * `lines` are the lines of the section without its two markers, and `text`
+ * is the whole file with them in it.
+ */
+export function untrackableByAddedLines<T extends { readonly path: string; readonly kind: EntryKind }>(
+	paths: ExclusionPaths,
+	lines: readonly string[],
+	text: string,
+	entries: readonly T[],
+): Untrackable<T> {
+	const added = untrackableFiles(createExclusion({ ...paths, gitignore: withSection(null, lines) }), entries);
+	const now = untrackableFiles(createExclusion({ ...paths, gitignore: text }), entries);
+	const files = new Set(now.files.map((file) => file.entry));
+	const submodules = new Set(now.submodules);
+	return {
+		files: added.files.filter((file) => files.has(file.entry)),
+		submodules: added.submodules.filter((path) => submodules.has(path)),
+	};
 }
 
 /**

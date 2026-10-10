@@ -9,11 +9,12 @@
  * Source: https://github.com/seking/obsidian-sync-evo
  */
 
-// Running a sync in the app (a pull, a push, or one after the other):
-// gathering what `runPull` and `runPush` are handed, and putting what they
-// answer on the screen. Everything that is decided about a sync is in
-// `core/`; everything that is worded is in `core/pull-report.ts` and
-// `core/push-report.ts`.
+// Running a sync in the app (a pull, a push, one after the other, or the
+// untracking that comes after them): gathering what `runPull`, `runPush` and
+// `runUntrackSync` are handed, and putting what they answer on the screen.
+// Everything that is decided about a sync is in `core/`; everything that is
+// worded is in `core/pull-report.ts`, `core/push-report.ts` and
+// `core/untrack-report.ts`.
 
 import { type App, Notice, type PluginManifest } from "obsidian";
 import { ArchiveGate } from "../core/archive-fetch";
@@ -24,7 +25,7 @@ import { type GitignoreEdit, GitignoreGate } from "../core/gitignore-gate";
 import { GitHubBackend } from "../core/github/backend";
 import { GitHubClient } from "../core/github/client";
 import { timerSleep } from "../core/github/timer-sleep";
-import type { Translate } from "../core/i18n";
+import type { MessageKey, Translate } from "../core/i18n";
 import { DEFAULT_SIZE_LIMIT } from "../core/plan";
 import { type PullDeps, type PullProgress, type PullResult, runPull } from "../core/pull";
 import {
@@ -44,6 +45,8 @@ import {
 } from "../core/push-report";
 import type { DeviceSettings } from "../core/settings";
 import { runSync } from "../core/sync";
+import { runUntrackSync, type UntrackDeps, type UntrackStep, type UntrackSyncResult } from "../core/untrack";
+import { untrackedSome, untrackFailureText, untrackStopped, untrackSyncReport } from "../core/untrack-report";
 import { exclusionPathsOf } from "./exclusion-paths";
 import { graphViewPause } from "./graph-views";
 import { obsidianHttp } from "./http";
@@ -70,8 +73,18 @@ export interface SyncHost {
  * - "push": the changes of this device alone.
  * - "first-fetch": the sync state is discarded and the pull starts over,
  *   after one question that says so. No push follows.
+ * - "untrack": a pull, a push where the rules of `.gitignore` are not on the
+ *   remote yet, and then the files that were confirmed are taken out of the
+ *   remote (`runUntrackSync`). Asked before it is started
+ *   (`untrack-confirm.ts`), and not by the sync.
  */
-export type SyncMode = "sync" | "pull" | "push" | "first-fetch";
+export type SyncMode = "sync" | "pull" | "push" | "first-fetch" | "untrack";
+
+const STOPPING_LINES = {
+	pull: "pull.progress.stopping",
+	push: "push.progress.stopping",
+	untrack: "untrack.progress.stopping",
+} as const satisfies Record<UntrackStep, MessageKey>;
 
 // The line of progress is rewritten at most this often. A sync reports
 // every file, thousands of them in a second.
@@ -93,8 +106,8 @@ export class SyncRunner {
 	private stopping = false;
 	/** Whether the running sync is waiting for the sync state to open. */
 	private opening = false;
-	/** Which half of the running sync is at work: it words the line of progress, and a failure. */
-	private direction: "pull" | "push" = "pull";
+	/** Which part of the running sync is at work: it words the line of progress, and a failure. */
+	private direction: UntrackStep = "pull";
 	/** What the push last reported, for writing the line again when only the request limit changed. */
 	private lastPushProgress: PushProgress | null = null;
 	private progress: Notice | null = null;
@@ -130,8 +143,11 @@ export class SyncRunner {
 	 * the screen is asked to stay on, which a phone only grants so. Every
 	 * sync is started by the user for now. A sync that starts by itself
 	 * (T033) must not keep the screen on.
+	 *
+	 * `shown` is only for "untrack": the paths the user confirmed
+	 * (`UntrackQuestion.shown`).
 	 */
-	async run(mode: SyncMode = "sync"): Promise<void> {
+	async run(mode: SyncMode = "sync", shown: readonly string[] = []): Promise<void> {
 		const { host } = this;
 		const t = host.t;
 		if (this.controller !== null) {
@@ -299,6 +315,33 @@ export class SyncRunner {
 				const result = await runPush(pushDeps);
 				sectionAdded = null;
 				this.reportPush(result);
+			} else if (mode === "untrack") {
+				const untrackDeps: UntrackDeps = {
+					store: opened.store,
+					backend,
+					vault: pullDeps.vault,
+					paths: pullDeps.paths,
+					deviceName: settings.deviceName,
+					signal: controller.signal,
+					sizeLimit: DEFAULT_SIZE_LIMIT,
+					log: (message) => console.info(`Sync Evo: ${message}`),
+				};
+				// The pull and the push are told as they end, like those of
+				// a sync, and the untracking last.
+				const result = await runUntrackSync({
+					pull: pullDeps,
+					push: pushDeps,
+					untrack: untrackDeps,
+					shown,
+					onStep: (step) => this.beginStep(step),
+					onPulled: (pulled) => this.report(pulled, settings),
+					onPushed: (pushed) => {
+						sectionAdded = null;
+						this.reportPush(pushed);
+					},
+				});
+				sectionAdded = null;
+				this.reportUntrack(result);
 			} else if (mode === "sync") {
 				// The pull is told before the push begins: its result is
 				// not held back by a push that asks, or fails.
@@ -320,8 +363,7 @@ export class SyncRunner {
 			// throwing too, and did not fail.
 			const cancelled = error instanceof BackendError && error.kind === "cancelled";
 			if (!this.stopped && !cancelled) console.error(`Sync Evo: the ${this.direction} failed`, error);
-			const failure = this.direction === "push" ? pushFailureText : pullFailureText;
-			this.show(failure(t, settings, error, this.connectionChanged), 0);
+			this.show(this.failureText(settings, error), this.failureStays(cancelled) ? 0 : undefined);
 			// A push that failed has no result to tell it with, and the file
 			// on this device is changed all the same. Whether it reached the
 			// remote before the failure is not known.
@@ -352,7 +394,9 @@ export class SyncRunner {
 	 * Stops a running sync because the connection it runs with is being
 	 * changed, and resolves when it has ended: a pull between two files,
 	 * after the one being written is written and recorded; a push before
-	 * the branch is moved, or else after it has recorded what it sent.
+	 * the branch is moved, or else after it has recorded what it sent; an
+	 * untracking likewise, before the branch is moved, which leaves the
+	 * remote as it was, or else after it has recorded what it took out.
 	 * Resolved at once when no sync runs. The sync state is discarded after
 	 * this (`main.ts`), and not under a sync that still writes to it. A
 	 * question the sync has open is closed as a "no", so that this does not
@@ -398,7 +442,7 @@ export class SyncRunner {
 		this.controller.abort();
 		// None while a question is open. The question is closed by the stop,
 		// as a "no" (`closeWhenAborted`), and no line comes back after that.
-		this.progress?.setMessage(t(this.direction === "push" ? "push.progress.stopping" : "pull.progress.stopping"));
+		this.progress?.setMessage(t(STOPPING_LINES[this.direction]));
 	}
 
 	/** Stops a running sync, and tells nothing. For when the plugin is unloaded. */
@@ -464,6 +508,9 @@ export class SyncRunner {
 	 * so the line would not change by itself.
 	 */
 	private showLimit(): void {
+		// The untracking has one line, and a handful of requests. While it
+		// waits out a limit, that line stays as it is and does not say so.
+		if (this.direction === "untrack") return;
 		if (this.direction === "push") {
 			const waitingUntil = this.limitWatch?.state().waitingUntil ?? null;
 			if (waitingUntil === this.shownLimit.waitingUntil) return;
@@ -498,6 +545,54 @@ export class SyncRunner {
 		});
 		this.show(report.summary);
 		for (const detail of report.details) this.show(detail, 0);
+	}
+
+	/**
+	 * A step of an untracking begins (`UntrackSyncDeps.onStep`). The pull and
+	 * the push write the line of progress themselves; the untracking reports
+	 * nothing, and gets its one line here. There is no line after a question
+	 * that was answered "no", and nothing follows that either.
+	 */
+	private beginStep(step: UntrackStep): void {
+		this.direction = step;
+		if (step !== "untrack" || this.stopped || this.stopping) return;
+		this.progress?.setMessage(this.host.t("untrack.progress.running"));
+		// Whatever the push reports next is written at once.
+		this.progressPhase = "";
+	}
+
+	private reportUntrack(result: UntrackSyncResult): void {
+		if (this.stopped) return;
+		const { connectionChanged } = this;
+		const report = untrackSyncReport(this.host.t, result, { connectionChanged });
+		// Why nothing was untracked is something to act on, and stays. That
+		// it was stopped is not, as for a pull and a push.
+		const passing = untrackedSome(result) || untrackStopped(result) || connectionChanged;
+		this.show(report.summary, passing ? undefined : 0);
+		for (const detail of report.details) this.show(detail, 0);
+	}
+
+	/** The text for a sync that ended by throwing, by the part of it that was at work. */
+	private failureText(settings: DeviceSettings, error: unknown): string {
+		const t = this.host.t;
+		switch (this.direction) {
+			case "pull":
+				return pullFailureText(t, settings, error, this.connectionChanged);
+			case "push":
+				return pushFailureText(t, settings, error, this.connectionChanged);
+			case "untrack":
+				return untrackFailureText(t, settings, error, this.connectionChanged);
+		}
+	}
+
+	/**
+	 * Whether what a sync that ended by throwing is told with stays until
+	 * it is dismissed. Not an untracking that was stopped: that leaves
+	 * nothing to act on, and is told like one that ended so without
+	 * throwing (`reportUntrack`).
+	 */
+	private failureStays(cancelled: boolean): boolean {
+		return !(cancelled && this.direction === "untrack");
 	}
 
 	/** The text for a sync that was stopped before it could begin. */

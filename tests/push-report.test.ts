@@ -204,6 +204,11 @@ describe("the section a push added to .gitignore", () => {
 			text: "7 files that these lines match are already on the remote, so they stay synced:",
 			paths: { shown: tracked.slice(0, 5), more: 2 },
 		});
+		// With where they can be taken out of the remote.
+		expect(question.parts[6]).toEqual({
+			text: "To stop syncing them, untrack them in the settings of Sync Evo. That removes them from the remote and leaves them on this device.",
+		});
+		expect(question.parts).toHaveLength(9);
 		const one = pushQuestion(t, target, { ...request, sectionAdded: { ...added, tracked: [".DS_Store"] } });
 		expect(one.parts[5]?.text).toBe("1 file that these lines match is already on the remote, so it stays synced:");
 	});
@@ -262,7 +267,11 @@ describe("the section a push added to .gitignore", () => {
 	test("with the files of the remote the lines match, a few of them", () => {
 		const tracked = Array.from({ length: 6 }, (_, index) => `.trash/${index}.md`);
 		const text = sectionAddedText(t, { ...added, tracked }, "sent");
-		expect(text.endsWith(`\n6 files that these lines match are already on the remote, so they stay synced:\n${tracked.slice(0, 5).join("\n")}\n…and 1 more`)).toBe(true);
+		expect(
+			text.endsWith(
+				`\n6 files that these lines match are already on the remote, so they stay synced:\n${tracked.slice(0, 5).join("\n")}\n…and 1 more\nTo stop syncing them, untrack them in the settings of Sync Evo. That removes them from the remote and leaves them on this device.`,
+			),
+		).toBe(true);
 	});
 
 	test("a push whose question showed it and that sent it does not tell it again", () => {
@@ -322,6 +331,7 @@ describe("the section a push added to .gitignore", () => {
 				"これらの行は、Sync Evo の設定画面で変えられます。要らない時は、最初と最後の行（# で始まる2行）だけを残して、間の行を消してください。その2行も消すと、次の同期でまた足します。",
 				"これらの行に当たるファイルが、保存先に 1 件あります。これらは同期を続けます：",
 				".DS_Store",
+				"同期をやめるには、Sync Evo の設定画面で追跡を外します。保存先からは消え、このデバイスのファイルは残ります。",
 			].join("\n"),
 		);
 		expect(sectionAddedText(ja, added, "sent")).toContain("この変更は、この送信で保存先に届きました。");

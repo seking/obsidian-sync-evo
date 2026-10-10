@@ -41,10 +41,30 @@ export function commitMessage(deviceName: string, changes: readonly CommitChange
 		.map((kind) => ({ kind, count: changes.filter((change) => change.kind === kind).length }))
 		.filter(({ count }) => count > 0)
 		.map(({ kind, count }) => `${count} ${kind}`);
-	// A line break in the name would end the first line early.
-	const device = deviceName.replace(/\s+/g, " ").trim();
-	const subject = `Sync Evo: ${device === "" ? "unnamed device" : device} (${counts.join(", ")})`;
+	return message(`Sync Evo: ${deviceOf(deviceName)} (${counts.join(", ")})`, changes);
+}
 
+/**
+ * The message of the commit that untracks files: `Sync Evo: <device> untrack
+ * <n> files`, a blank line, and a `D` line per path, as in any other commit
+ * of a push. Told apart by its first line, since the files it takes out of
+ * the remote were not deleted on the device.
+ */
+export function untrackMessage(deviceName: string, paths: readonly string[]): string {
+	const files = paths.length === 1 ? "1 file" : `${paths.length} files`;
+	return message(
+		`Sync Evo: ${deviceOf(deviceName)} untrack ${files}`,
+		paths.map((path): CommitChange => ({ kind: "deleted", path })),
+	);
+}
+
+// A line break in the name would end the first line early.
+function deviceOf(deviceName: string): string {
+	const device = deviceName.replace(/\s+/g, " ").trim();
+	return device === "" ? "unnamed device" : device;
+}
+
+function message(subject: string, changes: readonly CommitChange[]): string {
 	const sorted = [...changes].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
 	const lines = sorted.slice(0, COMMIT_BODY_LIMIT).map((change) => `${LETTERS[change.kind]}  ${change.path}`);
 	if (sorted.length > COMMIT_BODY_LIMIT) lines.push(`... and ${sorted.length - COMMIT_BODY_LIMIT} more`);

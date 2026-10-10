@@ -13,11 +13,12 @@ import { getLanguage, Notice, Platform, Plugin } from "obsidian";
 import { type CheckOutcome, runConnectionCheck } from "./core/connection-check";
 import {
 	applyExclusionEdit,
+	type ExclusionChanged,
 	type ExclusionEdit,
 	type ExclusionScreenDeps,
-	type ExclusionWrite,
 	readExclusionScreen,
 	saveGitignoreText,
+	type UntrackList,
 } from "./core/exclusion-settings";
 import { settleGitignoreWrite } from "./core/gitignore-file";
 import { GitHubClient } from "./core/github/client";
@@ -35,6 +36,7 @@ import {
 	defaultSettings,
 	type DeviceSettings,
 } from "./core/settings";
+import { type UntrackConfirmRequest, untrackConfirmRequest } from "./core/untrack-report";
 import { exclusionPathsOf } from "./obsidian/exclusion-paths";
 import type { ExclusionChange, ExclusionLoad } from "./obsidian/exclusion-settings";
 import { obsidianHttp } from "./obsidian/http";
@@ -76,6 +78,9 @@ export default class SyncEvoPlugin extends Plugin implements SettingsHost, SyncH
 	/** The one place a sync of any kind is started from, so that two never run at once. */
 	private readonly syncs = new SyncRunner(this);
 
+	/** The settings screen, once it is made: drawn again in part when an untracking has ended. */
+	private settingTab: SyncEvoSettingTab | null = null;
+
 	/** The plugin is going away: nothing more is shown. */
 	private unloaded = false;
 
@@ -85,11 +90,14 @@ export default class SyncEvoPlugin extends Plugin implements SettingsHost, SyncH
 
 		const loaded = this.store.load(defaultDeviceName(Platform));
 		this.deviceSettings = loaded.status === "ok" ? loaded.settings : null;
-		this.addSettingTab(new SyncEvoSettingTab(this.app, this, this));
+		this.settingTab = new SyncEvoSettingTab(this.app, this, this);
+		this.addSettingTab(this.settingTab);
 
 		// The only things that start a sync. Each is started by the user, and
 		// keeps the screen on while it runs (`SyncRunner.run`). The button
-		// of the ribbon is the sync: a pull, and then a push.
+		// of the ribbon is the sync: a pull, and then a push. Untracking is
+		// the one sync that has no command: it starts from the settings
+		// screen, where its files are listed (`untrack`).
 		this.addCommand({
 			id: "sync",
 			name: this.t("command.sync"),
@@ -136,6 +144,9 @@ export default class SyncEvoPlugin extends Plugin implements SettingsHost, SyncH
 
 	override onunload(): void {
 		this.unloaded = true;
+		// A question about untracking that is still open is closed, as a
+		// "no": answered later, it would start a sync of a plugin that is off.
+		this.settingTab?.dropExclusion();
 		// Before the state is let go of, so that the sync stops asking for it.
 		this.syncs.stop();
 		this.syncState.close();
@@ -259,11 +270,45 @@ export default class SyncEvoPlugin extends Plugin implements SettingsHost, SyncH
 	}
 
 	/**
+	 * What the question before untracking is drawn from: which of the files
+	 * this device holds, and how many records there are. Only read. `null`
+	 * when the sync state cannot be used. Never rejects.
+	 */
+	async untrackRequest(list: UntrackList): Promise<UntrackConfirmRequest | null> {
+		const settings = this.deviceSettings;
+		if (settings === null || connectionOf(settings) === null) return null;
+		try {
+			const opened = await this.syncState.open();
+			if (opened.status !== "ok") return null;
+			return await untrackConfirmRequest({ store: opened.store, vault: pullVaultOf(this.app) }, list);
+		} catch {
+			return null;
+		}
+	}
+
+	/**
+	 * Untracks the paths the user confirmed, after the sync it needs
+	 * (`SyncRunner.run`). Called from the handler of the button that
+	 * confirms, and not `async`: nothing may be awaited before the sync asks
+	 * the screen to stay on. When it has ended, however it ended, what the
+	 * settings show of the remote is drawn again, if they are open.
+	 */
+	untrack(shown: readonly string[]): void {
+		// A question that outlived the plugin: no sync is started from it.
+		if (this.unloaded) return;
+		const redraw = (): void => {
+			if (!this.unloaded) this.settingTab?.redrawExclusion();
+		};
+		void this.syncs.run("untrack", shown).then(redraw, redraw);
+	}
+
+	/**
 	 * A write of the settings to the root `.gitignore`: turned away while a
-	 * sync runs, and no sync begins while it runs. Never rejects.
+	 * sync runs, and no sync begins while it runs. Answers with how the write
+	 * went and what it left to ask about untracking. Never rejects.
 	 */
 	private async changeGitignore(
-		write: (deps: ExclusionScreenDeps) => Promise<ExclusionWrite>,
+		write: (deps: ExclusionScreenDeps) => Promise<ExclusionChanged>,
 	): Promise<ExclusionChange> {
 		const settings = this.deviceSettings;
 		if (settings === null || connectionOf(settings) === null) return "no-state";

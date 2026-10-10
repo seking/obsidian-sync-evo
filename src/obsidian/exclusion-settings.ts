@@ -10,29 +10,40 @@
  */
 
 // The part of the settings screen about what is synced: the switches that
-// write the section of the root `.gitignore`, and the file itself. Nothing
-// is decided here. What is shown is worked out in
-// `core/exclusion-settings.ts` from the file as it is, and every change is
-// made there, from the file as it is read again.
+// write the section of the root `.gitignore`, the file itself, and the way
+// in to untracking what the rules match. Nothing is decided here. What is
+// shown is worked out in `core/exclusion-settings.ts` from the file as it
+// is, and every change is made there, from the file as it is read again.
 
-import { AbstractInputSuggest, type App, Notice, Setting, TextAreaComponent, type TextComponent } from "obsidian";
+import {
+	AbstractInputSuggest,
+	type App,
+	type ButtonComponent,
+	Notice,
+	Setting,
+	TextAreaComponent,
+	type TextComponent,
+} from "obsidian";
 import {
 	editorText,
+	type ExclusionChanged,
 	type ExclusionEdit,
 	type ExclusionScreen,
 	type ExclusionView,
-	type ExclusionWrite,
 	exclusionWriteText,
 	folderToExclude,
 	SHOWN_CONFIG_ITEMS,
 	SHOWN_FILE_KINDS,
 	textFromEditor,
+	type UntrackList,
 	unreadableGitignoreText,
 } from "../core/exclusion-settings";
 import type { ConfigItem, FileKind, SectionState } from "../core/gitignore-section";
 import type { MessageKey, Translate } from "../core/i18n";
 import { DEFAULT_SIZE_LIMIT } from "../core/plan";
 import { megabytes, noticeTexts } from "../core/pull-report";
+import { type UntrackConfirmRequest, untrackSubmodulesText } from "../core/untrack-report";
+import { askUntrackIn } from "./untrack-confirm";
 
 export type ExclusionLoad =
 	/** No connection is set: there is no sync state, and nothing to show. */
@@ -43,10 +54,11 @@ export type ExclusionLoad =
 	| { readonly status: "ok"; readonly screen: ExclusionScreen; readonly syncing: boolean };
 
 /**
- * How a change ended. Beside what the core answers: a sync was running, the
- * sync state could not be used, or something failed, with what it said.
+ * How a change ended. Beside what the core answers (how the write went, and
+ * what it left to ask about untracking): a sync was running, the sync state
+ * could not be used, or something failed, with what it said.
  */
-export type ExclusionChange = ExclusionWrite | "syncing" | "no-state" | { readonly failed: string };
+export type ExclusionChange = ExclusionChanged | "syncing" | "no-state" | { readonly failed: string };
 
 /** What this part of the screen needs from the plugin. None of it rejects. */
 export interface ExclusionHost {
@@ -57,6 +69,17 @@ export interface ExclusionHost {
 	editExclusion(edit: ExclusionEdit): Promise<ExclusionChange>;
 	/** Saves the whole file. `opened` is the text it was shown with, or `null` when there was no file. */
 	saveGitignore(text: string, opened: string | null): Promise<ExclusionChange>;
+	/**
+	 * What the question before untracking is drawn from, for a list of this
+	 * screen. `null` when the sync state cannot be used.
+	 */
+	untrackRequest(list: UntrackList): Promise<UntrackConfirmRequest | null>;
+	/**
+	 * Starts the sync that untracks the paths the user confirmed. Nothing is
+	 * awaited in it before the screen is asked to stay on (`SyncRunner.run`).
+	 * This part is drawn again when it has ended.
+	 */
+	untrack(shown: readonly string[]): void;
 }
 
 // The names of the switches are those of the same options of Obsidian Sync.
@@ -116,11 +139,33 @@ export class ExclusionSettings {
 	private readonly host: ExclusionHost;
 	/** Counts the times this part was asked to be drawn, so that an answer that comes late is not put on a newer one. */
 	private drawn = 0;
+	/**
+	 * The one mark of a question about untracking: "preparing" while what it
+	 * is drawn from is read, and then what closes the dialog, while that is
+	 * open. `null` when there is none. No second question is begun while it
+	 * is set: two taps on the button, or a switch flipped while the first
+	 * is read, would put two dialogs up.
+	 */
+	private asking: "preparing" | { readonly close: () => void } | null = null;
+	/** The button that asks about untracking, as it was last drawn, and whether a sync locked it then. */
+	private untrackButton: { readonly button: ButtonComponent; readonly locked: boolean } | null = null;
+	/** This part was let go of (`dispose`): no question is put up any more. */
+	private disposed = false;
 
 	constructor(app: App, el: HTMLElement, host: ExclusionHost) {
 		this.app = app;
 		this.el = el;
 		this.host = host;
+	}
+
+	/**
+	 * This part is let go of: the screen is closed or drawn anew, or the
+	 * plugin is unloaded. A question about untracking that is open is closed,
+	 * which is a "no", and one that is being prepared is not put up.
+	 */
+	dispose(): void {
+		this.disposed = true;
+		if (this.asking !== null && this.asking !== "preparing") this.asking.close();
 	}
 
 	/**
@@ -134,6 +179,7 @@ export class ExclusionSettings {
 		const load = await this.host.exclusionScreen();
 		if (drawn !== this.drawn) return;
 		this.el.empty();
+		this.untrackButton = null;
 		this.render(load);
 	}
 
@@ -149,7 +195,7 @@ export class ExclusionSettings {
 			warning(el, t("settings.exclusion.noState"));
 			return;
 		}
-		const { view, tracked, notices, addSection } = load.screen;
+		const { view, untrack, notices, addSection } = load.screen;
 		const locked = load.syncing;
 		if (locked) warning(el, t("settings.exclusion.syncRunning"));
 
@@ -190,9 +236,7 @@ export class ExclusionSettings {
 				heading.descEl.createDiv({ text: t("settings.exclusion.keepsSynced") });
 				// As of the last listing of the remote. Without one there is
 				// nothing to count.
-				if (tracked !== null && tracked > 0) {
-					heading.descEl.createDiv({ text: t("settings.exclusion.tracked", { count: tracked }) });
-				}
+				if (untrack !== null) this.showUntrack(untrack, locked);
 				if (view.handEdited) warning(el, t("settings.exclusion.handEdited"));
 				this.showSwitches(view.state, locked);
 				this.showFixedOff(view, locked);
@@ -212,6 +256,80 @@ export class ExclusionSettings {
 			const list = el.createEl("ul");
 			for (const item of items) list.createEl("li", { text: item });
 		}
+	}
+
+	/**
+	 * How many files of the remote a rule matches, with the button that asks
+	 * about untracking them, and the line for the submodules a rule matches.
+	 * A setting of its own and not a line of the heading: the button needs
+	 * one. Nothing when there is neither.
+	 */
+	private showUntrack(list: UntrackList, locked: boolean): void {
+		const t = this.host.t;
+		const { files, submodules } = list;
+		if (files.length === 0 && submodules.length === 0) return;
+		const setting = new Setting(this.el).setName(t("settings.exclusion.untrack.name"));
+		if (files.length > 0) {
+			setting.descEl.createDiv({ text: t("settings.exclusion.tracked", { count: files.length }) });
+			setting.descEl.createDiv({ text: t("settings.exclusion.untrack.desc") });
+			setting.addButton((button) => {
+				button.setButtonText(t("untrack.confirm.proceed")).onClick(() => void this.askUntrack(list));
+				this.untrackButton = { button, locked };
+				this.enableUntrackButton();
+			});
+		}
+		if (submodules.length > 0) setting.descEl.createDiv({ text: untrackSubmodulesText(t, submodules) });
+	}
+
+	/**
+	 * The button that asks about untracking is off while a sync runs, and
+	 * while a question is being prepared: the vault is looked at for it,
+	 * which takes a moment, and a second tap would do nothing.
+	 */
+	private enableUntrackButton(): void {
+		if (this.untrackButton === null) return;
+		const { button, locked } = this.untrackButton;
+		button.setDisabled(locked || this.asking === "preparing");
+	}
+
+	/**
+	 * Asks about untracking the files of a list, and starts it on a yes. The
+	 * question is drawn from the vault and the records as they are now.
+	 * Nothing when a question is being prepared or is open already.
+	 */
+	private async askUntrack(list: UntrackList): Promise<void> {
+		const { host } = this;
+		const t = host.t;
+		if (this.asking !== null || this.disposed) return;
+		this.asking = "preparing";
+		this.enableUntrackButton();
+		const request = await host.untrackRequest(list);
+		// Lowered on every way out of here that puts no dialog up.
+		this.asking = null;
+		this.enableUntrackButton();
+		if (request === null) {
+			if (!this.disposed) new Notice(t("settings.exclusion.write.noState"), 0);
+			return;
+		}
+		// The settings were closed while the vault was looked at: a question
+		// about a screen that is gone is not put up.
+		if (this.disposed || !this.el.isConnected) return;
+		const close = askUntrackIn(
+			this.app,
+			t,
+			request,
+			(shown) => {
+				// From the handler of the button, with nothing awaited before.
+				host.untrack(shown);
+				// A sync runs from here on: the switches are shown as locked.
+				void this.draw();
+			},
+			// Answered either way, or closed: the next question may be asked.
+			() => {
+				this.asking = null;
+			},
+		);
+		this.asking = { close };
 	}
 
 	/** The switches of a section, and the list of the folders that are left out. */
@@ -353,20 +471,30 @@ export class ExclusionSettings {
 	 * Waits for a change, tells how it went where there is something to
 	 * tell, and draws this part again from the file as it is now, whichever
 	 * way it went: a switch that wrote nothing must not stay flipped.
+	 *
+	 * A change that made a rule match files the remote holds is followed by
+	 * the question about untracking those files, and no others. The rule is
+	 * written by then, and stays whatever the answer. Where it matches only
+	 * submodules, which are not untracked here, that is told and not asked.
 	 */
 	private async change(change: Promise<ExclusionChange>, written?: string): Promise<void> {
 		const t = this.host.t;
 		const result = await change;
+		let matched: UntrackList | null = null;
 		if (result === "syncing") new Notice(t("settings.exclusion.write.syncing"));
 		else if (result === "no-state") new Notice(t("settings.exclusion.write.noState"), 0);
-		else if (typeof result === "object") new Notice(t("settings.exclusion.write.failed", { detail: result.failed }), 0);
+		else if ("failed" in result) new Notice(t("settings.exclusion.write.failed", { detail: result.failed }), 0);
 		else {
-			const problem = exclusionWriteText(t, result, DEFAULT_SIZE_LIMIT);
+			const problem = exclusionWriteText(t, result.write, DEFAULT_SIZE_LIMIT);
 			// Until it is dismissed: nothing was written, and why is not short.
 			if (problem !== null) new Notice(problem, 0);
-			else if (result === "written" && written !== undefined) new Notice(written);
+			else if (result.write === "written" && written !== undefined) new Notice(written);
+			matched = result.matched;
 		}
 		await this.draw();
+		if (matched === null) return;
+		if (matched.files.length > 0) await this.askUntrack(matched);
+		else if (matched.submodules.length > 0) new Notice(untrackSubmodulesText(t, matched.submodules, true), 0);
 	}
 }
 

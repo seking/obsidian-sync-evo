@@ -56,6 +56,13 @@ export interface PendingPushState {
 	/** The keys of the records of the files it deleted. */
 	readonly deleted: readonly string[];
 	readonly counts: PushCounts;
+	/**
+	 * Set for a push that untracked (`untrack.ts`): what it deleted on the
+	 * remote is still on this device, and it sent none of the vault's
+	 * changes. Absent in what an earlier version stored, which is read as an
+	 * ordinary push.
+	 */
+	readonly untrack?: true;
 }
 
 export function rememberPendingPush(store: Pick<StateStore, "setMeta">, pending: PendingPushState): Promise<void> {
@@ -65,6 +72,7 @@ export function rememberPendingPush(store: Pick<StateStore, "setMeta">, pending:
 		records: pending.records.map(plainRecord),
 		deleted: [...pending.deleted],
 		counts: { ...pending.counts },
+		...(pending.untrack === true ? { untrack: true } : {}),
 	});
 }
 
@@ -76,7 +84,7 @@ export function forgetPendingPush(store: Pick<StateStore, "deleteMeta">): Promis
 export async function readPendingPush(store: Pick<StateStore, "getMeta">): Promise<PendingPushState | null> {
 	const value = await store.getMeta(PENDING_PUSH_KEY);
 	if (typeof value !== "object" || value === null) return null;
-	const { revision, parent, records, deleted, counts } = value as Record<string, unknown>;
+	const { revision, parent, records, deleted, counts, untrack } = value as Record<string, unknown>;
 	if (typeof revision !== "string" || typeof parent !== "string") return null;
 	if (!Array.isArray(records) || !Array.isArray(deleted) || !deleted.every((key) => typeof key === "string")) {
 		return null;
@@ -100,6 +108,7 @@ export async function readPendingPush(store: Pick<StateStore, "getMeta">): Promi
 		records: read,
 		deleted: deleted as string[],
 		counts: { added: count(added), modified: count(modified), deleted: count(removed) },
+		...(untrack === true ? { untrack: true as const } : {}),
 	};
 }
 
@@ -119,8 +128,12 @@ export async function readPendingPush(store: Pick<StateStore, "getMeta">): Promi
  *    is what moves it: a history that was rewritten is told by the base
  *    revision, and must not read as continuous because of a push;
  * 5. that a push has gone through, and last, the push itself forgotten.
+ *    Not for a push that untracked: it sent nothing of the vault, and the
+ *    question before the first push that does is still to be asked.
  *
- * A pull right after finds nothing to do.
+ * A pull right after finds nothing to do. Deleting the record of a key that
+ * has none is no failure: a file that is untracked in Sync Evo's own folder
+ * never had one.
  */
 export async function finishPush(
 	store: StateStore,
@@ -132,8 +145,18 @@ export async function finishPush(
 	if (listing === null) await store.clearListing();
 	else if (listing !== undefined) await store.putListing(listing);
 	if ((await readBaseRevision(store)) === pending.parent) await writeBaseRevision(store, pending.revision);
-	await store.setMeta(FIRST_PUSH_CONFIRMED_KEY, true);
+	if (pending.untrack !== true) await store.setMeta(FIRST_PUSH_CONFIRMED_KEY, true);
 	await forgetPendingPush(store);
+}
+
+/** A push that was found to have gone through, and is recorded now (`settlePendingPush`). */
+export interface SettledPush {
+	readonly counts: PushCounts;
+	/**
+	 * Whether it untracked: `counts.deleted` files were taken out of the
+	 * remote and are still on this device.
+	 */
+	readonly untrack: boolean;
 }
 
 /**
@@ -153,7 +176,7 @@ export async function finishPush(
  *   rewritten. It is forgotten.
  *
  * A push that went through is recorded, and what it changed is answered,
- * for the user to be told. Only the files of that push are recorded; what
+ * for the user to be told, with whether it was one that untracked. Only the files of that push are recorded; what
  * the other device changed on top is the plan's to find, from the listing
  * of the head.
  *
@@ -165,7 +188,7 @@ export async function settlePendingPush(
 	store: StateStore,
 	head: string | null,
 	checkBase: Backend["checkBase"],
-): Promise<PushCounts | null> {
+): Promise<SettledPush | null> {
 	const pending = await readPendingPush(store);
 	if (pending === null) {
 		// What could not be read.
@@ -180,5 +203,5 @@ export async function settlePendingPush(
 		}
 	}
 	await finishPush(store, pending);
-	return pending.counts;
+	return { counts: pending.counts, untrack: pending.untrack === true };
 }

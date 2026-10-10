@@ -30,6 +30,7 @@ import {
 	type Question,
 	type QuestionPart,
 	recoveredPushText,
+	recoveredUntrackText,
 } from "./pull-report";
 import {
 	type LeftOutReason,
@@ -109,6 +110,7 @@ export function pushQuestion(
 			if (section.tracked.length > 0) {
 				const text = t("section.added.tracked", { count: section.tracked.length });
 				parts.push({ text, paths: capList(section.tracked, NOTICE_LIST_LIMIT) });
+				parts.push({ text: t("section.added.untrackHint") });
 			}
 		}
 		const { added, modified, deleted } = firstPush;
@@ -144,8 +146,9 @@ export type SectionDelivery = "sends" | "sent" | "unsent" | "unknown";
  * The text for the section a push added to `.gitignore` without asking: the
  * lines, that nothing else in the file changed, whether they are on the
  * remote, where to change them, and how to say that they are not wanted.
- * With the files of the remote the lines match, which stay synced. Every
- * added line is shown, however many: they are what was written.
+ * With the files of the remote the lines match, which stay synced, and where
+ * they can be untracked. Every added line is shown, however many: they are
+ * what was written.
  */
 export function sectionAddedText(t: Translate, section: SectionAdded, delivery: SectionDelivery): string {
 	const lines = [
@@ -154,7 +157,11 @@ export function sectionAddedText(t: Translate, section: SectionAdded, delivery: 
 		...sectionNotes(t, section, delivery),
 	];
 	if (section.tracked.length > 0) {
-		lines.push(t("section.added.tracked", { count: section.tracked.length }), listText(t, section.tracked));
+		lines.push(
+			t("section.added.tracked", { count: section.tracked.length }),
+			listText(t, section.tracked),
+			t("section.added.untrackHint"),
+		);
 	}
 	return lines.join("\n");
 }
@@ -223,6 +230,7 @@ export function pushReport(t: Translate, result: PushRunResult, options: PushRep
 		details.push(sectionAddedText(t, section, section.sent ? "sent" : "unsent"));
 	}
 	if (result.recovered !== null) details.push(recoveredPushText(t, result.recovered));
+	if (result.recoveredUntrack !== undefined) details.push(recoveredUntrackText(t, result.recoveredUntrack));
 	if (result.held.length > 0) {
 		details.push(t("push.held", { count: result.held.length, list: listText(t, result.held) }));
 	}

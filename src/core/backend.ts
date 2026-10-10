@@ -137,6 +137,14 @@ export interface PushRequest {
 	/** The name of this device, for a remote that keeps a description of each change. */
 	readonly deviceName?: string;
 	/**
+	 * Whether the deletes untrack: the files are taken out of the remote
+	 * because a rule leaves them out, and stay on the device that asks. A
+	 * remote that keeps a description of each change says so in it. Only
+	 * such a push may name a symlink among its deletes; a submodule never.
+	 * It carries no writes.
+	 */
+	readonly untrack?: boolean;
+	/**
 	 * Awaited once, after everything was sent and right before the new
 	 * revision is made the head of the remote: the last moment at which
 	 * nothing of the push shows. Whether that last step took effect is not

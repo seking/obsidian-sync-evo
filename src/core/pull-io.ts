@@ -477,4 +477,9 @@ export interface PullResult {
 	 * push changed on the remote. It is recorded now, and told as a success.
 	 */
 	readonly recoveredPush?: PushCounts;
+	/**
+	 * Set instead when that push was one that untracked (`untrack.ts`): how
+	 * many files it took out of the remote. They are still on this device.
+	 */
+	readonly recoveredUntrack?: number;
 }

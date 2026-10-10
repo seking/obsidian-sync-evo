@@ -44,6 +44,8 @@ export class SyncEvoSettingTab extends PluginSettingTab {
 	private commits: (() => void)[] = [];
 	/** Counts the times the screen was drawn, so that an answer that comes late is not put on a newer one. */
 	private drawn = 0;
+	/** The part about what is synced, while the screen is shown. */
+	private exclusion: ExclusionSettings | null = null;
 
 	constructor(app: App, plugin: Plugin, host: SettingsHost) {
 		super(app, plugin);
@@ -55,6 +57,7 @@ export class SyncEvoSettingTab extends PluginSettingTab {
 		const t = host.t;
 		containerEl.empty();
 		this.commits = [];
+		this.dropExclusion();
 		this.drawn += 1;
 
 		const stored = host.deviceSettings;
@@ -197,7 +200,8 @@ export class SyncEvoSettingTab extends PluginSettingTab {
 		// What is synced: the switches for the root `.gitignore`, and the
 		// file. Read from the vault and the sync state, so filled in later,
 		// like the list below it. Nothing while there is no connection.
-		void new ExclusionSettings(this.app, containerEl.createDiv(), host).draw();
+		this.exclusion = new ExclusionSettings(this.app, containerEl.createDiv(), host);
+		void this.exclusion.draw();
 
 		void this.showSymlinks(containerEl.createDiv(), this.drawn);
 	}
@@ -225,11 +229,32 @@ export class SyncEvoSettingTab extends PluginSettingTab {
 		el.createEl("p", { text: pushFailureReminderText(this.host.t, failure), cls: "mod-warning" });
 	}
 
+	/**
+	 * Draws the part about what is synced again, if the screen is shown: for
+	 * when something outside it changed what that part reads (an untracking
+	 * ended). Nothing when the screen is closed; opening it draws it anyway.
+	 */
+	redrawExclusion(): void {
+		void this.exclusion?.draw();
+	}
+
 	override hide(): void {
 		// Closing the settings with a field still in focus does not fire `change`.
 		this.commit();
 		this.commits = [];
+		this.dropExclusion();
 		super.hide();
+	}
+
+	/**
+	 * Lets go of the part about what is synced: the screen is closed or
+	 * drawn anew, or the plugin is unloaded (`main.ts`). A question about
+	 * untracking it has open goes with it, closed as a "no": nothing else
+	 * would reach that dialog after this to close it.
+	 */
+	dropExclusion(): void {
+		this.exclusion?.dispose();
+		this.exclusion = null;
 	}
 
 	private commit(): void {

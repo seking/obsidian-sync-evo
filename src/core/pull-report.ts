@@ -314,6 +314,7 @@ export function pullReport(t: Translate, result: PullResult, options: PullReport
 		details.push(t("pull.keptUnsent", { count: result.keptUnsent.length, list: listText(t, result.keptUnsent) }));
 	}
 	if (result.recoveredPush !== undefined) details.push(recoveredPushText(t, result.recoveredPush));
+	if (result.recoveredUntrack !== undefined) details.push(recoveredUntrackText(t, result.recoveredUntrack));
 	// Not after a "no": that pull left nothing for later, it did not begin.
 	// What it put off before it asked (a file left half written that could
 	// not be looked at) is found again by the next pull, which tells it.
@@ -440,6 +441,15 @@ export function pushCountsText(t: Translate, counts: PushCounts): string {
 /** The text for a push that had gone through unknown to this device, and is recorded now. Told by a pull or a push. */
 export function recoveredPushText(t: Translate, counts: PushCounts): string {
 	return t("push.recovered", { details: pushCountsText(t, counts) });
+}
+
+/**
+ * The text for an untracking that had gone through unknown to this device,
+ * and is recorded now. Told by whoever found out: a pull, a push, or the
+ * next untracking. Not as files deleted: they are still on this device.
+ */
+export function recoveredUntrackText(t: Translate, count: number): string {
+	return t("push.recoveredUntrack", { count });
 }
 
 /**

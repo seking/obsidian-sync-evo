@@ -75,9 +75,12 @@ export const en = baseCatalog({
 	"settings.exclusion.keepsSynced":
 		"Turning a switch off, or excluding a folder, only keeps new files from being sent. What the remote already holds stays synced, and nothing is deleted, on this device or on the remote.",
 	"settings.exclusion.tracked": {
-		one: "{count} file on the remote, as of the last sync, matches a rule of .gitignore. It stays synced.",
-		other: "{count} files on the remote, as of the last sync, match a rule of .gitignore. They stay synced.",
+		one: "{count} file that matches a rule of .gitignore is still on the remote, as of the last sync.",
+		other: "{count} files that match a rule of .gitignore are still on the remote, as of the last sync.",
 	},
+	"settings.exclusion.untrack.name": "Files that match a rule",
+	"settings.exclusion.untrack.desc":
+		"Untracking removes them from the remote, and they are no longer synced. The files on this device stay. The list is shown first, and nothing is removed before you confirm.",
 	"settings.exclusion.handEdited":
 		"The lines Sync Evo manages in .gitignore were edited by hand. The switches show them as Sync Evo reads them. The next change made with a switch rewrites these lines in Sync Evo's own form. Lines it does not know are kept.",
 	"settings.exclusion.noState":
@@ -179,7 +182,7 @@ export const en = baseCatalog({
 	// Things the user is told once, and again only after they went away and
 	// came back. Neither stops the sync.
 	"notice.ownFolderOnRemote":
-		"The remote contains Sync Evo's own folder ({path}). Sync Evo never syncs that folder: it is left as it is, on the remote and on this device. Everything else is synced as usual.",
+		"The remote contains Sync Evo's own folder ({path}). Sync Evo never syncs that folder: it is left as it is, on the remote and on this device. Everything else is synced as usual. To remove the folder from the remote, untrack its files in the settings of Sync Evo (while .gitignore has the line for that folder).",
 	"notice.gitAtRoot":
 		"This vault has a .git at its root, so it is a git repository. Sync this device with git or the Obsidian Git plugin instead: git does not learn of what Sync Evo sends, and its next pull would stop. Sync Evo keeps syncing in the meantime.",
 
@@ -227,6 +230,8 @@ export const en = baseCatalog({
 		one: "{count} file that these lines match is already on the remote, so it stays synced:",
 		other: "{count} files that these lines match are already on the remote, so they stay synced:",
 	},
+	"section.added.untrackHint":
+		"To stop syncing them, untrack them in the settings of Sync Evo. That removes them from the remote and leaves them on this device.",
 
 	// Lists inside a message.
 	"list.separator": ", ",
@@ -360,6 +365,10 @@ export const en = baseCatalog({
 	"push.nothing": "Nothing to push. The remote is up to date.",
 	"push.nothingSent": "Nothing was sent.",
 	"push.recovered": "The previous push had reached the remote: {details}. It is recorded on this device now.",
+	"push.recoveredUntrack": {
+		one: "An earlier untracking had reached the remote: {count} file untracked. It is recorded on this device now. The file on this device is as it was.",
+		other: "An earlier untracking had reached the remote: {count} files untracked. It is recorded on this device now. The files on this device are as they were.",
+	},
 	"push.pullFirst.noBase":
 		"Nothing was sent. This device has not finished its first pull from the remote yet. Pull first, then push.",
 	"push.pullFirst.remoteEmpty":
@@ -414,6 +423,76 @@ export const en = baseCatalog({
 		one: "{count} file was left out: it changed or could not be read while the push ran, or an editor could not save it. The next push looks at it again:\n{list}",
 		other: "{count} files were left out: they changed or could not be read while the push ran, or an editor could not save them. The next push looks at them again:\n{list}",
 	},
+
+	// Untracking: the question before it, and how it ended.
+	"untrack.confirm.title": "Untrack files",
+	"untrack.confirm.proceed": "Untrack",
+	"untrack.confirm.cancel": "Keep syncing",
+	"untrack.confirm.body": {
+		one: "{count} file on the remote matches a rule of .gitignore. Untracking removes it from the remote, and it is no longer synced:",
+		other: "{count} files on the remote match a rule of .gitignore. Untracking removes them from the remote, and they are no longer synced:",
+	},
+	"untrack.confirm.threshold":
+		"This removes {count} files from the remote at once. Check the list before you go on.",
+	"untrack.confirm.keeps": "The files on this device are not deleted. They stay as they are.",
+	"untrack.confirm.otherDevices":
+		"On your other devices this arrives as a deletion: their next pull deletes these files from them, except files that were changed on that device.",
+	"untrack.confirm.mac":
+		"To keep the files on a Mac or another computer that uses git, choose \"Keep syncing\" and untrack them there with git instead (git rm --cached), then push from there.",
+	"untrack.confirm.syncFirst":
+		"A pull runs first. If the rules of .gitignore are not on the remote yet, a push follows, and it also sends the other changes of this device. The pull and the push may ask their own questions.",
+	"untrack.confirm.missing": {
+		one: "{count} of these files is not on this device. If it is in the list, it is marked there. After untracking, its content is only in the history of the remote.",
+		other: "{count} of these files are not on this device. Those in the list are marked there. After untracking, their content is only in the history of the remote.",
+	},
+	"untrack.confirm.submodules": {
+		one: "{count} submodule matches a rule as well. It is not untracked here. Untrack it with git on a Mac or another computer:",
+		other: "{count} submodules match a rule as well. They are not untracked here. Untrack them with git on a Mac or another computer:",
+	},
+	"untrack.confirm.note":
+		"If you choose \"Keep syncing\", nothing is changed: the rules stay, and these files stay synced. You can untrack them later in the settings of Sync Evo.",
+	"untrack.item.tagged": "{path} ({tags})",
+	"untrack.tag.symlink": "symbolic link",
+	"untrack.tag.ownFolder": "Sync Evo's own folder",
+	"untrack.tag.missing": "not on this device",
+	"untrack.done": {
+		one: "Untracked {count} file: it was removed from the remote. The file on this device is as it was.",
+		other: "Untracked {count} files: they were removed from the remote. The files on this device are as they were.",
+	},
+	"untrack.nothing":
+		"There was nothing to untrack: none of the listed files is still on the remote and matched by a rule. Nothing was changed.",
+	"untrack.remoteMoved":
+		"Nothing was untracked. The remote was changed from another device meanwhile. Untrack again in the settings of Sync Evo.",
+	"untrack.cancelled": "Untracking was stopped. Nothing was removed from the remote.",
+	"untrack.connectionChanged":
+		"Untracking was stopped because the connection was changed. Nothing was removed from the remote.",
+	"untrack.progress.running": "Untracking: removing the files from the remote…",
+	"untrack.progress.stopping": "Untracking: stopping…",
+	"untrack.submodules": {
+		one: "{count} submodule on the remote matches a rule of .gitignore. Sync Evo does not untrack submodules. Untrack it with git on a Mac or another computer.",
+		other: "{count} submodules on the remote match a rule of .gitignore. Sync Evo does not untrack submodules. Untrack them with git on a Mac or another computer.",
+	},
+	"untrack.failed": "Untracking failed. {reason}",
+	"untrack.syncFirst.remoteEmpty":
+		"Nothing was untracked. The remote has no commits. Sync first, then untrack again in the settings of Sync Evo.",
+	"untrack.syncFirst.pullUnfinished":
+		"Nothing was untracked. This device has not pulled everything from the remote yet. Sync until no file is left for later, then untrack again in the settings of Sync Evo.",
+	"untrack.syncFirst.gitignoreUnsettled":
+		"Nothing was untracked. The .gitignore of this vault could not be relied on: an editor could not save it, or an earlier write to it did not finish. Save or close it, sync, then untrack again in the settings of Sync Evo.",
+	"untrack.syncFirst.gitignoreUnreadable":
+		"Nothing was untracked. The .gitignore of this vault cannot be read on this device. The settings of Sync Evo say why. Put that right, then untrack again.",
+	"untrack.syncFirst.noSection":
+		"Nothing was untracked. The .gitignore of this vault has no lines managed by Sync Evo, so the rules that would apply are not in the file. Add the lines in the settings of Sync Evo and sync, then untrack again.",
+	"untrack.syncFirst.sectionBroken":
+		"Nothing was untracked. The two lines that mark the lines Sync Evo manages in .gitignore do not form one pair. Correct the file in the settings of Sync Evo and sync, then untrack again.",
+	"untrack.syncFirst.gitignoreNotSent":
+		"Nothing was untracked. The .gitignore of this device is not the one the remote holds, so the rules are not on the remote yet. Sync until .gitignore has been sent, then untrack again in the settings of Sync Evo.",
+	"untrack.skipped.pullDeclined":
+		"Nothing was untracked, because the pull was cancelled. The rules stay. You can untrack later in the settings of Sync Evo.",
+	"untrack.skipped.pullCancelled":
+		"Nothing was untracked, because the pull was stopped. The rules stay. You can untrack later in the settings of Sync Evo.",
+	"untrack.skipped.pushNotDone":
+		"Nothing was untracked, because the push that sends .gitignore to the remote did not go through. The rules stay. You can untrack later in the settings of Sync Evo.",
 
 	// Why there is no sync state to work with.
 	"state.waiting": "Waiting for the sync state of the previous connection to be removed…",

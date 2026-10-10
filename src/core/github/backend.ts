@@ -28,7 +28,7 @@ import {
 	type StartRequest,
 	type StartResult,
 } from "../backend";
-import { type CommitChange, commitMessage } from "../commit-message";
+import { type CommitChange, commitMessage, untrackMessage } from "../commit-message";
 import { fetchConcurrently } from "../concurrent-fetch";
 import { gitBlobHash } from "../hash";
 import { isPathFromRoot } from "../paths";
@@ -262,7 +262,10 @@ export class GitHubBackend implements Backend {
 	 */
 	async push(request: PushRequest): Promise<PushResult> {
 		const { baseRevision, writes, deletes } = request;
+		const untrack = request.untrack === true;
 		if (writes.length === 0 && deletes.length === 0) return { status: "unchanged" };
+		// Its commit is described as one that only takes files out.
+		if (untrack && writes.length > 0) throw new BackendError("other", "push: an untrack carries no writes");
 		if (baseRevision === null) {
 			// The Git Data API refuses a repository without commits.
 			throw new BackendError("other", "push: a repository without commits cannot be pushed to yet");
@@ -273,7 +276,7 @@ export class GitHubBackend implements Backend {
 
 		const parent = await this.client.getCommit(baseRevision);
 		const tree = new ParentTree(await this.client.getTree(parent.treeSha));
-		const removals = deletes.map((entry) => tree.removalOf(entry));
+		const removals = deletes.map((entry) => tree.removalOf(entry, untrack));
 		const removed = new Set(removals.map((removal) => removal.path));
 		const targets = writes.map((file) => tree.targetOf(file, removed));
 		const named = new Set(removed);
@@ -407,7 +410,12 @@ export class GitHubBackend implements Backend {
 
 		this.throwIfStopped();
 		const revision = await this.client.createCommit({
-			message: commitMessage(request.deviceName ?? "", changes),
+			message: untrack
+				? untrackMessage(
+						request.deviceName ?? "",
+						removals.map((removal) => removal.path),
+					)
+				: commitMessage(request.deviceName ?? "", changes),
 			tree: current,
 			parents: [baseRevision],
 		});
@@ -489,9 +497,14 @@ class ParentTree {
 		for (const item of items) this.items.set(item.path, item);
 	}
 
-	/** The removal of a file that is in the tree as it was listed. Never of a symlink or a submodule. */
-	removalOf(entry: RemoteEntry): TreeChange & { readonly sha: null } {
-		const item = this.fileAt(entry);
+	/**
+	 * The removal of a file that is in the tree as it was listed. Never of a
+	 * submodule, and of a symlink only where the push untracks
+	 * (`PushRequest.untrack`): no device deletes a link by deleting a file,
+	 * since none ever wrote it as one.
+	 */
+	removalOf(entry: RemoteEntry, symlinks = false): TreeChange & { readonly sha: null } {
+		const item = symlinks && entry.kind === "symlink" ? this.symlinkAt(entry) : this.fileAt(entry);
 		return { path: item.path, mode: item.mode, sha: null };
 	}
 
@@ -529,6 +542,14 @@ class ParentTree {
 			swaps = true;
 		}
 		return { path, mode: "100644", swaps };
+	}
+
+	private symlinkAt(entry: RemoteEntry): GitTreeItem {
+		const item = this.items.get(entry.path);
+		if (item === undefined || item.type !== "blob" || item.mode !== SYMLINK_MODE || item.sha !== entry.hash) {
+			throw notAsListed(entry.path, "not the symlink that was listed");
+		}
+		return item;
 	}
 
 	private fileAt(entry: RemoteEntry): GitTreeItem {
