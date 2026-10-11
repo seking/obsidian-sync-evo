@@ -72,6 +72,7 @@ import { untrackedSome, untrackFailureText, untrackStopped, untrackSyncReport } 
 import { exclusionPathsOf } from "./exclusion-paths";
 import { graphViewPause } from "./graph-views";
 import { obsidianHttp } from "./http";
+import { log } from "./log";
 import { confirmPullIn, type PullTarget } from "./pull-confirm";
 import { pullVaultOf } from "./pull-vault";
 import { confirmPushIn } from "./push-confirm";
@@ -119,8 +120,6 @@ const PROGRESS_INTERVAL_MS = 200;
 // this long. It usually ends within it, having shown nothing at all; one
 // that takes longer is then seen to be running, and can be stopped.
 const AUTO_PROGRESS_DELAY_MS = 5000;
-
-const log = (message: string): void => console.info(`Sync Evo: ${message}`);
 
 /**
  * The one place a sync is started from, whichever kind it is: one runs at

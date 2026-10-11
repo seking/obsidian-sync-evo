@@ -71,3 +71,19 @@
 	justify-content: flex-end;
 	margin-top: var(--size-4-2);
 }
+
+/* The last lines of the log (`log.ts`): selectable, wrapped to the width of a phone, and scrolled within the dialog. */
+.sync-evo-log {
+	max-height: 60vh;
+	overflow-y: auto;
+	margin: 0;
+	padding: var(--size-4-2);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-s);
+	font-family: var(--font-monospace);
+	font-size: var(--font-ui-smaller);
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+	user-select: text;
+	-webkit-user-select: text;
+}

@@ -43,6 +43,7 @@ import { EditingWatch } from "./obsidian/editing-watch";
 import { exclusionPathsOf } from "./obsidian/exclusion-paths";
 import type { ExclusionChange, ExclusionLoad } from "./obsidian/exclusion-settings";
 import { obsidianHttp } from "./obsidian/http";
+import { showLog } from "./obsidian/log";
 import { pullVaultOf } from "./obsidian/pull-vault";
 import { type SyncHost, SyncRunner } from "./obsidian/sync-runner";
 import { SettingsStore } from "./obsidian/settings-store";
@@ -136,6 +137,13 @@ export default class SyncEvoPlugin extends Plugin implements SettingsHost, SyncH
 			id: "stop",
 			name: this.t("command.stop"),
 			callback: () => this.syncs.requestStop(),
+		});
+		// Starts no sync: the last lines of the log, for a device whose
+		// console cannot be read.
+		this.addCommand({
+			id: "show-log",
+			name: this.t("command.showLog"),
+			callback: () => showLog(this.app, this.t),
 		});
 
 		// Listened to whether or not automatic sync is on: switched on, it

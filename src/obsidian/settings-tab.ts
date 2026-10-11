@@ -244,17 +244,27 @@ export class SyncEvoSettingTab extends PluginSettingTab {
 			.addToggle((toggle) => {
 				toggle.setValue(stored.onStartup).onChange((onStartup) => change((auto) => ({ ...auto, onStartup })));
 			});
+		// Shows the interval only while its switch is on: left on the screen,
+		// it was read as the time of the switch above.
+		let showIntervalRow = (_shown: boolean): void => {};
 		new Setting(el)
 			.setName(t("settings.autoSync.atInterval.name"))
 			.setDesc(t("settings.autoSync.atInterval.desc"))
 			.addToggle((toggle) => {
-				toggle.setValue(stored.atInterval).onChange((atInterval) => change((auto) => ({ ...auto, atInterval })));
+				toggle.setValue(stored.atInterval).onChange((atInterval) => {
+					change((auto) => ({ ...auto, atInterval }));
+					showIntervalRow(atInterval);
+				});
 			});
 
 		const interval = new Setting(el)
 			.setName(t("settings.autoSync.interval.name"))
 			.setDesc(t("settings.autoSync.interval.desc", { min: MIN_INTERVAL_MINUTES, max: MAX_INTERVAL_MINUTES, sendingMin }));
 		const intervalNote = note(interval);
+		// Not a warning: the number was changed as it should be.
+		const intervalRaised = interval.descEl.createDiv();
+		showIntervalRow = (shown) => interval.settingEl.toggle(shown);
+		showIntervalRow(stored.atInterval);
 		// Puts the interval that is in use into the field: after the switch
 		// below has raised it.
 		let showInterval = (_minutes: number): void => {};
@@ -264,6 +274,7 @@ export class SyncEvoSettingTab extends PluginSettingTab {
 			showInterval = (minutes) => {
 				text.setValue(String(minutes));
 				intervalNote.setText("");
+				intervalRaised.setText("");
 			};
 			// Taken over when the field is left, like the repository: "1" on
 			// the way to "15" is an interval of its own.
@@ -273,6 +284,7 @@ export class SyncEvoSettingTab extends PluginSettingTab {
 				if (minutes === null) {
 					// Nothing is saved, so the interval from before stays in use.
 					const min = minIntervalMinutes(sends);
+					intervalRaised.setText("");
 					intervalNote.setText(t("settings.autoSync.interval.invalid", { min, max: MAX_INTERVAL_MINUTES }));
 					return;
 				}
@@ -288,11 +300,18 @@ export class SyncEvoSettingTab extends PluginSettingTab {
 			.setDesc(t("settings.autoSync.sends.desc", { sendingMin }))
 			.addToggle((toggle) => {
 				toggle.setValue(stored.sendsChanges).onChange((sends) => {
+					const before = this.host.deviceSettings?.autoSync.intervalMinutes;
 					change((auto) => withSendsChanges(auto, sends));
 					// The interval that is in use now, whatever the field held:
 					// one below the bound for sending was raised to it.
 					const now = this.host.deviceSettings?.autoSync.intervalMinutes;
-					if (now !== undefined) showInterval(now);
+					if (now === undefined) return;
+					showInterval(now);
+					// Said where the number changed. While the row is hidden it
+					// is said there all the same, and seen when the row is shown.
+					if (before !== undefined && now > before) {
+						intervalRaised.setText(t("settings.autoSync.interval.raised", { minutes: now }));
+					}
 				});
 			});
 	}

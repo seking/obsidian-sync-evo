@@ -66,6 +66,8 @@ export const ja = completeTranslation(en, {
 		"{min}〜{max} 分で指定します。「自動同期で手元の変更も送る」が入の時は、{sendingMin} 分以上です。",
 	"settings.autoSync.interval.invalid":
 		"{min}〜{max} の整数を、分で入力してください。前の間隔のままになっています。",
+	"settings.autoSync.interval.raised":
+		"「自動同期で手元の変更も送る」を入にしたため、間隔を {minutes} 分に上げました。",
 	"settings.autoSync.sends.name": "自動同期で手元の変更も送る",
 	"settings.autoSync.sends.desc":
 		"切の時、自動同期は受け取るだけです。このデバイスで編集した内容は、手動で同期するまで送信されません。入の時は、このデバイスに変更があるたびにコミットが作られるため、間隔は {sendingMin} 分以上になります。",
@@ -237,6 +239,15 @@ export const ja = completeTranslation(en, {
 	"command.push": "保存先へ送信する（push）",
 	"command.firstFetch": "初回取得（同期の状態を捨ててやり直す）",
 	"command.stop": "同期を中止する",
+	"command.showLog": "最近の動作の記録を見る",
+
+	"log.title": "最近の動作の記録",
+	"log.desc":
+		"Sync Evo が読み込まれてからの記録です。新しい物が下にあります。このデバイスのメモリにだけあり、Obsidian を閉じた時と、Sync Evo を更新した時に消えます。",
+	"log.empty": "まだ記録はありません。",
+	"log.copy": "すべてコピー",
+	"log.copied": "記録をコピーしました。",
+	"log.copyFailed": "コピーできませんでした。記録を選択して、コピーしてください。",
 
 	"sync.alreadyRunning": "同期は、すでに実行中です。",
 	"pull.notRunning": "同期は実行していません。",

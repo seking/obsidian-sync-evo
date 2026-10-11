@@ -75,6 +75,8 @@ export const en = baseCatalog({
 		"From {min} to {max} minutes. At least {sendingMin} while automatic sync also sends changes.",
 	"settings.autoSync.interval.invalid":
 		"Enter a whole number of minutes from {min} to {max}. The previous interval is still in use.",
+	"settings.autoSync.interval.raised":
+		"Raised to {minutes} minutes, because automatic sync now also sends changes.",
 	"settings.autoSync.sends.name": "Also send changes in automatic sync",
 	"settings.autoSync.sends.desc":
 		"When this is off, automatic sync only receives: what you edit on this device is not sent until you sync manually. When it is on, each automatic sync that finds changes on this device makes a commit, so the interval is at least {sendingMin} minutes.",
@@ -261,6 +263,16 @@ export const en = baseCatalog({
 	"command.push": "Push",
 	"command.firstFetch": "First fetch (discard the sync state and start over)",
 	"command.stop": "Stop the sync",
+	"command.showLog": "Show the recent log",
+
+	// The last lines of the log, shown on the device. The lines themselves are not translated.
+	"log.title": "Recent log",
+	"log.desc":
+		"What Sync Evo has done since it was loaded, newest at the bottom. Kept in memory on this device only, and gone when Obsidian is closed or Sync Evo is updated.",
+	"log.empty": "Nothing has been logged yet.",
+	"log.copy": "Copy all",
+	"log.copied": "Copied the log.",
+	"log.copyFailed": "Could not copy. Select the lines by hand and copy them.",
 
 	// A pull: its progress, its outcome, and what the user has to know of it.
 	"sync.alreadyRunning": "A sync is already running.",
