@@ -72,6 +72,12 @@
 	margin-top: var(--size-4-2);
 }
 
+/* What a switch did to another field: seen, but not a warning. */
+.sync-evo-changed {
+	color: var(--text-accent);
+	font-weight: var(--font-semibold);
+}
+
 /* The last lines of the log (`log.ts`): selectable, wrapped to the width of a phone, and scrolled within the dialog. */
 .sync-evo-log {
 	max-height: 60vh;

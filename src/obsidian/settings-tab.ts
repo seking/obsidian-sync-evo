@@ -261,8 +261,9 @@ export class SyncEvoSettingTab extends PluginSettingTab {
 			.setName(t("settings.autoSync.interval.name"))
 			.setDesc(t("settings.autoSync.interval.desc", { min: MIN_INTERVAL_MINUTES, max: MAX_INTERVAL_MINUTES, sendingMin }));
 		const intervalNote = note(interval);
-		// Not a warning: the number was changed as it should be.
-		const intervalRaised = interval.descEl.createDiv();
+		// Not a warning: the number was changed as it should be. But in a
+		// colour of its own, or the change goes unnoticed.
+		const intervalRaised = interval.descEl.createDiv({ cls: "sync-evo-changed" });
 		showIntervalRow = (shown) => interval.settingEl.toggle(shown);
 		showIntervalRow(stored.atInterval);
 		// Puts the interval that is in use into the field: after the switch
