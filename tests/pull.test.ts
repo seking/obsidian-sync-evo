@@ -24,6 +24,7 @@ import { translatorFor } from "../src/core/i18n";
 import { readNotices } from "../src/core/notices";
 import { applyPlan, type Seen, Tally } from "../src/core/pull-apply";
 import { planPull } from "../src/core/pull-plan";
+import { pullAutoReport } from "../src/core/auto-report";
 import { pullReport } from "../src/core/pull-report";
 import { createExclusion } from "../src/core/exclusion";
 import {
@@ -5750,5 +5751,269 @@ describe("a pull that started by itself", () => {
 
 		expect(result.outcome).toBe("completed");
 		expect(h.vault.snapshot()).toEqual({ "a.md": "A2", "b.md": "B" });
+	});
+});
+
+describe("a file that is being typed in, in a pull that started by itself", () => {
+	/** Asked like the app is: per path, right before the file is touched. */
+	const typingIn = (...paths: string[]) => ({ automatic: true, beingEdited: (path: string) => paths.includes(path) }) as const;
+
+	test("is put off before anything is done to it: no save, no copy, nothing in the trash", async () => {
+		const h = await synced({ "a.md": "A", "b.md": "B" });
+		const base = await h.base();
+		// Typed, and not saved; half a sentence of it.
+		h.vault.put("a.md", "A and what I");
+		h.vault.open("a.md", "A and what I am typ");
+		h.backend.commit({ "a.md": "A2", "b.md": "B2" });
+
+		const result = await h.pull(typingIn("a.md"));
+
+		expect(result.outcome).toBe("incomplete");
+		expect(result.deferred).toEqual([{ path: "a.md", reason: "being-edited" }]);
+		expect(result.conflicts).toEqual([]);
+		expect(result.trashed).toEqual([]);
+		expect(h.copies()).toEqual([]);
+		expect(h.vault.trashed).toEqual([]);
+		// The other file was pulled; this one was not even asked to save.
+		expect(h.vault.log).toEqual(["write b.md"]);
+		expect(h.vault.snapshot()).toEqual({ "a.md": "A and what I", "b.md": "B2" });
+		expect(await h.records()).toEqual(hashes({ "a.md": "A", "b.md": "B2" }));
+		expect(await h.base()).toBe(base);
+	});
+
+	test("however long the typing goes on, no copy is made: one per sync would fill the trash", async () => {
+		const h = await synced({ "a.md": "A" });
+		h.vault.put("a.md", "typing");
+		h.backend.commit({ "a.md": "A2" });
+
+		for (let sync = 0; sync < 10; sync++) {
+			expect((await h.pull(typingIn("a.md"))).outcome).toBe("incomplete");
+		}
+
+		expect(h.copies()).toEqual([]);
+		expect(h.vault.trashed).toEqual([]);
+		expect(h.vault.log).toEqual([]);
+	});
+
+	test("once the typing has stopped, the next sync makes the conflict, once", async () => {
+		const h = await synced({ "a.md": "A" });
+		h.vault.put("a.md", "typed");
+		h.vault.open("a.md", "typed to the end");
+		const head = h.backend.commit({ "a.md": "A2" });
+		await h.pull(typingIn("a.md"));
+
+		const result = await h.pull(typingIn());
+
+		const copy = h.copyName("a.md");
+		expect(result.outcome).toBe("completed");
+		expect(result.conflicts).toEqual([{ path: "a.md", copyPath: copy, cause: "conflict" }]);
+		expect(h.vault.text("a.md")).toBe("A2");
+		expect(h.vault.text(copy)).toBe("typed to the end");
+		expect(h.copies()).toEqual([copy]);
+		expect(await h.base()).toBe(head);
+	});
+
+	test("a note that is open and not typed in is updated in place, as before", async () => {
+		const h = await synced({ "a.md": "A", "b.md": "B" });
+		h.vault.open("a.md");
+		h.backend.commit({ "a.md": "A2" });
+
+		// The typing is in another note.
+		const result = await h.pull(typingIn("b.md"));
+
+		expect(result).toMatchObject({ outcome: "completed", deferred: [], conflicts: [] });
+		expect(h.vault.text("a.md")).toBe("A2");
+	});
+
+	test("it is not deleted, though the remote deleted it", async () => {
+		const h = await synced({ "a.md": "A", "b.md": "B" });
+		h.backend.commit({ "a.md": null });
+
+		const result = await h.pull(typingIn("a.md"));
+
+		expect(result.deferred).toEqual([{ path: "a.md", reason: "being-edited" }]);
+		expect(h.vault.text("a.md")).toBe("A");
+		expect(h.vault.log).toEqual([]);
+		expect((await h.pull(typingIn())).counts.deleted).toBe(1);
+	});
+
+	test("it is not renamed, though the remote changed the case of its name", async () => {
+		const h = await synced({ "notes/a.md": "A" });
+		h.backend.commit({ "notes/a.md": null, "notes/A.md": "A" });
+
+		const result = await h.pull(typingIn("notes/a.md"));
+
+		expect(result.outcome).toBe("incomplete");
+		expect(result.deferred.map((file) => file.reason)).toContain("being-edited");
+		expect(h.vault.paths()).toEqual(["notes/a.md"]);
+		expect(h.vault.log).toEqual([]);
+	});
+
+	test("a settings file with a conflict is not replaced, and nothing goes to the trash", async () => {
+		const h = await synced({ ".obsidian/snippets/x.css": "a{}" });
+		h.vault.put(".obsidian/snippets/x.css", "a{color:red}");
+		h.backend.commit({ ".obsidian/snippets/x.css": "b{}" });
+
+		const result = await h.pull(typingIn(".obsidian/snippets/x.css"));
+
+		expect(result).toMatchObject({ outcome: "incomplete", replacedSettings: [], trashed: [] });
+		expect(h.vault.text(".obsidian/snippets/x.css")).toBe("a{color:red}");
+		expect(h.vault.trashed).toEqual([]);
+	});
+
+	test("a file a pull that stopped left half written is not moved away under the typing", async () => {
+		const h = await synced({ "a.md": "A" });
+		h.backend.commit({ "a.md": "new" });
+		await h.store.putMarker(makeMarker("a.md", blobHash("A"), blobHash("new"), false));
+		h.vault.put("a.md", "ne and typed since");
+
+		const result = await h.pull(typingIn("a.md"));
+
+		expect(result).toMatchObject({ outcome: "incomplete", halfWritten: [] });
+		expect(result.deferred).toEqual([{ path: "a.md", reason: "being-edited" }]);
+		expect(h.vault.trashed).toEqual([]);
+		expect(await h.store.readMarkers()).toHaveLength(1);
+	});
+
+	test.each([
+		["a vault that tells the cases apart", true],
+		["a vault that does not tell the cases apart", false],
+	])("a folder is not renamed under it, as a whole or file by file: all of it waits (%s)", async (_name, caseSensitive) => {
+		const before = { "notes/x.md": "X", "notes/y.md": "Y", "notes/z.md": "Z", "c.md": "C" };
+		const h = await synced(before, { caseSensitive });
+		const head = h.backend.commit({
+			"notes/x.md": null,
+			"notes/y.md": null,
+			"notes/z.md": null,
+			"Notes/x.md": "X2",
+			"Notes/y.md": "Y",
+			"Notes/z.md": "Z2",
+			"c.md": "C2",
+		});
+		h.vault.put("notes/x.md", "X and typing");
+
+		const result = await h.pull(typingIn("notes/x.md"));
+
+		expect(result.outcome).toBe("incomplete");
+		expect(result.deferred.filter((file) => file.reason === "being-edited")).toEqual([
+			{ path: "notes/x.md", reason: "being-edited" },
+		]);
+		expect(new Set(result.deferred.map((file) => file.reason))).toEqual(new Set(["being-edited", "depends-on-deferred"]));
+		// Nothing of it is told, and nothing was refused.
+		expect(result.unwritable).toEqual([]);
+		expect(result.notices).toEqual([]);
+		expect(pullAutoReport(translatorFor("en"), result, reportOptions)).toEqual({
+			happened: [],
+			standing: [],
+			cause: null,
+			end: "neither",
+		});
+		// Neither the name of the folder above the file nor its content, and
+		// the rest of the pull went on.
+		expect(h.vault.log).toEqual(["write c.md"]);
+		expect(h.vault.snapshot()).toEqual({ "notes/x.md": "X and typing", "notes/y.md": "Y", "notes/z.md": "Z", "c.md": "C2" });
+		expect(h.vault.folderPaths()).toEqual(["notes"]);
+		// Every record is still of the file that is at its path.
+		expect(await h.records()).toEqual(hashes({ "notes/x.md": "X", "notes/y.md": "Y", "notes/z.md": "Z", "c.md": "C2" }));
+		expect(h.copies()).toEqual([]);
+		expect(h.vault.trashed).toEqual([]);
+
+		// The typing has stopped: the folder is renamed in one call, and the
+		// file gets its conflict.
+		const next = await h.pull(typingIn());
+		const copy = h.copyName("Notes/x.md");
+		expect(next.outcome).toBe("completed");
+		expect(next.conflicts).toEqual([{ path: "Notes/x.md", copyPath: copy, cause: "conflict" }]);
+		expect(h.vault.log).toContain("rename notes -> Notes");
+		expect(h.vault.snapshot()).toEqual({
+			"Notes/x.md": "X2",
+			[copy]: "X and typing",
+			"Notes/y.md": "Y",
+			"Notes/z.md": "Z2",
+			"c.md": "C2",
+		});
+		expect(await h.records()).toEqual(hashes({ "Notes/x.md": "X2", "Notes/y.md": "Y", "Notes/z.md": "Z2", "c.md": "C2" }));
+		expect(await h.base()).toBe(head);
+	});
+
+	test("a folder with no file that is being typed in is renamed as a whole, as before", async () => {
+		const h = await synced({ "notes/x.md": "X", "other/a.md": "A" }, { caseSensitive: true });
+		h.backend.commit({ "notes/x.md": null, "Notes/x.md": "X" });
+
+		const result = await h.pull(typingIn("other/a.md"));
+
+		expect(result.outcome).toBe("completed");
+		expect(h.vault.log).toEqual(["rename notes -> Notes"]);
+	});
+
+	test("typing that begins after the file was looked at, right before the write: nothing is written, and no marker is left", async () => {
+		const h = await synced({ "a.md": "A", "b.md": "B" });
+		h.backend.commit({ "a.md": "A2", "b.md": "B2" });
+		let applying = false;
+		let typing = false;
+		h.vault.before = (op, path) => {
+			// The look at the file, in the step that writes it.
+			if (applying && op === "stat" && path === "a.md") typing = true;
+		};
+
+		const result = await h.pull({
+			automatic: true,
+			beingEdited: (path) => typing && path === "a.md",
+			onProgress: (event) => {
+				if (event.phase === "applying") applying = true;
+			},
+		});
+
+		expect(typing).toBe(true);
+		expect(result.outcome).toBe("incomplete");
+		expect(result.deferred).toEqual([{ path: "a.md", reason: "being-edited" }]);
+		expect(h.vault.snapshot()).toEqual({ "a.md": "A", "b.md": "B2" });
+		expect(await h.store.readMarkers()).toEqual([]);
+		expect(await h.records()).toEqual(hashes({ "a.md": "A", "b.md": "B2" }));
+		typing = false;
+		expect((await h.pull({ automatic: true, beingEdited: () => false })).outcome).toBe("completed");
+		expect(h.vault.text("a.md")).toBe("A2");
+	});
+
+	test("typing that begins while the copy is written: the copy is taken away again, and the file is left", async () => {
+		const h = await synced({ "a.md": "A" });
+		h.vault.put("a.md", "mine");
+		h.backend.commit({ "a.md": "A2" });
+		let typing = false;
+		h.vault.before = (op) => {
+			if (op === "write") typing = true;
+		};
+
+		const result = await h.pull({ automatic: true, beingEdited: () => typing });
+
+		expect(result.deferred).toEqual([{ path: "a.md", reason: "being-edited" }]);
+		expect(result.conflicts).toEqual([]);
+		expect(h.vault.text("a.md")).toBe("mine");
+		expect(h.copies()).toEqual([]);
+	});
+
+	test("it is neither told nor a failure, and what was told before stays told", async () => {
+		const h = await synced({ "a.md": "A" });
+		h.vault.put("a.md", "typing");
+		h.backend.commit({ "a.md": "A2" });
+
+		const result = await h.pull(typingIn("a.md"));
+
+		const t = translatorFor("en");
+		expect(pullAutoReport(t, result, reportOptions)).toEqual({ happened: [], standing: [], cause: null, end: "neither" });
+		expect(pullReport(t, result, reportOptions).details).toEqual([]);
+	});
+
+	test("a pull the user starts is not held back: it saves the editor and makes the conflict", async () => {
+		const h = await synced({ "a.md": "A" });
+		h.vault.put("a.md", "typed");
+		h.vault.open("a.md", "typed and saved by the pull");
+		h.backend.commit({ "a.md": "A2" });
+
+		const result = await h.pull();
+
+		expect(result.outcome).toBe("completed");
+		expect(result.conflicts).toHaveLength(1);
+		expect(h.vault.text(h.copyName("a.md"))).toBe("typed and saved by the pull");
 	});
 });

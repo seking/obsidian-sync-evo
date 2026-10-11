@@ -51,6 +51,13 @@ export interface LocalReadDeps {
 	 */
 	readonly saveEditors?: boolean;
 	/**
+	 * Only with `saveEditors`, for a push that started by itself: whether
+	 * the file at a path is being typed in right now (`editing.ts`). Such a
+	 * file is not asked to save and not looked at; it is listed without a
+	 * hash (`beingEdited`), for the caller to keep out of the plan.
+	 */
+	readonly beingEdited?: (path: string) => boolean;
+	/**
 	 * Only for the light check (`light-scan.ts`): what the app's index says
 	 * of each file it lists, by key. A file whose time and size there are
 	 * its record's is taken as unchanged without asking the disk, which is
@@ -78,6 +85,12 @@ export interface LocalRead {
 	 * without a hash, for the caller to keep out of the plan (`PlanInput.held`).
 	 */
 	readonly unsaved: string[];
+	/**
+	 * Only with `LocalReadDeps.beingEdited`: the files that are being typed
+	 * in right now. Listed in `entries` without a hash, like the unsaved
+	 * ones. What their editors hold was not written to disk for this.
+	 */
+	readonly beingEdited: string[];
 	/**
 	 * The files that are there and could not be read. Each is listed in
 	 * `entries` without a hash, for the caller to keep out of the plan
@@ -123,6 +136,7 @@ export async function readLocal(
 	const seen = new Map<string, Seen>();
 	const lfsPointers: string[] = [];
 	const unsaved: string[] = [];
+	const beingEdited: string[] = [];
 	const unreadable: string[] = [];
 	const placeholders: string[] = [];
 	const total = scan.paths.length;
@@ -155,6 +169,11 @@ export async function readLocal(
 		// Whether an editor wrote the file just now. The index may not have
 		// heard of that write yet, so it is not asked about this file.
 		let justSaved = false;
+		if (deps.saveEditors === true && deps.beingEdited?.(path) === true) {
+			entries.push({ path, hash: "" });
+			beingEdited.push(path);
+			continue;
+		}
 		if (deps.saveEditors === true) {
 			const result = await saveResult(deps.vault, path);
 			if (result === "failed") {
@@ -235,7 +254,7 @@ export async function readLocal(
 		deps.onProgress(index + 1, total);
 	}
 	await batcher.flush();
-	return { entries, seen, lfsPointers, unsaved, unreadable, placeholders, statted, hashed };
+	return { entries, seen, lfsPointers, unsaved, beingEdited, unreadable, placeholders, statted, hashed };
 }
 
 /** Whether what the editors hold of the file is on disk: saved, or not open at all. */

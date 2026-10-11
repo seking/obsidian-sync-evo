@@ -136,6 +136,8 @@ export interface ApplyEnv {
 	readonly tally: Tally;
 	/** Awaited before each write of a file. */
 	readonly beforeWrite: () => Promise<void>;
+	/** `PullDeps.beingEdited`. */
+	readonly beingEdited?: (path: string) => boolean;
 	readonly onStep?: (done: number, total: number) => void;
 	/** The name of the configuration folder, where no copy of a conflict is made. */
 	readonly configDir: string;
@@ -178,6 +180,12 @@ class Applier {
 	private readonly renamedFolders: FolderRename[] = [];
 	/** New spellings of folders whose rename could not be looked at: a listing failed. */
 	private readonly unseenFolders: string[] = [];
+	/**
+	 * The folders that were not renamed because a file in them is being
+	 * typed in (`applyFolderRename`), by their new names. Their files are
+	 * not renamed either: the whole folder waits for the next sync.
+	 */
+	private readonly editedFolders: string[] = [];
 	/** Keys whose rename did not happen. The write that comes after is not made. */
 	private readonly held = new Map<string, "deferred" | "unwritable">();
 	private readonly listings = new Map<string, ReadonlyMap<string, ListedName>>();
@@ -364,12 +372,29 @@ class Applier {
 		}
 	}
 
-	private async save(path: string): Promise<boolean> {
-		try {
-			return (await this.vault.saveOpenEditors(path)) !== "failed";
-		} catch {
+	/**
+	 * Whether the file at `path` may be looked at and changed now: nobody
+	 * is typing in it, and what its editors hold is on disk. Asked before
+	 * anything is done to a file. Otherwise the file is put off, with the
+	 * reason, and nothing was done to it.
+	 *
+	 * A file that is being typed in is not even asked to save: on a phone
+	 * the composition of an input method is on the screen and not in the
+	 * note, and a save in the middle of it is one more thing done to the
+	 * editor under the user's fingers.
+	 */
+	private async saved(path: string): Promise<boolean> {
+		if (this.env.beingEdited?.(path) === true) {
+			this.defer(path, "being-edited");
 			return false;
 		}
+		try {
+			if ((await this.vault.saveOpenEditors(path)) !== "failed") return true;
+		} catch {
+			// As when the editor says it could not.
+		}
+		this.defer(path, "save-failed");
+		return false;
 	}
 
 	/**
@@ -412,8 +437,7 @@ class Applier {
 	 * put off.
 	 */
 	private async look(path: string, key: string): Promise<Seen | "folder" | null | PutOff> {
-		if (!(await this.save(path))) {
-			this.defer(path, "save-failed");
+		if (!(await this.saved(path))) {
 			return PUT_OFF;
 		}
 		try {
@@ -566,8 +590,7 @@ class Applier {
 
 	private async applyAside(entry: PullAside): Promise<void> {
 		const path = entry.local.path;
-		if (!(await this.save(path))) {
-			this.defer(path, "save-failed");
+		if (!(await this.saved(path))) {
 			return;
 		}
 		// Whatever the file holds by now goes along: a rename loses nothing.
@@ -606,6 +629,15 @@ class Applier {
 			return;
 		}
 		if (!hasOld || hasNew !== null) return;
+		// A file in the folder is being typed in. The folder is not renamed
+		// under it, and its other files are not renamed one by one either:
+		// where the disk does not tell the cases apart, a file cannot get
+		// the folder's new spelling by itself, and each would be told as a
+		// path the vault refused. All of the folder waits for the next sync.
+		if (this.editedBelow(entry.from)) {
+			this.editedFolders.push(entry.to);
+			return;
+		}
 		// When the vault refuses, or accepts and does nothing, the files are
 		// renamed one by one instead; each of those steps looks where its
 		// file is.
@@ -617,6 +649,17 @@ class Applier {
 		}
 		// Both there: something appeared under the new name since the scan.
 		// Nothing is renamed over it, and the files follow one by one.
+	}
+
+	/** Whether a file the scan found below `folder` is being typed in right now. Without the cases, like the question. */
+	private editedBelow(folder: string): boolean {
+		const { beingEdited } = this.env;
+		if (beingEdited === undefined) return false;
+		const inside = `${foldedKey(folder)}/`;
+		for (const path of this.env.localPaths) {
+			if (foldedKey(path).startsWith(inside) && beingEdited(this.current(path))) return true;
+		}
+		return false;
 	}
 
 	private async applyRename(rename: PullRename): Promise<void> {
@@ -666,6 +709,12 @@ class Applier {
 		scannedKey: string,
 		rename: PullRename & { readonly step: "rename" },
 	): Promise<Seen | undefined | "deferred" | "unwritable"> {
+		if (this.editedFolders.some((folder) => rename.to.startsWith(`${folder}/`))) {
+			// The file that is typed in, and the ones that wait with it.
+			const typing = this.env.beingEdited?.(from) === true;
+			this.defer(rename.from.path, typing ? "being-edited" : "depends-on-deferred");
+			return "deferred";
+		}
 		try {
 			if (this.unseenFolders.some((folder) => rename.to.startsWith(`${folder}/`))) {
 				throw new Error("the folder could not be listed");
@@ -717,8 +766,7 @@ class Applier {
 			// Another file has the name, on a device that tells the cases
 			// apart. It moves to a copy first, by a rename; renaming over it
 			// would fail, and must never succeed.
-			if (!(await this.save(to))) {
-				this.defer(to, "save-failed");
+			if (!(await this.saved(to))) {
 				return "deferred";
 			}
 			if (!(await this.moveAside(to, key, to, "name-taken", to))) return "unwritable";
@@ -768,8 +816,7 @@ class Applier {
 	}
 
 	private async oldAside(from: string, scannedKey: string, to: string): Promise<"done" | "deferred" | "unwritable"> {
-		if (!(await this.save(from))) {
-			this.defer(from, "save-failed");
+		if (!(await this.saved(from))) {
 			return "deferred";
 		}
 		try {
@@ -793,8 +840,7 @@ class Applier {
 			this.defer(from, "unreadable");
 			return;
 		}
-		if (!(await this.save(from))) {
-			this.defer(from, "save-failed");
+		if (!(await this.saved(from))) {
 			return;
 		}
 		// A stray is on no remote, so there is no path of the remote to tell
@@ -981,6 +1027,14 @@ class Applier {
 		const key = pathKey(path);
 		await this.store.putMarker(makeMarker(path, before, remote.hash, false));
 		await this.env.beforeWrite();
+		// Once more, right before the write: the typing can have begun since
+		// the file was looked at, while the content was fetched or views were
+		// closed. Nothing was begun; the marker goes, as below.
+		if (this.env.beingEdited?.(path) === true) {
+			this.defer(path, "being-edited");
+			await this.store.deleteMarker(key);
+			return false;
+		}
 		if (lastLook !== undefined && !(await lastLook())) {
 			// Nothing was begun, whatever is at the path by now. With the
 			// marker left, a resume would take that for half a write.
@@ -1110,6 +1164,13 @@ class Applier {
 		}
 
 		const written = await this.writeRemote(path, remote, content, gone ? null : mine.hash);
+		// The typing began at the last moment (`writeRemote`). The file is
+		// as it was and will be other by the next sync, which would not
+		// know this copy for its own and would make another.
+		if (!written && this.env.beingEdited?.(path) === true) {
+			await this.withdrawCopy(copy, ours);
+			return;
+		}
 		// The conflict is over, or given up: either way no resume is to
 		// take the copy for the first half of one that is under way.
 		await this.store.deleteMarker(pathKey(copy));
@@ -1184,8 +1245,7 @@ class Applier {
 		path: string,
 		key: string,
 	): Promise<(Seen & { readonly content: Uint8Array }) | null | PutOff> {
-		if (!(await this.save(path))) {
-			this.defer(path, "save-failed");
+		if (!(await this.saved(path))) {
 			return PUT_OFF;
 		}
 		try {

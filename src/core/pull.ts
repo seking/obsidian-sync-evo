@@ -345,6 +345,12 @@ class PullRun {
 		for (const marker of ordered) {
 			if (this.aborted()) return "stopped";
 			const { key, path } = marker;
+			// Typed in right now, in a pull that started by itself: left as
+			// it is, marker and all, like every file such a pull would touch.
+			if (this.deps.beingEdited?.(path) === true) {
+				this.hold(marker, "being-edited");
+				continue;
+			}
 			const there = await this.contentAt(path);
 			if (there === "save-failed" || there === "unreadable") {
 				this.hold(marker, there);
@@ -1063,6 +1069,7 @@ class PullRun {
 			localPaths,
 			tally: this.tally,
 			beforeWrite: () => this.beforeWrite(),
+			...(deps.beingEdited === undefined ? {} : { beingEdited: deps.beingEdited }),
 			onStep: (done, total) => {
 				this.applied = { done, total };
 				this.progress("applying", done, total);

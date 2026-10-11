@@ -75,9 +75,11 @@ function wakeLock() {
 	return lock;
 }
 
-function setup(over: Partial<DeviceSettings> = {}) {
+function setup(over: Partial<DeviceSettings> = {}, files: Record<string, string> = {}) {
 	const store = new MemoryStateStore();
 	const state = { opens: 0, closed: 0 };
+	/** How often a sync asked where the user types. */
+	const editing = { asked: 0 };
 	const settings: DeviceSettings = {
 		backend: "github",
 		repository: "octo/notes",
@@ -95,8 +97,16 @@ function setup(over: Partial<DeviceSettings> = {}) {
 				// A vault with nothing but its configuration folder, as far
 				// as a sync that reaches it asks.
 				adapter: {
-					stat: async (path: string) => (path === ".obsidian" ? { type: "folder", mtime: 0, size: 0 } : null),
-					list: async (folder: string) => ({ files: [], folders: folder === "/" ? [".obsidian"] : [] }),
+					stat: async (path: string) => {
+						if (path === ".obsidian") return { type: "folder", mtime: 0, size: 0 };
+						const content = files[path];
+						return content === undefined ? null : { type: "file", mtime: 1, size: content.length };
+					},
+					list: async (folder: string) =>
+						folder === "/" ? { files: Object.keys(files), folders: [".obsidian"] } : { files: [], folders: [] },
+					readBinary: async (path: string) => new TextEncoder().encode(files[path] ?? "").buffer,
+					writeBinary: async () => {},
+					mkdir: async () => {},
 				},
 				getFiles: () => [],
 				getAbstractFileByPath: () => null,
@@ -117,9 +127,15 @@ function setup(over: Partial<DeviceSettings> = {}) {
 			},
 		},
 		readToken: (name: string) => tokens[name] ?? null,
+		editing: {
+			facts: () => {
+				editing.asked += 1;
+				return [];
+			},
+		},
 	};
 	const runner = new SyncRunner(host as unknown as SyncHost);
-	return { runner, store, state, tokens, host };
+	return { runner, store, state, tokens, host, editing };
 }
 
 /** A request that does not answer until the test lets it fail: a sync that is running. */
@@ -421,6 +437,46 @@ describe("a sync the user starts while one that started by itself runs", () => {
 
 		expect(app.notices).toContain("A sync is already running.");
 		expect(app.requests).toBe(1);
+	});
+});
+
+describe("where the user types", () => {
+	const sending = { autoSync: { ...DEFAULT_AUTO_SYNC, atInterval: true, sendsChanges: true } };
+	const files = { "a.md": "A" };
+
+	test("is asked by a sync that started by itself, for the file it is about to look at", async () => {
+		const { runner, editing } = setup(sending, files);
+		emptyRemote();
+
+		await runner.runAuto("full");
+
+		expect(editing.asked).toBeGreaterThan(0);
+		// It got as far as the question before the first push, which it leaves.
+		expect(app.notices).toEqual([expect.stringContaining("The first push from this device needs your confirmation.")]);
+	});
+
+	test.each(["sync", "pull", "push"] as const)("is not asked by a %s the user starts", async (mode) => {
+		const { runner, editing } = setup(sending, files);
+		emptyRemote();
+
+		await runner.run(mode);
+
+		expect(app.requests).toBeGreaterThan(0);
+		expect(editing.asked).toBe(0);
+	});
+
+	test("nor by one the user starts in the place of an automatic one", async () => {
+		const { runner, editing } = setup(sending, files);
+		heldRequest();
+		const automatic = runner.runAuto("full");
+		await underWay();
+
+		const manual = runner.run("push");
+		emptyRemote();
+		await Promise.all([automatic, manual]);
+
+		expect(app.requests).toBeGreaterThan(1);
+		expect(editing.asked).toBe(0);
 	});
 });
 

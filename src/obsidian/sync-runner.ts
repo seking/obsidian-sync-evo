@@ -40,6 +40,7 @@ import {
 } from "../core/auto-sync";
 import { BackendError } from "../core/backend";
 import { connectionCheckText, prepareCheck } from "../core/connection-check";
+import { type EditingFact, isBeingEdited } from "../core/editing";
 import { type FetchLimitState, FetchLimitWatch, NO_FETCH_LIMIT, sameFetchLimit } from "../core/fetch-quota";
 import { type GitignoreEdit, GitignoreGate } from "../core/gitignore-gate";
 import { GitHubBackend } from "../core/github/backend";
@@ -87,6 +88,8 @@ export interface SyncHost {
 	readonly syncState: SyncState;
 	/** The token saved under a name, or `null`. */
 	readToken(secretName: string): string | null;
+	/** What was seen of where the user types (`editing-watch.ts`). Asked by a sync that started by itself. */
+	readonly editing: { facts(): readonly EditingFact[] };
 }
 
 /**
@@ -266,6 +269,8 @@ export class SyncRunner {
 	 * - A request limit is not waited out: the sync fails, and a later one
 	 *   goes on from there.
 	 * - What stands in its way is told once per cause (`auto-report.ts`).
+	 * - A file the user is typing in right now is left as it is, by the pull
+	 *   and by the push, and taken up by a later sync (`core/editing.ts`).
 	 *
 	 * `check`: how the vault is looked at (`AutoCheck`).
 	 */
@@ -417,6 +422,10 @@ export class SyncRunner {
 			await this.rememberStart(opened.store);
 
 			const yieldControl = (): Promise<void> => timerSleep(0);
+			// Only a sync that started by itself keeps away from a file that
+			// is being typed in. Starting one by hand ends the typing.
+			const beingEdited =
+				auto === null ? {} : { beingEdited: (path: string) => isBeingEdited(host.editing.facts(), path, Date.now()) };
 			const client: GitHubClient = new GitHubClient({
 				...prepared.target,
 				http: obsidianHttp,
@@ -486,6 +495,7 @@ export class SyncRunner {
 						}
 					: {}),
 				automatic: auto !== null,
+				...beingEdited,
 				// At an interval the vault is not walked.
 				...(auto === "light" ? { index: vaultIndexOf(host.app) } : {}),
 				beginBulkWrite: graphViewPause(host.app),
@@ -545,6 +555,7 @@ export class SyncRunner {
 				// sent is the same; the next push the user starts adds it,
 				// and tells of it.
 				...(auto === null ? {} : { addSection: false }),
+				...beingEdited,
 				onProgress: (progress) => {
 					this.debt.syncReached(check, progress.phase);
 					this.showPushProgress(progress);

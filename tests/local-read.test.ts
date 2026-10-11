@@ -269,3 +269,42 @@ describe("with the index of a light check", () => {
 		expect(local.entries).toEqual([{ path: "a.md", hash: "" }]);
 	});
 });
+
+describe("a file that is being typed in, for a push that started by itself", () => {
+	test("is neither asked to save nor looked at, and is listed without a hash", async () => {
+		const s = await setup({ "a.md": "A", "b.md": "B" });
+		s.vault.open("a.md", "typed");
+		const scan: ScanResult = {
+			paths: ["a.md", "b.md"].map((path) => ({ path, key: path, state: "present" })),
+			rootHasGit: false,
+		};
+
+		const local = await readLocal(
+			{
+				vault: s.vault,
+				backend: new MemoryBackend(),
+				store: s.store,
+				now: () => START,
+				startedAt: START,
+				sizeLimit: 1000,
+				held: new Set(),
+				aborted: () => false,
+				onProgress: () => {},
+				saveEditors: true,
+				beingEdited: (path) => path === "a.md",
+			},
+			scan,
+			await s.store.readRecords(),
+			NO_LISTING,
+		);
+
+		expect(local?.beingEdited).toEqual(["a.md"]);
+		expect(local?.unsaved).toEqual([]);
+		expect(local?.entries).toEqual([
+			{ path: "a.md", hash: "" },
+			{ path: "b.md", hash: blobHash("B"), size: 1 },
+		]);
+		expect(s.ops).toEqual(["save b.md", "stat b.md"]);
+		expect(s.vault.text("a.md")).toBe("A");
+	});
+});

@@ -15,7 +15,14 @@ import { conflictCopyPath } from "../src/core/conflict-name";
 import { createExclusion } from "../src/core/exclusion";
 import { foldedKey } from "../src/core/paths";
 import type { LocalEntry, SyncRecord } from "../src/core/plan";
-import { needsPushConfirmation, type PushPlan, planPush, remoteSpelling } from "../src/core/push-plan";
+import {
+	holdsDeletions,
+	needsPushConfirmation,
+	type PushPlan,
+	planPush,
+	remoteSpelling,
+	withoutDeletions,
+} from "../src/core/push-plan";
 import { blobHash } from "./support/memory-backend";
 
 const ownFolder = ".obsidian/plugins/sync-evo";
@@ -365,5 +372,47 @@ describe("what counts as a deletion", () => {
 		});
 		expect(made.deletes).toEqual([]);
 		expect(made.countedDeletions).toEqual([]);
+	});
+});
+
+describe("the deletions that wait for a new file that is being typed in", () => {
+	const known = (paths: readonly string[]) => (path: string): boolean => paths.includes(path);
+
+	test("wait when a file that is held back for it is new", () => {
+		expect(holdsDeletions(["new.md"], known(["old.md"]))).toBe(true);
+		expect(holdsDeletions(["a.md", "new.md"], known(["a.md"]))).toBe(true);
+	});
+
+	test("do not when every such file is known, or there is none", () => {
+		expect(holdsDeletions(["a.md"], known(["a.md", "old.md"]))).toBe(false);
+		expect(holdsDeletions([], known([]))).toBe(false);
+	});
+
+	test("a plan without them sends what it sent, deletes nothing, and counts no deletion", () => {
+		const exclusion = createExclusion({ configDir: ".obsidian", pluginDir: ".obsidian/plugins/sync-evo", gitignore: null });
+		const hash = "a".repeat(40);
+		const plan = planPush({
+			remote: [
+				{ path: "old.md", kind: "file", hash },
+				{ path: "b.md", kind: "file", hash },
+			],
+			local: [{ path: "b.md", hash: "b".repeat(40), size: 1 }],
+			records: [
+				{ path: "old.md", kind: "file", hash },
+				{ path: "b.md", kind: "file", hash },
+			],
+			exclusion,
+			sizeLimit: 1000,
+		});
+		expect(plan.deletes.map((entry) => entry.remote.path)).toEqual(["old.md"]);
+
+		const waiting = withoutDeletions(plan);
+
+		expect(waiting.deletes).toEqual([]);
+		expect(waiting.countedDeletions).toEqual([]);
+		expect(waiting.sends).toEqual(plan.sends);
+		expect(waiting.recordCount).toBe(plan.recordCount);
+		// A plan that deletes nothing is the plan it was.
+		expect(withoutDeletions(waiting)).toBe(waiting);
 	});
 });

@@ -74,7 +74,15 @@ import {
 	settlePendingPush,
 } from "./push-pending";
 import { clearPushFailure, markPushFailure, readPushFailure, restorePushFailure } from "./push-failure";
-import { type HeldRename, needsPushConfirmation, type PushPlan, type PushRefusal, planPush } from "./push-plan";
+import {
+	type HeldRename,
+	holdsDeletions,
+	needsPushConfirmation,
+	type PushPlan,
+	type PushRefusal,
+	planPush,
+	withoutDeletions,
+} from "./push-plan";
 import { type ScanResult, scanVault } from "./scan";
 import {
 	currentListing,
@@ -184,6 +192,12 @@ export interface PushDeps {
 	 */
 	readonly hold?: readonly string[];
 	/**
+	 * Those of `hold` that nothing is told of: what the pull put off
+	 * because it is being typed in (`pathsToHoldQuietly`). Nothing is wrong
+	 * with such a file, whether or not the typing has stopped by now.
+	 */
+	readonly holdQuietly?: readonly string[];
+	/**
 	 * Whether the default section is added to a root `.gitignore` that has
 	 * none, before the vault is looked at. Left out, it is. The app never
 	 * says no; it is there for a caller that is about something else.
@@ -195,6 +209,15 @@ export interface PushDeps {
 	 * not found, and not sent, until a push that scans.
 	 */
 	readonly index?: VaultIndex;
+	/**
+	 * Whether the file at a path is being typed in right now (`editing.ts`).
+	 * Set for a push that started by itself, and only for that: such a file
+	 * is left alone on every side for this push. Its editor is not asked to
+	 * save, so that half a sentence, or text an input method has not
+	 * confirmed, is not committed; it is not sent, not deleted, and not
+	 * told. The next push takes it, once the typing has stopped.
+	 */
+	readonly beingEdited?: (path: string) => boolean;
 	/**
 	 * Called once the section is written, with what the result will carry.
 	 * For a push that then rejects: the file was changed all the same, and
@@ -543,6 +566,10 @@ class PushRun {
 			if (original !== null) this.held.add(foldedKey(original));
 		}
 		for (const path of deps.hold ?? []) this.held.add(foldedKey(path));
+		for (const path of deps.holdQuietly ?? []) {
+			this.held.add(foldedKey(path));
+			this.quiet.add(foldedKey(path));
+		}
 
 		// The rules are the ones this device has: a push alone fetches
 		// nothing, and after a pull they are the remote's. They decide what
@@ -575,6 +602,7 @@ class PushRun {
 				aborted: () => this.aborted(),
 				onProgress: (done, total) => this.progress("hashing", done, total),
 				saveEditors: true,
+				...(deps.beingEdited === undefined ? {} : { beingEdited: deps.beingEdited }),
 				...(deps.yieldControl === undefined ? {} : { yieldControl: deps.yieldControl }),
 				...(light === null ? {} : { indexed: light.indexed }),
 			},
@@ -586,6 +614,11 @@ class PushRun {
 		if (light !== null) deps.log?.(`push: ${lightCheckLine(light, local, deps.now() - began)}`);
 		// On disk it may be behind what the user sees.
 		for (const path of local.unsaved) this.held.add(foldedKey(path));
+		// Typed in right now. Held like those, and not told.
+		for (const path of local.beingEdited) {
+			this.held.add(foldedKey(path));
+			this.quiet.add(foldedKey(path));
+		}
 		// Nothing is known of the content: not sent, and not deleted on the
 		// remote. A file that could not be read is told; one a cloud drive
 		// holds is not, since nothing is wrong with it. Unless it is new:
@@ -618,7 +651,7 @@ class PushRun {
 			if (!known.has(pathKey(path))) this.leftOut.push({ path, reason: "not-downloaded" });
 		}
 
-		const plan = planPush({
+		const planned = planPush({
 			remote: listing.entries,
 			local: local.entries,
 			records,
@@ -626,6 +659,10 @@ class PushRun {
 			sizeLimit: this.sizeLimit,
 			held: this.held,
 		});
+		// A new file that is held back because it is being typed in may be
+		// a note under a new name: the deletion of the old one waits with it.
+		const edited = [...local.beingEdited, ...(deps.holdQuietly ?? [])];
+		const plan = holdsDeletions(edited, (path) => known.has(pathKey(path))) ? withoutDeletions(planned) : planned;
 		this.plan = plan;
 		// Remembered only where the result that carries them is one the
 		// user is shown them with: a push that is declined, stopped at the
@@ -713,7 +750,14 @@ class PushRun {
 				// during the push is no reason to fail all of it.
 				read: async () => {
 					this.progress("sending", ++done, total);
-					if (!(await saved(vault, path))) return leave("save-failed");
+					// The typing began after the vault was looked at. The
+					// editor is not asked to save in the middle of it; what
+					// is on disk, which is what was planned a moment ago,
+					// is sent. Left out instead, a note that was renamed
+					// right before would be deleted under its old name by
+					// this very push, and not added under its new one.
+					const typing = deps.beingEdited?.(path) === true;
+					if (!typing && !(await saved(vault, path))) return leave("save-failed");
 					try {
 						const stat = await vault.stat(path);
 						if (stat === null || stat.type !== "file") return leave("gone");

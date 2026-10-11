@@ -35,7 +35,7 @@ import { translatorFor } from "../src/core/i18n";
 import { PUSH_FAILURE_KEY, readPushFailure } from "../src/core/push-failure";
 import { pushReport } from "../src/core/push-report";
 import { makeMarker, readBaseRevision, type StateStore } from "../src/core/state";
-import { pathsToHold, pushFollows, runSync, type SyncResult } from "../src/core/sync";
+import { pathsToHold, pathsToHoldQuietly, pushFollows, runSync, type SyncResult } from "../src/core/sync";
 import { blobHash, type FileContent, MemoryBackend } from "./support/memory-backend";
 import { MemoryIndex } from "./support/memory-index";
 import { MemoryPullVault, type VaultOp } from "./support/memory-pull-vault";
@@ -3844,5 +3844,208 @@ describe("a push with the light check", () => {
 
 		expect(await h.push({ index })).toMatchObject({ outcome: "waiting", waitingFor: "first-push" });
 		expect(h.backend.pushes).toBe(0);
+	});
+});
+
+describe("a file that is being typed in, in a sync that started by itself", () => {
+	const typingIn = (...paths: string[]) => ({ beingEdited: (path: string) => paths.includes(path) }) as const;
+
+	test("is not saved and not sent by the push; the rest is", async () => {
+		const h = await synced({ "a.md": "A", "b.md": "B" });
+		h.vault.put("a.md", "A and half a");
+		h.vault.open("a.md", "A and half a sentence");
+		h.vault.put("b.md", "B2");
+
+		const result = await h.push(typingIn("a.md"));
+
+		expect(result).toMatchObject({ outcome: "pushed", counts: { added: 0, modified: 1, deleted: 0 } });
+		expect(await h.remote()).toEqual({ "a.md": "A", "b.md": "B2" });
+		expect(h.vault.log.filter((line) => line.includes("a.md"))).toEqual([]);
+		expect(h.vault.text("a.md")).toBe("A and half a");
+		// Nothing is wrong with it, and nothing is told of it.
+		expect(result.held).toEqual([]);
+		expect(result.leftOut).toEqual([]);
+		expect(pushReport(translatorFor("en"), result, { sizeLimit: 50 * 1024 * 1024 }).details).toEqual([]);
+		expect(await h.records()).toEqual(hashes({ "a.md": "A", "b.md": "B2" }));
+	});
+
+	test("with nothing else to send, nothing is sent", async () => {
+		const h = await synced({ "a.md": "A" });
+		h.vault.put("a.md", "typing");
+
+		const result = await h.push(typingIn("a.md"));
+
+		expect(result).toMatchObject({ outcome: "nothing-to-push", held: [], leftOut: [] });
+		expect(h.backend.pushes).toBe(0);
+	});
+
+	test("once the typing has stopped, the next push saves and sends it", async () => {
+		const h = await synced({ "a.md": "A" });
+		h.vault.put("a.md", "typed");
+		h.vault.open("a.md", "typed to the end");
+		await h.push(typingIn("a.md"));
+
+		expect((await h.push(typingIn())).outcome).toBe("pushed");
+
+		expect(await h.remote()).toEqual({ "a.md": "typed to the end" });
+	});
+
+	test("a new file that is being typed in is not sent yet either", async () => {
+		const h = await synced({ "a.md": "A" });
+		h.vault.put("new.md", "the first li");
+
+		expect((await h.push(typingIn("new.md"))).outcome).toBe("nothing-to-push");
+
+		expect(await h.remote()).toEqual({ "a.md": "A" });
+	});
+
+	test("typing that begins after the vault was looked at: what is on disk is sent, and the editor is not asked to save", async () => {
+		const h = await synced({ "a.md": "A", "b.md": "B" });
+		h.vault.put("a.md", "A2");
+		h.vault.open("a.md", "A2 and half a");
+		h.vault.put("b.md", "B2");
+		// The editors saved when the vault was looked at; what is typed from here on is not on disk.
+		h.vault.before = (op, path) => {
+			if (op === "save" && path === "a.md" && scanned) throw new Error("saved in the middle of typing");
+		};
+		let scanned = false;
+		const beingEdited = (path: string): boolean => scanned && path === "a.md";
+
+		const result = await h.push({
+			beingEdited,
+			onProgress: (event) => {
+				if (event.phase === "sending") scanned = true;
+			},
+		});
+
+		expect(result).toMatchObject({ outcome: "pushed", leftOut: [], held: [] });
+		expect(await h.remote()).toEqual({ "a.md": "A2 and half a", "b.md": "B2" });
+	});
+
+	test("the push after a pull that put the file off holds it, and tells nothing of it", async () => {
+		const h = await synced({ "a.md": "A", "b.md": "B" });
+		h.vault.put("a.md", "typing");
+		h.vault.put("b.md", "B2");
+		const head = h.backend.commit({ "a.md": "A2", "c.md": "C" });
+		const editing = typingIn("a.md");
+
+		const { pull, push } = await h.sync({ pull: { automatic: true, ...editing }, push: editing });
+
+		expect(pull).toMatchObject({ outcome: "incomplete", deferred: [{ path: "a.md", reason: "being-edited" }] });
+		expect(pathsToHold(pull)).toEqual(["a.md"]);
+		expect(push).toMatchObject({ outcome: "pushed", held: [], leftOut: [] });
+		expect(await h.remote()).toEqual({ "a.md": "A2", "b.md": "B2", "c.md": "C" });
+		expect(h.vault.text("a.md")).toBe("typing");
+		expect(h.backend.revision).not.toBe(head);
+	});
+
+	test("the push holds a path the pull put off also when the typing has stopped by then", async () => {
+		const h = await synced({ "a.md": "A" });
+		h.vault.put("a.md", "typed");
+		h.backend.commit({ "a.md": "A2" });
+
+		const { pull, push } = await h.sync({ pull: { automatic: true, ...typingIn("a.md") }, push: typingIn() });
+
+		expect(pull.outcome).toBe("incomplete");
+		expect(pathsToHoldQuietly(pull)).toEqual(["a.md"]);
+		// Held, and nothing is told of it: no editor failed to save it.
+		expect(push).toMatchObject({ outcome: "nothing-to-push", held: [], leftOut: [] });
+		expect(pushReport(translatorFor("en"), push as PushRunResult, { sizeLimit: 50 * 1024 * 1024 }).details).toEqual([]);
+		expect((await h.remote())["a.md"]).toBe("A2");
+		expect(h.vault.text("a.md")).toBe("typed");
+	});
+
+	test("a file the pull put off for another reason is still told by the push that holds it", async () => {
+		const h = await synced({ "a.md": "A" });
+		h.vault.put("a.md", "mine");
+		h.vault.openFailing("a.md");
+		h.backend.commit({ "a.md": "A2" });
+
+		const { pull, push } = await h.sync();
+
+		expect(pull.deferred).toEqual([{ path: "a.md", reason: "save-failed" }]);
+		expect(pathsToHoldQuietly(pull)).toEqual([]);
+		expect(push?.held).toEqual(["a.md"]);
+	});
+
+	test("a note that was renamed and is typed in: the old name is not deleted on the remote alone", async () => {
+		const h = await synced({ "old.md": "the note", "b.md": "B", "gone.md": "G" });
+		const before = await h.store.readRecords();
+		h.vault.remove("old.md");
+		h.vault.put("new.md", "the note, and typing");
+		h.vault.remove("gone.md");
+		h.vault.put("b.md", "B2");
+
+		const result = await h.push(typingIn("new.md"));
+
+		// The rest of the push is sent as ever; the deletions wait, all of them.
+		expect(result).toMatchObject({ outcome: "pushed", counts: { added: 0, modified: 1, deleted: 0 }, held: [], leftOut: [] });
+		expect(await h.remote()).toEqual({ "old.md": "the note", "b.md": "B2", "gone.md": "G" });
+		const records = await h.store.readRecords();
+		expect(records.find((record) => record.path === "old.md")).toEqual(before.find((record) => record.path === "old.md"));
+		expect(pushReport(translatorFor("en"), result, { sizeLimit: 50 * 1024 * 1024 }).details).toEqual([]);
+
+		// The typing has stopped: one commit with the new name and without the old.
+		const pushes = h.backend.pushes;
+		const next = await h.push(typingIn());
+		expect(next).toMatchObject({ outcome: "pushed", counts: { added: 1, modified: 0, deleted: 2 } });
+		expect(h.backend.pushes).toBe(pushes + 1);
+		expect(await h.remote()).toEqual({ "new.md": "the note, and typing", "b.md": "B2" });
+	});
+
+	test("with nothing but the deletion to send, nothing is sent while the new name is typed in", async () => {
+		const h = await synced({ "old.md": "the note" });
+		h.vault.remove("old.md");
+		h.vault.put("new.md", "the note");
+
+		expect((await h.push(typingIn("new.md"))).outcome).toBe("nothing-to-push");
+
+		expect(await h.remote()).toEqual({ "old.md": "the note" });
+		expect(h.backend.pushes).toBe(0);
+	});
+
+	test("a deletion is sent as before while a file that is known is typed in", async () => {
+		const h = await synced({ "a.md": "A", "gone.md": "G" });
+		h.vault.put("a.md", "typing");
+		h.vault.remove("gone.md");
+
+		const result = await h.push(typingIn("a.md"));
+
+		expect(result).toMatchObject({ outcome: "pushed", counts: { deleted: 1 } });
+		expect(await h.remote()).toEqual({ "a.md": "A" });
+	});
+
+	test("a deletion that is past the threshold is not asked about while it waits", async () => {
+		const files = Object.fromEntries(Array.from({ length: 10 }, (_, i) => [`n${i}.md`, `note ${i}`]));
+		const h = await synced(files);
+		for (let i = 0; i < 8; i++) h.vault.remove(`n${i}.md`);
+		h.vault.put("new.md", "typing");
+
+		expect((await h.push(typingIn("new.md"))).outcome).toBe("nothing-to-push");
+		expect(h.asked).toEqual([]);
+
+		h.answer = "later";
+		expect((await h.push(typingIn())).outcome).toBe("waiting");
+		expect(h.asked).toHaveLength(1);
+	});
+
+	test("a push the user starts sends a rename whole, as before", async () => {
+		const h = await synced({ "old.md": "the note" });
+		h.vault.remove("old.md");
+		h.vault.put("new.md", "the note");
+		h.vault.open("new.md", "the note, typed");
+
+		expect(await h.push()).toMatchObject({ outcome: "pushed", counts: { added: 1, deleted: 1 } });
+
+		expect(await h.remote()).toEqual({ "new.md": "the note, typed" });
+	});
+
+	test("a push the user starts is not held back: the editor saves, and the text is sent", async () => {
+		const h = await synced({ "a.md": "A" });
+		h.vault.open("a.md", "typed and saved by the push");
+
+		expect((await h.push()).outcome).toBe("pushed");
+
+		expect(await h.remote()).toEqual({ "a.md": "typed and saved by the push" });
 	});
 });

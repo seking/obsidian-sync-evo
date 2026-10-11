@@ -177,11 +177,40 @@ describe("a pull that started by itself", () => {
 	test.each<[string, Partial<PullResult>]>([
 		["a file that was being typed in", { outcome: "incomplete", deferred: [{ path: "a.md", reason: "changed-during-pull" }] }],
 		["an editor that could not save", { outcome: "incomplete", deferred: [{ path: "a.md", reason: "save-failed" }] }],
+		["a file that is being typed in right now", { outcome: "incomplete", deferred: [{ path: "a.md", reason: "being-edited" }] }],
 		["a stop while it fetched", { outcome: "incomplete", fetchError: new BackendError("cancelled", "stopped") }],
 		["a stop", { outcome: "cancelled" }],
 		["a no", { outcome: "declined" }],
 	])("%s is neither a success nor a failure, and has nothing to tell", (_name, result) => {
 		expect(pull(result)).toEqual({ happened: [], standing: [], cause: null, end: "neither" });
+	});
+
+	test("a file that is being typed in beside one that cannot be read: only the second is told, and is the cause", () => {
+		const report = pull({
+			outcome: "incomplete",
+			deferred: [
+				{ path: "typing.md", reason: "being-edited" },
+				{ path: "broken.md", reason: "unreadable" },
+			],
+		});
+		expect(report).toMatchObject({ cause: `pull:incomplete:unreadable#${filesDigest(["broken.md"])}`, end: "failure" });
+		expect(report.standing).toHaveLength(1);
+		expect(report.standing[0]).toContain("broken.md");
+		expect(report.standing[0]).not.toContain("typing.md");
+		// The same cause as without the typing: it is not told again for it.
+		expect(report.cause).toBe(pull({ outcome: "incomplete", deferred: [{ path: "broken.md", reason: "unreadable" }] }).cause);
+	});
+
+	test("a file that is being typed in beside others that only wait is still neither", () => {
+		const report = pull({
+			outcome: "incomplete",
+			deferred: [
+				{ path: "typing.md", reason: "being-edited" },
+				{ path: "other.md", reason: "save-failed" },
+				{ path: "after.md", reason: "depends-on-deferred" },
+			],
+		});
+		expect(report).toEqual({ happened: [], standing: [], cause: null, end: "neither" });
 	});
 
 	test.each<[NonNullable<PullResult["waitingFor"]>, string]>([
@@ -489,6 +518,14 @@ describe("what is told, and what is remembered of it", () => {
 		// Not told a second time: no sync in between went well.
 		expect(shown).toEqual([1, 0, 0, 0, 0]);
 		expect(after).toEqual({ lastStartedAt: START, failures: 2, told: "error:unreachable" });
+	});
+
+	test("pulls that left a file alone because it is being typed in change nothing that is remembered", () => {
+		const typing = pull({ outcome: "incomplete", deferred: [{ path: "a.md", reason: "being-edited" }] });
+		const { shown, memory: after } = run([failed, typing, typing, good, typing, typing]);
+		expect(shown).toEqual([1, 0, 0, 0, 0, 0]);
+		// No failure in a row, so the interval stays as it is set.
+		expect(after).toEqual({ lastStartedAt: START, failures: 0, told: null });
 	});
 
 	test("one more file that cannot be read is told once more", () => {

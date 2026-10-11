@@ -62,10 +62,18 @@ export function pathsToHold(pull: PullResult): string[] {
 	return pull.deferred.map((file) => file.path);
 }
 
+/**
+ * Those of `pathsToHold` the push tells nothing of (`PushDeps.holdQuietly`):
+ * what the pull left alone because it is being typed in.
+ */
+export function pathsToHoldQuietly(pull: PullResult): string[] {
+	return pull.deferred.filter((file) => file.reason === "being-edited").map((file) => file.path);
+}
+
 export interface SyncDeps {
 	readonly pull: PullDeps;
-	/** `hold` is filled in from the pull. */
-	readonly push: Omit<PushDeps, "hold">;
+	/** `hold` and `holdQuietly` are filled in from the pull. */
+	readonly push: Omit<PushDeps, "hold" | "holdQuietly">;
 	/**
 	 * Whether the sync started by itself. Nobody asked for its push, so one
 	 * that never began, because the pull failed, is not told again when the
@@ -95,7 +103,7 @@ export async function runSync(deps: SyncDeps): Promise<SyncResult> {
 	}
 	deps.onPulled?.(pull);
 	if (!pushFollows(pull) || deps.push.signal?.aborted === true) return { pull, push: null };
-	const push = await runPush({ ...deps.push, hold: pathsToHold(pull) });
+	const push = await runPush({ ...deps.push, hold: pathsToHold(pull), holdQuietly: pathsToHoldQuietly(pull) });
 	return { pull, push };
 }
 

@@ -237,6 +237,15 @@ export interface PullDeps {
 	 */
 	readonly automatic?: boolean;
 	/**
+	 * Whether the file at a path is being typed in right now (`editing.ts`).
+	 * Set for a pull that started by itself, and only for that: it does
+	 * nothing to such a file. Not a write, a copy, a deletion or a rename;
+	 * the file is put off ("being-edited") and taken up by the next sync,
+	 * once the typing has stopped. Asked right before each file is touched,
+	 * not once for the pull: typing begins and ends while a pull runs.
+	 */
+	readonly beingEdited?: (path: string) => boolean;
+	/**
 	 * Set for the "first fetch" command: the pull starts over. It decides as
 	 * if there were no sync state, without reading or changing the one given
 	 * as `store`, and always asks first (`FirstFetchRequest.discardsState`).
@@ -358,6 +367,10 @@ export interface PullConflict {
  *
  * - "save-failed": an editor that has it open could not save.
  * - "changed-during-pull": it kept changing while the pull worked on it.
+ * - "being-edited": the user is typing in it right now
+ *   (`PullDeps.beingEdited`). Only in a pull that started by itself. Found
+ *   before anything is done to the file: nothing was written, no copy was
+ *   made, and the editor was not even asked to save.
  * - "hash-mismatch": the content that was fetched is not what the listing
  *   said it would be.
  * - "fetch-failed": the content could not be fetched (see `fetchError`).
@@ -375,6 +388,7 @@ export interface PullConflict {
 export type DeferReason =
 	| "save-failed"
 	| "changed-during-pull"
+	| "being-edited"
 	| "hash-mismatch"
 	| "fetch-failed"
 	| "unreadable"

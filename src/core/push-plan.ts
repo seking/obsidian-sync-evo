@@ -184,6 +184,33 @@ export function planPush(input: PlanInput): PushPlan {
 	};
 }
 
+/**
+ * The plan without its deletions: they wait for the next push. Everything
+ * else is sent as planned.
+ *
+ * For a push that started by itself and holds a new file back because it is
+ * being typed in (`holdsDeletions`). A note that was renamed is, to a push,
+ * a file that is gone and a file that is new; with the new one held back,
+ * the deletion alone would take the note away from every other device
+ * until the typing stops. Which deletion belongs to which new file is not
+ * known without the content of the file that is held, so all of them wait.
+ * Their records stay, and the next push plans them again.
+ */
+export function withoutDeletions(plan: PushPlan): PushPlan {
+	return plan.deletes.length === 0 ? plan : { ...plan, deletes: [], countedDeletions: [] };
+}
+
+/**
+ * Whether the deletions of a push wait (`withoutDeletions`): one of the
+ * files it holds back because they are being typed in is new, with no
+ * record and nothing at its path on the remote. `known` answers whether a
+ * path has either. A file that is known and held is no rename: its
+ * deletion is not planned, and the other deletions are sent as ever.
+ */
+export function holdsDeletions(beingEdited: readonly string[], known: (path: string) => boolean): boolean {
+	return beingEdited.some((path) => !known(path));
+}
+
 /** Whether the push has to stop and ask before it deletes. Counted again by every push. */
 export function needsPushConfirmation(plan: PushPlan): boolean {
 	return exceedsDeletionThreshold(plan.countedDeletions.length, plan.recordCount);

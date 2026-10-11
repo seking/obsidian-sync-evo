@@ -39,6 +39,7 @@ import {
 } from "./core/settings";
 import { type UntrackConfirmRequest, untrackConfirmRequest } from "./core/untrack-report";
 import { AutoScheduler } from "./obsidian/auto-scheduler";
+import { EditingWatch } from "./obsidian/editing-watch";
 import { exclusionPathsOf } from "./obsidian/exclusion-paths";
 import type { ExclusionChange, ExclusionLoad } from "./obsidian/exclusion-settings";
 import { obsidianHttp } from "./obsidian/http";
@@ -76,6 +77,12 @@ export default class SyncEvoPlugin extends Plugin implements SettingsHost, SyncH
 	 * the time of the last sync; and never while there is no connection.
 	 */
 	readonly syncState = new SyncState(syncStateDepsOf(this.app, () => this.syncs.stateBlocked()));
+
+	/**
+	 * Which file the user is typing in right now, as far as the events of
+	 * the page tell. A sync that starts by itself leaves that file alone.
+	 */
+	readonly editing = new EditingWatch(this.app);
 
 	/** The one place a sync of any kind is started from, so that two never run at once. */
 	private readonly syncs = new SyncRunner(this);
@@ -130,6 +137,10 @@ export default class SyncEvoPlugin extends Plugin implements SettingsHost, SyncH
 			name: this.t("command.stop"),
 			callback: () => this.syncs.requestStop(),
 		});
+
+		// Listened to whether or not automatic sync is on: switched on, it
+		// has to know of a composition that began before.
+		this.editing.register(this);
 
 		// The clock of automatic sync. It does nothing while both of its
 		// switches are off, which is how they start. The timer stands still
