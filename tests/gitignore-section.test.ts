@@ -65,7 +65,7 @@ const FIXED = [
 describe("the two markers", () => {
 	test("their text is the one every device shares", () => {
 		expect(SECTION_START).toBe(
-			"# >>> Sync Evo: managed section. Do not edit these lines by hand; change them in the Sync Evo settings. >>>",
+			"# >>> Sync Evo: managed section. Sync Evo rewrites these lines when a setting changes; put your own rules outside this section. >>>",
 		);
 		expect(SECTION_END).toBe("# <<< Sync Evo: end of managed section <<<");
 	});

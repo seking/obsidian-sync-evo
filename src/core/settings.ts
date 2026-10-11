@@ -34,7 +34,8 @@ export interface DeviceSettings {
  * The version of the stored form. It changes when a newer Sync Evo stores
  * something this code would misread. It only ever goes up, by whole numbers:
  * a version that is not a number above this one is not recognised as newer,
- * and is taken for nothing stored.
+ * and is taken for nothing stored. A field that an older version must not
+ * drop is such a change too: that version writes back the fields it knows.
  */
 export const SETTINGS_VERSION = 1;
 

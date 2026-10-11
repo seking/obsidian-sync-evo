@@ -32,6 +32,12 @@ import {
  * database itself. It goes up by one with every change of form, together
  * with one more step in `MIGRATIONS`. IndexedDB then does the rest: it runs
  * the steps a database is behind by, and refuses to open one that is ahead.
+ *
+ * A field added to a record, a marker, the listing, or a value of the meta
+ * store is a change of form as well, though no store changes: this code
+ * writes back the fields it knows, so an older version that opened the
+ * database would drop the new one without a word. Only a field that may be
+ * lost like that is added without a new version.
  */
 export const STATE_DB_VERSION = 1;
 

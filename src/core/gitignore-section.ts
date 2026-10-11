@@ -27,7 +27,7 @@ import { isPathFromRoot } from "./paths";
  * the start of each is looked at (`findSection`); the rest is for the reader.
  */
 export const SECTION_START =
-	"# >>> Sync Evo: managed section. Do not edit these lines by hand; change them in the Sync Evo settings. >>>";
+	"# >>> Sync Evo: managed section. Sync Evo rewrites these lines when a setting changes; put your own rules outside this section. >>>";
 export const SECTION_END = "# <<< Sync Evo: end of managed section <<<";
 
 // What a marker is told by. After it comes a `:`, a blank, or the end of the
@@ -163,6 +163,14 @@ export interface SectionState {
 // The extensions that belong to one kind alone, in the order of the
 // requirements. `webm` is both sound and picture, so it belongs to neither
 // and stands between them: it is left out only when both kinds are.
+//
+// Fixed since the first release. While "other" is off, a kind reads as on
+// only when the line of every extension here is there (`readSectionState`),
+// and a section written by an earlier version has no line for an extension
+// added later: the kind would read as off, and the next switch would stop
+// sending it. An extension that is added has to be one whose line may be
+// missing when the section is read. The same holds for the files of
+// `CONFIG_ITEMS`.
 const KIND_EXTENSIONS: readonly (readonly [Exclude<FileKind, "other">, readonly string[]])[] = [
 	["image", ["bmp", "png", "jpg", "jpeg", "gif", "svg", "webp", "avif"]],
 	["audio", ["mp3", "wav", "m4a", "3gp", "flac", "ogg", "oga", "opus"]],
@@ -220,6 +228,10 @@ export interface FixedExclusion {
  * the vault. The lines for the operating systems have no `/` in front, so
  * that they match in every folder. `.git/` is not listed; git leaves it out
  * by itself, and so does `hardExclusionOf`.
+ *
+ * The lines are fixed since the first release, to the letter. A section
+ * that is there is never given a line it lacks, so a line that is added or
+ * respelled is "not in effect" in every vault until its user restores it.
  */
 export function fixedExclusions(paths: ExclusionPaths): FixedExclusion[] {
 	const config = trimSlashes(paths.configDir);
