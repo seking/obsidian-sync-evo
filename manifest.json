@@ -1,7 +1,7 @@
 {
 	"id": "sync-evo",
 	"name": "Sync Evo",
-	"version": "0.0.1",
+	"version": "0.1.0",
 	"minAppVersion": "1.11.4",
 	"description": "Sync a vault with a GitHub repository, without git on the device. Built for large vaults and for phones.",
 	"author": "seking",
