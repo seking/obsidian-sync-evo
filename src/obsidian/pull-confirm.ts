@@ -173,10 +173,7 @@ export function renderPathList(
 	// lists that scrolled inside it no path was shown at all (seen on an
 	// iPhone; likely the lists shrank to nothing, or were not painted, as
 	// scrolling boxes inside a scrolling box). A plain list can do neither.
-	if (!Platform.isPhone) {
-		list.style.maxHeight = "30vh";
-		list.style.overflowY = "auto";
-	}
+	if (!Platform.isPhone) list.addClass("sync-evo-path-list-scrolled");
 	const fill = (shown: readonly string[]): void => {
 		for (const path of shown) list.createEl("li", { text: path });
 	};

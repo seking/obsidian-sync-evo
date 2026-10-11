@@ -134,14 +134,14 @@ export interface KnownPaths {
 	 * For a file: whether it is on the remote or has a record. For a folder:
 	 * whether any path below it is or has.
 	 */
-	has(key: string, type: PathType): boolean;
+	has: (key: string, type: PathType) => boolean;
 	/** Whether the remote holds this file. A record does not count. */
-	onRemote(key: string): boolean;
+	onRemote: (key: string) => boolean;
 	/**
 	 * For a path named like a copy of the earlier form: whether the remote
 	 * holds another copy of the same name but for the number at its end.
 	 */
-	copyOnRemote(key: string): boolean;
+	copyOnRemote: (key: string) => boolean;
 }
 
 /**

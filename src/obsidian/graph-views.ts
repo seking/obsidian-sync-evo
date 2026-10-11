@@ -15,7 +15,7 @@
 // opened again when the pull ends, where they were as far as that place is
 // still there.
 
-import type { App, ViewState, WorkspaceItem, WorkspaceLeaf, WorkspaceSplit } from "obsidian";
+import type { App, ViewState, WorkspaceItem, WorkspaceLeaf } from "obsidian";
 import type { BeginBulkWrite, BulkWriteSession } from "../core/pull-io";
 
 /**
@@ -113,7 +113,7 @@ function leafAtOldPlace(app: App, view: ClosedView): WorkspaceLeaf | null {
 	try {
 		const count = childrenOf(parent)?.length ?? view.index;
 		// Typed for a split, but it is a group of tabs that takes a leaf.
-		return app.workspace.createLeafInParent(parent as WorkspaceSplit, Math.min(view.index, count));
+		return app.workspace.createLeafInParent(parent, Math.min(view.index, count));
 	} catch {
 		return null;
 	}

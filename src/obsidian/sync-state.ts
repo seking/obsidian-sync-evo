@@ -84,7 +84,7 @@ export function syncStateDepsOf(app: App, onDiscardBlocked?: () => void): SyncSt
 	return {
 		appId: () => readAppId(app),
 		note: discardNoteOf(app),
-		indexedDb: () => (globalThis as { indexedDB?: IDBFactory }).indexedDB,
+		indexedDb: () => (window as { indexedDB?: IDBFactory }).indexedDB,
 		...(onDiscardBlocked === undefined ? {} : { onDiscardBlocked }),
 	};
 }

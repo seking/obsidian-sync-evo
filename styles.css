@@ -37,7 +37,7 @@
 	display: flex;
 	flex-wrap: wrap;
 	align-items: center;
-	column-gap: var(--size-4-2);
+	gap: 0 var(--size-4-2);
 	/* Tall enough for a finger, without making the heading taller. */
 	margin: calc(-1 * var(--size-4-3)) 0;
 	padding: var(--size-4-3) 0;
@@ -76,6 +76,12 @@
 .sync-evo-changed {
 	color: var(--text-accent);
 	font-weight: var(--font-semibold);
+}
+
+/* The list of paths in a dialog that asks before it goes on (`pull-confirm.ts`), on a desktop: scrolled by itself. */
+.sync-evo-path-list-scrolled {
+	max-height: 30vh;
+	overflow-y: auto;
 }
 
 /* The last lines of the log (`log.ts`): selectable, wrapped to the width of a phone, and scrolled within the dialog. */

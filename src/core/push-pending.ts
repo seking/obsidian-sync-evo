@@ -106,7 +106,7 @@ export async function readPendingPush(store: Pick<StateStore, "getMeta">): Promi
 		revision,
 		parent,
 		records: read,
-		deleted: deleted as string[],
+		deleted,
 		counts: { added: count(added), modified: count(modified), deleted: count(removed) },
 		...(untrack === true ? { untrack: true as const } : {}),
 	};

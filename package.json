@@ -18,6 +18,7 @@
 		"dev": "node esbuild.config.mjs",
 		"build": "tsc --noEmit && tsc --noEmit -p tests && node esbuild.config.mjs production",
 		"test": "vitest run",
+		"lint": "eslint .",
 		"install:vault": "node scripts/install-to-vault.mjs",
 		"release:beta": "node scripts/release-beta.mjs"
 	},
@@ -28,9 +29,16 @@
 	"devDependencies": {
 		"@types/node": "25.9.9",
 		"esbuild": "0.28.2",
+		"eslint": "9.39.5",
+		"eslint-plugin-obsidianmd": "0.4.2",
 		"fake-indexeddb": "6.2.5",
 		"obsidian": "1.13.1",
 		"typescript": "7.0.2",
 		"vitest": "4.1.11"
+	},
+	"overrides": {
+		"eslint-plugin-obsidianmd": {
+			"typescript": "6.0.3"
+		}
 	}
 }

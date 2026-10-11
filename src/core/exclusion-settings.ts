@@ -197,7 +197,7 @@ function editedState(
 	}
 }
 
-const BOM = "﻿";
+const BOM = "\uFEFF";
 
 /**
  * The text of the file as the editing field takes it: without a byte order
@@ -205,7 +205,7 @@ const BOM = "﻿";
  * and with the line ends a field has in any case.
  */
 export function editorText(text: string | null): string {
-	return (text ?? "").replace(/^﻿/, "").replace(/\r\n/g, "\n");
+	return (text ?? "").replace(/^\uFEFF/, "").replace(/\r\n/g, "\n");
 }
 
 /**
