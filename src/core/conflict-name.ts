@@ -12,14 +12,16 @@
 // The name of the copy that keeps the vault's content of a file in conflict,
 // and where it is put: directly in one folder at the vault root,
 //
-//   _conflicts/<YYYYMMDD-HHmmss> <name> (<device>)[-N].<extension>
+//   _conflicts/<YYYYMMDD> <name> (<device>)[-N].<extension>
 //
 // The folders of the file are not kept: the path of the file cannot be read
 // back from the path of its copy, and whoever needs it has to remember it.
 // The form is the same in every language. A copy is told by where it is and
 // by the start of its name alone, so that one made on another device, of a
 // file and under a device name this one knows nothing about, is still
-// recognized.
+// recognized. The name holds the day and not the time of day, which made it
+// too long to read in a list of files; a file that is in conflict twice on
+// one day gets the number (`-2`, `-3`) for its second copy.
 //
 // Up to 0.2.0 a copy was made beside its file instead:
 //
@@ -37,9 +39,9 @@ export const CONFLICT_FOLDER = "_conflicts";
 /** What most file systems allow for one file name, in bytes of UTF-8. */
 const MAX_NAME_BYTES = 255;
 
-// A file name that starts the way a copy in the folder does. Nothing after
-// the space is looked at.
-const COPY_START = /^(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2}) /;
+// A file name that starts the way a copy in the folder does: eight digits,
+// and a space right after them. Nothing after the space is looked at.
+const COPY_START = /^(\d{4})(\d{2})(\d{2}) /;
 
 // A file name without its extension that ends the way a copy of the earlier
 // form does. Both the name and the device name are greedy: of several marks
@@ -54,11 +56,13 @@ const COPY_END = /^(.+)\.conflict-from-.+-\d{8}-\d{6}(?:-\d+)?$/s;
  *   of a note is still a note. A leading `.` does not start an extension:
  *   `.gitignore` has none, and what is added goes at its end.
  * - `deviceName` is the device that wrote the content the copy holds.
- * - `at` is read on the device's own clock, in local time. It comes first,
- *   so that a list of the folder is in the order the copies were made.
+ * - `at` is read on the device's own clock, in local time, and only its
+ *   date is used. It comes first, so that a list of the folder is in the
+ *   order of the days the copies were made on.
  * - `attempt` is 1 for the plain name. From 2 on it is added before the
- *   extension, for when the plain name is taken: two devices with one name,
- *   or two files of one name in different folders within one second.
+ *   extension, for when the plain name is taken, which is nothing rare:
+ *   one file in conflict twice on a day, two files of one name in
+ *   different folders, or two devices with one name.
  * - `folder` is the folder as the vault spells it, when it has one under
  *   another case (`isConflictFolder`).
  *
@@ -93,7 +97,7 @@ export function isConflictFolder(path: string): boolean {
 
 /**
  * Whether `path` is a conflict copy in the folder of the copies: directly in
- * it, with a file name that starts with a date, a time and a space. Nothing
+ * it, with a file name that starts with a date and a space. Nothing
  * else of the name is looked at, and whether there is a file is not asked.
  *
  * Asked before `originalPathOfConflictCopy`, which answers `null` for such a
@@ -108,39 +112,27 @@ export function isCopyInConflictFolder(path: string): boolean {
 }
 
 /**
- * When a copy in the folder of the copies was made, by its name, in
- * milliseconds since the epoch. `null` for a path that is no such copy, and
- * for digits that are no date and time (a 13th month, a 25th hour).
+ * The end of the day a copy in the folder of the copies was made on, by its
+ * name: the start of the day after, in milliseconds since the epoch. The
+ * name tells the day and nothing more, so this is the latest the copy can
+ * have been made. `null` for a path that is no such copy, and for digits
+ * that are no date (a 13th month, a 30th of February).
  *
- * The date and the time are read as UTC, though the device that made the
- * copy wrote them on its own clock: read on the clock of this device, an
- * hour that a change of its clocks skips would be no time at all. The
- * answer is off by the offset of that device's zone, a few hours, which
- * does not matter for what it is asked for: whether a copy is 30 days old.
+ * The date is read as UTC, though the device that made the copy wrote it on
+ * its own clock. The answer is off by the offset of that device's zone, a
+ * few hours, which does not matter for what it is asked for: whether a copy
+ * is 30 days old.
  */
-export function timeOfConflictCopy(path: string): number | null {
+export function dayEndOfConflictCopy(path: string): number | null {
 	if (!isCopyInConflictFolder(path)) return null;
 	const digits = COPY_START.exec(path.slice(path.indexOf("/") + 1));
 	if (digits === null) return null;
-	const [year, month, day, hour, minute, second] = digits.slice(1).map(Number) as [
-		number,
-		number,
-		number,
-		number,
-		number,
-		number,
-	];
-	const at = new Date(Date.UTC(year, month - 1, day, hour, minute, second));
-	// A date that is none rolls over into the next month or day, and a year
-	// below 100 is read as one of the 1900s.
-	const same =
-		at.getUTCFullYear() === year &&
-		at.getUTCMonth() === month - 1 &&
-		at.getUTCDate() === day &&
-		at.getUTCHours() === hour &&
-		at.getUTCMinutes() === minute &&
-		at.getUTCSeconds() === second;
-	return same ? at.getTime() : null;
+	const [year, month, day] = digits.slice(1).map(Number) as [number, number, number];
+	const at = new Date(Date.UTC(year, month - 1, day));
+	// A date that is none rolls over into the next month, and a year below
+	// 100 is read as one of the 1900s.
+	const same = at.getUTCFullYear() === year && at.getUTCMonth() === month - 1 && at.getUTCDate() === day;
+	return same ? Date.UTC(year, month - 1, day + 1) : null;
 }
 
 /**
@@ -171,8 +163,7 @@ export function originalPathOfConflictCopy(path: string): string | null {
 
 function stamp(at: Date): string {
 	const two = (value: number): string => String(value).padStart(2, "0");
-	const date = `${String(at.getFullYear()).padStart(4, "0")}${two(at.getMonth() + 1)}${two(at.getDate())}`;
-	return `${date}-${two(at.getHours())}${two(at.getMinutes())}${two(at.getSeconds())}`;
+	return `${String(at.getFullYear()).padStart(4, "0")}${two(at.getMonth() + 1)}${two(at.getDate())}`;
 }
 
 const encoder = new TextEncoder();

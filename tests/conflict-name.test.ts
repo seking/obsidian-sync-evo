@@ -15,7 +15,7 @@ import {
 	isConflictFolder,
 	isCopyInConflictFolder,
 	originalPathOfConflictCopy,
-	timeOfConflictCopy,
+	dayEndOfConflictCopy,
 } from "../src/core/conflict-name";
 import { earlierCopyPath } from "./support/earlier-copy-name";
 
@@ -25,47 +25,59 @@ const at = new Date(2026, 9, 11, 22, 15, 0);
 
 describe("making the name", () => {
 	test("the copy goes to the folder of the copies, with the time first and the device last", () => {
-		expect(conflictCopyPath("notes/a.md", "iPhone", at)).toBe("_conflicts/20261011-221500 a (iPhone).md");
+		expect(conflictCopyPath("notes/a.md", "iPhone", at)).toBe("_conflicts/20261011 a (iPhone).md");
 	});
 
 	test("the folders of the file are not kept, at any depth", () => {
-		expect(conflictCopyPath("a.md", "iPhone", at)).toBe("_conflicts/20261011-221500 a (iPhone).md");
-		expect(conflictCopyPath("a/b/c/d.md", "iPhone", at)).toBe("_conflicts/20261011-221500 d (iPhone).md");
-		expect(conflictCopyPath("_conflicts/sub/d.md", "iPhone", at)).toBe("_conflicts/20261011-221500 d (iPhone).md");
+		expect(conflictCopyPath("a.md", "iPhone", at)).toBe("_conflicts/20261011 a (iPhone).md");
+		expect(conflictCopyPath("a/b/c/d.md", "iPhone", at)).toBe("_conflicts/20261011 d (iPhone).md");
+		expect(conflictCopyPath("_conflicts/sub/d.md", "iPhone", at)).toBe("_conflicts/20261011 d (iPhone).md");
 	});
 
 	test("only the last extension is kept at the end", () => {
-		expect(conflictCopyPath("a.tar.gz", "Mac", at)).toBe("_conflicts/20261011-221500 a.tar (Mac).gz");
+		expect(conflictCopyPath("a.tar.gz", "Mac", at)).toBe("_conflicts/20261011 a.tar (Mac).gz");
 	});
 
 	test("a leading dot does not start an extension", () => {
-		expect(conflictCopyPath(".gitignore", "iPhone", at)).toBe("_conflicts/20261011-221500 .gitignore (iPhone)");
-		expect(conflictCopyPath("sub/.env.local", "iPhone", at)).toBe("_conflicts/20261011-221500 .env (iPhone).local");
+		expect(conflictCopyPath(".gitignore", "iPhone", at)).toBe("_conflicts/20261011 .gitignore (iPhone)");
+		expect(conflictCopyPath("sub/.env.local", "iPhone", at)).toBe("_conflicts/20261011 .env (iPhone).local");
 	});
 
 	test("a name without an extension gets it all at the end", () => {
-		expect(conflictCopyPath("LICENSE", "iPhone", at)).toBe("_conflicts/20261011-221500 LICENSE (iPhone)");
+		expect(conflictCopyPath("LICENSE", "iPhone", at)).toBe("_conflicts/20261011 LICENSE (iPhone)");
 	});
 
 	test("a dot in a folder name is not an extension", () => {
-		expect(conflictCopyPath("v1.2/README", "iPhone", at)).toBe("_conflicts/20261011-221500 README (iPhone)");
+		expect(conflictCopyPath("v1.2/README", "iPhone", at)).toBe("_conflicts/20261011 README (iPhone)");
 	});
 
-	test("every part of the date and the time has its full width", () => {
+	test("the time of day is not in the name: two copies of one day have one name", () => {
+		const morning = conflictCopyPath("notes/a.md", "iPhone", new Date(2026, 9, 11, 0, 0, 0));
+		const night = conflictCopyPath("notes/a.md", "iPhone", new Date(2026, 9, 11, 23, 59, 59));
+		expect(morning).toBe("_conflicts/20261011 a (iPhone).md");
+		expect(night).toBe(morning);
+		// The number tells them apart, and the day after has its own name.
+		expect(conflictCopyPath("notes/a.md", "iPhone", at, 2)).toBe("_conflicts/20261011 a (iPhone)-2.md");
+		expect(conflictCopyPath("notes/a.md", "iPhone", new Date(2026, 9, 12, 0, 0, 0))).toBe(
+			"_conflicts/20261012 a (iPhone).md",
+		);
+	});
+
+	test("every part of the date has its full width", () => {
 		expect(conflictCopyPath("a.md", "iPhone", new Date(2026, 0, 2, 3, 4, 5))).toBe(
-			"_conflicts/20260102-030405 a (iPhone).md",
+			"_conflicts/20260102 a (iPhone).md",
 		);
 	});
 
 	test("from the second attempt on, a number goes before the extension", () => {
-		expect(conflictCopyPath("a.md", "iPhone", at, 1)).toBe("_conflicts/20261011-221500 a (iPhone).md");
-		expect(conflictCopyPath("a.md", "iPhone", at, 2)).toBe("_conflicts/20261011-221500 a (iPhone)-2.md");
-		expect(conflictCopyPath("LICENSE", "iPhone", at, 3)).toBe("_conflicts/20261011-221500 LICENSE (iPhone)-3");
+		expect(conflictCopyPath("a.md", "iPhone", at, 1)).toBe("_conflicts/20261011 a (iPhone).md");
+		expect(conflictCopyPath("a.md", "iPhone", at, 2)).toBe("_conflicts/20261011 a (iPhone)-2.md");
+		expect(conflictCopyPath("LICENSE", "iPhone", at, 3)).toBe("_conflicts/20261011 LICENSE (iPhone)-3");
 	});
 
 	test("the folder is spelled as it is handed in", () => {
 		expect(conflictCopyPath("notes/a.md", "iPhone", at, 1, "_Conflicts")).toBe(
-			"_Conflicts/20261011-221500 a (iPhone).md",
+			"_Conflicts/20261011 a (iPhone).md",
 		);
 	});
 
@@ -77,26 +89,26 @@ describe("making the name", () => {
 		const fileName = copy.slice("_conflicts/".length);
 		expect(bytes(fileName)).toBeLessThanOrEqual(255);
 		expect(bytes(fileName)).toBeGreaterThan(255 - 3);
-		expect(fileName).toMatch(/^20261011-221500 あ+ \(iPhone\)\.md$/);
+		expect(fileName).toMatch(/^20261011 あ+ \(iPhone\)\.md$/);
 		// With a number, the name gives way for it.
 		const second = conflictCopyPath(`notes/${long}.md`, "iPhone", at, 12).slice("_conflicts/".length);
 		expect(bytes(second)).toBeLessThanOrEqual(255);
-		expect(second).toMatch(/^20261011-221500 あ+ \(iPhone\)-12\.md$/);
+		expect(second).toMatch(/^20261011 あ+ \(iPhone\)-12\.md$/);
 	});
 
 	test("a name that fits is not shortened", () => {
-		const name = "a".repeat(255 - "20261011-221500  (iPhone).md".length);
-		expect(conflictCopyPath(`${name}.md`, "iPhone", at)).toBe(`_conflicts/20261011-221500 ${name} (iPhone).md`);
+		const name = "a".repeat(255 - "20261011  (iPhone).md".length);
+		expect(conflictCopyPath(`${name}.md`, "iPhone", at)).toBe(`_conflicts/20261011 ${name} (iPhone).md`);
 	});
 
 	test("the copy of a copy is a copy like any other: no number is added to the name it has", () => {
 		const first = conflictCopyPath("notes/a.md", "iPhone", at);
 		expect(conflictCopyPath(first, "Mac", new Date(2026, 9, 12, 8, 0, 0))).toBe(
-			"_conflicts/20261012-080000 20261011-221500 a (iPhone) (Mac).md",
+			"_conflicts/20261012 20261011 a (iPhone) (Mac).md",
 		);
 		const earlier = earlierCopyPath("notes/a.md", "iPhone", at);
 		expect(conflictCopyPath(earlier, "Mac", new Date(2026, 9, 12, 8, 0, 0))).toBe(
-			"_conflicts/20261012-080000 a.conflict-from-iPhone-20261011-221500 (Mac).md",
+			"_conflicts/20261012 a.conflict-from-iPhone-20261011-221500 (Mac).md",
 		);
 	});
 });
@@ -114,36 +126,47 @@ describe("telling a copy in the folder of the copies", () => {
 		}
 	});
 
-	test("only the start of the name counts: eight digits, a hyphen, six digits, a space", () => {
-		expect(isCopyInConflictFolder("_conflicts/20261011-221500 a (iPhone).md")).toBe(true);
-		expect(isCopyInConflictFolder("_conflicts/20261011-221500 anything at all")).toBe(true);
-		expect(isCopyInConflictFolder("_conflicts/20261011-221500 ")).toBe(true);
+	test("only the start of the name counts: eight digits and a space", () => {
+		expect(isCopyInConflictFolder("_conflicts/20261011 a (iPhone).md")).toBe(true);
+		expect(isCopyInConflictFolder("_conflicts/20261011 anything at all")).toBe(true);
+		expect(isCopyInConflictFolder("_conflicts/20261011 ")).toBe(true);
 		// Digits that are no date are a copy all the same: it is never tidied.
-		expect(isCopyInConflictFolder("_conflicts/99999999-999999 a.md")).toBe(true);
+		expect(isCopyInConflictFolder("_conflicts/99999999 a.md")).toBe(true);
+		expect(isCopyInConflictFolder("_conflicts/20261011 a (iPhone)-2.md")).toBe(true);
+	});
+
+	test("a name with a time of day after the date, as a beta once made it, is no copy: a file like any other", () => {
+		const timed = "_conflicts/20261012-001421 a (iPhone).md";
+		expect(isCopyInConflictFolder(timed)).toBe(false);
+		expect(dayEndOfConflictCopy(timed)).toBeNull();
+		// Not one of the earlier form either.
+		expect(originalPathOfConflictCopy(timed)).toBeNull();
 	});
 
 	test.each([
 		"_conflicts/a.md",
-		"_conflicts/20261011-221500",
-		"_conflicts/20261011-221500a.md",
-		"_conflicts/20261011-221500_a.md",
-		"_conflicts/2026101-221500 a.md",
-		"_conflicts/20261011-22150 a.md",
-		"_conflicts/20261011 221500 a.md",
-		"_conflicts/ 20261011-221500 a.md",
-		"_conflicts/x20261011-221500 a.md",
-		"_conflicts/２０２６１０１１-221500 a.md",
-		"_conflicts/20261011-221500 a.md",
+		"_conflicts/20261011",
+		"_conflicts/20261011a.md",
+		"_conflicts/20261011_a.md",
+		"_conflicts/20261011-a.md",
+		"_conflicts/20261011-221500 a.md",
+		"_conflicts/2026101 a.md",
+		"_conflicts/202610111 a.md",
+		"_conflicts/2026-10-11 a.md",
+		"_conflicts/ 20261011 a.md",
+		"_conflicts/x20261011 a.md",
+		"_conflicts/２０２６１０１１ a.md",
+		"_conflicts/20261011\u00a0a.md",
 	])("%j is not a copy", (path) => {
 		expect(isCopyInConflictFolder(path)).toBe(false);
 	});
 
 	test("only directly in the folder, and only in that folder at the root", () => {
-		expect(isCopyInConflictFolder("_conflicts/sub/20261011-221500 a (iPhone).md")).toBe(false);
-		expect(isCopyInConflictFolder("notes/_conflicts/20261011-221500 a (iPhone).md")).toBe(false);
-		expect(isCopyInConflictFolder("conflicts/20261011-221500 a (iPhone).md")).toBe(false);
-		expect(isCopyInConflictFolder("_conflicts2/20261011-221500 a (iPhone).md")).toBe(false);
-		expect(isCopyInConflictFolder("20261011-221500 a (iPhone).md")).toBe(false);
+		expect(isCopyInConflictFolder("_conflicts/sub/20261011 a (iPhone).md")).toBe(false);
+		expect(isCopyInConflictFolder("notes/_conflicts/20261011 a (iPhone).md")).toBe(false);
+		expect(isCopyInConflictFolder("conflicts/20261011 a (iPhone).md")).toBe(false);
+		expect(isCopyInConflictFolder("_conflicts2/20261011 a (iPhone).md")).toBe(false);
+		expect(isCopyInConflictFolder("20261011 a (iPhone).md")).toBe(false);
 		expect(isCopyInConflictFolder("_conflicts")).toBe(false);
 	});
 
@@ -153,46 +176,45 @@ describe("telling a copy in the folder of the copies", () => {
 		expect(isConflictFolder("_CONFLICTS")).toBe(true);
 		expect(isConflictFolder("conflicts")).toBe(false);
 		expect(isConflictFolder("_conflicts/sub")).toBe(false);
-		expect(isCopyInConflictFolder("_Conflicts/20261011-221500 a (iPhone).md")).toBe(true);
+		expect(isCopyInConflictFolder("_Conflicts/20261011 a (iPhone).md")).toBe(true);
 	});
 });
 
-describe("reading the time of a copy", () => {
-	test("the date and the time of the name, read as UTC", () => {
-		expect(timeOfConflictCopy(conflictCopyPath("notes/a.md", "iPhone", at))).toBe(Date.UTC(2026, 9, 11, 22, 15, 0));
-		expect(timeOfConflictCopy("_Conflicts/20260102-030405 a.md")).toBe(Date.UTC(2026, 0, 2, 3, 4, 5));
+describe("reading the day of a copy", () => {
+	test("the end of the day in the name, read as UTC: the start of the day after", () => {
+		expect(dayEndOfConflictCopy(conflictCopyPath("notes/a.md", "iPhone", at))).toBe(Date.UTC(2026, 9, 12));
+		expect(dayEndOfConflictCopy("_Conflicts/20260102 a.md")).toBe(Date.UTC(2026, 0, 3));
+		// Over the end of a month, of a year, and of a February with 29 days.
+		expect(dayEndOfConflictCopy("_conflicts/20261031 a.md")).toBe(Date.UTC(2026, 10, 1));
+		expect(dayEndOfConflictCopy("_conflicts/20261231 a.md")).toBe(Date.UTC(2027, 0, 1));
+		expect(dayEndOfConflictCopy("_conflicts/20280229 a.md")).toBe(Date.UTC(2028, 2, 1));
 	});
 
-	test("an hour a change of the clocks skips somewhere is a time all the same, in whatever zone it is read", () => {
-		// 02:30 on these days does not exist in New York, Berlin and Sydney.
-		for (const stamp of ["20260308-023000", "20260329-023000", "20261004-023000"]) {
-			expect(timeOfConflictCopy(`_conflicts/${stamp} a.md`)).not.toBeNull();
-		}
+	test("never long before the moment the copy was made, in whatever zone it was named", () => {
 		// Off by the offset of the zone at most: nothing against 30 days.
-		const local = at.getTime();
-		const read = timeOfConflictCopy(conflictCopyPath("a.md", "iPhone", at)) ?? 0;
-		expect(Math.abs(read - local)).toBeLessThanOrEqual(14 * 60 * 60 * 1000);
+		const end = dayEndOfConflictCopy(conflictCopyPath("a.md", "iPhone", at)) ?? 0;
+		expect(end - at.getTime()).toBeGreaterThan(-14 * 60 * 60 * 1000);
+		expect(end - at.getTime()).toBeLessThanOrEqual((24 + 14) * 60 * 60 * 1000);
 	});
 
 	test.each([
-		"_conflicts/20261311-221500 a.md",
-		"_conflicts/20261000-221500 a.md",
-		"_conflicts/20260230-221500 a.md",
-		"_conflicts/20261011-241500 a.md",
-		"_conflicts/20261011-226000 a.md",
-		"_conflicts/20261011-221560 a.md",
-		"_conflicts/00000000-000000 a.md",
-		"_conflicts/00500101-000000 a.md",
-		"_conflicts/99999999-999999 a.md",
-	])("%j holds no date and time", (path) => {
+		"_conflicts/20261311 a.md",
+		"_conflicts/20261000 a.md",
+		"_conflicts/20260230 a.md",
+		"_conflicts/20270229 a.md",
+		"_conflicts/20261032 a.md",
+		"_conflicts/00000000 a.md",
+		"_conflicts/00500101 a.md",
+		"_conflicts/99999999 a.md",
+	])("%j holds no date", (path) => {
 		expect(isCopyInConflictFolder(path)).toBe(true);
-		expect(timeOfConflictCopy(path)).toBeNull();
+		expect(dayEndOfConflictCopy(path)).toBeNull();
 	});
 
 	test("a path that is no copy in the folder has none", () => {
-		expect(timeOfConflictCopy("notes/20261011-221500 a.md")).toBeNull();
-		expect(timeOfConflictCopy("_conflicts/a.md")).toBeNull();
-		expect(timeOfConflictCopy(earlierCopyPath("notes/a.md", "iPhone", at))).toBeNull();
+		expect(dayEndOfConflictCopy("notes/20261011 a.md")).toBeNull();
+		expect(dayEndOfConflictCopy("_conflicts/a.md")).toBeNull();
+		expect(dayEndOfConflictCopy(earlierCopyPath("notes/a.md", "iPhone", at))).toBeNull();
 	});
 });
 
@@ -248,13 +270,13 @@ describe("reading the name of the earlier form back", () => {
 	test("a copy in the folder of the copies is never one of the earlier form, whatever its end", () => {
 		// What a device with an older version makes of a copy in the folder.
 		const made = earlierCopyPath(conflictCopyPath("notes/a.md", "iPhone", at), "Mac", at);
-		expect(made).toBe("_conflicts/20261011-221500 a (iPhone).conflict-from-Mac-20261011-221500.md");
+		expect(made).toBe("_conflicts/20261011 a (iPhone).conflict-from-Mac-20261011-221500.md");
 		expect(isCopyInConflictFolder(made)).toBe(true);
 		expect(originalPathOfConflictCopy(made)).toBeNull();
 		// Not so for a file in the folder that is no copy there, or below it.
 		expect(originalPathOfConflictCopy("_conflicts/a.conflict-from-Mac-20261011-221500.md")).toBe("_conflicts/a.md");
-		expect(originalPathOfConflictCopy("_conflicts/sub/20261011-221500 a.conflict-from-Mac-20261011-221500.md")).toBe(
-			"_conflicts/sub/20261011-221500 a.md",
+		expect(originalPathOfConflictCopy("_conflicts/sub/20261011 a.conflict-from-Mac-20261011-221500.md")).toBe(
+			"_conflicts/sub/20261011 a.md",
 		);
 	});
 });

@@ -237,7 +237,7 @@ describe("a write marker", () => {
 	});
 
 	test("the marker of a copy holds the path of the file the copy is of, and no other marker does", () => {
-		const copy = "_conflicts/20261011-221500 a (iPhone).md";
+		const copy = "_conflicts/20261011 a (iPhone).md";
 		expect(makeMarker(copy, null, HASH, true, "notes/a.md")).toEqual({
 			key: copy,
 			path: copy,
@@ -251,7 +251,7 @@ describe("a write marker", () => {
 	});
 
 	test("stored field by field: the path of the file is kept on a copy, and nothing else an object carries", () => {
-		const copy = "_conflicts/20261011-221500 a (iPhone).md";
+		const copy = "_conflicts/20261011 a (iPhone).md";
 		const marker = makeMarker(copy, null, HASH, true, "notes/a.md");
 		expect(plainMarker({ ...marker, extra: 1 } as WriteMarker)).toEqual(marker);
 		expect(plainMarker({ ...makeMarker("a.md", null, HASH, false), original: "b.md" })).toEqual(
@@ -261,7 +261,7 @@ describe("a write marker", () => {
 	});
 
 	test("what a copy is of: what its marker says, or else what a name of the earlier form tells, or nothing", () => {
-		const copy = "_conflicts/20261011-221500 a (iPhone).md";
+		const copy = "_conflicts/20261011 a (iPhone).md";
 		expect(copiedPathOf(makeMarker(copy, null, HASH, true, "notes/a.md"))).toBe("notes/a.md");
 		// Written by an earlier version, beside the file.
 		expect(copiedPathOf(makeMarker("notes/a.conflict-from-Mac-20261007-101500.md", null, HASH, true))).toBe("notes/a.md");

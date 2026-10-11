@@ -434,7 +434,8 @@ class PullRun {
 	 * carried out, which may have written the file.
 	 *
 	 * Over, with nothing to tell: the remote has no file at the path, or has
-	 * what the copy holds; or the copy is gone. One the plan has told itself
+	 * what the copy holds; or the copy is gone, or no longer holds what it
+	 * was written with. One the plan has told itself
 	 * (`conflict` in `pull-apply.ts`, which found the copy) is over too.
 	 *
 	 * Left waiting: everything else. The file is not there, holds another
@@ -473,9 +474,14 @@ class PullRun {
 		// May be half written: not looked at.
 		if (this.held.has(foldedKey(path)) || this.held.has(foldedKey(copyPath))) return "waiting";
 		if (remoteHash === undefined || remoteHash === conflict.hash) return "over";
+		// The copy has to be the one that was written: the name of a copy
+		// that is gone can be taken by the copy of another file, of the same
+		// name and the same day. Read, and not only looked for.
 		try {
-			const copy = await this.deps.vault.stat(copyPath);
-			if (copy === null || copy.type !== "file") return "over";
+			const { vault, backend } = this.deps;
+			const copy = await vault.stat(copyPath);
+			if (copy === null || copy.type !== "file" || copy.size > this.sizeLimit) return "over";
+			if ((await backend.hashContent(await vault.read(copyPath))) !== conflict.hash) return "over";
 		} catch {
 			return "waiting";
 		}

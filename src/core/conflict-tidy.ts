@@ -10,14 +10,15 @@
  */
 
 // Tidying the folder of the conflict copies: a copy that was made 30 days
-// ago or more is moved to the `.trash/` of the vault, by a sync, after its
-// pull and before its push. A copy is something to look at once, and a
-// conflict that is handled a second time leaves one more of them; without
-// this the folder would only ever grow.
+// ago or more, counted from the end of the day in its name, is moved to the
+// `.trash/` of the vault, by a sync, after its pull and before its push. A
+// copy is something to look at once, and a conflict that is handled a second
+// time leaves one more of them; without this the folder would only ever
+// grow.
 //
 // Only a file that is told to be a copy by where it is and by the start of
 // its name is touched (`isCopyInConflictFolder`), and its age is read from
-// that name (`timeOfConflictCopy`, to within the offset of a time zone):
+// that name (`dayEndOfConflictCopy`, to within the offset of a time zone):
 // the time of the file is the time this device got it. Anything
 // else in the folder is the user's, and so is a copy that was renamed or
 // moved out of it, which is how one is kept. A copy of the earlier form,
@@ -28,14 +29,14 @@
 // remembered, so that the push does not count it among the deletions it
 // asks about (`TIDIED_COPIES_KEY`).
 
-import { isConflictFolder, timeOfConflictCopy } from "./conflict-name";
+import { dayEndOfConflictCopy, isConflictFolder } from "./conflict-name";
 import type { VaultIndex } from "./light-scan";
 import { foldedKey, pathKey } from "./paths";
 import type { PullVault } from "./pull-io";
 import { fromRoot } from "./scan";
 import { copiedPathOf, type StateStore } from "./state";
 
-/** How long a conflict copy is kept from the time in its name, in milliseconds: 30 days of 24 hours. Not a setting. */
+/** How long a conflict copy is kept from the end of the day in its name, in milliseconds: 30 days of 24 hours. Not a setting. */
 export const COPY_KEPT_MS = 30 * 24 * 60 * 60 * 1000;
 
 /**
@@ -68,12 +69,15 @@ export interface TidyDeps {
 }
 
 /**
- * Whether a copy has had its time: the time in its name is 30 days or more
- * before `now`. Never a path that is no copy in the folder of the copies, a
- * name whose digits are no date and time, or a time that is yet to come.
+ * Whether a copy has had its time: the day in its name ended 30 days or
+ * more before `now`. From the end of the day, since the name does not tell
+ * the time of day: a copy made late in the evening is kept for 30 days too,
+ * and one made in the morning for most of a day more. Never a path that is
+ * no copy in the folder of the copies, a name whose digits are no date, or
+ * a day that is yet to come.
  */
 export function isCopyDue(path: string, now: number): boolean {
-	const made = timeOfConflictCopy(path);
+	const made = dayEndOfConflictCopy(path);
 	return made !== null && now - made >= COPY_KEPT_MS;
 }
 

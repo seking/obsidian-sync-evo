@@ -493,7 +493,14 @@ class Applier {
 	/**
 	 * A name for the copy of `original` that nothing has: not the vault, and
 	 * not the remote, whose file of that name this or a later pull writes.
-	 * Whether a file is one of the same content plays no part.
+	 * Whether a file is one of the same content plays no part. The plain
+	 * name is taken as a matter of course: it tells the day and not the
+	 * time, and a note in conflict twice on a day gets a number the second
+	 * time.
+	 *
+	 * Nor the name of the copy of a conflict that waits (`AwaitedConflict`),
+	 * also when that copy has just been deleted: the conflict is told by
+	 * that name, and must not find the content of another file under it.
 	 *
 	 * Throws when the copy has nowhere to go (`copyFolder`), or no name is
 	 * free.
@@ -503,7 +510,7 @@ class Applier {
 		const at = new Date(this.env.now());
 		for (let n = 1; n <= MAX_COPY_ATTEMPTS; n++) {
 			const candidate = conflictCopyPath(original, this.env.deviceName, at, n, folder);
-			if (this.remoteHas(candidate)) continue;
+			if (this.remoteHas(candidate) || this.awaitedHas(candidate)) continue;
 			if ((await this.vault.stat(candidate)) === null) return candidate;
 		}
 		throw new Error(`No free name for a copy of ${original}`);
@@ -527,6 +534,12 @@ class Applier {
 		if (folder !== undefined) return folder.name;
 		if (named.length > 0) throw new Error(`a file is at ${named[0]?.name ?? CONFLICT_FOLDER}`);
 		return CONFLICT_FOLDER;
+	}
+
+	/** Whether a conflict that waits has its copy at the path. Without the cases, like `remoteHas`. */
+	private awaitedHas(path: string): boolean {
+		const folded = foldedKey(path);
+		return this.env.awaited.some((waiting) => foldedKey(waiting.copyPath) === folded);
 	}
 
 	private remoteHas(path: string): boolean {

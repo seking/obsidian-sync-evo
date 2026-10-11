@@ -157,7 +157,7 @@ export function describeStateStore(name: string, open: () => Promise<StateStore>
 				makeMarker("old.md", HASH_B, HASH_C, false),
 				makeMarker("old.conflict-from-iPhone-20261007-101500.md", null, HASH_B, true),
 				// With the file the copy is of, which its name does not tell.
-				makeMarker("_conflicts/20261007-101500 old (iPhone).md", null, HASH_B, true, "notes/old.md"),
+				makeMarker("_conflicts/20261007 old (iPhone).md", null, HASH_B, true, "notes/old.md"),
 			];
 			for (const marker of markers) await store.putMarker(marker);
 			expect(byKey(await store.readMarkers())).toEqual(byKey(markers));

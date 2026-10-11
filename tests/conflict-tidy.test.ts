@@ -10,7 +10,6 @@
  */
 
 import { describe, expect, test } from "vitest";
-import { conflictCopyPath } from "../src/core/conflict-name";
 import {
 	COPY_KEPT_MS,
 	forgetTidiedCopies,
@@ -31,21 +30,15 @@ const DAY = 24 * 60 * 60 * 1000;
 const NOW = Date.UTC(2026, 6, 15, 12, 0, 0);
 
 /**
- * The copy of `name.md` whose name says it was made this long ago. The time
- * of a name is read as UTC, so the name is made on a clock that shows UTC:
- * the edge of the 30 days is then the same in every zone the tests run in.
+ * The copy of `name.md` that was made this long ago, by its name: the name
+ * tells the day of that moment and no more. The day of a name is read as
+ * UTC, so the name is written so, and the edge of the 30 days is the same
+ * in every zone the tests run in. Now is noon: the day of 30 days ago ended
+ * 29 days and a half ago, and the one before it 30 and a half.
  */
 function copyFrom(ago: number, name = "a", device = "iPhone"): string {
-	const at = new Date(NOW - ago);
-	const shown = new Date(
-		at.getUTCFullYear(),
-		at.getUTCMonth(),
-		at.getUTCDate(),
-		at.getUTCHours(),
-		at.getUTCMinutes(),
-		at.getUTCSeconds(),
-	);
-	return conflictCopyPath(`notes/${name}.md`, device, shown);
+	const stamp = new Date(NOW - ago).toISOString().slice(0, 10).replaceAll("-", "");
+	return `_conflicts/${stamp} ${name} (${device}).md`;
 }
 
 interface Setup {
@@ -67,20 +60,42 @@ function setup(files: Record<string, string>, options: { caseSensitive?: boolean
 }
 
 describe("when a copy has had its time", () => {
-	test("30 days of 24 hours from the time in its name, to the second", () => {
+	test("30 days of 24 hours from the end of the day in its name, to the millisecond", () => {
 		expect(COPY_KEPT_MS).toBe(30 * DAY);
-		expect(isCopyDue(copyFrom(30 * DAY), NOW)).toBe(true);
-		expect(isCopyDue(copyFrom(30 * DAY + 1000), NOW)).toBe(true);
-		expect(isCopyDue(copyFrom(30 * DAY - 1000), NOW)).toBe(false);
+		const copy = "_conflicts/20260601 a (iPhone).md";
+		// The day ends when the 2nd of June begins, and 30 days on it is the 2nd of July.
+		const edge = Date.UTC(2026, 6, 2);
+		expect(isCopyDue(copy, edge)).toBe(true);
+		expect(isCopyDue(copy, edge - 1)).toBe(false);
+		// 30 days after the start of that day is a day too early: a copy
+		// made late on the 1st of June would have been kept for 29.
+		expect(isCopyDue(copy, Date.UTC(2026, 6, 1))).toBe(false);
+		expect(isCopyDue(copy, Date.UTC(2026, 6, 1, 23, 59, 59))).toBe(false);
+		expect(isCopyDue(copy, edge + 400 * DAY)).toBe(true);
+	});
+
+	test("the number of a second copy of the day changes nothing", () => {
+		expect(isCopyDue("_conflicts/20260601 a (iPhone)-2.md", Date.UTC(2026, 6, 2))).toBe(true);
+		expect(isCopyDue("_conflicts/20260601 a (iPhone)-2.md", Date.UTC(2026, 6, 2) - 1)).toBe(false);
+	});
+
+	test("as the helper of these tests counts it", () => {
+		expect(isCopyDue(copyFrom(31 * DAY), NOW)).toBe(true);
+		expect(isCopyDue(copyFrom(30 * DAY), NOW)).toBe(false);
 		expect(isCopyDue(copyFrom(0), NOW)).toBe(false);
 		expect(isCopyDue(copyFrom(400 * DAY), NOW)).toBe(true);
 	});
 
-	test("never a time that is yet to come, or digits that are no date", () => {
+	test("a name with a time of day after the date is no copy, and is never due", () => {
+		expect(isCopyDue("_conflicts/20250101-120000 a (iPhone).md", NOW)).toBe(false);
+	});
+
+	test("never a day that is yet to come or has not ended, or digits that are no date", () => {
+		expect(isCopyDue("_conflicts/20260715 a (iPhone).md", NOW)).toBe(false);
 		expect(isCopyDue(copyFrom(-DAY), NOW)).toBe(false);
 		expect(isCopyDue(copyFrom(-400 * DAY), NOW)).toBe(false);
-		expect(isCopyDue("_conflicts/20251340-120000 a (iPhone).md", NOW)).toBe(false);
-		expect(isCopyDue("_conflicts/00000000-000000 a (iPhone).md", NOW)).toBe(false);
+		expect(isCopyDue("_conflicts/20251340 a (iPhone).md", NOW)).toBe(false);
+		expect(isCopyDue("_conflicts/00000000 a (iPhone).md", NOW)).toBe(false);
 	});
 
 	test("never a file that is no copy in the folder: one of the earlier form, one in a folder below, one elsewhere", () => {
@@ -93,10 +108,10 @@ describe("when a copy has had its time", () => {
 });
 
 describe("tidying the folder of the copies", () => {
-	test("a copy of 30 days goes to the .trash/ of the vault; a younger one, and everything that is no copy, stays", async () => {
-		const due = copyFrom(30 * DAY);
+	test("a copy whose day ended 30 days ago goes to the .trash/ of the vault; a younger one, and everything that is no copy, stays", async () => {
+		const due = copyFrom(31 * DAY);
 		const older = copyFrom(90 * DAY, "b", "Mac");
-		const young = copyFrom(30 * DAY - 1000, "c");
+		const young = copyFrom(30 * DAY, "c");
 		const earlier = earlierCopyPath("notes/a.md", "iPhone", new Date(NOW - 90 * DAY));
 		const below = copyFrom(90 * DAY, "d").replace("_conflicts/", "_conflicts/sub/");
 		const s = setup({
@@ -106,7 +121,7 @@ describe("tidying the folder of the copies", () => {
 			[earlier]: "four",
 			[below]: "five",
 			"_conflicts/my notes.md": "six",
-			"_conflicts/20250101 a.md": "seven",
+			"_conflicts/20250101-120000 a.md": "seven",
 			"notes/a.md": "A",
 		});
 
@@ -117,7 +132,7 @@ describe("tidying the folder of the copies", () => {
 			[`vault-trash ${due} one`, `vault-trash ${older} two`].sort(),
 		);
 		expect(s.vault.paths().sort()).toEqual(
-			[".obsidian/app.json", young, earlier, below, "_conflicts/my notes.md", "_conflicts/20250101 a.md", "notes/a.md"].sort(),
+			[".obsidian/app.json", young, earlier, below, "_conflicts/my notes.md", "_conflicts/20250101-120000 a.md", "notes/a.md"].sort(),
 		);
 		// Remembered, for the push that deletes them on the remote.
 		expect((await readTidiedCopies(s.store)).sort()).toEqual([due, older].sort());
@@ -127,8 +142,8 @@ describe("tidying the folder of the copies", () => {
 
 	test("a copy that was renamed, or moved out of the folder, is kept", async () => {
 		const s = setup({
-			"_conflicts/keep 20250101-120000 a (iPhone).md": "renamed",
-			"kept/20250101-120000 a (iPhone).md": "moved",
+			"_conflicts/keep 20250101 a (iPhone).md": "renamed",
+			"kept/20250101 a (iPhone).md": "moved",
 		});
 		expect(await s.tidy()).toEqual([]);
 		expect(s.vault.trashed).toEqual([]);

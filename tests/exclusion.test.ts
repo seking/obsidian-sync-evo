@@ -857,7 +857,7 @@ describe("a copy kept from a conflict, in the folder of the copies", () => {
 	test("also the copy of a file in the configuration folder that another device made", () => {
 		const exclusion = exclusionFor("");
 		const settings = conflictCopyPath(".obsidian/app.json", "Mac", at);
-		expect(settings).toBe("_conflicts/20261011-221500 app (Mac).json");
+		expect(settings).toBe("_conflicts/20261011 app (Mac).json");
 		expect(exclusion.excludes(settings, "file", unknown)).toBe(false);
 	});
 
@@ -877,7 +877,7 @@ describe("a copy kept from a conflict, in the folder of the copies", () => {
 		expect(exclusion.excludes("_conflicts/notes.md", "file", unknown)).toBe(true);
 		expect(exclusion.excludes("_conflicts/2026-10-11 a.md", "file", unknown)).toBe(true);
 		expect(exclusion.excludes("_conflicts/sub", "folder", unknown)).toBe(true);
-		expect(exclusion.excludes("_conflicts/sub/20261011-221500 a (iPhone).md", "file", unknown)).toBe(true);
+		expect(exclusion.excludes("_conflicts/sub/20261011 a (iPhone).md", "file", unknown)).toBe(true);
 		// Known, they are synced like any other path a rule matches.
 		expect(exclusion.excludes("_conflicts/notes.md", "file", knownPaths([entryAt("_conflicts/notes.md")], []))).toBe(false);
 		// Without a rule they are files like any other.
@@ -888,16 +888,16 @@ describe("a copy kept from a conflict, in the folder of the copies", () => {
 	test("a folder of that name anywhere else is a folder like any other", () => {
 		const exclusion = exclusionFor("_conflicts/\n");
 		expect(exclusion.excludes("notes/_conflicts", "folder", unknown)).toBe(true);
-		expect(exclusion.excludes("notes/_conflicts/20261011-221500 a (iPhone).md", "file", unknown)).toBe(true);
+		expect(exclusion.excludes("notes/_conflicts/20261011 a (iPhone).md", "file", unknown)).toBe(true);
 	});
 
 	test("a vault that spells the folder otherwise has its copies there", () => {
 		const exclusion = exclusionFor("_conflicts/\n");
-		expect(exclusion.excludes("_Conflicts/20261011-221500 a (iPhone).md", "file", unknown)).toBe(false);
+		expect(exclusion.excludes("_Conflicts/20261011 a (iPhone).md", "file", unknown)).toBe(false);
 	});
 
 	test("what an older version makes of a copy in the folder is a copy in the folder, not one of the earlier form", () => {
-		// Read by its end, it would be judged by `_conflicts/20261011-221500 a (iPhone).md`,
+		// Read by its end, it would be judged by `_conflicts/20261011 a (iPhone).md`,
 		// and left out with it once a rule matches the folder.
 		const made = earlierCopyPath(copy, "Mac", at);
 		const exclusion = exclusionFor("_conflicts/\n");
@@ -907,6 +907,25 @@ describe("a copy kept from a conflict, in the folder of the copies", () => {
 		const beside = earlierCopyPath("_conflicts/notes.md", "Mac", at);
 		expect(exclusion.excludes(beside, "file", unknown)).toBe(true);
 		expect(exclusion.excludes(beside, "file", knownPaths([entryAt("_conflicts/notes.md")], []))).toBe(false);
+	});
+
+	test("the second copy of a day, with its number, is a copy like the first", () => {
+		const exclusion = exclusionFor("_conflicts/\n*.md\n");
+		expect(exclusion.excludes("_conflicts/20261012 a (iPhone)-2.md", "file", unknown)).toBe(false);
+		expect(exclusion.matchesRule("_conflicts/20261012 a (iPhone)-2.md", "file")).toBe(false);
+	});
+
+	test("a name with a time of day after the date, as a beta once made it, is a file like any other and goes by the rules", () => {
+		const timed = "_conflicts/20261012-001421 a (iPhone).md";
+		// Without a rule it is a new file, and is sent.
+		expect(exclusionFor("").excludes(timed, "file", unknown)).toBe(false);
+		// Under a rule it is left out, unless it is known.
+		const exclusion = exclusionFor("_conflicts/\n");
+		expect(exclusion.matchesRule(timed, "file")).toBe(true);
+		expect(exclusion.excludes(timed, "file", unknown)).toBe(true);
+		expect(exclusion.excludes(timed, "file", knownPaths([entryAt(timed)], []))).toBe(false);
+		// Not judged by any other file: it is no copy of the earlier form either.
+		expect(exclusion.excludes(timed, "file", knownPaths([entryAt("_conflicts/a.md"), entryAt("a.md")], []))).toBe(true);
 	});
 
 	test("the two fixed exclusions come first", () => {

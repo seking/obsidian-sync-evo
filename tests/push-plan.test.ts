@@ -419,7 +419,7 @@ describe("the deletions that wait for a new file that is being typed in", () => 
 });
 
 describe("the conflict copies that were tidied", () => {
-	const copies = Array.from({ length: 8 }, (_, i) => `_conflicts/20260801-09000${i} n${i} (iPhone).md`);
+	const copies = Array.from({ length: 8 }, (_, i) => `_conflicts/20260801 n${i} (iPhone).md`);
 	const notes = Array.from({ length: 12 }, (_, i) => `n/${i}.md`);
 	const synced = Object.fromEntries([...copies, ...notes].map((path) => [path, `content of ${path}`]));
 	const gone = (paths: readonly string[]): Record<string, null> => Object.fromEntries(paths.map((path) => [path, null]));
