@@ -379,6 +379,10 @@ export const en = baseCatalog({
 		one: "{count} conflict copy that an earlier pull left unfinished was moved to .trash/ in this vault. A complete copy is made again. If you had edited the copy, your edit is there:\n{list}",
 		other: "{count} conflict copies that an earlier pull left unfinished were moved to .trash/ in this vault. Complete copies are made again. If you had edited the copies, your edits are there:\n{list}",
 	},
+	"pull.tidiedCopies": {
+		one: "{count} conflict copy in _conflicts/ was made 30 days ago or more, and was moved to .trash/ in this vault. To keep a copy, move it out of _conflicts/ or rename it.",
+		other: "{count} conflict copies in _conflicts/ were made 30 days ago or more, and were moved to .trash/ in this vault. To keep a copy, move it out of _conflicts/ or rename it.",
+	},
 	"pull.keptLocal": {
 		one: "{count} file was left as it is on this device, as you chose. It differs from the remote:\n{list}",
 		other: "{count} files were left as they are on this device, as you chose. They differ from the remote:\n{list}",
@@ -461,8 +465,8 @@ export const en = baseCatalog({
 		other: "{count} files were not sent: GitHub refused them as too large. Make these files smaller or move them out of the vault. A file the remote does not hold yet is also left alone once it is in .gitignore. If one is a conflict copy, check its content and then delete it:\n{list}",
 	},
 	"push.refusedWorkflows": {
-		one: "{count} file was not sent: adding or changing a file under .github/workflows/ needs the Workflows read and write permission on the token. Give the token that permission and the next sync sends it. Otherwise, put this file back as it was and change it on a device that has git. If it is a conflict copy, check its content and then delete it:\n{list}",
-		other: "{count} files were not sent: adding or changing a file under .github/workflows/ needs the Workflows read and write permission on the token. Give the token that permission and the next sync sends them. Otherwise, put these files back as they were and change them on a device that has git. If one is a conflict copy, check its content and then delete it:\n{list}",
+		one: "{count} file was not sent: adding or changing a file under .github/workflows/ needs the Workflows read and write permission on the token. Give the token that permission and the next sync sends it. Otherwise, put this file back as it was and change it on a device that has git. If it is a conflict copy that an earlier version of Sync Evo left there, with .conflict-from- in its name, check its content and then delete it:\n{list}",
+		other: "{count} files were not sent: adding or changing a file under .github/workflows/ needs the Workflows read and write permission on the token. Give the token that permission and the next sync sends them. Otherwise, put these files back as they were and change them on a device that has git. If one is a conflict copy that an earlier version of Sync Evo left there, with .conflict-from- in its name, check its content and then delete it:\n{list}",
 	},
 	"push.leftOut": {
 		one: "{count} file was left out: it changed or could not be read while the push ran, or an editor could not save it. The next push looks at it again:\n{list}",
@@ -566,8 +570,8 @@ export const en = baseCatalog({
 	"confirm.firstFetch.body":
 		"This is the first pull from {repository}, branch {branch}, and this vault already has files.",
 	"confirm.firstFetch.different": {
-		one: "{count} file has other content than the remote. It gets the content of the remote, and the content on this device is kept beside it under another name:",
-		other: "{count} files have other content than the remote. They get the content of the remote, and the content on this device is kept beside them under another name:",
+		one: "{count} file has other content than the remote. It gets the content of the remote, and the content on this device is kept in the folder _conflicts/ under another name:",
+		other: "{count} files have other content than the remote. They get the content of the remote, and the content on this device is kept in the folder _conflicts/ under another name:",
 	},
 	"confirm.firstFetch.differentSettings": {
 		one: "{count} file in the configuration folder has other content than the remote. It gets the content of the remote, and the content on this device is moved to .trash/ in this vault:",

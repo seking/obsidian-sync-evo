@@ -12,6 +12,7 @@
 import { describe, expect, test } from "vitest";
 import { BackendError, type EntryKind, type ListResult, type PushRefusal } from "../src/core/backend";
 import { conflictCopyPath } from "../src/core/conflict-name";
+import { readTidiedCopies, TIDIED_COPIES_KEY } from "../src/core/conflict-tidy";
 import { defaultSectionLines } from "../src/core/exclusion";
 import { GITIGNORE_WRITE_KEY } from "../src/core/gitignore-file";
 import { SECTION_END, SECTION_START, withSection } from "../src/core/gitignore-section";
@@ -40,6 +41,7 @@ import { blobHash, type FileContent, MemoryBackend } from "./support/memory-back
 import { MemoryIndex } from "./support/memory-index";
 import { MemoryPullVault, type VaultOp } from "./support/memory-pull-vault";
 import { MemoryStateStore } from "./support/memory-state-store";
+import { earlierCopyPath } from "./support/earlier-copy-name";
 
 const paths = { configDir: ".obsidian", pluginDir: ".obsidian/plugins/sync-evo" };
 
@@ -646,6 +648,104 @@ describe("the deletion guard", () => {
 
 		expect((await h.push()).outcome).toBe("declined");
 		expect(h.asked[0]?.deletions?.length).toBe(99);
+	});
+});
+
+describe("conflict copies that have had their time", () => {
+	// The harness starts at noon UTC on 2026-10-03: these are two months old.
+	const old = Array.from({ length: 8 }, (_, i) => `_conflicts/20260801-09000${i} n${i} (Mac).md`);
+	const notes = Array.from({ length: 12 }, (_, i) => `n/${String(i).padStart(2, "0")}.md`);
+	const files = (): Record<string, string> =>
+		Object.fromEntries([...old, ...notes].map((path) => [path, `content of ${path}`]));
+
+	test("a first fetch leaves them where they are; the sync after it moves them to the trash and deletes them on the remote, without asking", async () => {
+		const h = await synced(files());
+		// Fetched a moment ago, by the first fetch, and not taken away by it.
+		expect(h.vault.paths().filter((path) => path.startsWith("_conflicts/"))).toEqual(old);
+		expect(h.vault.trashed).toEqual([]);
+
+		const { pull, push } = await h.sync();
+
+		expect(pull).toMatchObject({ outcome: "completed", counts: { fetched: 0, deleted: 0 } });
+		expect([...pull.tidiedCopies].sort()).toEqual(old);
+		expect(h.vault.trashed.map(({ path, mode }) => `${mode} ${path}`).sort()).toEqual(old.map((path) => `vault-trash ${path}`));
+		// Eight of twenty would have asked.
+		expect(h.asked).toEqual([]);
+		expect(push).toMatchObject({ outcome: "pushed", counts: { added: 0, modified: 0, deleted: 8 } });
+		expect(Object.keys(await h.remote()).sort()).toEqual(notes);
+		// Sent, and nothing left to remember them for.
+		expect(await h.store.getMeta(TIDIED_COPIES_KEY)).toBeUndefined();
+		await expectNothingToPull(h);
+	});
+
+	test("other deletions of the same push are still asked about, and the question does not list the copies", async () => {
+		const h = await synced(files());
+		for (const path of notes.slice(0, 6)) h.vault.remove(path);
+		h.answer = "cancel";
+
+		const { push } = await h.sync();
+
+		expect(push).toMatchObject({ outcome: "declined" });
+		expect(h.asked).toMatchObject([{ deletions: notes.slice(0, 6), recordCount: 20 }]);
+		// Not sent, and still remembered for the push that sends them.
+		expect((await readTidiedCopies(h.store)).sort()).toEqual(old);
+		expect(Object.keys(await h.remote())).toHaveLength(20);
+
+		h.answer = "proceed";
+		expect(await h.push()).toMatchObject({ outcome: "pushed", counts: { deleted: 14 } });
+		expect(await h.store.getMeta(TIDIED_COPIES_KEY)).toBeUndefined();
+	});
+
+	test("with what was tidied no longer remembered, the push counts them and asks: nothing is deleted unasked", async () => {
+		const h = await synced(files());
+		await h.pull();
+		expect((await readTidiedCopies(h.store)).sort()).toEqual(old);
+		// Lost to an earlier version that opened the sync state.
+		await h.store.deleteMeta(TIDIED_COPIES_KEY);
+		h.answer = "cancel";
+
+		expect(await h.push()).toMatchObject({ outcome: "declined" });
+		expect(h.asked).toMatchObject([{ deletions: old }]);
+		expect(Object.keys(await h.remote())).toHaveLength(20);
+	});
+
+	test("a copy the user put back, and one the remote no longer holds, are forgotten; the first is not deleted", async () => {
+		const h = await synced(files());
+		await h.pull();
+		const [back = "", gone = "", ...rest] = old;
+		h.backend.commit({ [gone]: null });
+		await h.pull();
+		// After the pull, which would move it away again.
+		h.vault.put(back, `content of ${back}`);
+
+		expect(await h.push()).toMatchObject({ outcome: "pushed", counts: { deleted: rest.length } });
+
+		expect(h.asked).toEqual([]);
+		expect(Object.keys(await h.remote()).sort()).toEqual([back, ...notes].sort());
+		expect(await h.store.getMeta(TIDIED_COPIES_KEY)).toBeUndefined();
+		expect(h.vault.text(back)).toBe(`content of ${back}`);
+	});
+
+	test("a copy of the earlier form, however old, is sent like any file and never moved to the trash", async () => {
+		const h = await synced({ "notes/a.md": "A" });
+		const earlier = earlierCopyPath("notes/a.md", "iPhone", new Date(2026, 0, 2, 3, 4, 5));
+		h.vault.put(earlier, "mine, from January");
+
+		for (let round = 0; round < 2; round++) {
+			const { pull } = await h.sync();
+			expect(pull.tidiedCopies).toEqual([]);
+		}
+
+		expect(h.vault.trashed).toEqual([]);
+		expect(h.vault.text(earlier)).toBe("mine, from January");
+		expect(await h.remote()).toEqual({ "notes/a.md": "A", [earlier]: "mine, from January" });
+	});
+
+	test("a push alone tidies nothing", async () => {
+		const h = await synced(files());
+		expect(await h.push()).toMatchObject({ outcome: "nothing-to-push" });
+		expect(h.vault.trashed).toEqual([]);
+		expect(Object.keys(await h.remote())).toHaveLength(20);
 	});
 });
 
@@ -1334,8 +1434,8 @@ describe("what a push never sends", () => {
 	test("the copy of a conflict in the configuration folder, while the copy of a note is sent", async () => {
 		const h = await synced({ "notes/a.md": "A", ".obsidian/app.json": "{}" });
 		const at = new Date(2026, 9, 3, 22, 15, 0);
-		const noteCopy = conflictCopyPath("notes/a.md", "iPhone", at);
-		const settingsCopy = conflictCopyPath(".obsidian/app.json", "iPhone", at);
+		const noteCopy = earlierCopyPath("notes/a.md", "iPhone", at);
+		const settingsCopy = earlierCopyPath(".obsidian/app.json", "iPhone", at);
 		h.vault.put(noteCopy, "mine");
 		h.vault.put(settingsCopy, "{mine}");
 
@@ -1362,8 +1462,23 @@ describe("what a push never sends", () => {
 	});
 
 	test("the half-written copy of a conflict, and the file it is a copy of", async () => {
+		const h = await synced({ "notes/a.md": "A" });
+		const copy = conflictCopyPath("notes/a.md", "iPhone", new Date(2026, 9, 3, 22, 15, 0));
+		// The marker says which file the copy is of: its name does not.
+		await h.store.putMarker(makeMarker(copy, null, blobHash("mine, in full"), true, "notes/a.md"));
+		h.vault.put(copy, "mine, in");
+		h.vault.put("notes/a.md", "mine, in full");
+		h.vault.put("b.md", "B");
+
+		const result = await h.push();
+
+		expect(result).toMatchObject({ outcome: "pushed", counts: { added: 1, modified: 0 } });
+		expect(await h.remote()).toEqual({ "notes/a.md": "A", "b.md": "B" });
+	});
+
+	test("the half-written copy an earlier version was writing beside its file, whose marker does not say what it is of", async () => {
 		const h = await synced({ "a.md": "A" });
-		const copy = conflictCopyPath("a.md", "iPhone", new Date(2026, 9, 3, 22, 15, 0));
+		const copy = earlierCopyPath("a.md", "iPhone", new Date(2026, 9, 3, 22, 15, 0));
 		await h.store.putMarker(makeMarker(copy, null, blobHash("mine, in full"), true));
 		h.vault.put(copy, "mine, in");
 		h.vault.put("a.md", "mine, in full");
@@ -1768,15 +1883,32 @@ describe("what a pull leaves for the push that follows", () => {
 		await expectNothingToPull(h);
 	});
 
-	test("the copy of a file a rule matches is not sent once the remote has deleted the file, and stays in the vault", async () => {
+	test("the copy of a file a rule matches is sent also once the remote has deleted the file", async () => {
 		const rules = "*.png\n";
 		const h = await synced({ "img.png": "P", ".gitignore": rules });
 		h.backend.commit({ "img.png": "P from the Mac" });
 		h.vault.put("img.png", "P from here");
 		const pull = await h.pull();
 		const copy = pull.conflicts[0]?.copyPath ?? "";
+		expect(copy).toBe(conflictCopyPath("img.png", "iPhone", new Date(h.now())));
 		// The Mac deletes the image between the pull and the push.
+		h.backend.commit({ "img.png": null });
+
+		// Nothing is asked about the file a copy in the folder is of.
+		expect(await h.push()).toMatchObject({ outcome: "pushed", counts: { added: 1, modified: 0, deleted: 0 } });
+
+		expect(await h.remote()).toEqual({ ".gitignore": rules, [copy]: "P from here" });
+		expect(h.vault.text(copy)).toBe("P from here");
+	});
+
+	test("a copy of the earlier form of a file a rule matches is not sent once the remote has deleted the file, and stays in the vault", async () => {
+		const rules = "*.png\n";
+		const h = await synced({ "img.png": "P", ".gitignore": rules });
+		// As a version up to 0.2.0 left it, beside the file.
+		const copy = earlierCopyPath("img.png", "iPhone", new Date(2026, 9, 3, 22, 15, 0));
+		h.vault.put(copy, "P from here");
 		const head = h.backend.commit({ "img.png": null });
+		await h.pull();
 
 		expect(await h.push()).toMatchObject({ outcome: "nothing-to-push" });
 
@@ -2192,7 +2324,7 @@ describe("a push that did not get to its end is remembered", () => {
 });
 
 describe("a copy that is itself in conflict", () => {
-	test("its content goes to the same name with a number, and is sent though the first file is gone from the remote", async () => {
+	test("its content goes to a new copy in the folder, and both are sent though the first file is gone from the remote", async () => {
 		const rules = "*.png\n";
 		const h = await synced({ "img.png": "P", ".gitignore": rules });
 		h.backend.commit({ "img.png": "P from the Mac" });
@@ -2206,7 +2338,10 @@ describe("a copy that is itself in conflict", () => {
 
 		const { pull, push } = await h.sync();
 
-		const second = first.replace(/\.png$/, "-2.png");
+		// A copy like any other, named after the copy it is of: no number.
+		const second = pull.conflicts[0]?.copyPath ?? "";
+		expect(second).toMatch(/^_conflicts\/\d{8}-\d{6} \d{8}-\d{6} img \(iPhone\) \(iPhone\)\.png$/);
+		expect(second).not.toBe(first);
 		expect(pull).toMatchObject({ outcome: "completed", conflicts: [{ path: first, copyPath: second }] });
 		expect(push).toMatchObject({ outcome: "pushed", counts: { added: 1, modified: 0, deleted: 0 } });
 		expect(await h.remote()).toEqual({
@@ -2214,6 +2349,28 @@ describe("a copy that is itself in conflict", () => {
 			[second]: "copy edited here",
 			".gitignore": rules,
 		});
+		await expectNothingToPull(h);
+	});
+
+	test("a copy of the earlier form: its content goes to the folder too, and no name with a number is made", async () => {
+		const rules = "*.png\n";
+		const earlier = earlierCopyPath("img.png", "iPhone", new Date(2026, 9, 3, 22, 15, 0));
+		const h = await synced({ "img.png": "P", [earlier]: "P from here", ".gitignore": rules });
+		h.backend.commit({ "img.png": null, [earlier]: "copy edited on the Mac" });
+		h.vault.put(earlier, "copy edited here");
+
+		const { pull, push } = await h.sync();
+
+		const copy = pull.conflicts[0]?.copyPath ?? "";
+		expect(copy).toMatch(/^_conflicts\/\d{8}-\d{6} img\.conflict-from-iPhone-20261003-221500 \(iPhone\)\.png$/);
+		expect(pull).toMatchObject({ outcome: "completed", conflicts: [{ path: earlier, copyPath: copy }] });
+		expect(push).toMatchObject({ outcome: "pushed", counts: { added: 1, modified: 0, deleted: 0 } });
+		expect(await h.remote()).toEqual({
+			[earlier]: "copy edited on the Mac",
+			[copy]: "copy edited here",
+			".gitignore": rules,
+		});
+		expect(h.vault.paths().filter((path) => path.includes("-2."))).toEqual([]);
 		await expectNothingToPull(h);
 	});
 });

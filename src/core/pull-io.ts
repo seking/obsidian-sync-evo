@@ -514,6 +514,13 @@ export interface PullResult {
 	 * holds the path and a rule excludes it. They stay on this device only.
 	 */
 	readonly keptUnsent: readonly string[];
+	/**
+	 * Conflict copies this pull moved to the `.trash/` of the vault because
+	 * they were made 30 days ago or more (`conflict-tidy.ts`), as they were
+	 * spelled. Only by a pull that ended "completed" or "incomplete", and
+	 * never by a first fetch.
+	 */
+	readonly tidiedCopies: readonly string[];
 	/** Symlinks of the remote that no record held before. Told once: they have a record now. */
 	readonly newSymlinks: readonly string[];
 	/**

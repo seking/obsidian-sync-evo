@@ -27,7 +27,7 @@
 import ignore from "ignore";
 import type { EntryKind } from "./backend";
 import { copyFamilyOf } from "./conflict-copies";
-import { originalPathOfConflictCopy } from "./conflict-name";
+import { isConflictFolder, isCopyInConflictFolder, originalPathOfConflictCopy } from "./conflict-name";
 import {
 	defaultSectionState,
 	findSection,
@@ -77,8 +77,10 @@ export interface Exclusion {
 	 * a path git does not track. This alone does not exclude anything; see
 	 * `excludes`.
 	 *
-	 * - A copy kept from a conflict is judged by the name of the file it is
-	 *   a copy of.
+	 * - A copy kept from a conflict in the folder of the copies never
+	 *   matches: it is always synced (`excludes`).
+	 * - A copy of the earlier form, beside its file, is judged by the name of
+	 *   the file it is a copy of.
 	 * - The root `.gitignore` itself never matches: it is always synced.
 	 * - Upper and lower case are not told apart, anywhere in the path.
 	 */
@@ -90,23 +92,35 @@ export interface Exclusion {
 	 * way git keeps tracking a file that is added to `.gitignore` later.
 	 * Only the two fixed exclusions do not care.
 	 *
-	 * A copy kept from a conflict is new by nature. It is synced when the
-	 * file it is a copy of is on the remote, whatever the rules say:
-	 * otherwise the copy of a tracked file that a rule matches (`drafts/a.md`
-	 * after `/drafts/` was added, a tracked `img.png` under `*.png`) would
-	 * never reach the other devices. A record of that file is not enough.
+	 * A copy kept from a conflict is new by nature, and is to reach the
+	 * other devices whatever the rules say: otherwise the copy of a tracked
+	 * file that a rule matches (`drafts/a.md` after `/drafts/` was added, a
+	 * tracked `img.png` under `*.png`) would stay on this device.
+	 *
+	 * A copy in the folder of the copies (`isCopyInConflictFolder`) is
+	 * never left out by a rule, also not by one the user wrote for the
+	 * folder. Its name does not tell the file it is a copy of, so nothing is
+	 * asked about that file: a copy is only made in a conflict with a file
+	 * the remote holds. The folder itself is not left out either, so that
+	 * whoever lists the vault goes into it under a rule that matches it.
+	 * Everything else in it, a folder or a file that is not named like a
+	 * copy, goes by the rules like any other path.
+	 *
+	 * A copy of the earlier form, beside its file, is synced when the file
+	 * it is a copy of is on the remote. A record of that file is not enough.
 	 * Once the remote has deleted it, the file is on its way out, and its
 	 * copy is like any other new file a rule matches. For a copy of a copy
 	 * it is the first file that is asked about, as for the rule.
 	 *
-	 * A copy that was itself in conflict leaves its content under its own
-	 * name with another number (`copyCandidate`). That one is synced while
-	 * the remote holds a copy of that name, the one it was in conflict with,
+	 * Such a copy that was itself in conflict used to leave its content
+	 * under its own name with another number. That one is synced while the
+	 * remote holds a copy of that name, the one it was in conflict with,
 	 * though the first file may be gone from the remote by then.
 	 *
-	 * A copy of a file inside the configuration folder is left out, unless
-	 * it is known itself. No pull makes such a copy (`isInConfigDir`); one
-	 * that an earlier version made stays on the device, and is not sent.
+	 * A copy of the earlier form of a file inside the configuration folder
+	 * is left out, unless it is known itself. No pull makes a copy of such a
+	 * file (`isInConfigDir`); one that an earlier version made stays on the
+	 * device, and is not sent.
 	 */
 	excludes(path: string, type: PathType, known: KnownPaths): boolean;
 }
@@ -124,7 +138,7 @@ export interface KnownPaths {
 	/** Whether the remote holds this file. A record does not count. */
 	onRemote(key: string): boolean;
 	/**
-	 * For a path named like a copy kept from a conflict: whether the remote
+	 * For a path named like a copy of the earlier form: whether the remote
 	 * holds another copy of the same name but for the number at its end.
 	 */
 	copyOnRemote(key: string): boolean;
@@ -207,7 +221,9 @@ export function createExclusion(input: ExclusionInput): Exclusion {
 	};
 
 	const matchesRule = (path: string, type: PathType): boolean => {
-		const subject = type === "file" ? withoutConflictNames(checkedKey(path)) : checkedKey(path);
+		const key = checkedKey(path);
+		if (type === "file" && isCopyInConflictFolder(key)) return false;
+		const subject = type === "file" ? withoutConflictNames(key) : key;
 		if (subject === ROOT_GITIGNORE) return false;
 		// `ignore` looks at no disk. The slash at the end is what tells it
 		// that this is a folder.
@@ -220,6 +236,7 @@ export function createExclusion(input: ExclusionInput): Exclusion {
 		excludes: (path, type, known) => {
 			if (hardExclusionOf(path) !== undefined) return true;
 			const key = checkedKey(path);
+			if (type === "folder" ? isConflictFolder(key) : isCopyInConflictFolder(key)) return false;
 			if (known.has(key, type)) return false;
 			if (type === "file") {
 				const original = withoutConflictNames(key);
@@ -495,7 +512,9 @@ function checkedKey(path: string): string {
 	return key;
 }
 
-// A copy of a copy is followed down to the file it all started from.
+// A copy of the earlier form is followed down to the file it all started
+// from, through every copy of a copy. A copy in the folder of the copies is
+// itself: its name tells no file.
 function withoutConflictNames(key: string): string {
 	let subject = key;
 	for (;;) {

@@ -10,12 +10,12 @@
  */
 
 import { describe, expect, test } from "vitest";
-import { conflictCopyPath } from "../src/core/conflict-name";
 import { createExclusion, type Exclusion } from "../src/core/exclusion";
 import { planSync } from "../src/core/plan";
 import { scanVault, type ScanResult, placeholderTarget } from "../src/core/scan";
 import { blobHash } from "./support/memory-backend";
 import { MemoryVault } from "./support/memory-vault";
+import { earlierCopyPath } from "./support/earlier-copy-name";
 
 const ownFolder = ".obsidian/plugins/sync-evo";
 
@@ -232,10 +232,10 @@ describe("what the rules leave out", () => {
 	});
 });
 
-describe("a copy kept from a conflict", () => {
+describe("a copy kept from a conflict, of the earlier form beside its file", () => {
 	const at = new Date(2026, 9, 3, 22, 15, 0);
-	const draft = conflictCopyPath("drafts/a.md", "iPhone", at);
-	const image = conflictCopyPath("img.png", "iPhone", at);
+	const draft = earlierCopyPath("drafts/a.md", "iPhone", at);
+	const image = earlierCopyPath("img.png", "iPhone", at);
 
 	test("is returned when the file it is a copy of is known, though a rule matches it", async () => {
 		const vault = new MemoryVault(["drafts/a.md", draft, "drafts/new.md", "img.png", image, "new.png"]);
@@ -277,6 +277,54 @@ describe("a copy kept from a conflict", () => {
 		const local = scanned.paths.map(({ path }) => ({ path, hash: path.includes(".conflict-from-") ? blobHash("mine") : hash }));
 		const plan = planSync({ remote, local, records: remote, exclusion });
 		expect(plan.actions.map((action) => `${action.type} ${action.key}`)).toEqual([`upload ${draft}`, `upload ${image}`]);
+		expect(plan.skipped).toEqual([]);
+	});
+});
+
+describe("the folder of the conflict copies", () => {
+	const copy = "_conflicts/20261011-221500 a (iPhone).md";
+
+	test("is entered though a rule matches it, and its copies are returned though none is known", async () => {
+		const vault = new MemoryVault([copy, "_conflicts/20261011-221501 img (Mac).png", "b.md"]);
+		for (const gitignore of ["_conflicts/\n", "/_conflicts\n", "_*\n", "*.md\n*.png\n_conflicts/\n"]) {
+			const result = await scan(vault, { gitignore });
+			expect(found(result)).toEqual([
+				copy,
+				"_conflicts/20261011-221501 img (Mac).png",
+				...(gitignore.includes("*.md") ? [] : ["b.md"]),
+			]);
+		}
+	});
+
+	test("under a rule for the folder, a file that is not named like a copy and a folder below are left out as ever", async () => {
+		const vault = new MemoryVault([
+			copy,
+			"_conflicts/notes.md",
+			"_conflicts/kept.md",
+			"_conflicts/sub/20261011-221500 a (iPhone).md",
+			"_conflicts/sub/deep/x.md",
+		]);
+		const result = await scan(vault, { gitignore: "_conflicts/\n", known: ["_conflicts/kept.md"] });
+		expect(found(result)).toEqual([copy, "_conflicts/kept.md"]);
+		expect(vault.listed).not.toContain("_conflicts/sub");
+	});
+
+	test("without a rule, everything in it is found like anywhere else", async () => {
+		const vault = new MemoryVault([copy, "_conflicts/notes.md", "_conflicts/sub/x.md"]);
+		expect(found(await scan(vault))).toEqual([copy, "_conflicts/notes.md", "_conflicts/sub/x.md"]);
+	});
+
+	test("a folder the vault spells otherwise is that folder", async () => {
+		const vault = new MemoryVault(["_Conflicts/20261011-221500 a (iPhone).md", "_Conflicts/notes.md"]);
+		expect(found(await scan(vault, { gitignore: "_conflicts/\n" }))).toEqual(["_Conflicts/20261011-221500 a (iPhone).md"]);
+	});
+
+	test("and the decision then sends the copy, whatever the rules say", async () => {
+		const exclusion = rules("_conflicts/\n*.md\n");
+		const scanned = await scanVault({ lister: new MemoryVault([copy]), exclusion, remote: [], records: [] });
+		const local = scanned.paths.map(({ path }) => ({ path, hash: blobHash("mine") }));
+		const plan = planSync({ remote: [], local, records: [], exclusion });
+		expect(plan.actions.map((action) => `${action.type} ${action.key}`)).toEqual([`upload ${copy}`]);
 		expect(plan.skipped).toEqual([]);
 	});
 });

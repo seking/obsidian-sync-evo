@@ -20,6 +20,12 @@
 // marker and its record (`writeRemote`), and the handling of a conflict
 // (`conflict`).
 //
+// A copy is always made in the folder of the copies, under a name of its own
+// (`conflict-name.ts`), whatever the file is and wherever it lies. Whether a
+// copy with the same content is there already is not looked at: only the
+// copy a pull that stopped was writing for this very conflict is used again
+// (`AwaitedConflict`).
+//
 // Inside the configuration folder no copy is ever made (`isInConfigDir`).
 // What would be kept as a copy anywhere else goes to the `.trash/` of the
 // vault there: the vault's side of a conflict (`replaceSettings`), and a file
@@ -34,7 +40,7 @@
 // neither: it is thrown, and ends the pull.
 
 import type { Backend, RemoteEntry, RemoteListing } from "./backend";
-import { CopyIndex, copyCandidate } from "./conflict-copies";
+import { CONFLICT_FOLDER, conflictCopyPath, isConflictFolder } from "./conflict-name";
 import { isInConfigDir } from "./exclusion";
 import { foldedKey, pathKey } from "./paths";
 import type { LocalEntry, SyncRecord } from "./plan";
@@ -77,6 +83,24 @@ export function isLfsPointer(content: Uint8Array): boolean {
 export interface Seen {
 	readonly hash: string;
 	readonly stat: FileStat;
+}
+
+/**
+ * A conflict whose copy a pull that stopped wrote in full, and which no pull
+ * has told (`settleCopy` in `pull.ts`). Whether it got as far as the file is
+ * not kept anywhere, and the content it was to write is not either. So it is
+ * told when `path` holds what the remote has by then: found so, or written
+ * by the plan. Until then it waits, across pulls.
+ *
+ * It is also how the conflict is gone on with and not begun again: where the
+ * file still holds the content of `hash`, the copy at `copyPath` is the one
+ * of this conflict, and no second one is made (`awaitedCopy`).
+ */
+export interface AwaitedConflict {
+	readonly path: string;
+	readonly copyPath: string;
+	/** The hash of what the copy was written with. */
+	readonly hash: string;
 }
 
 /** What a pull did, collected as it goes. */
@@ -131,8 +155,10 @@ export interface ApplyEnv {
 	readonly protect: boolean;
 	/** The vault files as the scan and the hashing found them, by key. Kept up to date here. */
 	readonly seen: Map<string, Seen>;
-	/** Every path the scan found, for the copies among them. */
+	/** Every path the scan found, for the files below a folder that is to be renamed. */
 	readonly localPaths: Iterable<string>;
+	/** The conflicts whose copy is written and that are yet to be told, as the markers were settled. */
+	readonly awaited: readonly AwaitedConflict[];
 	readonly tally: Tally;
 	/** Awaited before each write of a file. */
 	readonly beforeWrite: () => Promise<void>;
@@ -172,10 +198,7 @@ class Applier {
 	private readonly vault: PullVault;
 	private readonly tally: Tally;
 	private readonly seen: Map<string, Seen>;
-	private readonly localCopies: CopyIndex;
-	private remoteCopies: CopyIndex | undefined;
 	private remoteNames: Set<string> | undefined;
-	private remoteHashes: Map<string, string> | undefined;
 	/** Folder renames that are in effect, in the order of the plan. */
 	private readonly renamedFolders: FolderRename[] = [];
 	/** New spellings of folders whose rename could not be looked at: a listing failed. */
@@ -197,7 +220,6 @@ class Applier {
 		this.vault = env.vault;
 		this.tally = env.tally;
 		this.seen = env.seen;
-		this.localCopies = new CopyIndex(env.localPaths);
 	}
 
 	async run(plan: PullPlan): Promise<boolean> {
@@ -471,15 +493,40 @@ class Applier {
 	/**
 	 * A name for the copy of `original` that nothing has: not the vault, and
 	 * not the remote, whose file of that name this or a later pull writes.
+	 * Whether a file is one of the same content plays no part.
+	 *
+	 * Throws when the copy has nowhere to go (`copyFolder`), or no name is
+	 * free.
 	 */
 	private async freeCopyPath(original: string): Promise<string> {
+		const folder = await this.copyFolder();
 		const at = new Date(this.env.now());
 		for (let n = 1; n <= MAX_COPY_ATTEMPTS; n++) {
-			const candidate = copyCandidate(original, this.env.deviceName, at, n);
+			const candidate = conflictCopyPath(original, this.env.deviceName, at, n, folder);
 			if (this.remoteHas(candidate)) continue;
 			if ((await this.vault.stat(candidate)) === null) return candidate;
 		}
 		throw new Error(`No free name for a copy of ${original}`);
+	}
+
+	/**
+	 * The folder of the copies as the vault spells it: one that is there
+	 * under another case is used as it is, so that the copies of a vault are
+	 * in one folder also where the cases are told apart. A folder that is
+	 * missing is not made here: writing the copy or moving a file to its
+	 * name makes it (`PullVault.write`, `PullVault.rename`).
+	 *
+	 * Throws when a file has the name and no folder does. Nothing is moved
+	 * out of the way for a copy: it is not written, and the path it would
+	 * have been a copy of is reported as one that cannot be written.
+	 */
+	private async copyFolder(): Promise<string> {
+		const named = [...(await this.namesIn("")).values()].filter((entry) => isConflictFolder(entry.name));
+		const folders = named.filter((entry) => entry.type === "folder");
+		const folder = folders.find((entry) => entry.name === CONFLICT_FOLDER) ?? folders[0];
+		if (folder !== undefined) return folder.name;
+		if (named.length > 0) throw new Error(`a file is at ${named[0]?.name ?? CONFLICT_FOLDER}`);
+		return CONFLICT_FOLDER;
 	}
 
 	private remoteHas(path: string): boolean {
@@ -501,7 +548,8 @@ class Applier {
 	}
 
 	/**
-	 * Moves the file at `path` to the name of a copy of `original`, by a
+	 * Moves the file at `path` to the name of a copy of `original`, in the
+	 * folder of the copies, which the rename makes when it is missing. By a
 	 * rename, so that its content is never in two places or in none. Answers
 	 * whether it is out of the way. When the vault refused, the file is
 	 * reported and told once under `noticePath`: what the pull could not do
@@ -535,13 +583,12 @@ class Applier {
 			this.refuse(noticePath, path, "rename-failed", error);
 			return false;
 		}
-		// The copy is named after `original`, whose folders the vault may
-		// spell otherwise; it is reported as it is spelled now.
+		// Reported as it is spelled now: a folder that was made since the
+		// name was chosen may be spelled otherwise.
 		copy = await this.spelledNow(copy);
 		const was = this.seen.get(key);
 		this.seen.delete(key);
 		if (was !== undefined) this.seen.set(pathKey(copy), was);
-		this.localCopies.add(copy);
 		this.tally.conflicts.push({ path: original, copyPath: copy, cause });
 		return true;
 	}
@@ -1114,7 +1161,7 @@ class Applier {
 		// succeeds, the merged content is written through `writeRemote`'s
 		// marker and re-check like the remote's, and no copy is made.
 
-		let copy = await this.existingCopy(path, mine.hash);
+		let copy = await this.awaitedCopy(path, mine.hash);
 		// Whether this pull wrote the copy. Only then is it ours to rewrite
 		// or to take away again.
 		const ours = copy === null;
@@ -1261,29 +1308,29 @@ class Applier {
 	}
 
 	/**
-	 * A copy of `path` that already holds this content, in the vault or on
-	 * the remote. A pull that stopped after writing the copy finds it here
-	 * when it is carried out again, and so does a device whose copy another
-	 * device already sent.
+	 * The copy a pull that stopped wrote for this conflict, when it is still
+	 * the copy of it: the file holds the content the copy was written with,
+	 * and the copy is there and holds it too. The conflict is then gone on
+	 * with from its second half, with no copy made.
+	 *
+	 * Only what the marker of that pull said is gone by (`AwaitedConflict`).
+	 * The folder of the copies is not searched for a file of the same
+	 * content: a conflict that is handled from the start makes a copy of its
+	 * own, whatever is there.
 	 */
-	private async existingCopy(path: string, hash: string): Promise<string | null> {
-		for (const listed of this.localCopies.copiesOf(path)) {
-			// As the scan spelled it; a folder renamed since has taken it along.
-			const candidate = this.current(listed);
+	private async awaitedCopy(path: string, hash: string): Promise<string | null> {
+		const key = pathKey(path);
+		for (const waiting of this.env.awaited) {
+			if (pathKey(waiting.path) !== key || waiting.hash !== hash) continue;
+			// A copy of the earlier form is beside its file, and a folder
+			// that was renamed since has taken it along.
+			const candidate = this.current(waiting.copyPath);
 			try {
 				const there = await this.probe(candidate, pathKey(candidate));
 				if (there !== null && there !== "folder" && there.hash === hash) return candidate;
 			} catch {
 				// A copy that cannot be read is not one to rely on.
 			}
-		}
-		if (this.remoteCopies === undefined || this.remoteHashes === undefined) {
-			const files = this.env.listing.entries.filter((entry) => entry.kind === "file");
-			this.remoteCopies = new CopyIndex(files.map((entry) => entry.path));
-			this.remoteHashes = new Map(files.map((entry) => [entry.path, entry.hash]));
-		}
-		for (const candidate of this.remoteCopies.copiesOf(path)) {
-			if (this.remoteHashes.get(candidate) === hash) return candidate;
 		}
 		return null;
 	}
@@ -1308,7 +1355,8 @@ class Applier {
 			return null;
 		}
 		const copyKey = pathKey(copy);
-		await this.store.putMarker(makeMarker(copy, before, mine.hash, true));
+		// With the path the copy is of: the name of the copy does not tell it.
+		await this.store.putMarker(makeMarker(copy, before, mine.hash, true, path));
 		await this.env.beforeWrite();
 		try {
 			await this.change(() => this.vault.write(copy, mine.content));
@@ -1319,7 +1367,6 @@ class Applier {
 		}
 		const stat = await this.statOf(copy);
 		if (stat !== undefined) this.remember(copyKey, mine.hash, stat);
-		this.localCopies.add(copy);
 		return copy;
 	}
 

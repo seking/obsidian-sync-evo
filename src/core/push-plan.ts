@@ -20,6 +20,7 @@
 // either side, what is excluded, and a path that is held.
 
 import type { RemoteEntry } from "./backend";
+import { isCopyInConflictFolder } from "./conflict-name";
 import { exceedsDeletionThreshold } from "./deletion-threshold";
 import { foldedKey, pathKey } from "./paths";
 import { type LocalEntry, type PlanInput, planSync, type SkippedPath } from "./plan";
@@ -87,7 +88,8 @@ export interface PushPlan {
 	 * The deletions that count toward the threshold, as the remote spells
 	 * them. Not the moves: a deleted file whose content the same push sends
 	 * to a path that is new, one deleted file per new path. And not the
-	 * renames that only change the case.
+	 * renames that only change the case. Nor, once the push has looked
+	 * (`withoutTidiedCopies`), the conflict copies that were tidied.
 	 */
 	readonly countedDeletions: readonly string[];
 	readonly refused: readonly PushRefusal[];
@@ -198,6 +200,25 @@ export function planPush(input: PlanInput): PushPlan {
  */
 export function withoutDeletions(plan: PushPlan): PushPlan {
 	return plan.deletes.length === 0 ? plan : { ...plan, deletes: [], countedDeletions: [] };
+}
+
+/**
+ * The plan with the conflict copies that were tidied (`conflict-tidy.ts`) not
+ * counted among its deletions. They are deleted on the remote like any other
+ * file the vault deleted; only the question about many deletions passes them
+ * over. The copies a first fetch made in one go are all tidied on one day,
+ * and a push that stopped to ask about them would ask about nothing the
+ * user did.
+ *
+ * `tidied` is what is remembered of them, as the vault spelled them. Only a
+ * path that is a copy in the folder of the copies is passed over, whatever
+ * is remembered.
+ */
+export function withoutTidiedCopies(plan: PushPlan, tidied: readonly string[]): PushPlan {
+	if (tidied.length === 0 || plan.countedDeletions.length === 0) return plan;
+	const keys = new Set(tidied.map(foldedKey));
+	const counted = plan.countedDeletions.filter((path) => !(isCopyInConflictFolder(path) && keys.has(foldedKey(path))));
+	return counted.length === plan.countedDeletions.length ? plan : { ...plan, countedDeletions: counted };
 }
 
 /**

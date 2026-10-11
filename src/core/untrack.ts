@@ -33,7 +33,6 @@
 
 import { untilAborted } from "./archive-fetch";
 import { type Backend, BackendError, type RemoteEntry } from "./backend";
-import { originalPathOfConflictCopy } from "./conflict-name";
 import { createExclusion, type ExclusionPaths, untrackableFiles } from "./exclusion";
 import { readRootGitignore, ROOT_GITIGNORE, settleGitignoreWrite } from "./gitignore-file";
 import { findSection } from "./gitignore-section";
@@ -51,7 +50,7 @@ import {
 	rememberPendingPush,
 	settlePendingPush,
 } from "./push-pending";
-import { currentListing, readBaseRevision, type StateStore } from "./state";
+import { copiedPathOf, currentListing, readBaseRevision, type StateStore } from "./state";
 import { pathsToHold, pushFollows } from "./sync";
 
 export interface UntrackDeps {
@@ -286,7 +285,7 @@ class UntrackRun {
 		// may what Sync Evo itself was writing; and on disk the file may be
 		// behind what an editor holds. As for a push.
 		for (const marker of await store.readMarkers()) {
-			const original = marker.conflictCopy ? originalPathOfConflictCopy(marker.path) : null;
+			const original = copiedPathOf(marker);
 			if (foldedKey(marker.path) === ROOT_GITIGNORE || (original !== null && foldedKey(original) === ROOT_GITIGNORE)) {
 				return this.refused("gitignore-unsettled");
 			}

@@ -36,7 +36,9 @@
 //    commits gets it as its first (`start`).
 // 4. The scan, with every open editor saved, the hashing, and the plan.
 // 5. Asking the user: before the first push of a sync state, and when the
-//    plan deletes too much. One question, also when both are a reason.
+//    plan deletes too much. One question, also when both are a reason. The
+//    conflict copies that were tidied are deleted without being counted
+//    (`discountTidied`).
 // 6. For a remote without commits, its first: the `.gitignore` alone
 //    (`start`). The rest is sent on top of it.
 // 7. Sending. Each file is read when it is sent, and recorded as it was
@@ -46,7 +48,7 @@
 
 import { untilAborted } from "./archive-fetch";
 import { type Backend, BackendError, type PushFile, type RemoteEntry, type RemoteListing } from "./backend";
-import { originalPathOfConflictCopy } from "./conflict-name";
+import { forgetTidiedCopies, readTidiedCopies } from "./conflict-tidy";
 import { createExclusion, type Exclusion, type ExclusionPaths, untrackableByAddedLines } from "./exclusion";
 import { isFirstFetchConfirmed, markFirstFetchConfirmed } from "./first-fetch";
 import { addDefaultSection, isGitignoreAsRecorded, settleGitignoreWrite } from "./gitignore-file";
@@ -82,9 +84,11 @@ import {
 	type PushRefusal,
 	planPush,
 	withoutDeletions,
+	withoutTidiedCopies,
 } from "./push-plan";
 import { type ScanResult, scanVault } from "./scan";
 import {
+	copiedPathOf,
 	currentListing,
 	type FileStat,
 	makeRecord,
@@ -562,7 +566,7 @@ class PushRun {
 		// away from it, and from the file a half-written copy is a copy of.
 		for (const marker of await store.readMarkers()) {
 			this.held.add(foldedKey(marker.path));
-			const original = marker.conflictCopy ? originalPathOfConflictCopy(marker.path) : null;
+			const original = copiedPathOf(marker);
 			if (original !== null) this.held.add(foldedKey(original));
 		}
 		for (const path of deps.hold ?? []) this.held.add(foldedKey(path));
@@ -662,7 +666,8 @@ class PushRun {
 		// A new file that is held back because it is being typed in may be
 		// a note under a new name: the deletion of the old one waits with it.
 		const edited = [...local.beingEdited, ...(deps.holdQuietly ?? [])];
-		const plan = holdsDeletions(edited, (path) => known.has(pathKey(path))) ? withoutDeletions(planned) : planned;
+		const sent = holdsDeletions(edited, (path) => known.has(pathKey(path))) ? withoutDeletions(planned) : planned;
+		const plan = await this.discountTidied(sent, listing, local.entries);
 		this.plan = plan;
 		// Remembered only where the result that carries them is one the
 		// user is shown them with: a push that is declined, stopped at the
@@ -820,6 +825,11 @@ class PushRun {
 		// all: the next sync then lists the remote again.
 		const stored = pushed.listing ?? null;
 		await finishPush(store, pending, stored);
+		// The copies that were tidied and are gone from the remote now have
+		// nothing left to be remembered for. The next push forgets them
+		// too, should this fail.
+		const deleted = new Set(plan.deletes.map((entry) => foldedKey(entry.remote.path)));
+		if (deleted.size > 0) await this.quietly(() => forgetTidiedCopies(store, (path) => !deleted.has(foldedKey(path))));
 		if (stored === null) deps.log?.("push: the tree of the new commit could not be fetched; the next sync lists the remote again");
 
 		// A remote that stored a file as other bytes than it was sent. The
@@ -913,6 +923,26 @@ class PushRun {
 			deleted: plan.deletes.map((entry) => entry.key),
 			counts: { added, modified, deleted: plan.deletes.length },
 		};
+	}
+
+	/**
+	 * The plan with the conflict copies that were tidied not counted among
+	 * its deletions (`withoutTidiedCopies`). What is remembered of them is
+	 * gone through first: a copy the remote does not hold, or holds no
+	 * more, is no deletion to send, and neither is one the vault has a file
+	 * at again; those are forgotten.
+	 */
+	private async discountTidied(
+		plan: PushPlan,
+		listing: RemoteListing,
+		local: readonly { readonly path: string }[],
+	): Promise<PushPlan> {
+		const { store } = this.deps;
+		if ((await readTidiedCopies(store)).length === 0) return plan;
+		const onRemote = new Set(listing.entries.map((entry) => foldedKey(entry.path)));
+		const inVault = new Set(local.map((entry) => foldedKey(entry.path)));
+		await forgetTidiedCopies(store, (path) => onRemote.has(foldedKey(path)) && !inVault.has(foldedKey(path)));
+		return withoutTidiedCopies(plan, await readTidiedCopies(store));
 	}
 
 	/**

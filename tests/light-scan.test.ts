@@ -159,6 +159,21 @@ describe("what the light check lists from the index", () => {
 		expect(sorted(await light(s, options))).toEqual(sorted(await full(s, options)));
 	});
 
+	test("the copies in the folder of the conflict copies are listed though a rule matches the folder, as by the scan", async () => {
+		const s = setup({
+			"_conflicts/20261011-221500 a (iPhone).md": "mine",
+			"_conflicts/notes.md": "N",
+			"_conflicts/sub/20261011-221500 b (iPhone).md": "S",
+			"a.md": "A",
+		});
+		const options = { gitignore: "_conflicts/\n" };
+
+		const result = await light(s, options);
+
+		expect(found(result)).toEqual(["_conflicts/20261011-221500 a (iPhone).md", "a.md"]);
+		expect(sorted(result)).toEqual(sorted(await full(s, options)));
+	});
+
 	test("what lies below a path a record holds as a symlink is not listed", async () => {
 		// On a desktop the index lists the content of the folder a symlink points to.
 		const s = setup({ "a.md": "A", "link/inside.md": "I", "link/deep/er.md": "E", "linked.md": "L" });

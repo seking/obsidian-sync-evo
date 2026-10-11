@@ -351,6 +351,8 @@ export function pullDetails(t: Translate, result: PullResult, options: PullRepor
 		const { halfCopies } = result;
 		happened(t("pull.halfCopies", { count: halfCopies.length, list: listText(t, halfCopies) }));
 	}
+	// The count alone: they are in the `.trash/`, and nothing is to be done.
+	if (result.tidiedCopies.length > 0) happened(t("pull.tidiedCopies", { count: result.tidiedCopies.length }));
 	if (result.keptLocal.length > 0) {
 		happened(t("pull.keptLocal", { count: result.keptLocal.length, list: listText(t, result.keptLocal) }));
 	}

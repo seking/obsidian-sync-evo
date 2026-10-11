@@ -11,10 +11,10 @@
 
 import { describe, expect, test } from "vitest";
 import type { RemoteEntry } from "../src/core/backend";
-import { conflictCopyPath } from "../src/core/conflict-name";
 import { createExclusion, type Exclusion } from "../src/core/exclusion";
 import { planSync, type LocalEntry, type PlanInput, type SyncPlan, type SyncRecord } from "../src/core/plan";
 import { blobHash, MemoryBackend } from "./support/memory-backend";
+import { earlierCopyPath } from "./support/earlier-copy-name";
 
 const ownFolder = ".obsidian/plugins/sync-evo";
 
@@ -680,8 +680,8 @@ describe("the rules of .gitignore", () => {
 	test("a conflict copy is judged by the name of the file it is a copy of", async () => {
 		const at = new Date(2026, 9, 3, 22, 15, 0);
 		const exclusion = rules("/exact.md\n*.conflict-from-*\n!kept.md\n");
-		const excluded = conflictCopyPath("exact.md", "iPhone", at);
-		const sent = conflictCopyPath("kept.md", "iPhone", at);
+		const excluded = earlierCopyPath("exact.md", "iPhone", at);
+		const sent = earlierCopyPath("kept.md", "iPhone", at);
 		const plan = await planFor({ local: { [excluded]: "mine", [sent]: "mine" }, exclusion });
 		expect(summary(plan)).toEqual([`upload ${sent}`]);
 		expect(skips(plan)).toEqual([`excluded ${excluded}`]);
@@ -693,14 +693,14 @@ describe("a conflict copy and the rules", () => {
 	const exclusion = rules("/drafts/\n*.png\n");
 
 	test("the copy of a tracked file in an excluded folder is sent", async () => {
-		const copy = conflictCopyPath("drafts/a.md", "iPhone", at);
+		const copy = earlierCopyPath("drafts/a.md", "iPhone", at);
 		const plan = await planFor({ synced: { "drafts/a.md": "theirs" }, local: { [copy]: "mine" }, exclusion });
 		expect(summary(plan)).toEqual([`upload ${copy}`]);
 		expect(plan.skipped).toEqual([]);
 	});
 
 	test("the copy of a tracked image is sent, though the rule matches images", async () => {
-		const copy = conflictCopyPath("img.png", "iPhone", at);
+		const copy = earlierCopyPath("img.png", "iPhone", at);
 		const plan = await planFor({
 			synced: { "img.png": "theirs" },
 			local: { [copy]: "mine", "new.png": "N" },
@@ -711,13 +711,13 @@ describe("a conflict copy and the rules", () => {
 	});
 
 	test("the original on the remote is enough, with or without a record", async () => {
-		const copy = conflictCopyPath("img.png", "iPhone", at);
+		const copy = earlierCopyPath("img.png", "iPhone", at);
 		const plan = await planFor({ remote: { "img.png": "theirs" }, local: { [copy]: "mine" }, exclusion });
 		expect(summary(plan)).toEqual([`upload ${copy}`, "download img.png"]);
 	});
 
 	test("a record of the original is not enough: once the remote deleted it, the copy is excluded", async () => {
-		const copy = conflictCopyPath("img.png", "iPhone", at);
+		const copy = earlierCopyPath("img.png", "iPhone", at);
 		const plan = await planFor({
 			synced: { "img.png": "theirs" },
 			remote: { "img.png": null },
@@ -729,7 +729,7 @@ describe("a conflict copy and the rules", () => {
 	});
 
 	test("the copy of a file that is not known is excluded", async () => {
-		const copies = [conflictCopyPath("drafts/a.md", "iPhone", at), conflictCopyPath("img.png", "iPhone", at)];
+		const copies = [earlierCopyPath("drafts/a.md", "iPhone", at), earlierCopyPath("img.png", "iPhone", at)];
 		const plan = await planFor({
 			synced: { "drafts/other.md": "O" },
 			local: { [copies[0] ?? ""]: "mine", [copies[1] ?? ""]: "mine" },
@@ -740,14 +740,14 @@ describe("a conflict copy and the rules", () => {
 	});
 
 	test("a copy of a copy goes by the first file", async () => {
-		const first = conflictCopyPath("img.png", "iPhone", at);
-		const second = conflictCopyPath(first, "iPhone", at, 2);
+		const first = earlierCopyPath("img.png", "iPhone", at);
+		const second = earlierCopyPath(first, "iPhone", at, 2);
 		const plan = await planFor({ synced: { "img.png": "theirs" }, local: { [second]: "mine" }, exclusion });
 		expect(summary(plan)).toEqual([`upload ${second}`]);
 	});
 
 	test("a recorded copy the remote deleted and the vault edited is sent back only while its original is on the remote", async () => {
-		const copy = conflictCopyPath("img.png", "iPhone", at);
+		const copy = earlierCopyPath("img.png", "iPhone", at);
 		const onRemote = await planFor({
 			synced: { "img.png": "theirs", [copy]: "mine" },
 			remote: { [copy]: null },
@@ -767,7 +767,7 @@ describe("a conflict copy and the rules", () => {
 	});
 
 	test("a copy inside the configuration folder that has a record and is gone from the remote is not sent back", async () => {
-		const copy = conflictCopyPath(".obsidian/app.json", "Mac", at);
+		const copy = earlierCopyPath(".obsidian/app.json", "Mac", at);
 		// While the remote holds it, it is synced like any other file.
 		const onRemote = await planFor({
 			synced: { ".obsidian/app.json": "theirs", [copy]: "mine" },

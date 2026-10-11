@@ -11,7 +11,6 @@
 
 import { describe, expect, test } from "vitest";
 import type { EntryKind, RemoteEntry } from "../src/core/backend";
-import { conflictCopyPath } from "../src/core/conflict-name";
 import { createExclusion } from "../src/core/exclusion";
 import { foldedKey } from "../src/core/paths";
 import type { LocalEntry, SyncRecord } from "../src/core/plan";
@@ -22,8 +21,10 @@ import {
 	planPush,
 	remoteSpelling,
 	withoutDeletions,
+	withoutTidiedCopies,
 } from "../src/core/push-plan";
 import { blobHash } from "./support/memory-backend";
+import { earlierCopyPath } from "./support/earlier-copy-name";
 
 const ownFolder = ".obsidian/plugins/sync-evo";
 
@@ -154,8 +155,8 @@ describe("what a push sends", () => {
 
 	test("the copy of a conflict is sent like any new file, but not one of a file in the configuration folder", () => {
 		const at = new Date(2026, 9, 3, 22, 15, 0);
-		const copy = conflictCopyPath("notes/a.md", "iPhone", at);
-		const settingsCopy = conflictCopyPath(".obsidian/app.json", "iPhone", at);
+		const copy = earlierCopyPath("notes/a.md", "iPhone", at);
+		const settingsCopy = earlierCopyPath(".obsidian/app.json", "iPhone", at);
 		const made = plan({
 			synced: { "notes/a.md": "A", ".obsidian/app.json": "{}" },
 			local: { [copy]: "mine", [settingsCopy]: "{mine}" },
@@ -414,5 +415,48 @@ describe("the deletions that wait for a new file that is being typed in", () => 
 		expect(waiting.recordCount).toBe(plan.recordCount);
 		// A plan that deletes nothing is the plan it was.
 		expect(withoutDeletions(waiting)).toBe(waiting);
+	});
+});
+
+describe("the conflict copies that were tidied", () => {
+	const copies = Array.from({ length: 8 }, (_, i) => `_conflicts/20260801-09000${i} n${i} (iPhone).md`);
+	const notes = Array.from({ length: 12 }, (_, i) => `n/${i}.md`);
+	const synced = Object.fromEntries([...copies, ...notes].map((path) => [path, `content of ${path}`]));
+	const gone = (paths: readonly string[]): Record<string, null> => Object.fromEntries(paths.map((path) => [path, null]));
+
+	test("are deleted on the remote like any file the vault deleted, and not counted among the deletions that ask", () => {
+		const made = plan({ synced, local: gone(copies) });
+		expect(made.deletes.map((entry) => entry.remote.path)).toEqual(copies);
+		expect(needsPushConfirmation(made)).toBe(true);
+
+		const discounted = withoutTidiedCopies(made, copies);
+
+		expect(discounted.deletes).toEqual(made.deletes);
+		expect(discounted.countedDeletions).toEqual([]);
+		expect(needsPushConfirmation(discounted)).toBe(false);
+	});
+
+	test("the other deletions of the same push are counted as ever", () => {
+		const made = plan({ synced, local: gone([...copies, ...notes.slice(0, 6)]) });
+		const discounted = withoutTidiedCopies(made, copies);
+		expect(discounted.countedDeletions).toEqual(notes.slice(0, 6));
+		expect(needsPushConfirmation(discounted)).toBe(true);
+	});
+
+	test("a copy the user deleted by hand is counted: only what was tidied is passed over", () => {
+		const made = plan({ synced, local: gone(copies) });
+		expect(withoutTidiedCopies(made, copies.slice(0, 2)).countedDeletions).toEqual(copies.slice(2));
+		expect(withoutTidiedCopies(made, [])).toBe(made);
+	});
+
+	test("whatever is remembered, only a copy in the folder of the copies is passed over", () => {
+		const made = plan({ synced, local: gone(notes.slice(0, 6)) });
+		expect(withoutTidiedCopies(made, notes)).toBe(made);
+	});
+
+	test("a copy the vault spelled in another case than the remote does is the same copy", () => {
+		const made = plan({ synced, local: gone(copies) });
+		const spelled = copies.map((path) => path.replace("_conflicts/", "_Conflicts/"));
+		expect(withoutTidiedCopies(made, spelled).countedDeletions).toEqual([]);
 	});
 });

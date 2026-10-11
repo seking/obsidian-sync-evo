@@ -68,6 +68,7 @@ const pulled: PullResult = {
 	deferred: [],
 	unwritable: [],
 	keptLocal: [],
+	tidiedCopies: [],
 	keptUnsent: [],
 	newSymlinks: [],
 	notices: [],

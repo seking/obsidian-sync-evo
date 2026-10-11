@@ -631,8 +631,10 @@ describe("a pull through the routing", () => {
 		]);
 		expect(ports.calls).toContain("trashBySetting notes/b.md");
 		expect(ports.calls).toContain("trashSystem .x/c.md");
-		// The folders the deletions emptied are gone.
-		expect(ports.folderPaths()).toEqual([".obsidian"]);
+		// The folders the deletions emptied are gone, and the copy has made its own, through the index.
+		expect(result.conflicts[0]?.copyPath).toMatch(/^_conflicts\/\d{8}-\d{6} d \(.+\)\.md$/);
+		expect(ports.folderPaths()).toEqual([".obsidian", "_conflicts"]);
+		expect(ports.calls).toContain("createFolder _conflicts");
 	});
 
 	test.each(["system", "none", "local"])(

@@ -97,9 +97,10 @@ export function placeholderTarget(path: string): string | null {
  *   path it points to;
  * - a folder a rule matches that has nothing known below it, and a file a
  *   rule matches that is not known. (What "known" means for a copy kept
- *   from a conflict is the exclusion's to say.) The sync decision would turn each of
- *   them away as excluded; this only saves listing them, and a
- *   `.obsidian/plugins/` with thousands of files is the usual case.
+ *   from a conflict is the exclusion's to say, and so is the folder of the
+ *   copies, which is entered whatever the rules say.) The sync decision
+ *   would turn each of them away as excluded; this only saves listing them,
+ *   and a `.obsidian/plugins/` with thousands of files is the usual case.
  *
  * A placeholder of a cloud drive (`.<name>.icloud`) is listed as the file
  * it stands for, in the state "placeholder", unless the folder lists that

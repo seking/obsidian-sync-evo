@@ -58,6 +58,7 @@ const pulled = (over: Partial<PullResult> = {}): PullResult => ({
 	deferred: [],
 	unwritable: [],
 	keptLocal: [],
+	tidiedCopies: [],
 	keptUnsent: [],
 	newSymlinks: [],
 	notices: [],
@@ -99,6 +100,7 @@ describe("a pull that started by itself", () => {
 			trashed: ["b.md"],
 			halfWritten: ["c.md"],
 			halfCopies: ["c (conflict).md"],
+			tidiedCopies: ["_conflicts/20260901-120100 d (iPhone).md"],
 			recoveredPush: { added: 1, modified: 0, deleted: 0 },
 			newSymlinks: ["link"],
 			notices: [{ kind: "git-at-root", path: ".git" }],
@@ -108,7 +110,9 @@ describe("a pull that started by itself", () => {
 
 		// Each under the line that says nobody pressed anything.
 		expect(report.happened).toEqual(pullReport(t, pulled(result), options).details.map((text) => HEADING + text));
-		expect(report.happened).toHaveLength(8);
+		expect(report.happened).toHaveLength(9);
+		// The copies that were tidied are told also by a sync nobody started.
+		expect(report.happened.some((text) => text.includes("1 conflict copy in _conflicts/ was made 30 days ago"))).toBe(true);
 		expect(report).toMatchObject({ standing: [], cause: null, end: "success" });
 	});
 

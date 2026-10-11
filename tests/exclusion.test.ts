@@ -41,6 +41,7 @@ import {
 	withFixedExclusions,
 	withSection,
 } from "../src/core/gitignore-section";
+import { earlierCopyPath } from "./support/earlier-copy-name";
 
 const paths = { configDir: ".obsidian", pluginDir: ".obsidian/plugins/sync-evo" };
 
@@ -370,7 +371,7 @@ describe("the files of the remote that a rule matches", () => {
 	});
 
 	test("a copy kept from a conflict is judged by the file it is a copy of, as everywhere", () => {
-		const copy = conflictCopyPath("drafts/a.md", "iPhone", new Date(2026, 9, 3, 22, 15, 0));
+		const copy = earlierCopyPath("drafts/a.md", "iPhone", new Date(2026, 9, 3, 22, 15, 0));
 		expect(matched("/drafts/a.md\n", [file(copy), file("drafts/b.md")])).toEqual([copy]);
 	});
 });
@@ -713,33 +714,33 @@ describe("the type of a path", () => {
 	});
 });
 
-describe("a copy kept from a conflict", () => {
+describe("a copy kept from a conflict, of the earlier form beside its file", () => {
 	const at = new Date(2026, 9, 3, 22, 15, 0);
 
 	test("is judged by the name of the file it is a copy of", () => {
 		const exclusion = exclusionFor("/exact.md\n*.conflict-from-*\n!keep.md\n");
 		// The rule names the original, not the copy.
-		expect(exclusion.matchesRule(conflictCopyPath("exact.md", "iPhone", at), "file")).toBe(true);
+		expect(exclusion.matchesRule(earlierCopyPath("exact.md", "iPhone", at), "file")).toBe(true);
 		// A rule that would match the name of the copy does not count when the
 		// original is not matched.
-		expect(exclusion.matchesRule(conflictCopyPath("keep.md", "iPhone", at), "file")).toBe(false);
+		expect(exclusion.matchesRule(earlierCopyPath("keep.md", "iPhone", at), "file")).toBe(false);
 	});
 
 	test("a copy of a copy goes back to the first name", () => {
 		const exclusion = exclusionFor("/exact.md\n");
-		const first = conflictCopyPath("exact.md", "iPhone", at);
-		expect(exclusion.matchesRule(conflictCopyPath(first, "Mac", at, 2), "file")).toBe(true);
+		const first = earlierCopyPath("exact.md", "iPhone", at);
+		expect(exclusion.matchesRule(earlierCopyPath(first, "Mac", at, 2), "file")).toBe(true);
 	});
 
 	test("the copy of the root .gitignore is never matched either", () => {
 		const exclusion = exclusionFor(".*\n");
-		expect(exclusion.matchesRule(conflictCopyPath(".gitignore", "iPhone", at), "file")).toBe(false);
+		expect(exclusion.matchesRule(earlierCopyPath(".gitignore", "iPhone", at), "file")).toBe(false);
 	});
 
 	test("is synced while the file it is a copy of is on the remote, though a rule matches it", () => {
 		const exclusion = exclusionFor("/drafts/\n*.png\n");
 		for (const original of ["drafts/a.md", "img.png"]) {
-			const copy = conflictCopyPath(original, "iPhone", at);
+			const copy = earlierCopyPath(original, "iPhone", at);
 			expect(exclusion.matchesRule(copy, "file")).toBe(true);
 			expect(exclusion.excludes(copy, "file", knownPaths([entryAt(original)], []))).toBe(false);
 			// Neither the copy nor the original is known: excluded.
@@ -752,7 +753,7 @@ describe("a copy kept from a conflict", () => {
 
 	test("a record of the original is not enough: the remote has to hold it", () => {
 		const exclusion = exclusionFor("*.png\n");
-		const copy = conflictCopyPath("img.png", "iPhone", at);
+		const copy = earlierCopyPath("img.png", "iPhone", at);
 		expect(exclusion.excludes(copy, "file", knownPaths([], [entryAt("img.png")]))).toBe(true);
 		// The original itself is still synced by its record, as any path is.
 		expect(exclusion.excludes("img.png", "file", knownPaths([], [entryAt("img.png")]))).toBe(false);
@@ -760,17 +761,17 @@ describe("a copy kept from a conflict", () => {
 
 	test("for a copy of a copy it is the first file that is asked about", () => {
 		const exclusion = exclusionFor("*.png\n");
-		const first = conflictCopyPath("img.png", "iPhone", at);
-		const second = conflictCopyPath(first, "Mac", at, 2);
+		const first = earlierCopyPath("img.png", "iPhone", at);
+		const second = earlierCopyPath(first, "Mac", at, 2);
 		expect(exclusion.excludes(second, "file", knownPaths([entryAt("img.png")], []))).toBe(false);
 		expect(exclusion.excludes(second, "file", knownPaths([entryAt(first)], []))).toBe(true);
 	});
 
 	test("a copy is synced while the remote holds a copy of the same name with another number, though the first file is gone", () => {
 		const exclusion = exclusionFor("*.png\n");
-		const first = conflictCopyPath("img.png", "iPhone", at);
-		const second = conflictCopyPath("img.png", "iPhone", at, 2);
-		const third = conflictCopyPath("img.png", "iPhone", at, 3);
+		const first = earlierCopyPath("img.png", "iPhone", at);
+		const second = earlierCopyPath("img.png", "iPhone", at, 2);
+		const third = earlierCopyPath("img.png", "iPhone", at, 3);
 		expect(exclusion.excludes(second, "file", knownPaths([entryAt(first)], []))).toBe(false);
 		expect(exclusion.excludes(first, "file", knownPaths([entryAt(second)], []))).toBe(false);
 		expect(exclusion.excludes(third, "file", knownPaths([entryAt(second)], []))).toBe(false);
@@ -779,12 +780,12 @@ describe("a copy kept from a conflict", () => {
 		// A record of the other copy is not enough, as for the first file.
 		expect(exclusion.excludes(second, "file", knownPaths([], [entryAt(first)]))).toBe(true);
 		// A copy of another time, or of another device, is a copy of another conflict.
-		const later = conflictCopyPath("img.png", "iPhone", new Date(2026, 9, 3, 22, 15, 1));
-		const other = conflictCopyPath("img.png", "Mac", at);
+		const later = earlierCopyPath("img.png", "iPhone", new Date(2026, 9, 3, 22, 15, 1));
+		const other = earlierCopyPath("img.png", "Mac", at);
 		expect(exclusion.excludes(second, "file", knownPaths([entryAt(later), entryAt(other)], []))).toBe(true);
 		// And in the configuration folder no copy is sent, whatever the remote holds.
-		const config = conflictCopyPath(".obsidian/app.json", "iPhone", at);
-		const configSecond = conflictCopyPath(".obsidian/app.json", "iPhone", at, 2);
+		const config = earlierCopyPath(".obsidian/app.json", "iPhone", at);
+		const configSecond = earlierCopyPath(".obsidian/app.json", "iPhone", at, 2);
 		expect(exclusion.excludes(configSecond, "file", knownPaths([entryAt(config)], []))).toBe(true);
 	});
 
@@ -794,18 +795,18 @@ describe("a copy kept from a conflict", () => {
 	});
 
 	test("a known original does not lift the two fixed exclusions", () => {
-		const copy = conflictCopyPath(".obsidian/plugins/sync-evo/main.js", "iPhone", at);
+		const copy = earlierCopyPath(".obsidian/plugins/sync-evo/main.js", "iPhone", at);
 		expect(exclusionFor(null).excludes(copy, "file", known)).toBe(true);
 	});
 
 	test("a copy of a file inside the configuration folder is left out, though the file is on the remote", () => {
 		const exclusion = exclusionFor(null);
 		for (const original of [".obsidian/app.json", ".obsidian/themes/x/theme.css", ".obsidian/snippets/a.css"]) {
-			const copy = conflictCopyPath(original, "Mac", at);
+			const copy = earlierCopyPath(original, "Mac", at);
 			expect(exclusion.excludes(copy, "file", knownPaths([entryAt(original)], []))).toBe(true);
 			expect(exclusion.excludes(copy, "file", unknown)).toBe(true);
 			// A copy of the copy as well.
-			const second = conflictCopyPath(copy, "iPhone", at, 2);
+			const second = earlierCopyPath(copy, "iPhone", at, 2);
 			expect(exclusion.excludes(second, "file", knownPaths([entryAt(original)], []))).toBe(true);
 			// The file itself is synced like any other.
 			expect(exclusion.excludes(original, "file", unknown)).toBe(false);
@@ -816,19 +817,102 @@ describe("a copy kept from a conflict", () => {
 	});
 
 	test("that is by the name the configuration folder has, and not by a name that begins like it", () => {
-		const copy = conflictCopyPath(".obsidian/app.json", "Mac", at);
-		const beside = conflictCopyPath(".obsidian-old/app.json", "Mac", at);
+		const copy = earlierCopyPath(".obsidian/app.json", "Mac", at);
+		const beside = earlierCopyPath(".obsidian-old/app.json", "Mac", at);
 		const remote = knownPaths([entryAt(".obsidian/app.json"), entryAt(".obsidian-old/app.json")], []);
 		expect(exclusionFor(null).excludes(beside, "file", remote)).toBe(false);
 		const renamed = createExclusion({ configDir: ".config", pluginDir: ".config/plugins/sync-evo", gitignore: null });
 		expect(renamed.excludes(copy, "file", remote)).toBe(false);
-		const inRenamed = conflictCopyPath(".config/app.json", "Mac", at);
+		const inRenamed = earlierCopyPath(".config/app.json", "Mac", at);
 		expect(renamed.excludes(inRenamed, "file", knownPaths([entryAt(".config/app.json")], []))).toBe(true);
 	});
 
 	test("a folder is never taken for a copy", () => {
 		const exclusion = exclusionFor("/a.md/\n");
 		expect(exclusion.matchesRule("a.conflict-from-iPhone-20261003-221500.md", "folder")).toBe(false);
+	});
+});
+
+describe("a copy kept from a conflict, in the folder of the copies", () => {
+	const at = new Date(2026, 9, 11, 22, 15, 0);
+	const copy = conflictCopyPath("drafts/a.md", "iPhone", at);
+
+	test("is synced whatever the rules say, known or not", () => {
+		for (const rules of ["", "/drafts/\n*.md\n", "*\n", "_conflicts/\n", "/_conflicts\n", "_conflicts/*\n", "2026*\n"]) {
+			const exclusion = exclusionFor(rules);
+			expect(exclusion.excludes(copy, "file", unknown)).toBe(false);
+			expect(exclusion.excludes(copy, "file", knownPaths([entryAt(copy)], []))).toBe(false);
+			// No rule matches it, as none matches the root `.gitignore`: it is
+			// not offered for untracking either.
+			expect(exclusion.matchesRule(copy, "file")).toBe(false);
+		}
+	});
+
+	test("the file it is a copy of is not asked about: its name does not tell it", () => {
+		const exclusion = exclusionFor("/drafts/\n");
+		expect(exclusion.excludes(copy, "file", knownPaths([], [entryAt("drafts/a.md")]))).toBe(false);
+		expect(exclusion.excludes(copy, "file", knownPaths([entryAt("other.md")], []))).toBe(false);
+	});
+
+	test("also the copy of a file in the configuration folder that another device made", () => {
+		const exclusion = exclusionFor("");
+		const settings = conflictCopyPath(".obsidian/app.json", "Mac", at);
+		expect(settings).toBe("_conflicts/20261011-221500 app (Mac).json");
+		expect(exclusion.excludes(settings, "file", unknown)).toBe(false);
+	});
+
+	test("the folder itself is never left out, so that a scan goes into it", () => {
+		for (const rules of ["", "_conflicts/\n", "/_conflicts\n", "_*\n", "*\n"]) {
+			const exclusion = exclusionFor(rules);
+			expect(exclusion.excludes("_conflicts", "folder", unknown)).toBe(false);
+			expect(exclusion.excludes("_Conflicts", "folder", unknown)).toBe(false);
+		}
+		// What the rules say of the folder is still what they say.
+		expect(exclusionFor("_conflicts/\n").matchesRule("_conflicts", "folder")).toBe(true);
+		expect(exclusionFor("").matchesRule("_conflicts", "folder")).toBe(false);
+	});
+
+	test("a file there that is not named like a copy, and a folder below, go by the rules", () => {
+		const exclusion = exclusionFor("_conflicts/\n");
+		expect(exclusion.excludes("_conflicts/notes.md", "file", unknown)).toBe(true);
+		expect(exclusion.excludes("_conflicts/2026-10-11 a.md", "file", unknown)).toBe(true);
+		expect(exclusion.excludes("_conflicts/sub", "folder", unknown)).toBe(true);
+		expect(exclusion.excludes("_conflicts/sub/20261011-221500 a (iPhone).md", "file", unknown)).toBe(true);
+		// Known, they are synced like any other path a rule matches.
+		expect(exclusion.excludes("_conflicts/notes.md", "file", knownPaths([entryAt("_conflicts/notes.md")], []))).toBe(false);
+		// Without a rule they are files like any other.
+		expect(exclusionFor("").excludes("_conflicts/notes.md", "file", unknown)).toBe(false);
+		expect(exclusionFor("").excludes("_conflicts/sub", "folder", unknown)).toBe(false);
+	});
+
+	test("a folder of that name anywhere else is a folder like any other", () => {
+		const exclusion = exclusionFor("_conflicts/\n");
+		expect(exclusion.excludes("notes/_conflicts", "folder", unknown)).toBe(true);
+		expect(exclusion.excludes("notes/_conflicts/20261011-221500 a (iPhone).md", "file", unknown)).toBe(true);
+	});
+
+	test("a vault that spells the folder otherwise has its copies there", () => {
+		const exclusion = exclusionFor("_conflicts/\n");
+		expect(exclusion.excludes("_Conflicts/20261011-221500 a (iPhone).md", "file", unknown)).toBe(false);
+	});
+
+	test("what an older version makes of a copy in the folder is a copy in the folder, not one of the earlier form", () => {
+		// Read by its end, it would be judged by `_conflicts/20261011-221500 a (iPhone).md`,
+		// and left out with it once a rule matches the folder.
+		const made = earlierCopyPath(copy, "Mac", at);
+		const exclusion = exclusionFor("_conflicts/\n");
+		expect(exclusion.matchesRule(made, "file")).toBe(false);
+		expect(exclusion.excludes(made, "file", unknown)).toBe(false);
+		// A file there that is no copy in the folder is read by its end as ever.
+		const beside = earlierCopyPath("_conflicts/notes.md", "Mac", at);
+		expect(exclusion.excludes(beside, "file", unknown)).toBe(true);
+		expect(exclusion.excludes(beside, "file", knownPaths([entryAt("_conflicts/notes.md")], []))).toBe(false);
+	});
+
+	test("the two fixed exclusions come first", () => {
+		const exclusion = createExclusion({ configDir: ".obsidian", pluginDir: "_conflicts", gitignore: "" });
+		expect(exclusion.excludes("_conflicts", "folder", unknown)).toBe(true);
+		expect(exclusion.excludes(copy, "file", unknown)).toBe(true);
 	});
 });
 

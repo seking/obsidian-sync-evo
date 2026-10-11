@@ -439,6 +439,14 @@ describe("untracking looks for itself whether the rules are on the remote", () =
 		expect(h.backend.pushes).toBe(0);
 	});
 
+	test("a .gitignore whose conflict a pull was in the middle of when it stopped: the marker of the copy says so", async () => {
+		const h = await synced(DRAFTS);
+		const copy = "_conflicts/20261011-221500 .gitignore (iPhone)";
+		await h.store.putMarker(makeMarker(copy, null, blobHash(RULES), true, ".gitignore"));
+		expect(await h.untrack(shown)).toMatchObject({ outcome: "sync-first", reason: "gitignore-unsettled" });
+		expect(h.backend.pushes).toBe(0);
+	});
+
 	test("a .gitignore an editor holds and cannot save", async () => {
 		const h = await synced(DRAFTS);
 		h.vault.openFailing(".gitignore");

@@ -35,7 +35,9 @@
 //    (`first-fetch.ts`).
 //    One question, also when both are reasons to ask.
 // 6. The plan, step by step.
-// 7. The base revision, when nothing was put off.
+// 7. The conflict copies that have had their time (`conflict-tidy.ts`), in
+//    a pull that got this far and is no first fetch.
+// 8. The base revision, when nothing was put off.
 
 import {
 	type ArchiveDownload,
@@ -45,7 +47,7 @@ import {
 	untilAborted,
 } from "./archive-fetch";
 import { BackendError, type RemoteEntry, type RemoteListing } from "./backend";
-import { originalPathOfConflictCopy } from "./conflict-name";
+import { tidyConflictCopies } from "./conflict-tidy";
 import { createExclusion, type Exclusion, unsyncedSubmodules } from "./exclusion";
 import { GITIGNORE_WRITE_KEY, settleGitignoreWrite } from "./gitignore-file";
 import { firstFetchFiles, hasFirstFetchQuestion, isFirstFetchConfirmed, markFirstFetchConfirmed } from "./first-fetch";
@@ -62,7 +64,7 @@ import {
 } from "./notices";
 import { foldedKey, pathKey } from "./paths";
 import { DEFAULT_SIZE_LIMIT, type LocalEntry } from "./plan";
-import { type ApplyEnv, applyPlan, type Seen, Tally } from "./pull-apply";
+import { type ApplyEnv, type AwaitedConflict, applyPlan, type Seen, Tally } from "./pull-apply";
 import { clearPushFailure } from "./push-failure";
 import { type PushCounts, settlePendingPush } from "./push-pending";
 import type {
@@ -93,6 +95,7 @@ import {
 import { fromRoot, type ScanResult, scanVault } from "./scan";
 import {
 	BASE_REVISION_KEY,
+	copiedPathOf,
 	currentListing,
 	makeRecord,
 	readBaseRevision,
@@ -134,25 +137,12 @@ interface Unsaid {
 }
 
 /**
- * The key of the conflicts that are yet to be told (`AwaitedConflict`).
- * Unlike what is under `HALF_WRITTEN_KEY`, a pull that has answered does not
- * end them: each stays until its file holds the content of the remote.
+ * The key of the conflicts that are yet to be told (`AwaitedConflict` in
+ * `pull-apply.ts`). Unlike what is under `HALF_WRITTEN_KEY`, a pull that has
+ * answered does not end them: each stays until its file holds the content
+ * of the remote.
  */
 export const AWAITED_CONFLICTS_KEY = "awaited-conflicts";
-
-/**
- * A conflict whose copy a pull that stopped wrote in full, and which no pull
- * has told. Whether it got as far as the file is not kept anywhere, and the
- * content it was to write is not either. So it is told when `path` holds
- * what the remote has by then: found so, or written by the plan. Until
- * then it waits, across pulls.
- */
-interface AwaitedConflict {
-	readonly path: string;
-	readonly copyPath: string;
-	/** The hash of what the copy was written with. */
-	readonly hash: string;
-}
 
 /** What is at the path of a marker. */
 interface MarkedContent {
@@ -307,8 +297,11 @@ class PullRun {
 	 * remote: one that holds what was to be written stays, and so does its
 	 * conflict, which is told once the file holds what the remote has
 	 * (`tellAwaited`). The plan goes on to the file where there is something
-	 * left to do: it finds the copy again (`existingCopy`), or fetches a
-	 * file that was moved away. A copy that holds anything else is half a
+	 * left to do: it is handed the conflict, and uses that copy for a file
+	 * that still holds what the copy was written with (`awaitedCopy` in
+	 * `pull-apply.ts`), or fetches a file that was moved away. Which file the
+	 * copy is of is what its marker says (`copiedPathOf`); the name of the
+	 * copy does not tell it. A copy that holds anything else is half a
 	 * copy and goes to the `.trash/`; the file it is a copy of was not
 	 * written yet, and its conflict is handled from the start. The copies
 	 * come after the files, because a copy waits with a file that could not
@@ -407,7 +400,10 @@ class PullRun {
 				return;
 			}
 		} else if (there !== null) {
-			const original = originalPathOfConflictCopy(path);
+			// A marker that does not say what the copy is of leaves a copy
+			// that is a file like any other: nothing waits, and the conflict
+			// is handled from the start.
+			const original = copiedPathOf(marker);
 			if (original !== null) {
 				// The file could not be settled. The copy waits with it, marker
 				// and all: without the marker it would be a file like any
@@ -512,8 +508,7 @@ class PullRun {
 	private leave(marker: WriteMarker): void {
 		this.unsettled.push(marker);
 		this.held.add(foldedKey(marker.path));
-		if (!marker.conflictCopy) return;
-		const original = originalPathOfConflictCopy(marker.path);
+		const original = copiedPathOf(marker);
 		if (original !== null) this.held.add(foldedKey(original));
 	}
 
@@ -856,7 +851,11 @@ class PullRun {
 
 		await this.updateSymlinkTargets(plan, listing);
 
-		if (this.tally.deferred.length > 0 || this.tally.fetchError !== undefined) return finish("incomplete", extra);
+		// Not in a first fetch, which would take away at once what it has
+		// just fetched. Otherwise in every pull that got this far, also one
+		// that left files for later.
+		const done = { ...extra, tidiedCopies: base === null ? [] : await this.tidyCopies() };
+		if (this.tally.deferred.length > 0 || this.tally.fetchError !== undefined) return finish("incomplete", done);
 
 		// Everything is done: only now is the head what this device builds on.
 		if (head === null) {
@@ -872,7 +871,35 @@ class PullRun {
 			await writeBaseRevision(store, head);
 		}
 		await store.deleteMeta(PULL_CONFIRMATION_KEY);
-		return finish("completed", extra);
+		return finish("completed", done);
+	}
+
+	/**
+	 * Moves the conflict copies that have had their time to the `.trash/` of
+	 * the vault (`tidyConflictCopies`), and answers them. Left where they
+	 * are: what this pull put off, and what it did not look at (`held`): such
+	 * a path is in the middle of something. And what this pull wrote with
+	 * the content of the remote: a device that was away for a month is not
+	 * to take a copy away in the pull that fetched it, as a first fetch is
+	 * not. The next sync does.
+	 */
+	private tidyCopies(): Promise<string[]> {
+		const { deps } = this;
+		const putOff = new Set(this.tally.deferred.map((file) => foldedKey(file.path)));
+		const fetched = new Set([...this.tally.written].map(foldedKey));
+		return tidyConflictCopies({
+			store: this.store,
+			vault: deps.vault,
+			now: deps.now,
+			leaveAlone: (path) => {
+				const key = foldedKey(path);
+				return putOff.has(key) || this.held.has(key) || fetched.has(key);
+			},
+			...(deps.index === undefined ? {} : { index: deps.index }),
+			...(deps.beingEdited === undefined ? {} : { beingEdited: deps.beingEdited }),
+			...(deps.signal === undefined ? {} : { signal: deps.signal }),
+			...(deps.log === undefined ? {} : { log: deps.log }),
+		});
 	}
 
 	private result(
@@ -919,6 +946,7 @@ class PullRun {
 			unwritable,
 			keptLocal: [],
 			keptUnsent: [],
+			tidiedCopies: [],
 			newSymlinks: [],
 			notices: [],
 			closedViews: this.closedViews,
@@ -1067,6 +1095,7 @@ class PullRun {
 			protect,
 			seen,
 			localPaths,
+			awaited: this.awaited,
 			tally: this.tally,
 			beforeWrite: () => this.beforeWrite(),
 			...(deps.beingEdited === undefined ? {} : { beingEdited: deps.beingEdited }),

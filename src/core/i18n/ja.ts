@@ -324,6 +324,8 @@ export const ja = completeTranslation(en, {
 		"前の取り込みが、{count} 件のファイルを書いている途中で止まっていました。残っていた内容は、この保管庫の .trash/ へ移しました。保存先の内容は、取り込みで取得します。その後に編集していた時は、そこから戻せます：\n{list}",
 	"pull.halfCopies":
 		"前の取り込みが作りかけていた競合の別名 {count} 件を、この保管庫の .trash/ へ移しました。別名は作り直します。別名を編集していた時は、編集した内容がそこにあります：\n{list}",
+	"pull.tidiedCopies":
+		"作ってから30日たった競合の別名 {count} 件を、_conflicts/ からこの保管庫の .trash/ へ移しました。残したい別名は、_conflicts/ の外へ移すか、名前を変えてください。",
 	"pull.keptLocal":
 		"選んだとおり、このデバイスのファイル {count} 件をそのまま残しました。保存先の内容とは異なります：\n{list}",
 	"pull.keptUnsent":
@@ -385,7 +387,7 @@ export const ja = completeTranslation(en, {
 	"push.refusedSize":
 		"{count} 件のファイルを、送信していません。GitHub が、大きすぎるとして受け付けませんでした。このファイルは、小さくするか、保管庫の外へ移してください。保存先にまだ無いファイルは、.gitignore に足しても送らなくなります。競合で残した別名のファイルなら、中身を確かめてから削除してください：\n{list}",
 	"push.refusedWorkflows":
-		"{count} 件のファイルを、送信していません。.github/workflows/ の下のファイルを足すか変えるには、トークンに Workflows の読み取りと書き込みの権限が要ります。トークンに権限を足すと、次の同期で送信します。足さない時は、このファイルを元の内容に戻して、変更は git が使えるデバイスで行ってください。競合で残した別名のファイルなら、中身を確かめてから削除してください：\n{list}",
+		"{count} 件のファイルを、送信していません。.github/workflows/ の下のファイルを足すか変えるには、トークンに Workflows の読み取りと書き込みの権限が要ります。トークンに権限を足すと、次の同期で送信します。足さない時は、このファイルを元の内容に戻して、変更は git が使えるデバイスで行ってください。前の版の Sync Evo が残した競合の別名（名前に .conflict-from- が入る物）なら、中身を確かめてから削除してください：\n{list}",
 	"push.leftOut":
 		"{count} 件のファイルを、送信していません。送信の途中で変わったか、読めなかったか、エディタが保存できませんでした。次の送信で、もう一度確かめます：\n{list}",
 
@@ -469,7 +471,7 @@ export const ja = completeTranslation(en, {
 	"confirm.firstFetch.body":
 		"{repository} のブランチ {branch} から、この保管庫に初めて取り込みます。この保管庫には、すでにファイルがあります。",
 	"confirm.firstFetch.different":
-		"保存先と中身が違うファイル：{count} 件。保存先の内容に書き換えます。このデバイスの内容は、同じ場所に別名で残します。",
+		"保存先と中身が違うファイル：{count} 件。保存先の内容に書き換えます。このデバイスの内容は、_conflicts/ フォルダに別名で残します。",
 	"confirm.firstFetch.differentSettings":
 		"保存先と中身が違う設定フォルダのファイル：{count} 件。保存先の内容に書き換えます。このデバイスの内容は、この保管庫の .trash/ へ移します。",
 	"confirm.firstFetch.localOnly":

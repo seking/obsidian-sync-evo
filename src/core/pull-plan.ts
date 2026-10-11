@@ -948,10 +948,9 @@ class Draft {
 			}
 		};
 		for (const entry of deletes) leaves(folders.respell(entry.local.path));
-		for (const entry of asides) {
-			// A copy stays in the folder of its file.
-			if (parentOf(pathKey(entry.nameAfter)) !== parentOf(entry.key)) leaves(folders.respell(entry.local.path));
-		}
+		// A file that is moved to the name of a copy leaves its folder too:
+		// the copy is made in the folder of the copies.
+		for (const entry of asides) leaves(folders.respell(entry.local.path));
 		for (const rename of renames) {
 			// A file that was renamed before the pull stopped left the folder
 			// its record still names, which nothing else here would mention.

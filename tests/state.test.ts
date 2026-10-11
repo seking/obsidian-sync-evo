@@ -13,15 +13,18 @@ import { describe, expect, test } from "vitest";
 import { createExclusion } from "../src/core/exclusion";
 import { planSync } from "../src/core/plan";
 import {
+	copiedPathOf,
 	isListing,
 	isStatUpdateOf,
 	isUnchangedByStat,
 	makeMarker,
 	makeRecord,
+	plainMarker,
 	RACY_MTIME_MARGIN_MS,
 	RecordBatcher,
 	refreshStat,
 	type StoredRecord,
+	type WriteMarker,
 } from "../src/core/state";
 import { MemoryStateStore } from "./support/memory-state-store";
 import { fileRecord } from "./support/state-store-contract";
@@ -231,6 +234,44 @@ describe("a write marker", () => {
 			before: OTHER,
 			conflictCopy: true,
 		});
+	});
+
+	test("the marker of a copy holds the path of the file the copy is of, and no other marker does", () => {
+		const copy = "_conflicts/20261011-221500 a (iPhone).md";
+		expect(makeMarker(copy, null, HASH, true, "notes/a.md")).toEqual({
+			key: copy,
+			path: copy,
+			before: null,
+			writing: HASH,
+			conflictCopy: true,
+			original: "notes/a.md",
+		});
+		expect(makeMarker("a.md", null, HASH, false, "notes/a.md")).not.toHaveProperty("original");
+		expect(makeMarker(copy, null, HASH, true)).not.toHaveProperty("original");
+	});
+
+	test("stored field by field: the path of the file is kept on a copy, and nothing else an object carries", () => {
+		const copy = "_conflicts/20261011-221500 a (iPhone).md";
+		const marker = makeMarker(copy, null, HASH, true, "notes/a.md");
+		expect(plainMarker({ ...marker, extra: 1 } as WriteMarker)).toEqual(marker);
+		expect(plainMarker({ ...makeMarker("a.md", null, HASH, false), original: "b.md" })).toEqual(
+			makeMarker("a.md", null, HASH, false),
+		);
+		expect(plainMarker({ ...marker, original: 5 } as unknown as WriteMarker)).not.toHaveProperty("original");
+	});
+
+	test("what a copy is of: what its marker says, or else what a name of the earlier form tells, or nothing", () => {
+		const copy = "_conflicts/20261011-221500 a (iPhone).md";
+		expect(copiedPathOf(makeMarker(copy, null, HASH, true, "notes/a.md"))).toBe("notes/a.md");
+		// Written by an earlier version, beside the file.
+		expect(copiedPathOf(makeMarker("notes/a.conflict-from-Mac-20261007-101500.md", null, HASH, true))).toBe("notes/a.md");
+		// What the marker says comes first.
+		expect(copiedPathOf(makeMarker("notes/a.conflict-from-Mac-20261007-101500.md", null, HASH, true, "b.md"))).toBe("b.md");
+		// Lost on the way through an earlier version: nothing tells it any more.
+		expect(copiedPathOf(makeMarker(copy, null, HASH, true))).toBeNull();
+		// Not a copy at all.
+		expect(copiedPathOf(makeMarker("notes/a.conflict-from-Mac-20261007-101500.md", null, HASH, false))).toBeNull();
+		expect(copiedPathOf(makeMarker("a.md", null, HASH, false))).toBeNull();
 	});
 });
 

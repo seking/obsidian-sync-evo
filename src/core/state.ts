@@ -15,6 +15,7 @@
 // outside the core.
 
 import type { EntryKind, ListResult, RemoteEntry, RemoteListing } from "./backend";
+import { originalPathOfConflictCopy } from "./conflict-name";
 import { pathKey } from "./paths";
 import type { SyncRecord } from "./plan";
 
@@ -159,26 +160,53 @@ export interface WriteMarker {
 	 * the remote. Such a path gets no record, and is resumed differently.
 	 */
 	readonly conflictCopy: boolean;
+	/**
+	 * Only on the marker of a copy: the path of the file the copy keeps the
+	 * content of, which the path of the copy does not tell. A field that may
+	 * be lost (`STATE_DB_VERSION`): a marker an earlier version wrote, or
+	 * wrote back, is without it (`copiedPathOf`).
+	 */
+	readonly original?: string;
 }
 
+/** `original`: for the marker of a copy, the path of the file it is a copy of. */
 export function makeMarker(
 	path: string,
 	before: string | null,
 	writing: string,
 	conflictCopy: boolean,
+	original?: string,
 ): WriteMarker {
-	return { key: pathKey(path), path, before, writing, conflictCopy };
+	const marker = { key: pathKey(path), path, before, writing, conflictCopy };
+	return conflictCopy && original !== undefined ? { ...marker, original } : marker;
 }
 
 /** Field by field, like `plainRecord`. */
 export function plainMarker(marker: WriteMarker): WriteMarker {
-	return {
+	const plain = {
 		key: pathKey(marker.path),
 		path: marker.path,
 		before: marker.before,
 		writing: marker.writing,
 		conflictCopy: marker.conflictCopy,
 	};
+	return marker.conflictCopy && typeof marker.original === "string" ? { ...plain, original: marker.original } : plain;
+}
+
+/**
+ * The path of the file a marker's copy keeps the content of, or `null`: for
+ * a marker that is not of a copy, and for one of a copy that does not say.
+ *
+ * A marker without the field is of a copy an earlier version was writing,
+ * of the earlier form, whose name tells the file
+ * (`originalPathOfConflictCopy`); or it has lost the field to an earlier
+ * version, and nothing tells the file any more. The copy is then a file
+ * like any other, and the conflict it was written for is handled from the
+ * start, which makes one copy more and loses nothing.
+ */
+export function copiedPathOf(marker: WriteMarker): string | null {
+	if (!marker.conflictCopy) return null;
+	return typeof marker.original === "string" ? marker.original : originalPathOfConflictCopy(marker.path);
 }
 
 /** The key of the base revision among the other values (`getMeta`). */

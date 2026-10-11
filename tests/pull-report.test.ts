@@ -55,6 +55,7 @@ const result = (over: Partial<PullResult> = {}): PullResult => ({
 	deferred: [],
 	unwritable: [],
 	keptLocal: [],
+	tidiedCopies: [],
 	keptUnsent: [],
 	newSymlinks: [],
 	notices: [],
@@ -277,8 +278,22 @@ describe("the summary", () => {
 		]);
 	});
 
+	test("conflict copies that were tidied are counted, with how one is kept, and not listed", () => {
+		const copies = ["_conflicts/20260901-120100 a (iPhone).md", "_conflicts/20260902-120100 b (Mac).md"];
+		expect(pullReport(t, result({ tidiedCopies: copies.slice(0, 1) }), options).details).toEqual([
+			"1 conflict copy in _conflicts/ was made 30 days ago or more, and was moved to .trash/ in this vault. To keep a copy, move it out of _conflicts/ or rename it.",
+		]);
+		expect(pullReport(t, result({ outcome: "incomplete", tidiedCopies: copies }), options).details).toEqual([
+			"2 conflict copies in _conflicts/ were made 30 days ago or more, and were moved to .trash/ in this vault. To keep a copy, move it out of _conflicts/ or rename it.",
+		]);
+		expect(pullReport(ja, result({ tidiedCopies: copies }), options).details).toEqual([
+			"作ってから30日たった競合の別名 2 件を、_conflicts/ からこの保管庫の .trash/ へ移しました。残したい別名は、_conflicts/ の外へ移すか、名前を変えてください。",
+		]);
+		expect(pullReport(t, result({ tidiedCopies: [] }), options).details).toEqual([]);
+	});
+
 	test("a half copy of a conflict that was moved to the trash has a text of its own", () => {
-		const copy = "a.conflict-from-iPhone-20261003-120100.md";
+		const copy = "_conflicts/20261003-120100 a (iPhone).md";
 		for (const outcome of ["completed", "cancelled", "declined", "incomplete"] as const) {
 			expect(pullReport(t, result({ outcome, halfCopies: [copy] }), options).details).toEqual([
 				`1 conflict copy that an earlier pull left unfinished was moved to .trash/ in this vault. A complete copy is made again. If you had edited the copy, your edit is there:\n${copy}`,
@@ -298,7 +313,7 @@ describe("the summary", () => {
 	});
 
 	test("declined after a resuming pull moved files to the trash: not called unchanged", () => {
-		const copy = "a.conflict-from-iPhone-20261003-120100.md";
+		const copy = "_conflicts/20261003-120100 a (iPhone).md";
 		for (const moved of [{ halfWritten: ["a.md"] }, { halfCopies: [copy] }]) {
 			expect(pullReport(t, result({ outcome: "declined", ...moved }), options).summary).toBe(
 				"The pull was cancelled. Only the files listed below were moved to .trash/ in this vault. Nothing else was changed.",
@@ -545,10 +560,10 @@ describe("what the user has to know", () => {
 			result({
 				counts: { fetched: 1, deleted: 0, renamed: 0, conflicts: 4 },
 				conflicts: [
-					{ path: "a.md", copyPath: "a.conflict-from-Mac-20261003-221500.md", cause: "conflict" },
-					{ path: "link", copyPath: "link.conflict-from-Mac-20261003-221500", cause: "became-symlink" },
-					{ path: "dir", copyPath: "dir.conflict-from-Mac-20261003-221500", cause: "became-folder" },
-					{ path: "Notes.md", copyPath: "Notes.conflict-from-Mac-20261003-221500.md", cause: "name-taken" },
+					{ path: "a.md", copyPath: "_conflicts/20261003-221500 a (Mac).md", cause: "conflict" },
+					{ path: "link", copyPath: "_conflicts/20261003-221500 link (Mac)", cause: "became-symlink" },
+					{ path: "dir", copyPath: "_conflicts/20261003-221500 dir (Mac)", cause: "became-folder" },
+					{ path: "Notes.md", copyPath: "_conflicts/20261003-221500 Notes (Mac).md", cause: "name-taken" },
 				],
 			}),
 			options,
@@ -556,10 +571,10 @@ describe("what the user has to know", () => {
 		expect(report.details).toEqual([
 			[
 				"The content of 4 files on this device was kept under another name:",
-				"a.conflict-from-Mac-20261003-221500.md (a conflict: a.md now has the content of the remote)",
-				"link.conflict-from-Mac-20261003-221500 (link is a symbolic link on the remote now, which is not written to this device)",
-				"dir.conflict-from-Mac-20261003-221500 (dir is a folder on the remote now)",
-				"Notes.conflict-from-Mac-20261003-221500.md (the remote renamed another file to Notes.md)",
+				"_conflicts/20261003-221500 a (Mac).md (a conflict: a.md now has the content of the remote)",
+				"_conflicts/20261003-221500 link (Mac) (link is a symbolic link on the remote now, which is not written to this device)",
+				"_conflicts/20261003-221500 dir (Mac) (dir is a folder on the remote now)",
+				"_conflicts/20261003-221500 Notes (Mac).md (the remote renamed another file to Notes.md)",
 			].join("\n"),
 		]);
 	});
@@ -606,7 +621,7 @@ describe("what the user has to know", () => {
 		// After the conflicts, which are counted by themselves.
 		const both = result({
 			counts: { fetched: 2, deleted: 0, renamed: 0, conflicts: 1 },
-			conflicts: [{ path: "a.md", copyPath: "a.conflict-from-Mac-20261003-221500.md", cause: "conflict" }],
+			conflicts: [{ path: "a.md", copyPath: "_conflicts/20261003-221500 a (Mac).md", cause: "conflict" }],
 			replacedSettings: [".obsidian/app.json"],
 		});
 		const report = pullReport(ja, both, options);
@@ -884,7 +899,7 @@ describe("the question before a first fetch", () => {
 			parts: [
 				{ text: "This is the first pull from octo/notes, branch main, and this vault already has files." },
 				{
-					text: "1 file has other content than the remote. It gets the content of the remote, and the content on this device is kept beside it under another name:",
+					text: "1 file has other content than the remote. It gets the content of the remote, and the content on this device is kept in the folder _conflicts/ under another name:",
 					paths: { shown: ["a.md"], more: 0 },
 				},
 				{
@@ -910,7 +925,7 @@ describe("the question before a first fetch", () => {
 		const question = firstFetchQuestion(t, target, { files, discardsState: false });
 		expect(question.parts.slice(1)).toEqual([
 			{
-				text: "1 file has other content than the remote. It gets the content of the remote, and the content on this device is kept beside it under another name:",
+				text: "1 file has other content than the remote. It gets the content of the remote, and the content on this device is kept in the folder _conflicts/ under another name:",
 				paths: { shown: ["a.md"], more: 0 },
 			},
 			{
@@ -932,7 +947,7 @@ describe("the question before a first fetch", () => {
 
 		expect(firstFetchQuestion(ja, target, { files, discardsState: false }).parts.slice(1)).toEqual([
 			{
-				text: "保存先と中身が違うファイル：1 件。保存先の内容に書き換えます。このデバイスの内容は、同じ場所に別名で残します。",
+				text: "保存先と中身が違うファイル：1 件。保存先の内容に書き換えます。このデバイスの内容は、_conflicts/ フォルダに別名で残します。",
 				paths: { shown: ["a.md"], more: 0 },
 			},
 			{
@@ -1000,7 +1015,7 @@ describe("the question before a first fetch", () => {
 		expect(question.title).toBe("初回取得の確認");
 		expect(question.parts.map((part) => part.text)).toEqual([
 			"octo/notes のブランチ main から、この保管庫に初めて取り込みます。この保管庫には、すでにファイルがあります。",
-			"保存先と中身が違うファイル：1 件。保存先の内容に書き換えます。このデバイスの内容は、同じ場所に別名で残します。",
+			"保存先と中身が違うファイル：1 件。保存先の内容に書き換えます。このデバイスの内容は、_conflicts/ フォルダに別名で残します。",
 			"このデバイスにだけあるファイル：1 件。このデバイスに、そのまま残します。次の送信（push）で、保存先に送ります。送信の前に、送るファイルの一覧を示して、もう一度確認を求めます。除外するファイルは、送りません。",
 		]);
 	});
@@ -1021,7 +1036,7 @@ describe("the question before starting over, in Japanese", () => {
 					text: "このデバイスの同期の状態を捨てて、octo/notes のブランチ main から取り込み直して作り直します。同期の状態は、何を同期したかを Sync Evo が覚えておくための記録です。ファイルは、このデバイスでも保存先でも削除しません。",
 				},
 				{
-					text: "保存先と中身が違うファイル：1 件。保存先の内容に書き換えます。このデバイスの内容は、同じ場所に別名で残します。",
+					text: "保存先と中身が違うファイル：1 件。保存先の内容に書き換えます。このデバイスの内容は、_conflicts/ フォルダに別名で残します。",
 					paths: { shown: ["a.md"], more: 0 },
 				},
 				{

@@ -1089,6 +1089,12 @@ describe("folders that may be left empty", () => {
 		expect(plan.emptiedFolders).toEqual([]);
 	});
 
+	test("a file that is moved to the name of a copy leaves its folder: the copy goes to the folder of the copies", () => {
+		const plan = pull({ remote: [link("x/y/link")], records: { "x/y/link": "A" }, local: { "x/y/link": "A2" } });
+		expect(plan.asides.map((aside) => aside.local.path)).toEqual(["x/y/link"]);
+		expect(plan.emptiedFolders).toEqual(["x/y", "x"]);
+	});
+
 	test("a rename within one folder does not empty it", () => {
 		const plan = pull({ remote: { "n/A.md": "A" }, records: { "n/a.md": "A" }, local: { "n/a.md": "A" } });
 		expect(plan.emptiedFolders).toEqual([]);
