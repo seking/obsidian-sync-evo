@@ -100,7 +100,7 @@ describe("a pull that started by itself", () => {
 			trashed: ["b.md"],
 			halfWritten: ["c.md"],
 			halfCopies: ["c (conflict).md"],
-			tidiedCopies: ["_conflicts/20260901 d (iPhone).md"],
+			tidiedCopies: ["_conflicts/2026-09-01 d (iPhone).md"],
 			recoveredPush: { added: 1, modified: 0, deleted: 0 },
 			newSymlinks: ["link"],
 			notices: [{ kind: "git-at-root", path: ".git" }],

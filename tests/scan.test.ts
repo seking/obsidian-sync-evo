@@ -282,15 +282,15 @@ describe("a copy kept from a conflict, of the earlier form beside its file", () 
 });
 
 describe("the folder of the conflict copies", () => {
-	const copy = "_conflicts/20261011 a (iPhone).md";
+	const copy = "_conflicts/2026-10-11 a (iPhone).md";
 
 	test("is entered though a rule matches it, and its copies are returned though none is known", async () => {
-		const vault = new MemoryVault([copy, "_conflicts/20261011 img (Mac).png", "b.md"]);
+		const vault = new MemoryVault([copy, "_conflicts/2026-10-11 img (Mac).png", "b.md"]);
 		for (const gitignore of ["_conflicts/\n", "/_conflicts\n", "_*\n", "*.md\n*.png\n_conflicts/\n"]) {
 			const result = await scan(vault, { gitignore });
 			expect(found(result)).toEqual([
 				copy,
-				"_conflicts/20261011 img (Mac).png",
+				"_conflicts/2026-10-11 img (Mac).png",
 				...(gitignore.includes("*.md") ? [] : ["b.md"]),
 			]);
 		}
@@ -301,7 +301,7 @@ describe("the folder of the conflict copies", () => {
 			copy,
 			"_conflicts/notes.md",
 			"_conflicts/kept.md",
-			"_conflicts/sub/20261011 a (iPhone).md",
+			"_conflicts/sub/2026-10-11 a (iPhone).md",
 			"_conflicts/sub/deep/x.md",
 		]);
 		const result = await scan(vault, { gitignore: "_conflicts/\n", known: ["_conflicts/kept.md"] });
@@ -315,8 +315,8 @@ describe("the folder of the conflict copies", () => {
 	});
 
 	test("a folder the vault spells otherwise is that folder", async () => {
-		const vault = new MemoryVault(["_Conflicts/20261011 a (iPhone).md", "_Conflicts/notes.md"]);
-		expect(found(await scan(vault, { gitignore: "_conflicts/\n" }))).toEqual(["_Conflicts/20261011 a (iPhone).md"]);
+		const vault = new MemoryVault(["_Conflicts/2026-10-11 a (iPhone).md", "_Conflicts/notes.md"]);
+		expect(found(await scan(vault, { gitignore: "_conflicts/\n" }))).toEqual(["_Conflicts/2026-10-11 a (iPhone).md"]);
 	});
 
 	test("and the decision then sends the copy, whatever the rules say", async () => {

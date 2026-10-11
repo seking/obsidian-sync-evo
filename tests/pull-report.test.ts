@@ -279,7 +279,7 @@ describe("the summary", () => {
 	});
 
 	test("conflict copies that were tidied are counted, with how one is kept, and not listed", () => {
-		const copies = ["_conflicts/20260901 a (iPhone).md", "_conflicts/20260902 b (Mac).md"];
+		const copies = ["_conflicts/2026-09-01 a (iPhone).md", "_conflicts/2026-09-02 b (Mac).md"];
 		expect(pullReport(t, result({ tidiedCopies: copies.slice(0, 1) }), options).details).toEqual([
 			"1 conflict copy in _conflicts/ was made 30 days ago or more, and was moved to .trash/ in this vault. To keep a copy, move it out of _conflicts/ or rename it.",
 		]);
@@ -293,7 +293,7 @@ describe("the summary", () => {
 	});
 
 	test("a half copy of a conflict that was moved to the trash has a text of its own", () => {
-		const copy = "_conflicts/20261003 a (iPhone).md";
+		const copy = "_conflicts/2026-10-03 a (iPhone).md";
 		for (const outcome of ["completed", "cancelled", "declined", "incomplete"] as const) {
 			expect(pullReport(t, result({ outcome, halfCopies: [copy] }), options).details).toEqual([
 				`1 conflict copy that an earlier pull left unfinished was moved to .trash/ in this vault. A complete copy is made again. If you had edited the copy, your edit is there:\n${copy}`,
@@ -313,7 +313,7 @@ describe("the summary", () => {
 	});
 
 	test("declined after a resuming pull moved files to the trash: not called unchanged", () => {
-		const copy = "_conflicts/20261003 a (iPhone).md";
+		const copy = "_conflicts/2026-10-03 a (iPhone).md";
 		for (const moved of [{ halfWritten: ["a.md"] }, { halfCopies: [copy] }]) {
 			expect(pullReport(t, result({ outcome: "declined", ...moved }), options).summary).toBe(
 				"The pull was cancelled. Only the files listed below were moved to .trash/ in this vault. Nothing else was changed.",
@@ -560,10 +560,10 @@ describe("what the user has to know", () => {
 			result({
 				counts: { fetched: 1, deleted: 0, renamed: 0, conflicts: 4 },
 				conflicts: [
-					{ path: "a.md", copyPath: "_conflicts/20261003 a (Mac).md", cause: "conflict" },
-					{ path: "link", copyPath: "_conflicts/20261003 link (Mac)", cause: "became-symlink" },
-					{ path: "dir", copyPath: "_conflicts/20261003 dir (Mac)", cause: "became-folder" },
-					{ path: "Notes.md", copyPath: "_conflicts/20261003 Notes (Mac).md", cause: "name-taken" },
+					{ path: "a.md", copyPath: "_conflicts/2026-10-03 a (Mac).md", cause: "conflict" },
+					{ path: "link", copyPath: "_conflicts/2026-10-03 link (Mac)", cause: "became-symlink" },
+					{ path: "dir", copyPath: "_conflicts/2026-10-03 dir (Mac)", cause: "became-folder" },
+					{ path: "Notes.md", copyPath: "_conflicts/2026-10-03 Notes (Mac).md", cause: "name-taken" },
 				],
 			}),
 			options,
@@ -571,10 +571,10 @@ describe("what the user has to know", () => {
 		expect(report.details).toEqual([
 			[
 				"The content of 4 files on this device was kept under another name:",
-				"_conflicts/20261003 a (Mac).md (a conflict: a.md now has the content of the remote)",
-				"_conflicts/20261003 link (Mac) (link is a symbolic link on the remote now, which is not written to this device)",
-				"_conflicts/20261003 dir (Mac) (dir is a folder on the remote now)",
-				"_conflicts/20261003 Notes (Mac).md (the remote renamed another file to Notes.md)",
+				"_conflicts/2026-10-03 a (Mac).md (a conflict: a.md now has the content of the remote)",
+				"_conflicts/2026-10-03 link (Mac) (link is a symbolic link on the remote now, which is not written to this device)",
+				"_conflicts/2026-10-03 dir (Mac) (dir is a folder on the remote now)",
+				"_conflicts/2026-10-03 Notes (Mac).md (the remote renamed another file to Notes.md)",
 			].join("\n"),
 		]);
 	});
@@ -621,7 +621,7 @@ describe("what the user has to know", () => {
 		// After the conflicts, which are counted by themselves.
 		const both = result({
 			counts: { fetched: 2, deleted: 0, renamed: 0, conflicts: 1 },
-			conflicts: [{ path: "a.md", copyPath: "_conflicts/20261003 a (Mac).md", cause: "conflict" }],
+			conflicts: [{ path: "a.md", copyPath: "_conflicts/2026-10-03 a (Mac).md", cause: "conflict" }],
 			replacedSettings: [".obsidian/app.json"],
 		});
 		const report = pullReport(ja, both, options);

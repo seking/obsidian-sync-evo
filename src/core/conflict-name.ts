@@ -12,7 +12,7 @@
 // The name of the copy that keeps the vault's content of a file in conflict,
 // and where it is put: directly in one folder at the vault root,
 //
-//   _conflicts/<YYYYMMDD> <name> (<device>)[-N].<extension>
+//   _conflicts/<YYYY-MM-DD> <name> (<device>)[ (N)].<extension>
 //
 // The folders of the file are not kept: the path of the file cannot be read
 // back from the path of its copy, and whoever needs it has to remember it.
@@ -21,7 +21,7 @@
 // file and under a device name this one knows nothing about, is still
 // recognized. The name holds the day and not the time of day, which made it
 // too long to read in a list of files; a file that is in conflict twice on
-// one day gets the number (`-2`, `-3`) for its second copy.
+// one day gets a number for its second copy (` (1)`, ` (2)`).
 //
 // Up to 0.2.0 a copy was made beside its file instead:
 //
@@ -39,9 +39,10 @@ export const CONFLICT_FOLDER = "_conflicts";
 /** What most file systems allow for one file name, in bytes of UTF-8. */
 const MAX_NAME_BYTES = 255;
 
-// A file name that starts the way a copy in the folder does: eight digits,
-// and a space right after them. Nothing after the space is looked at.
-const COPY_START = /^(\d{4})(\d{2})(\d{2}) /;
+// A file name that starts the way a copy in the folder does: a date with
+// its hyphens, and a space right after it. Nothing after the space is
+// looked at.
+const COPY_START = /^(\d{4})-(\d{2})-(\d{2}) /;
 
 // A file name without its extension that ends the way a copy of the earlier
 // form does. Both the name and the device name are greedy: of several marks
@@ -59,10 +60,11 @@ const COPY_END = /^(.+)\.conflict-from-.+-\d{8}-\d{6}(?:-\d+)?$/s;
  * - `at` is read on the device's own clock, in local time, and only its
  *   date is used. It comes first, so that a list of the folder is in the
  *   order of the days the copies were made on.
- * - `attempt` is 1 for the plain name. From 2 on it is added before the
- *   extension, for when the plain name is taken, which is nothing rare:
- *   one file in conflict twice on a day, two files of one name in
- *   different folders, or two devices with one name.
+ * - `attempt` is 1 for the plain name. From 2 on a number is added before
+ *   the extension, in parentheses and counted from 1 (` (1)` for the
+ *   second name that is tried), for when the plain name is taken, which is
+ *   nothing rare: one file in conflict twice on a day, two files of one
+ *   name in different folders, or two devices with one name.
  * - `folder` is the folder as the vault spells it, when it has one under
  *   another case (`isConflictFolder`).
  *
@@ -82,7 +84,7 @@ export function conflictCopyPath(
 	const extension = dot > 0 ? fileName.slice(dot) : "";
 
 	const before = `${stamp(at)} `;
-	const after = ` (${deviceName})${attempt > 1 ? `-${attempt}` : ""}${extension}`;
+	const after = ` (${deviceName})${attempt > 1 ? ` (${attempt - 1})` : ""}${extension}`;
 	return `${folder}/${before}${shortened(name, MAX_NAME_BYTES - byteLength(before) - byteLength(after))}${after}`;
 }
 
@@ -97,7 +99,7 @@ export function isConflictFolder(path: string): boolean {
 
 /**
  * Whether `path` is a conflict copy in the folder of the copies: directly in
- * it, with a file name that starts with a date and a space. Nothing
+ * it, with a file name that starts with a date (`2026-10-12`) and a space. Nothing
  * else of the name is looked at, and whether there is a file is not asked.
  *
  * Asked before `originalPathOfConflictCopy`, which answers `null` for such a
@@ -163,7 +165,7 @@ export function originalPathOfConflictCopy(path: string): string | null {
 
 function stamp(at: Date): string {
 	const two = (value: number): string => String(value).padStart(2, "0");
-	return `${String(at.getFullYear()).padStart(4, "0")}${two(at.getMonth() + 1)}${two(at.getDate())}`;
+	return `${String(at.getFullYear()).padStart(4, "0")}-${two(at.getMonth() + 1)}-${two(at.getDate())}`;
 }
 
 const encoder = new TextEncoder();

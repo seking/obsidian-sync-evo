@@ -37,7 +37,7 @@ const NOW = Date.UTC(2026, 6, 15, 12, 0, 0);
  * 29 days and a half ago, and the one before it 30 and a half.
  */
 function copyFrom(ago: number, name = "a", device = "iPhone"): string {
-	const stamp = new Date(NOW - ago).toISOString().slice(0, 10).replaceAll("-", "");
+	const stamp = new Date(NOW - ago).toISOString().slice(0, 10);
 	return `_conflicts/${stamp} ${name} (${device}).md`;
 }
 
@@ -62,7 +62,7 @@ function setup(files: Record<string, string>, options: { caseSensitive?: boolean
 describe("when a copy has had its time", () => {
 	test("30 days of 24 hours from the end of the day in its name, to the millisecond", () => {
 		expect(COPY_KEPT_MS).toBe(30 * DAY);
-		const copy = "_conflicts/20260601 a (iPhone).md";
+		const copy = "_conflicts/2026-06-01 a (iPhone).md";
 		// The day ends when the 2nd of June begins, and 30 days on it is the 2nd of July.
 		const edge = Date.UTC(2026, 6, 2);
 		expect(isCopyDue(copy, edge)).toBe(true);
@@ -75,8 +75,8 @@ describe("when a copy has had its time", () => {
 	});
 
 	test("the number of a second copy of the day changes nothing", () => {
-		expect(isCopyDue("_conflicts/20260601 a (iPhone)-2.md", Date.UTC(2026, 6, 2))).toBe(true);
-		expect(isCopyDue("_conflicts/20260601 a (iPhone)-2.md", Date.UTC(2026, 6, 2) - 1)).toBe(false);
+		expect(isCopyDue("_conflicts/2026-06-01 a (iPhone) (1).md", Date.UTC(2026, 6, 2))).toBe(true);
+		expect(isCopyDue("_conflicts/2026-06-01 a (iPhone) (1).md", Date.UTC(2026, 6, 2) - 1)).toBe(false);
 	});
 
 	test("as the helper of these tests counts it", () => {
@@ -86,16 +86,17 @@ describe("when a copy has had its time", () => {
 		expect(isCopyDue(copyFrom(400 * DAY), NOW)).toBe(true);
 	});
 
-	test("a name with a time of day after the date is no copy, and is never due", () => {
+	test("the names a beta once gave its copies are no copies, and are never due", () => {
+		expect(isCopyDue("_conflicts/20250101 a (iPhone).md", NOW)).toBe(false);
 		expect(isCopyDue("_conflicts/20250101-120000 a (iPhone).md", NOW)).toBe(false);
 	});
 
 	test("never a day that is yet to come or has not ended, or digits that are no date", () => {
-		expect(isCopyDue("_conflicts/20260715 a (iPhone).md", NOW)).toBe(false);
+		expect(isCopyDue("_conflicts/2026-07-15 a (iPhone).md", NOW)).toBe(false);
 		expect(isCopyDue(copyFrom(-DAY), NOW)).toBe(false);
 		expect(isCopyDue(copyFrom(-400 * DAY), NOW)).toBe(false);
-		expect(isCopyDue("_conflicts/20251340 a (iPhone).md", NOW)).toBe(false);
-		expect(isCopyDue("_conflicts/00000000 a (iPhone).md", NOW)).toBe(false);
+		expect(isCopyDue("_conflicts/2025-13-40 a (iPhone).md", NOW)).toBe(false);
+		expect(isCopyDue("_conflicts/0000-00-00 a (iPhone).md", NOW)).toBe(false);
 	});
 
 	test("never a file that is no copy in the folder: one of the earlier form, one in a folder below, one elsewhere", () => {
@@ -142,8 +143,8 @@ describe("tidying the folder of the copies", () => {
 
 	test("a copy that was renamed, or moved out of the folder, is kept", async () => {
 		const s = setup({
-			"_conflicts/keep 20250101 a (iPhone).md": "renamed",
-			"kept/20250101 a (iPhone).md": "moved",
+			"_conflicts/keep 2025-01-01 a (iPhone).md": "renamed",
+			"kept/2025-01-01 a (iPhone).md": "moved",
 		});
 		expect(await s.tidy()).toEqual([]);
 		expect(s.vault.trashed).toEqual([]);

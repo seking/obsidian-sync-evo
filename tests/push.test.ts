@@ -653,7 +653,7 @@ describe("the deletion guard", () => {
 
 describe("conflict copies that have had their time", () => {
 	// The harness starts at noon UTC on 2026-10-03: these are two months old.
-	const old = Array.from({ length: 8 }, (_, i) => `_conflicts/20260801 n${i} (Mac).md`);
+	const old = Array.from({ length: 8 }, (_, i) => `_conflicts/2026-08-01 n${i} (Mac).md`);
 	const notes = Array.from({ length: 12 }, (_, i) => `n/${String(i).padStart(2, "0")}.md`);
 	const files = (): Record<string, string> =>
 		Object.fromEntries([...old, ...notes].map((path) => [path, `content of ${path}`]));
@@ -2340,7 +2340,7 @@ describe("a copy that is itself in conflict", () => {
 
 		// A copy like any other, named after the copy it is of: no number.
 		const second = pull.conflicts[0]?.copyPath ?? "";
-		expect(second).toMatch(/^_conflicts\/\d{8} \d{8} img \(iPhone\) \(iPhone\)\.png$/);
+		expect(second).toMatch(/^_conflicts\/\d{4}-\d{2}-\d{2} \d{4}-\d{2}-\d{2} img \(iPhone\) \(iPhone\)\.png$/);
 		expect(pull).toMatchObject({ outcome: "completed", conflicts: [{ path: first, copyPath: second }] });
 		expect(push).toMatchObject({ outcome: "pushed", counts: { added: 1, modified: 0, deleted: 0 } });
 		expect(await h.remote()).toEqual({
@@ -2361,7 +2361,7 @@ describe("a copy that is itself in conflict", () => {
 		const { pull, push } = await h.sync();
 
 		const copy = pull.conflicts[0]?.copyPath ?? "";
-		expect(copy).toMatch(/^_conflicts\/\d{8} img\.conflict-from-iPhone-20261003-221500 \(iPhone\)\.png$/);
+		expect(copy).toMatch(/^_conflicts\/\d{4}-\d{2}-\d{2} img\.conflict-from-iPhone-20261003-221500 \(iPhone\)\.png$/);
 		expect(pull).toMatchObject({ outcome: "completed", conflicts: [{ path: earlier, copyPath: copy }] });
 		expect(push).toMatchObject({ outcome: "pushed", counts: { added: 1, modified: 0, deleted: 0 } });
 		expect(await h.remote()).toEqual({

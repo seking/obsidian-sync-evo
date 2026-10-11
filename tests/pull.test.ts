@@ -424,7 +424,7 @@ describe("a conflict", () => {
 		const result = await h.pull();
 
 		const copy = h.copyName("notes/deep/a.md");
-		expect(copy).toMatch(/^_conflicts\/\d{8} a \(iPhone\)\.md$/);
+		expect(copy).toMatch(/^_conflicts\/\d{4}-\d{2}-\d{2} a \(iPhone\)\.md$/);
 		// Both paths are told: the copy does not say where its file is.
 		expect(result.conflicts).toEqual([{ path: "notes/deep/a.md", copyPath: copy, cause: "conflict" }]);
 		expect(h.vault.snapshot()).toEqual({ "notes/deep/a.md": "theirs", "notes/deep/b.md": "B", [copy]: "mine" });
@@ -440,7 +440,7 @@ describe("a conflict", () => {
 		h.vault.put("a.md", "mine");
 		// One of each form, both holding what the vault has.
 		const beside = "a.conflict-from-iPhone-20260101-090000.md";
-		const inFolder = "_conflicts/20261001 a (iPhone).md";
+		const inFolder = "_conflicts/2026-10-01 a (iPhone).md";
 		h.vault.put(beside, "mine");
 		h.vault.put(inFolder, "mine");
 
@@ -454,7 +454,7 @@ describe("a conflict", () => {
 
 	test("a copy on the remote with the same content is not used either", async () => {
 		const h = await synced({ "a.md": "A" });
-		const onRemote = "_conflicts/20261001 a (Mac).md";
+		const onRemote = "_conflicts/2026-10-01 a (Mac).md";
 		h.backend.commit({ "a.md": "theirs", [onRemote]: "mine" });
 		h.vault.put("a.md", "mine");
 
@@ -514,9 +514,9 @@ describe("a conflict", () => {
 		}
 		// The day is the device's own, whatever zone the test runs in.
 		const [plain = ""] = copies;
-		expect(plain).toMatch(/^_conflicts\/\d{8} a \(iPhone\)\.md$/);
+		expect(plain).toMatch(/^_conflicts\/\d{4}-\d{2}-\d{2} a \(iPhone\)\.md$/);
 		const stem = plain.slice(0, -".md".length);
-		expect(copies).toEqual([plain, `${stem}-2.md`, `${stem}-3.md`, `${stem}-4.md`]);
+		expect(copies).toEqual([plain, `${stem} (1).md`, `${stem} (2).md`, `${stem} (3).md`]);
 		expect(copies.map((copy) => h.vault.text(copy))).toEqual(["mine 1", "mine 2", "mine 3", "mine 4"]);
 		expect(h.copies()).toHaveLength(4);
 		expect(await h.store.readMarkers()).toEqual([]);
@@ -536,14 +536,14 @@ describe("a conflict", () => {
 		expect(h.vault.text(h.copyName("a.md", 2))).toBe("kept");
 	});
 
-	test("a file with a time of day after the date, as a beta once named its copies, is a file like any other", async () => {
-		const timed = "_conflicts/20260801-001421 a (iPhone).md";
+	test("files named as a beta once named its copies, without the hyphens or with a time of day, are files like any other", async () => {
+		const names = ["_conflicts/20260801 a (iPhone).md", "_conflicts/20260801-001421 a (iPhone).md"];
 		const h = await synced({ "a.md": "A" });
-		h.vault.put(timed, "from the beta");
+		for (const name of names) h.vault.put(name, "from the beta");
 
-		// However old its name says it is, it is not tidied.
+		// However old their names say they are, they are not tidied.
 		expect((await h.pull()).tidiedCopies).toEqual([]);
-		expect(h.vault.text(timed)).toBe("from the beta");
+		for (const name of names) expect(h.vault.text(name)).toBe("from the beta");
 		expect(h.copies()).toEqual([]);
 	});
 
@@ -564,7 +564,7 @@ describe("a conflict", () => {
 	});
 
 	test("a copy that is itself in conflict is a file like any other: what the vault has of it goes to a new copy", async () => {
-		const copy = "_conflicts/20261001 a (Mac).md";
+		const copy = "_conflicts/2026-10-01 a (Mac).md";
 		const h = await synced({ "a.md": "A", [copy]: "c1" });
 		h.backend.commit({ [copy]: "c2" });
 		h.vault.put(copy, "c-mine");
@@ -572,7 +572,7 @@ describe("a conflict", () => {
 		const result = await h.pull();
 
 		const second = h.copyName(copy);
-		expect(second).toMatch(/^_conflicts\/\d{8} 20261001 a \(Mac\) \(iPhone\)\.md$/);
+		expect(second).toMatch(/^_conflicts\/\d{4}-\d{2}-\d{2} 2026-10-01 a \(Mac\) \(iPhone\)\.md$/);
 		expect(result.conflicts).toEqual([{ path: copy, copyPath: second, cause: "conflict" }]);
 		expect(h.vault.snapshot()).toEqual({ "a.md": "A", [copy]: "c2", [second]: "c-mine" });
 	});
@@ -586,7 +586,7 @@ describe("a conflict", () => {
 		const result = await h.pull();
 
 		const second = h.copyName(copy);
-		expect(second).toMatch(/^_conflicts\/\d{8} a\.conflict-from-Mac-20261003-221500 \(iPhone\)\.md$/);
+		expect(second).toMatch(/^_conflicts\/\d{4}-\d{2}-\d{2} a\.conflict-from-Mac-20261003-221500 \(iPhone\)\.md$/);
 		expect(result.conflicts).toEqual([{ path: copy, copyPath: second, cause: "conflict" }]);
 		expect(h.vault.snapshot()).toEqual({ "notes/a.md": "A", [copy]: "c2", [second]: "c-mine" });
 	});
@@ -4226,7 +4226,7 @@ describe("going on after a pull that stopped while writing", () => {
 		const head = h.backend.commit({ "notes/a.md": "theirs" });
 		h.vault.put("notes/a.md", "mine");
 		// A copy with the same content, of a file of the same name: not this conflict's.
-		const others = "_conflicts/20261002 a (iPhone).md";
+		const others = "_conflicts/2026-10-02 a (iPhone).md";
 		h.vault.put(others, "mine");
 		killBeforeWrite(h, (path) => path === "notes/a.md");
 		await expect(h.pull()).rejects.toThrow("the app is gone");
@@ -4507,7 +4507,7 @@ describe("going on after a pull that stopped while writing", () => {
 
 	test("a conflict that waits is forgotten, and not told, when the file at the name of its copy no longer holds what the copy was written with", async () => {
 		const h = await synced({ "notes/a.md": "A" });
-		const copy = "_conflicts/20261003 a (iPhone).md";
+		const copy = "_conflicts/2026-10-03 a (iPhone).md";
 		// The copy is gone, and the name has the copy of another file since.
 		h.vault.put(copy, "what other/a.md had");
 		await h.store.setMeta(AWAITED_CONFLICTS_KEY, [{ path: "notes/a.md", copyPath: copy, hash: blobHash("mine") }]);
@@ -4525,7 +4525,7 @@ describe("going on after a pull that stopped while writing", () => {
 
 	test("a copy that cannot be read leaves its conflict waiting", async () => {
 		const h = await synced({ "notes/a.md": "A" });
-		const copy = "_conflicts/20261003 a (iPhone).md";
+		const copy = "_conflicts/2026-10-03 a (iPhone).md";
 		h.vault.put(copy, "mine");
 		const awaited = [{ path: "notes/a.md", copyPath: copy, hash: blobHash("mine") }];
 		await h.store.setMeta(AWAITED_CONFLICTS_KEY, awaited);
@@ -4570,7 +4570,7 @@ describe("going on after a pull that stopped while writing", () => {
 	test("a conflict that waits is forgotten when its copy is gone, or the remote has no file at the path any more", async () => {
 		for (const gone of ["copy", "remote"] as const) {
 			const h = await synced({ "a.md": "A", "b.md": "B" });
-			const copy = "_conflicts/20261003 a (iPhone).md";
+			const copy = "_conflicts/2026-10-03 a (iPhone).md";
 			h.vault.put(copy, "mine");
 			await h.store.setMeta(AWAITED_CONFLICTS_KEY, [{ path: "a.md", copyPath: copy, hash: blobHash("mine") }]);
 			h.vault.put("a.md", "typed since");
@@ -4908,7 +4908,7 @@ describe("going on after a pull that stopped while writing", () => {
 			const h = await synced({ "a.md": "A", "b.md": "B" });
 			h.backend.commit({ "a.md": "theirs", "b.md": "B2" });
 			h.vault.put("a.md", "mine");
-			const half = "_conflicts/20261003 a (iPhone).md";
+			const half = "_conflicts/2026-10-03 a (iPhone).md";
 			await h.store.putMarker(makeMarker(half, null, blobHash("mine"), true, "a.md"));
 			h.vault.put(half, "mi");
 			h.vault.before = (op) => {
@@ -4949,7 +4949,7 @@ describe("going on after a pull that stopped while writing", () => {
 			const earlier = folder !== "";
 			const copy = earlier
 				? `${folder}a.conflict-from-iPhone-20261003-110000.md`
-				: "_conflicts/20261003 a (iPhone).md";
+				: "_conflicts/2026-10-03 a (iPhone).md";
 			await h.store.putMarker(makeMarker(copy, null, blobHash("mine"), true, ...(earlier ? [] : [path])));
 			h.vault.put(copy, "mine");
 			await h.store.putMarker(makeMarker(path, blobHash("mine"), blobHash("theirs"), false));
@@ -5149,7 +5149,7 @@ describe("going on after a pull that stopped while writing", () => {
 			h.backend.commit({ "a.md": "A2" });
 			await h.store.putMarker(makeMarker("a.md", blobHash("A"), blobHash("A2"), false));
 			h.vault.put("a.md", "A2 h");
-			const half = "_conflicts/20261003 b (iPhone).md";
+			const half = "_conflicts/2026-10-03 b (iPhone).md";
 			await h.store.putMarker(makeMarker(half, null, blobHash("mine"), true, "b.md"));
 			h.vault.put(half, "mi");
 			h.vault.before = (op) => {
@@ -5486,7 +5486,7 @@ describe("going on after a pull that stopped while writing", () => {
 			const h = await killedMidWrite();
 			await h.store.putMarker(makeMarker("b.md", blobHash("B"), blobHash("B2"), false));
 			h.vault.put("b.md", "B h");
-			const copy = "_conflicts/20261003 b (iPhone).md";
+			const copy = "_conflicts/2026-10-03 b (iPhone).md";
 			h.vault.put(copy, "mine");
 			const awaited = [{ path: "b.md", copyPath: copy, hash: blobHash("mine") }];
 			await h.store.setMeta(AWAITED_CONFLICTS_KEY, awaited);
@@ -6353,9 +6353,9 @@ describe("a file that is being typed in, in a pull that started by itself", () =
 
 describe("conflict copies that have had their time", () => {
 	// The harness starts at noon UTC on 2026-10-03, and every pull is a minute later.
-	const old = "_conflicts/20260801 a (Mac).md";
-	const young = "_conflicts/20261001 b (Mac).md";
-	const others = { "_conflicts/notes.md": "N", "_conflicts/sub/20260801 c (Mac).md": "S", "a.md": "A" };
+	const old = "_conflicts/2026-08-01 a (Mac).md";
+	const young = "_conflicts/2026-10-01 b (Mac).md";
+	const others = { "_conflicts/notes.md": "N", "_conflicts/sub/2026-08-01 c (Mac).md": "S", "a.md": "A" };
 
 	test("a first fetch moves none; the pull after it moves the ones of 30 days to the .trash/ of the vault, and tells them", async () => {
 		const h = harness();
@@ -6421,9 +6421,9 @@ describe("conflict copies that have had their time", () => {
 	test("by the day in the name, from its end: the copy of a day that ended 30 days ago is moved, and the one of the day after it stays", async () => {
 		// The pull runs a minute past noon UTC on 2026-10-03. The 2nd of
 		// September ended 30 days and a half before that, the 3rd 29 and a half.
-		const due = "_conflicts/20260902 a (Mac).md";
-		const second = "_conflicts/20260902 a (Mac)-2.md";
-		const kept = "_conflicts/20260903 a (Mac).md";
+		const due = "_conflicts/2026-09-02 a (Mac).md";
+		const second = "_conflicts/2026-09-02 a (Mac) (1).md";
+		const kept = "_conflicts/2026-09-03 a (Mac).md";
 		const h = await synced({ "a.md": "A" });
 		h.vault.putAll({ [due]: "one", [second]: "two", [kept]: "three" });
 
@@ -6433,7 +6433,7 @@ describe("conflict copies that have had their time", () => {
 	});
 
 	test("a pull that left files for later tidies all the same, but for what it put off", async () => {
-		const other = "_conflicts/20260802 d (Mac).md";
+		const other = "_conflicts/2026-08-02 d (Mac).md";
 		const h = await synced({ [old]: "old", [other]: "other", "a.md": "A" });
 		const base = await h.base();
 		// The remote changed one of the old copies, and its content does not come as listed.
@@ -6472,7 +6472,7 @@ describe("conflict copies that have had their time", () => {
 	});
 
 	test("in a pull that started by itself, a copy that is being typed in stays, and is told with the others once it is moved", async () => {
-		const other = "_conflicts/20260802 d (Mac).md";
+		const other = "_conflicts/2026-08-02 d (Mac).md";
 		const h = await synced({ [old]: "old", [other]: "other", "a.md": "A" });
 
 		const typing = await h.pull({ automatic: true, beingEdited: (path) => path === old });
