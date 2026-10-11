@@ -101,6 +101,11 @@ export class MemoryPullVault implements PullVault {
 		return out;
 	}
 
+	/** Every file as the disk has it: its spelling, time and size. */
+	stats(): { path: string; mtime: number; size: number }[] {
+		return [...this.files].map(([path, file]) => ({ path, mtime: file.mtime, size: file.content.length }));
+	}
+
 	folderPaths(): string[] {
 		return [...this.folders].sort();
 	}

@@ -26,7 +26,7 @@ import {
 	type StateProblem,
 	stateProblemText,
 } from "../src/core/pull-report";
-import type { DeviceSettings } from "../src/core/settings";
+import { DEFAULT_AUTO_SYNC, type DeviceSettings } from "../src/core/settings";
 
 const t = translatorFor("en");
 const ja = translatorFor("ja");
@@ -37,6 +37,7 @@ const settings: DeviceSettings = {
 	branch: "main",
 	tokenSecret: "github-token",
 	deviceName: "Mac",
+	autoSync: DEFAULT_AUTO_SYNC,
 };
 const options = { settings, sizeLimit: 50 * 1024 * 1024 };
 

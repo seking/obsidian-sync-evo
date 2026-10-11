@@ -23,10 +23,18 @@ import {
 	pushReport,
 	sectionAddedText,
 } from "../src/core/push-report";
+import { DEFAULT_AUTO_SYNC } from "../src/core/settings";
 
 const t = translatorFor("en");
 const ja = translatorFor("ja");
-const settings = { backend: "github", repository: "octo/notes", branch: "main", tokenSecret: "t", deviceName: "iPhone" } as const;
+const settings = {
+	backend: "github",
+	repository: "octo/notes",
+	branch: "main",
+	tokenSecret: "t",
+	deviceName: "iPhone",
+	autoSync: DEFAULT_AUTO_SYNC,
+} as const;
 const target = { repository: "octo/notes", branch: "main" };
 const options = { sizeLimit: 50 * 1024 * 1024 };
 

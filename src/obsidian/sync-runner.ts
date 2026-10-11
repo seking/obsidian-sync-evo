@@ -18,12 +18,32 @@
 
 import { type App, Notice, type PluginManifest } from "obsidian";
 import { ArchiveGate } from "../core/archive-fetch";
+import {
+	type AutoReport,
+	autoTexts,
+	failureAutoReport,
+	joinAutoReports,
+	notReadyAutoReport,
+	pullAutoReport,
+	pushAutoReport,
+	settleAutoSync,
+	stateAutoReport,
+} from "../core/auto-report";
+import {
+	type AutoCheck,
+	type AutoSyncClock,
+	type AutoSyncMemory,
+	FullCheckDebt,
+	NO_AUTO_SYNC_MEMORY,
+	readAutoSyncMemory,
+	writeAutoSyncMemory,
+} from "../core/auto-sync";
 import { BackendError } from "../core/backend";
 import { connectionCheckText, prepareCheck } from "../core/connection-check";
 import { type FetchLimitState, FetchLimitWatch, NO_FETCH_LIMIT, sameFetchLimit } from "../core/fetch-quota";
 import { type GitignoreEdit, GitignoreGate } from "../core/gitignore-gate";
 import { GitHubBackend } from "../core/github/backend";
-import { GitHubClient } from "../core/github/client";
+import { GitHubClient, HeadMemory } from "../core/github/client";
 import { timerSleep } from "../core/github/timer-sleep";
 import type { MessageKey, Translate } from "../core/i18n";
 import { DEFAULT_SIZE_LIMIT } from "../core/plan";
@@ -44,6 +64,7 @@ import {
 	sectionAddedText,
 } from "../core/push-report";
 import type { DeviceSettings } from "../core/settings";
+import type { StateStore } from "../core/state";
 import { runSync } from "../core/sync";
 import { runUntrackSync, type UntrackDeps, type UntrackStep, type UntrackSyncResult } from "../core/untrack";
 import { untrackedSome, untrackFailureText, untrackStopped, untrackSyncReport } from "../core/untrack-report";
@@ -54,6 +75,7 @@ import { confirmPullIn, type PullTarget } from "./pull-confirm";
 import { pullVaultOf } from "./pull-vault";
 import { confirmPushIn } from "./push-confirm";
 import type { SyncState } from "./sync-state";
+import { vaultIndexOf } from "./vault-index";
 import { ScreenWakeLock } from "./wake-lock";
 
 /** What a sync needs from the plugin. Read when a sync starts, so that it runs with the settings of that moment. */
@@ -89,6 +111,13 @@ const STOPPING_LINES = {
 // The line of progress is rewritten at most this often. A sync reports
 // every file, thousands of them in a second.
 const PROGRESS_INTERVAL_MS = 200;
+
+// A sync that started by itself shows no line of progress until it has run
+// this long. It usually ends within it, having shown nothing at all; one
+// that takes longer is then seen to be running, and can be stopped.
+const AUTO_PROGRESS_DELAY_MS = 5000;
+
+const log = (message: string): void => console.info(`Sync Evo: ${message}`);
 
 /**
  * The one place a sync is started from, whichever kind it is: one runs at
@@ -130,9 +159,120 @@ export class SyncRunner {
 	 * screen (`editGitignore`). Held here, where every sync starts.
 	 */
 	private readonly gitignoreGate = new GitignoreGate();
+	/**
+	 * What the head of the branch was last answered with, across syncs, so
+	 * that the next one asks conditionally (`HeadMemory`). In memory alone.
+	 */
+	private readonly heads = new HeadMemory();
+	/**
+	 * What automatic sync goes by (`auto-sync.ts`): when the last sync
+	 * started, and what was told. This copy is the one that is read; the
+	 * sync state holds it for the next start of the app, and is written
+	 * after it. The start of a sync is set here at once, before anything is
+	 * awaited, so that the clock sees it also when the sync state cannot be
+	 * opened.
+	 */
+	private memory: AutoSyncMemory = NO_AUTO_SYNC_MEMORY;
+	/** Whether `memory` holds what the sync state remembers of failures and of what was told. */
+	private recalled = false;
+	/** Whether the sync state was asked for it, outside a sync (`recallAuto`). */
+	private recallAsked = false;
+	/** Whether the next automatic sync has to list every folder (`FullCheckDebt`). */
+	private readonly debt = new FullCheckDebt();
+	/** Counts the changes of the connection, for whoever waited through one. */
+	private connectionChanges = 0;
+	/** Set while a sync that started by itself runs: nothing is shown as it goes. */
+	private quiet = false;
+	/**
+	 * Set while a sync the user started waits for one that started by
+	 * itself to end, which it has stopped (`takeOver`). That one tells
+	 * nothing of the stop and remembers nothing, and leaves the screen on.
+	 */
+	private takingOver = false;
+	/** Whether the user asked for a stop during that wait: the sync that waits does not start. */
+	private takeOverStopped = false;
+	/** The timer that puts up the line of progress of such a sync, until it has. */
+	private late: number | null = null;
+	/** The running sync, part by part, as a sync that started by itself tells it (`auto-report.ts`). */
+	private parts: AutoReport[] = [];
 
 	constructor(host: SyncHost) {
 		this.host = host;
+	}
+
+	/** Whether a sync is running, of whatever kind. */
+	get running(): boolean {
+		return this.controller !== null;
+	}
+
+	/** What the decision to sync by itself goes by, apart from the settings and the time. */
+	autoClock(): Omit<AutoSyncClock, "now"> {
+		const { lastStartedAt, failures } = this.memory;
+		return { lastStartedAt, failures, fullOwed: this.debt.isOwed };
+	}
+
+	/** The app has started, or has come back to the front: the next automatic sync is a full one. */
+	resumed(): void {
+		this.debt.resumed();
+	}
+
+	/**
+	 * Reads what automatic sync remembers from the sync state, once: for
+	 * the decision when the app has started, which no sync has come before.
+	 * Only called while there is a connection and automatic sync is on;
+	 * with it off, nothing is opened for this. A start of a sync that is
+	 * known here already is the later one, and stays. Never rejects: with
+	 * no sync state to read, nothing is remembered, and a sync is due.
+	 */
+	async recallAuto(): Promise<void> {
+		if (this.recalled || this.recallAsked) return;
+		this.recallAsked = true;
+		try {
+			const opened = await this.host.syncState.open();
+			if (this.stopped) {
+				// Let go of while this waited for it, and opened since.
+				this.host.syncState.close();
+				return;
+			}
+			// A sync that began meanwhile has read it itself, and a change
+			// of the connection has made it another state's.
+			if (opened.status !== "ok" || this.recalled || !this.recallAsked) return;
+			this.recall(await readAutoSyncMemory(opened.store));
+		} catch {
+			// The first sync reads it again.
+		}
+	}
+
+	private recall(stored: AutoSyncMemory): void {
+		this.memory = { ...stored, lastStartedAt: this.memory.lastStartedAt ?? stored.lastStartedAt };
+		this.recalled = true;
+	}
+
+	/**
+	 * Syncs by itself: what `run` does, without anyone looking. Called by
+	 * the clock (`auto-scheduler.ts`), which has decided that one is due.
+	 *
+	 * - A pull and then a push when automatic sync also sends, a pull alone
+	 *   when it does not.
+	 * - Nothing is said when a sync is running already, when there is no
+	 *   connection to sync with, or when it went well. No line of progress,
+	 *   unless it runs long (`AUTO_PROGRESS_DELAY_MS`).
+	 * - The screen is not asked to stay on: it usually ends in seconds, and
+	 *   one that the lock of the screen stops goes on the next time.
+	 * - No question is asked. A sync that comes to one changes nothing, and
+	 *   says once that a sync the user starts will ask. No first fetch is
+	 *   begun, and no section is added to `.gitignore`: both are the user's
+	 *   to see first.
+	 * - A request limit is not waited out: the sync fails, and a later one
+	 *   goes on from there.
+	 * - What stands in its way is told once per cause (`auto-report.ts`).
+	 *
+	 * `check`: how the vault is looked at (`AutoCheck`).
+	 */
+	runAuto(check: AutoCheck): Promise<void> {
+		const settings = this.host.deviceSettings;
+		const mode = settings?.autoSync.sendsChanges === true ? "sync" : "pull";
+		return this.start(mode, [], check);
 	}
 
 	/**
@@ -140,29 +280,87 @@ export class SyncRunner {
 	 * kind: a second call only says that one is running.
 	 *
 	 * Called from the handler of a command, and nothing is awaited before
-	 * the screen is asked to stay on, which a phone only grants so. Every
-	 * sync is started by the user for now. A sync that starts by itself
-	 * (T033) must not keep the screen on.
+	 * the screen is asked to stay on, which a phone only grants so. A sync
+	 * that starts by itself does not come through here (`runAuto`), and
+	 * does not keep the screen on.
 	 *
 	 * `shown` is only for "untrack": the paths the user confirmed
 	 * (`UntrackQuestion.shown`).
 	 */
-	async run(mode: SyncMode = "sync", shown: readonly string[] = []): Promise<void> {
+	run(mode: SyncMode = "sync", shown: readonly string[] = []): Promise<void> {
+		// A sync that started by itself is in the way. The user sees none
+		// running, and is not told that one is.
+		if (this.controller !== null && this.quiet && !this.takingOver && !this.stopped) {
+			return this.takeOver(mode, shown);
+		}
+		return this.start(mode, shown, null);
+	}
+
+	/**
+	 * Runs a sync the user started in the place of one that started by
+	 * itself: that one is stopped, quietly, and this one begins when it has
+	 * ended. A pull that is stopped so is gone on with by this one; a push
+	 * that has moved the branch finishes its records first.
+	 *
+	 * The screen is asked to stay on here, before anything is awaited, and
+	 * let go of again on every way out.
+	 */
+	private async takeOver(mode: SyncMode, shown: readonly string[]): Promise<void> {
+		const ended = this.ended;
+		const changes = this.connectionChanges;
+		this.takingOver = true;
+		this.takeOverStopped = false;
+		this.wakeLock.hold();
+		try {
+			this.controller?.abort();
+			try {
+				await ended;
+			} finally {
+				this.takingOver = false;
+			}
+			// The plugin went away, or the user said stop after all.
+			if (this.stopped || this.takeOverStopped) return;
+			// The connection was changed meanwhile. What was asked for was
+			// asked of the one from before: the paths to untrack are that
+			// remote's.
+			if (changes !== this.connectionChanges) {
+				const t = this.host.t;
+				this.show(mode === "push" ? pushStoppedText(t, true) : stoppedText(t, true));
+				return;
+			}
+			await this.start(mode, shown, null);
+		} finally {
+			// Held by the sync that ran, and let go of by it; held by
+			// nothing when none began.
+			this.wakeLock.release();
+		}
+	}
+
+	/** `run`, and `runAuto` with `auto` set to how the vault is looked at. Nothing is awaited before the screen is asked to stay on. */
+	private async start(mode: SyncMode, shown: readonly string[], auto: AutoCheck | null): Promise<void> {
 		const { host } = this;
 		const t = host.t;
+		if (this.stopped) return;
 		if (this.controller !== null) {
-			new Notice(t("sync.alreadyRunning"));
+			if (auto === null) new Notice(t("sync.alreadyRunning"));
 			return;
 		}
 
 		const settings = host.deviceSettings;
 		if (settings === null) {
-			new Notice(t("settings.unknownVersion"));
+			if (auto === null) new Notice(t("settings.unknownVersion"));
 			return;
 		}
 		const prepared = prepareCheck(settings, (name) => host.readToken(name));
 		if (prepared.status === "not-ready") {
-			new Notice(connectionCheckText(t, settings, prepared));
+			const text = connectionCheckText(t, settings, prepared);
+			if (auto === null) new Notice(text);
+			else {
+				// With a repository and a branch there is a connection, and a
+				// sync state to remember this in. Without, none is ever opened.
+				const connected = prepared.reason !== "repository" && prepared.reason !== "branch";
+				this.notReady(notReadyAutoReport(t, prepared.reason, text), connected);
+			}
 			return;
 		}
 		// Named in the question before a first fetch.
@@ -171,11 +369,20 @@ export class SyncRunner {
 
 		const controller = new AbortController();
 		this.controller = controller;
+		// Every sync, of whatever kind and however it ends, is what the next
+		// automatic one is counted from.
+		this.memory = { ...this.memory, lastStartedAt: Date.now() };
+		// Every sync the user starts lists every folder.
+		const check: AutoCheck = auto ?? "full";
+		this.quiet = auto !== null;
+		this.parts = [];
+		// The sync state, once it is open: what is remembered is stored there.
+		let store: StateStore | null = null;
 		// From here on the settings screen writes nothing to `.gitignore`.
 		// What it is in the middle of is waited for below, not here: nothing
 		// is awaited before the screen is asked to stay on.
 		const gitignoreEdits = this.gitignoreGate.beginSync();
-		this.wakeLock.hold();
+		if (auto === null) this.wakeLock.hold();
 		let end = (): void => {};
 		this.ended = new Promise((resolve) => {
 			end = resolve;
@@ -183,8 +390,13 @@ export class SyncRunner {
 		this.direction = mode === "push" ? "push" : "pull";
 		// What the push wrote to `.gitignore`, until its result has told it.
 		let sectionAdded: SectionAdded | null = null;
-		this.progress = new Notice(t(mode === "push" ? "push.progress.starting" : "pull.progress.starting"), 0);
+		if (auto === null) {
+			this.progress = new Notice(t(mode === "push" ? "push.progress.starting" : "pull.progress.starting"), 0);
+		} else {
+			this.late = window.setTimeout(() => this.showLate(), AUTO_PROGRESS_DELAY_MS);
+		}
 		try {
+			if (auto !== null) log(`automatic sync: ${mode}, ${auto} check`);
 			// A read and a write of one small file: waited out rather than
 			// answered with "a sync is already running", which it is not.
 			await gitignoreEdits;
@@ -192,13 +404,17 @@ export class SyncRunner {
 			const opened = await host.syncState.open();
 			this.opening = false;
 			if (controller.signal.aborted) {
-				if (this.connectionChanged || this.stopping) this.show(this.stoppedText());
+				if (!this.quiet && (this.connectionChanged || this.stopping)) this.show(this.stoppedText());
 				return;
 			}
 			if (opened.status !== "ok") {
-				this.show(stateProblemText(t, opened.status === "unavailable" ? opened.reason : opened.status), 0);
+				const problem = opened.status === "unavailable" ? opened.reason : opened.status;
+				this.parts.push(stateAutoReport(t, problem));
+				if (!this.quiet) this.show(stateProblemText(t, problem), 0);
 				return;
 			}
+			store = opened.store;
+			await this.rememberStart(opened.store);
 
 			const yieldControl = (): Promise<void> => timerSleep(0);
 			const client: GitHubClient = new GitHubClient({
@@ -207,15 +423,21 @@ export class SyncRunner {
 				now: Date.now,
 				sleep: timerSleep,
 				signal: controller.signal,
+				headMemory: this.heads,
 				// Waited out: a fetch of thousands of files does not fit in
 				// the quota of an hour, and a push of many binary files runs
 				// into the limit on creating content. The requests that run
 				// together ask once, and the line of progress says until when.
+				// Not by a sync that started by itself: it fails, and a later
+				// one goes on from where it stopped.
 				onRateLimit: (notice) => {
+					if (auto !== null) return false;
 					limitWatch.rateLimited(notice.until);
 					this.showLimit();
 					return true;
 				},
+				// Whether the head was answered with a 304, to be read on a device.
+				...(auto === null ? {} : { log }),
 			});
 			const limitWatch = new FetchLimitWatch(() => client.quota, Date.now);
 			this.limitWatch = limitWatch;
@@ -230,6 +452,10 @@ export class SyncRunner {
 				deviceName: settings.deviceName,
 				now: Date.now,
 				confirm: async (request) => {
+					// No one is there to ask. Nothing is opened, and the
+					// question waits for a sync the user starts.
+					// (`automatic` below: the pull does not come here.)
+					if (auto !== null) return "later";
 					// The line of progress stays on top of everything, a dialog
 					// included: on a phone it covered the title of the question.
 					// It is taken away while the user answers and put back after.
@@ -259,6 +485,9 @@ export class SyncRunner {
 							},
 						}
 					: {}),
+				automatic: auto !== null,
+				// At an interval the vault is not walked.
+				...(auto === "light" ? { index: vaultIndexOf(host.app) } : {}),
 				beginBulkWrite: graphViewPause(host.app),
 				// Only the files that are fetched one at a time come through
 				// here: the pull takes many files from the zip of the commit
@@ -274,8 +503,12 @@ export class SyncRunner {
 				archiveGate: this.archiveGate,
 				// The estimate of the zip beside its real size, to see later
 				// whether the estimate holds.
-				log: (message) => console.info(`Sync Evo: ${message}`),
-				onProgress: (progress) => this.showProgress(progress),
+				log,
+				onProgress: (progress) => {
+					// Once the vault is listed in full, that is no longer owed.
+					this.debt.syncReached(check, progress.phase);
+					this.showProgress(progress);
+				},
 				signal: controller.signal,
 				yieldControl,
 				sizeLimit: DEFAULT_SIZE_LIMIT,
@@ -288,6 +521,7 @@ export class SyncRunner {
 				deviceName: settings.deviceName,
 				now: Date.now,
 				confirm: async (request) => {
+					if (auto !== null) return "later";
 					// As for a pull: the line of progress would cover the question.
 					this.progress?.hide();
 					this.progress = null;
@@ -304,11 +538,21 @@ export class SyncRunner {
 				onSectionAdded: (added) => {
 					sectionAdded = added;
 				},
-				onProgress: (progress) => this.showPushProgress(progress),
+				...(pullDeps.index === undefined ? {} : { index: pullDeps.index }),
+				// A sync that started by itself writes nothing to the vault
+				// that the remote did not send. Without the section its lines
+				// are applied all the same (`effectiveRules`), so what is
+				// sent is the same; the next push the user starts adds it,
+				// and tells of it.
+				...(auto === null ? {} : { addSection: false }),
+				onProgress: (progress) => {
+					this.debt.syncReached(check, progress.phase);
+					this.showPushProgress(progress);
+				},
 				signal: controller.signal,
 				yieldControl,
 				sizeLimit: DEFAULT_SIZE_LIMIT,
-				log: (message) => console.info(`Sync Evo: ${message}`),
+				log,
 			};
 
 			if (mode === "push") {
@@ -324,7 +568,7 @@ export class SyncRunner {
 					deviceName: settings.deviceName,
 					signal: controller.signal,
 					sizeLimit: DEFAULT_SIZE_LIMIT,
-					log: (message) => console.info(`Sync Evo: ${message}`),
+					log,
 				};
 				// The pull and the push are told as they end, like those of
 				// a sync, and the untracking last.
@@ -352,6 +596,7 @@ export class SyncRunner {
 						this.report(result, settings);
 						this.direction = "push";
 					},
+					automatic: auto !== null,
 				});
 				sectionAdded = null;
 				if (push !== null) this.reportPush(push);
@@ -363,13 +608,31 @@ export class SyncRunner {
 			// throwing too, and did not fail.
 			const cancelled = error instanceof BackendError && error.kind === "cancelled";
 			if (!this.stopped && !cancelled) console.error(`Sync Evo: the ${this.direction} failed`, error);
-			this.show(this.failureText(settings, error), this.failureStays(cancelled) ? 0 : undefined);
+			const text = this.failureText(settings, error);
+			this.parts.push(failureAutoReport(t, error, text));
+			if (!this.quiet) this.show(text, this.failureStays(cancelled) ? 0 : undefined);
 			// A push that failed has no result to tell it with, and the file
 			// on this device is changed all the same. Whether it reached the
 			// remote before the failure is not known.
+			// Never of a sync that started by itself, which adds none.
 			if (sectionAdded !== null) this.show(sectionAddedText(t, sectionAdded, "unknown"), 0);
 		} finally {
-			this.wakeLock.release();
+			// Before anything is awaited: the line of progress of a sync
+			// that started by itself must not come up once it has ended.
+			if (this.late !== null) window.clearTimeout(this.late);
+			this.late = null;
+			try {
+				// However it ended: what it leaves remembered, and what a
+				// sync that started by itself has to tell.
+				await this.settle(store, auto !== null);
+			} catch (error) {
+				// The sync has ended all the same, and the next may begin.
+				console.error("Sync Evo: the end of the sync could not be recorded", error);
+			}
+			this.quiet = false;
+			this.parts = [];
+			// Not under a sync the user started that waits for this one.
+			if (!this.takingOver) this.wakeLock.release();
 			this.gitignoreGate.endSync();
 			this.opening = false;
 			this.controller = null;
@@ -406,6 +669,13 @@ export class SyncRunner {
 	 * waited for as well: it remembers what it writes in the sync state.
 	 */
 	interrupt(): Promise<void> {
+		// What is remembered is the old connection's, and goes with its sync
+		// state. A sync that is still running leaves it so (`settle`).
+		this.memory = NO_AUTO_SYNC_MEMORY;
+		this.recalled = false;
+		this.recallAsked = false;
+		this.heads.forget();
+		this.connectionChanges += 1;
 		// With no sync running, only the settings can be at the file.
 		if (this.controller === null || this.ended === null) return this.gitignoreGate.idle();
 		this.connectionChanged = true;
@@ -438,6 +708,8 @@ export class SyncRunner {
 			new Notice(t("pull.notRunning"));
 			return;
 		}
+		// Also the sync that waits for this one to end (`takeOver`).
+		if (this.takingOver) this.takeOverStopped = true;
 		this.stopping = true;
 		this.controller.abort();
 		// None while a question is open. The question is closed by the stop,
@@ -450,7 +722,108 @@ export class SyncRunner {
 		this.stopped = true;
 		this.controller?.abort();
 		this.progress?.hide();
+		if (this.late !== null) window.clearTimeout(this.late);
+		this.late = null;
 		this.wakeLock.release();
+	}
+
+	/**
+	 * An automatic sync that could not begin: the settings lack what a
+	 * request needs. Counted and told like one that failed, and the next is
+	 * counted from here, so that it is not tried at every look at the clock.
+	 * `store`: whether it is also stored, for the next start of the app.
+	 */
+	private notReady(report: AutoReport, store: boolean): void {
+		const settled = settleAutoSync({ ...this.memory, lastStartedAt: Date.now() }, report, true);
+		this.memory = settled.memory;
+		log(`automatic sync: not started (${report.cause ?? ""})`);
+		for (const text of autoTexts(report, settled.tell)) this.show(text, 0);
+		if (store) void this.storeAside();
+	}
+
+	/**
+	 * Stores what is remembered where no sync ran that would have: so that
+	 * what was told is not told again the next time the app starts. Nothing
+	 * is stored after a change of the connection, whose sync state is
+	 * another, or under a sync that has begun since, which stores it
+	 * itself. Never rejects.
+	 */
+	private async storeAside(): Promise<void> {
+		const changes = this.connectionChanges;
+		try {
+			const opened = await this.host.syncState.open();
+			if (this.stopped) {
+				// Let go of while this waited for it, and opened since.
+				this.host.syncState.close();
+				return;
+			}
+			if (opened.status !== "ok" || changes !== this.connectionChanges || this.controller !== null) return;
+			await writeAutoSyncMemory(opened.store, this.memory);
+		} catch {
+			// It is told once more after the next start of the app.
+		}
+	}
+
+	/**
+	 * Stores when the sync that begins started, with what the sync state
+	 * remembers beside it, which is read here when nothing has read it yet.
+	 * Nothing here can fail the sync: what is not stored is still known
+	 * until the app is closed.
+	 */
+	private async rememberStart(store: StateStore): Promise<void> {
+		try {
+			if (!this.recalled) this.recall(await readAutoSyncMemory(store));
+			await writeAutoSyncMemory(store, this.memory);
+		} catch {
+			// The copy in memory is the one that is read.
+		}
+	}
+
+	/**
+	 * The end of a sync: what it leaves remembered (`settleAutoSync`), and,
+	 * for one that started by itself, everything it tells. `store` is the
+	 * sync state the sync ran with, or `null` when it got none.
+	 *
+	 * A sync that was stopped, by the user, by a change of the connection,
+	 * by the plugin going away, or by a sync the user started in its place
+	 * (`takeOver`), is neither a success nor a failure: nothing is
+	 * remembered of it. What happened in it before that is told all the
+	 * same.
+	 */
+	private async settle(store: StateStore | null, automatic: boolean): Promise<void> {
+		const whole = joinAutoReports(this.parts);
+		let tell = false;
+		if (!this.stopped && !this.stopping && !this.connectionChanged && !this.takingOver) {
+			const settled = settleAutoSync(this.memory, whole, automatic);
+			this.memory = settled.memory;
+			tell = settled.tell;
+			try {
+				if (store !== null) await writeAutoSyncMemory(store, this.memory);
+			} catch {
+				// How the sync ended is not changed by this.
+			}
+		}
+		if (!automatic) return;
+		log(`automatic sync: ${whole.end}${whole.cause === null ? "" : ` (${whole.cause})`}`);
+		// The user asked for the stop, and is told that it was heard.
+		if (this.stopping && !this.connectionChanged) this.show(this.stoppedText());
+		for (const text of autoTexts(whole, tell)) this.show(text, 0);
+	}
+
+	/**
+	 * Puts up the line of progress of a sync that started by itself and is
+	 * still running (`AUTO_PROGRESS_DELAY_MS`), with what it last reported.
+	 */
+	private showLate(): void {
+		this.late = null;
+		if (this.stopped || this.controller === null || this.progress !== null) return;
+		const t = this.host.t;
+		const starting = this.direction === "push" ? "push.progress.starting" : "pull.progress.starting";
+		this.progress = new Notice(t(this.stopping ? STOPPING_LINES[this.direction] : starting), 0);
+		this.progressPhase = "";
+		this.shownLimit = NO_FETCH_LIMIT;
+		if (this.direction === "push" && this.lastPushProgress !== null) this.showPushProgress(this.lastPushProgress);
+		else if (this.direction === "pull" && this.lastProgress !== null) this.showProgress(this.lastProgress);
 	}
 
 	/**
@@ -464,7 +837,12 @@ export class SyncRunner {
 
 	private showProgress(progress: PullProgress): void {
 		// A pull that is stopping still reports the file it finishes.
-		if (this.stopped || this.stopping || this.progress === null) return;
+		if (this.stopped || this.stopping) return;
+		if (this.progress === null) {
+			// Kept for the line a sync that started by itself puts up later.
+			if (this.late !== null) this.lastProgress = progress;
+			return;
+		}
 		// After the guard: while a question is open there is no line, and
 		// what `showLimit` passes in place of a report must not be kept.
 		this.lastProgress = progress;
@@ -488,7 +866,11 @@ export class SyncRunner {
 
 	/** The line of progress of a push. Like `showProgress`, with only the wait for a limit beside it. */
 	private showPushProgress(progress: PushProgress): void {
-		if (this.stopped || this.stopping || this.progress === null) return;
+		if (this.stopped || this.stopping) return;
+		if (this.progress === null) {
+			if (this.late !== null) this.lastPushProgress = progress;
+			return;
+		}
 		this.lastPushProgress = progress;
 		const now = Date.now();
 		const waitingUntil = this.limitWatch?.state().waitingUntil ?? null;
@@ -527,11 +909,11 @@ export class SyncRunner {
 	private report(result: PullResult, settings: DeviceSettings): void {
 		// Unloading stops the pull; there is no one to tell.
 		if (this.stopped) return;
-		const report = pullReport(this.host.t, result, {
-			settings,
-			sizeLimit: DEFAULT_SIZE_LIMIT,
-			connectionChanged: this.connectionChanged,
-		});
+		const options = { settings, sizeLimit: DEFAULT_SIZE_LIMIT, connectionChanged: this.connectionChanged };
+		this.parts.push(pullAutoReport(this.host.t, result, options));
+		// Told at the end, and not all of it (`settle`).
+		if (this.quiet) return;
+		const report = pullReport(this.host.t, result, options);
 		this.show(report.summary);
 		// Until they are dismissed: each is something to know or to act on.
 		for (const detail of report.details) this.show(detail, 0);
@@ -539,10 +921,10 @@ export class SyncRunner {
 
 	private reportPush(result: PushRunResult): void {
 		if (this.stopped) return;
-		const report = pushReport(this.host.t, result, {
-			sizeLimit: DEFAULT_SIZE_LIMIT,
-			connectionChanged: this.connectionChanged,
-		});
+		const options = { sizeLimit: DEFAULT_SIZE_LIMIT, connectionChanged: this.connectionChanged };
+		this.parts.push(pushAutoReport(this.host.t, result, options));
+		if (this.quiet) return;
+		const report = pushReport(this.host.t, result, options);
 		this.show(report.summary);
 		for (const detail of report.details) this.show(detail, 0);
 	}

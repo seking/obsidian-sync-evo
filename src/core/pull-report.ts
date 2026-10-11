@@ -17,7 +17,14 @@ import { BackendError, type BackendErrorKind } from "./backend";
 import { type FetchLimitState, NO_FETCH_LIMIT } from "./fetch-quota";
 import type { Translate } from "./i18n";
 import { NOTICE_KINDS, type NoticeKind, type NoticeRef } from "./notices";
-import type { DeferReason, FirstFetchRequest, PullConflict, PullProgress, PullResult } from "./pull-io";
+import type {
+	DeferReason,
+	FirstFetchRequest,
+	PullConflict,
+	PullProgress,
+	PullResult,
+	PullWaitReason,
+} from "./pull-io";
 import type { PushCounts } from "./push-pending";
 import { type Connection, type DeviceSettings, parseRepository } from "./settings";
 
@@ -284,61 +291,96 @@ export interface PullReportOptions {
 // nothing for the user to do or to know.
 const FAILURES: readonly DeferReason[] = ["fetch-failed", "hash-mismatch", "trash-failed"];
 
+/**
+ * One thing a sync has to tell beside how it ended.
+ *
+ * `standing` tells the two kinds apart that a sync which starts by itself
+ * treats differently (`auto-report.ts`):
+ *
+ * - `false`: it happened in this sync, and no later sync says it again: a
+ *   copy that was made of a conflict, a file that was moved to the trash, a
+ *   notice that is remembered as told from here on. Always told.
+ * - `true`: it is how things stand, and every sync says it again for as
+ *   long as it is so: files that could not be fetched, or read, or sent.
+ *   Told every time by a sync the user starts, who is looking; a sync that
+ *   starts every few minutes tells it once.
+ */
+export interface ReportDetail {
+	readonly text: string;
+	readonly standing: boolean;
+}
+
 /** Words what a pull answered. */
 export function pullReport(t: Translate, result: PullResult, options: PullReportOptions): PullReport {
-	const details: string[] = [];
-
-	if (result.conflicts.length > 0) {
-		const lines = result.conflicts.map((conflict) => conflictLine(t, conflict));
-		details.push(t("pull.conflicts", { count: lines.length, list: listText(t, lines, 10) }));
-	}
-	if (result.replacedSettings.length > 0) {
-		const { replacedSettings } = result;
-		details.push(t("pull.replacedSettings", { count: replacedSettings.length, list: listText(t, replacedSettings) }));
-	}
-	if (result.trashed.length > 0) {
-		details.push(t("pull.trashed", { count: result.trashed.length, list: listText(t, result.trashed) }));
-	}
-	if (result.halfWritten.length > 0) {
-		const { halfWritten } = result;
-		details.push(t("pull.halfWritten", { count: halfWritten.length, list: listText(t, halfWritten) }));
-	}
-	if (result.halfCopies.length > 0) {
-		const { halfCopies } = result;
-		details.push(t("pull.halfCopies", { count: halfCopies.length, list: listText(t, halfCopies) }));
-	}
-	if (result.keptLocal.length > 0) {
-		details.push(t("pull.keptLocal", { count: result.keptLocal.length, list: listText(t, result.keptLocal) }));
-	}
-	if (result.keptUnsent.length > 0) {
-		details.push(t("pull.keptUnsent", { count: result.keptUnsent.length, list: listText(t, result.keptUnsent) }));
-	}
-	if (result.recoveredPush !== undefined) details.push(recoveredPushText(t, result.recoveredPush));
-	if (result.recoveredUntrack !== undefined) details.push(recoveredUntrackText(t, result.recoveredUntrack));
-	// Not after a "no": that pull left nothing for later, it did not begin.
-	// What it put off before it asked (a file left half written that could
-	// not be looked at) is found again by the next pull, which tells it.
-	if (result.outcome !== "declined") {
-		const failed = incompleteText(t, result, options.settings);
-		if (failed !== null) details.push(failed);
-		// The files that only wait are counted once: by the text above
-		// when there is one.
-		details.push(...unreadTexts(t, result, failed === null));
-	}
-	if (result.newSymlinks.length > 0) {
-		details.push(t("pull.symlinks", { count: result.newSymlinks.length, list: listText(t, result.newSymlinks) }));
-	}
-	details.push(
-		...noticeTexts(t, result.notices, options.sizeLimit, (path) => {
-			const blocked = result.unwritable.find((entry) => entry.reason === "blocked" && entry.path === path);
-			return blocked?.inTheWay ?? [];
-		}),
-	);
-
+	const details = pullDetails(t, result, options).map((detail) => detail.text);
 	// With the summary and not a message of its own: it is nothing to act on.
 	const summary = [summaryText(t, result, options.connectionChanged === true)];
 	if (result.refetched > 0) summary.push(t("pull.refetched", { count: result.refetched }));
 	return { summary: summary.join("\n"), details };
+}
+
+/** How a pull ended, in a line: the first line of `PullReport.summary`. */
+export function pullSummaryText(t: Translate, result: PullResult, connectionChanged = false): string {
+	return summaryText(t, result, connectionChanged);
+}
+
+/** `PullReport.details`, each with whether it is told by every pull while it is so. */
+export function pullDetails(t: Translate, result: PullResult, options: PullReportOptions): ReportDetail[] {
+	const details: ReportDetail[] = [];
+	const happened = (text: string): void => {
+		details.push({ text, standing: false });
+	};
+
+	if (result.conflicts.length > 0) {
+		const lines = result.conflicts.map((conflict) => conflictLine(t, conflict));
+		happened(t("pull.conflicts", { count: lines.length, list: listText(t, lines, 10) }));
+	}
+	if (result.replacedSettings.length > 0) {
+		const { replacedSettings } = result;
+		happened(t("pull.replacedSettings", { count: replacedSettings.length, list: listText(t, replacedSettings) }));
+	}
+	if (result.trashed.length > 0) {
+		happened(t("pull.trashed", { count: result.trashed.length, list: listText(t, result.trashed) }));
+	}
+	// Listed until a pull has answered with them, and by none after that.
+	if (result.halfWritten.length > 0) {
+		const { halfWritten } = result;
+		happened(t("pull.halfWritten", { count: halfWritten.length, list: listText(t, halfWritten) }));
+	}
+	if (result.halfCopies.length > 0) {
+		const { halfCopies } = result;
+		happened(t("pull.halfCopies", { count: halfCopies.length, list: listText(t, halfCopies) }));
+	}
+	if (result.keptLocal.length > 0) {
+		happened(t("pull.keptLocal", { count: result.keptLocal.length, list: listText(t, result.keptLocal) }));
+	}
+	if (result.keptUnsent.length > 0) {
+		happened(t("pull.keptUnsent", { count: result.keptUnsent.length, list: listText(t, result.keptUnsent) }));
+	}
+	if (result.recoveredPush !== undefined) happened(recoveredPushText(t, result.recoveredPush));
+	if (result.recoveredUntrack !== undefined) happened(recoveredUntrackText(t, result.recoveredUntrack));
+	// Not after a "no": that pull left nothing for later, it did not begin.
+	// What it put off before it asked (a file left half written that could
+	// not be looked at) is found again by the next pull, which tells it.
+	// Nor after a question that was left for later, for the same reason.
+	if (result.outcome !== "declined" && result.outcome !== "waiting") {
+		const failed = incompleteText(t, result, options.settings);
+		if (failed !== null) details.push({ text: failed, standing: true });
+		// The files that only wait are counted once: by the text above
+		// when there is one.
+		for (const text of unreadTexts(t, result, failed === null)) details.push({ text, standing: true });
+	}
+	// They have a record now, and are told by no later pull.
+	if (result.newSymlinks.length > 0) {
+		happened(t("pull.symlinks", { count: result.newSymlinks.length, list: listText(t, result.newSymlinks) }));
+	}
+	// Remembered as told by the pull that answers with them.
+	const notices = noticeTexts(t, result.notices, options.sizeLimit, (path) => {
+		const blocked = result.unwritable.find((entry) => entry.reason === "blocked" && entry.path === path);
+		return blocked?.inTheWay ?? [];
+	});
+	for (const text of notices) happened(text);
+	return details;
 }
 
 function summaryText(t: Translate, result: PullResult, connectionChanged: boolean): string {
@@ -349,6 +391,7 @@ function summaryText(t: Translate, result: PullResult, connectionChanged: boolea
 		const moved = result.halfWritten.length + result.halfCopies.length > 0;
 		return t(moved ? "pull.declinedAfterTrash" : "pull.declined");
 	}
+	if (result.outcome === "waiting") return pullWaitingText(t, result.waitingFor ?? "deletions");
 	const { fetched, deleted, renamed, conflicts } = result.counts;
 	const parts: string[] = [];
 	if (fetched > 0) parts.push(t("pull.count.fetched", { count: fetched }));
@@ -368,6 +411,24 @@ function summaryText(t: Translate, result: PullResult, connectionChanged: boolea
 	// "Up to date" would not be true of a pull that left files for later,
 	// or of one that kept files which differ from the remote.
 	return result.outcome === "completed" && result.keptLocal.length === 0 ? t("pull.upToDate") : t("pull.done");
+}
+
+/**
+ * The text for a pull of a sync that started by itself and came to a
+ * question, or to a first fetch: what there is to confirm, that nothing
+ * was changed, and that a sync the user starts asks. Shown under the line
+ * that says it comes from automatic sync (`auto-report.ts`), which it does
+ * not name itself.
+ */
+export function pullWaitingText(t: Translate, reason: PullWaitReason): string {
+	switch (reason) {
+		case "rewritten":
+			return t("auto.waiting.rewritten");
+		case "deletions":
+			return t("auto.waiting.deletions");
+		case "first-fetch":
+			return t("auto.waiting.firstFetch");
+	}
 }
 
 function conflictLine(t: Translate, conflict: PullConflict): string {

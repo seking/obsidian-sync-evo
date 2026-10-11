@@ -18,7 +18,7 @@
 
 import { BackendError, RateLimitedError } from "../backend";
 import { encodeBase64 } from "./base64";
-import type { HttpFunction, HttpRequest, HttpResponse, Sleep } from "./http";
+import { headerOf, type HttpFunction, type HttpRequest, type HttpResponse, type Sleep } from "./http";
 import {
 	MARGIN_MS,
 	quotaOf,
@@ -107,6 +107,50 @@ export interface GitHubClientOptions {
 	 * whether a write took effect.
 	 */
 	readonly signal?: AbortSignal;
+	/**
+	 * What the head of the branch was last answered with, kept by whoever
+	 * makes the clients and handed to each (`HeadMemory`). With it the head
+	 * is asked for conditionally, and an answer that nothing changed is not
+	 * counted against the quota. Without it every answer is a full one.
+	 */
+	readonly headMemory?: HeadMemory;
+	/** A line for the developer console, in English: how the head was answered. */
+	readonly log?: (message: string) => void;
+}
+
+/** Which head an answer was about: the branch, and the token it was asked with. */
+type HeadKey = Pick<GitHubClientOptions, "owner" | "repo" | "branch" | "token">;
+
+/**
+ * The last full answer about the head of a branch: the commit, and the
+ * `ETag` the answer carried. Sent back as `If-None-Match`, GitHub answers
+ * 304 while the branch has not moved, without counting the request.
+ *
+ * In memory alone, and one answer: the two belong together and to the very
+ * request they came from, so anything asked otherwise (another repository
+ * or branch, or another token, which GitHub makes part of the `ETag`) finds
+ * nothing here. A 304 is only ever read as "the commit that came with this
+ * `ETag`".
+ */
+export class HeadMemory {
+	private last: (HeadKey & { readonly etag: string; readonly sha: string }) | null = null;
+
+	recall(key: HeadKey): { readonly etag: string; readonly sha: string } | null {
+		const last = this.last;
+		if (last === null) return null;
+		const same =
+			last.owner === key.owner && last.repo === key.repo && last.branch === key.branch && last.token === key.token;
+		return same ? { etag: last.etag, sha: last.sha } : null;
+	}
+
+	remember(key: HeadKey, etag: string, sha: string): void {
+		const { owner, repo, branch, token } = key;
+		this.last = { owner, repo, branch, token, etag, sha };
+	}
+
+	forget(): void {
+		this.last = null;
+	}
 }
 
 export type HeadResult =
@@ -266,13 +310,37 @@ export class GitHubClient {
 	 */
 	async resolveHead(): Promise<HeadResult> {
 		const what = "resolve head";
-		const response = await this.send(what, this.get(`/git/ref/heads/${this.branchPath}`));
+		const { headMemory, log } = this.options;
+		const request = this.get(`/git/ref/heads/${this.branchPath}`);
+		// Asked for conditionally when the last full answer is remembered.
+		// `Cache-Control: no-cache` stays: the answer has to be GitHub's, and
+		// not one the app kept.
+		const known = headMemory?.recall(this.options) ?? null;
+		const response = await this.send(
+			what,
+			known === null ? request : { ...request, headers: { ...request.headers, "If-None-Match": known.etag } },
+		);
+		if (response.status === 304) {
+			// Only an answer to the `ETag` that was sent says which commit it
+			// is. A 304 nobody asked for names none.
+			if (known === null) throw new BackendError("other", `${what}: HTTP 304 to a request that was not conditional`, 304);
+			log?.("head: not modified (304)");
+			return { status: "commit", sha: known.sha };
+		}
+		// Whatever follows is news about the head, or no answer about it at
+		// all: what was remembered no longer stands.
+		headMemory?.forget();
 		if (response.status === 200) {
 			const json = parseJson(response.body);
 			const object = isRecord(json) ? json.object : undefined;
 			if (!isRecord(object) || object.type !== "commit" || !isSha(object.sha)) {
 				throw this.malformed(what);
 			}
+			// A platform that never shows a 304, or a server that sends no
+			// `ETag`, is asked in full every time, as before.
+			const etag = headerOf(response, "etag");
+			if (etag !== undefined && etag !== "") headMemory?.remember(this.options, etag, object.sha);
+			if (headMemory !== undefined) log?.(`head: ${known === null ? "asked in full" : "changed"} (200)`);
 			return { status: "commit", sha: object.sha };
 		}
 		// The Git Data API does not work on a repository without commits.

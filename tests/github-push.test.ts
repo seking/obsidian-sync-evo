@@ -20,7 +20,7 @@ import {
 	TREE_CHUNK_ENTRIES,
 	TREE_CHUNK_INLINE_FILES,
 } from "../src/core/github/backend";
-import { GitHubClient } from "../src/core/github/client";
+import { GitHubClient, HeadMemory } from "../src/core/github/client";
 import { timerSleep } from "../src/core/github/timer-sleep";
 import { runPull } from "../src/core/pull";
 import { defaultSectionLines } from "../src/core/exclusion";
@@ -1494,5 +1494,93 @@ describe("the first commit of a repository without commits", () => {
 		expect(await backend.start({ path: ".gitignore", content: bytes("") })).toEqual({ status: "stale" });
 
 		expect(github.writes()).toEqual([]);
+	});
+});
+
+describe("the head of the branch, asked conditionally", () => {
+	/** A backend of a sync of its own, like each sync makes one, with the memory the syncs share. */
+	function syncOf(github: FakeGitHub, headMemory: HeadMemory, token = "github_pat_SECRET"): GitHubBackend {
+		const client = new GitHubClient({
+			owner: "octo",
+			repo: "notes",
+			branch: "main",
+			token,
+			http: github.http,
+			now: Date.now,
+			sleep: timerSleep,
+			headMemory,
+		});
+		return new GitHubBackend(client);
+	}
+
+	test("a remote that has not moved answers 304, with one request, and nothing is listed again", async () => {
+		const github = new FakeGitHub();
+		const head = github.commit({ "a.md": "A" });
+		const headMemory = new HeadMemory();
+		const first = await syncOf(github, headMemory).list(null);
+		expect(first).toMatchObject({ changed: true, listing: { revision: head } });
+		github.requests.length = 0;
+
+		expect(await syncOf(github, headMemory).list(head)).toEqual({ changed: false });
+
+		expect(github.notModified).toBe(1);
+		expect(github.requests.map((request) => `${request.method} ${request.path}`)).toEqual(["GET /git/ref/heads/main"]);
+	});
+
+	test("a remote that has moved answers in full, and is listed", async () => {
+		const github = new FakeGitHub();
+		const head = github.commit({ "a.md": "A" });
+		const headMemory = new HeadMemory();
+		await syncOf(github, headMemory).list(null);
+		const next = github.commit({ "b.md": "B" });
+
+		const listed = await syncOf(github, headMemory).list(head);
+
+		expect(listed).toMatchObject({ changed: true, listing: { revision: next } });
+		expect(github.notModified).toBe(0);
+		// And from then on the new head is the one that is not modified.
+		expect(await syncOf(github, headMemory).list(next)).toEqual({ changed: false });
+		expect(github.notModified).toBe(1);
+	});
+
+	test("a push of this device is seen: the head it moved is not answered from before it", async () => {
+		const github = new FakeGitHub();
+		const head = github.commit({ "a.md": "A" });
+		const headMemory = new HeadMemory();
+		const backend = syncOf(github, headMemory);
+		await backend.list(null);
+
+		const pushed = await backend.push({
+			baseRevision: head,
+			writes: [{ path: "new.md", hash: blobHash("N"), size: 1, read: async () => bytes("N") }],
+			deletes: [],
+			deviceName: "iPhone",
+		});
+
+		expect(pushed.status).toBe("pushed");
+		const listed = await syncOf(github, headMemory).list(head);
+		expect(listed).toMatchObject({ changed: true, listing: { revision: github.head } });
+	});
+
+	test("a platform that never shows a 304 works as before", async () => {
+		const github = new FakeGitHub();
+		github.etags = false;
+		const head = github.commit({ "a.md": "A" });
+		const headMemory = new HeadMemory();
+		await syncOf(github, headMemory).list(null);
+
+		expect(await syncOf(github, headMemory).list(head)).toEqual({ changed: false });
+		expect(github.notModified).toBe(0);
+	});
+
+	test("another token is asked in full", async () => {
+		const github = new FakeGitHub();
+		const head = github.commit({ "a.md": "A" });
+		const headMemory = new HeadMemory();
+		await syncOf(github, headMemory).list(null);
+
+		expect(await syncOf(github, headMemory, "github_pat_OTHER").list(head)).toEqual({ changed: false });
+
+		expect(github.notModified).toBe(0);
 	});
 });

@@ -23,7 +23,8 @@ import { markPushFailure } from "./push-failure";
  *
  * Not after a "no" or a stop: the user ended the sync. And a pull that
  * declines what the remote deleted leaves records the push must not act on
- * as if the vault had deleted those files.
+ * as if the vault had deleted those files. A pull that waits for its
+ * question to be answered has left the same, and is followed by none either.
  *
  * After a pull that put files off, it does: the push is planned from the
  * remote as it is now, sends only what the remote has not changed, and is
@@ -51,6 +52,7 @@ export function pushFollows(pull: PullResult): boolean {
 			return true;
 		case "declined":
 		case "cancelled":
+		case "waiting":
 			return false;
 	}
 }
@@ -64,6 +66,12 @@ export interface SyncDeps {
 	readonly pull: PullDeps;
 	/** `hold` is filled in from the pull. */
 	readonly push: Omit<PushDeps, "hold">;
+	/**
+	 * Whether the sync started by itself. Nobody asked for its push, so one
+	 * that never began, because the pull failed, is not told again when the
+	 * app starts: a device without a network would be told every time.
+	 */
+	readonly automatic?: boolean;
 	/** Called with what the pull answered, before the push begins. */
 	readonly onPulled?: (result: PullResult) => void;
 }
@@ -82,7 +90,7 @@ export async function runSync(deps: SyncDeps): Promise<SyncResult> {
 	} catch (error) {
 		// The user asked for a push too, and none was made. Not when the
 		// sync was stopped: that is the user's, and no failure.
-		if (!(error instanceof BackendError && error.kind === "cancelled")) await unsent(deps);
+		if (deps.automatic !== true && !(error instanceof BackendError && error.kind === "cancelled")) await unsent(deps);
 		throw error;
 	}
 	deps.onPulled?.(pull);

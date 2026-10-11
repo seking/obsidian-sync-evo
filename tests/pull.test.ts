@@ -38,8 +38,10 @@ import {
 	readSymlinkTargets,
 	runPull,
 } from "../src/core/pull";
+import { DEFAULT_AUTO_SYNC } from "../src/core/settings";
 import { makeMarker, readBaseRevision, type StateStore } from "../src/core/state";
 import { blobHash, bytes, type FileContent, MemoryBackend } from "./support/memory-backend";
+import { MemoryIndex } from "./support/memory-index";
 import { MemoryPullVault, type VaultOp } from "./support/memory-pull-vault";
 import { MemoryStateStore } from "./support/memory-state-store";
 
@@ -47,7 +49,14 @@ const paths = { configDir: ".obsidian", pluginDir: ".obsidian/plugins/sync-evo" 
 
 /** For wording a result the way the app does. */
 const reportOptions = {
-	settings: { backend: "github", repository: "octo/notes", branch: "main", tokenSecret: "t", deviceName: "iPhone" },
+	settings: {
+		backend: "github",
+		repository: "octo/notes",
+		branch: "main",
+		tokenSecret: "t",
+		deviceName: "iPhone",
+		autoSync: DEFAULT_AUTO_SYNC,
+	},
 	sizeLimit: 50 * 1024 * 1024,
 } as const;
 
@@ -5272,5 +5281,474 @@ describe("stopping a pull while the remote is asked", () => {
 		h.backend.fetch = real;
 		expect((await h.pull()).outcome).toBe("completed");
 		expect(h.vault.snapshot()).toEqual({ ".gitignore": "*.tmp\n", "a.md": "A2" });
+	});
+});
+
+describe("a question that is left for later", () => {
+	const many = Object.fromEntries(
+		Array.from({ length: 12 }, (_, i) => [`f${String(i).padStart(2, "0")}.md`, `F${i}`]),
+	);
+
+	test("too many deletions: nothing is changed, and what was confirmed and told before stays remembered", async () => {
+		const h = await synced(many);
+		const base = await h.base();
+		h.backend.commit({ ...Object.fromEntries(Object.keys(many).slice(0, 10).map((path) => [path, null])), "new.md": "N" });
+		const confirmed = { rewritten: false, deletions: ["f00.md"], overwrites: [] };
+		await h.store.setMeta(PULL_CONFIRMATION_KEY, confirmed);
+		// A notice that no longer applies: a "no" would forget it.
+		await h.store.setMeta("notices", [{ kind: "git-at-root", path: ".git" }]);
+		h.answer = "later";
+
+		const result = await h.pull();
+
+		expect(result).toMatchObject({ outcome: "waiting", waitingFor: "deletions", notices: [], unwritable: [] });
+		expect(result.counts).toEqual({ fetched: 0, deleted: 0, renamed: 0, conflicts: 0 });
+		expect(h.asked).toHaveLength(1);
+		expect(h.vault.snapshot()).toEqual(many);
+		expect(h.vault.log).toEqual([]);
+		expect(await h.records()).toEqual(hashes(many));
+		expect(await h.base()).toBe(base);
+		expect(await h.store.getMeta(PULL_CONFIRMATION_KEY)).toEqual(confirmed);
+		expect(await readNotices(h.store)).toEqual([{ kind: "git-at-root", path: ".git" }]);
+	});
+
+	test("it is asked again by every pull, and carried out once it is answered", async () => {
+		const h = await synced(many);
+		const head = h.backend.commit(Object.fromEntries(Object.keys(many).slice(0, 10).map((path) => [path, null])));
+		h.answer = "later";
+		expect((await h.pull()).outcome).toBe("waiting");
+		expect((await h.pull()).outcome).toBe("waiting");
+		expect(h.asked).toHaveLength(2);
+
+		h.answer = "proceed";
+		const result = await h.pull();
+
+		expect(result.outcome).toBe("completed");
+		expect(result.counts.deleted).toBe(10);
+		expect(h.asked).toHaveLength(3);
+		expect(await h.base()).toBe(head);
+	});
+
+	test("a rewritten history: nothing is moved away or written over", async () => {
+		const h = await synced({ "a.md": "A1", "b.md": "B" });
+		h.backend.commit({ "a.md": "A2", "c.md": "C" });
+		await h.pull();
+		const base = await h.base();
+		h.vault.log.length = 0;
+		h.backend.rewriteHistory({ "a.md": "A1", "b.md": "B", "d.md": "D" });
+		h.answer = "later";
+
+		const result = await h.pull();
+
+		expect(result).toMatchObject({ outcome: "waiting", waitingFor: "rewritten", rewritten: true, trashed: [] });
+		expect(h.vault.snapshot()).toEqual({ "a.md": "A2", "b.md": "B", "c.md": "C" });
+		expect(h.vault.log).toEqual([]);
+		expect(h.vault.trashed).toEqual([]);
+		expect(await h.records()).toEqual(hashes({ "a.md": "A2", "b.md": "B", "c.md": "C" }));
+		expect(await h.base()).toBe(base);
+		// The pull the user starts asks, and can still keep the files.
+		h.answer = "keep-local";
+		expect((await h.pull()).outcome).toBe("completed");
+		expect(h.asked).toHaveLength(2);
+		expect(h.asked[1]?.losses?.rewritten).toBe(true);
+	});
+
+	test("a confirmation of a rewritten history that a pull was stopped after is not taken back", async () => {
+		const h = await synced({ "a.md": "A1", "b.md": "B", "c.md": "C" });
+		h.backend.rewriteHistory({ "a.md": "A0" });
+		const stop = new AbortController();
+		h.vault.before = (op) => {
+			if (op === "trash") stop.abort();
+		};
+		expect((await h.pull({ signal: stop.signal })).outcome).toBe("cancelled");
+		const confirmed = await h.store.getMeta(PULL_CONFIRMATION_KEY);
+		expect(confirmed).toBeDefined();
+		h.vault.before = undefined;
+		// One file more is to go, which is a new question.
+		h.backend.rewriteHistory({});
+		h.answer = "later";
+
+		expect((await h.pull()).outcome).toBe("waiting");
+
+		expect(await h.store.getMeta(PULL_CONFIRMATION_KEY)).toEqual(confirmed);
+	});
+
+	test("before a first fetch: nothing is fetched, and the question is not counted as answered", async () => {
+		const h = harness();
+		h.backend.commit({ "a.md": "theirs", "b.md": "B" });
+		h.vault.putAll({ "a.md": "mine", "note.md": "N" });
+		h.answer = "later";
+
+		const result = await h.pull();
+
+		expect(result).toMatchObject({ outcome: "waiting", waitingFor: "first-fetch" });
+		expect(h.vault.snapshot()).toEqual({ "a.md": "mine", "note.md": "N" });
+		expect(h.vault.log).toEqual([]);
+		expect(h.views).toEqual([]);
+		expect(await h.records()).toEqual({});
+		expect(await h.base()).toBeNull();
+		expect(await isFirstFetchConfirmed(h.store)).toBe(false);
+
+		h.answer = "proceed";
+		expect((await h.pull()).outcome).toBe("completed");
+		expect(h.asked).toHaveLength(2);
+		expect(h.asked[1]?.firstFetch?.files.different).toEqual(["a.md"]);
+	});
+
+	test("with both reasons to ask, the one about what is taken away is named", async () => {
+		const h = harness();
+		h.backend.commit(many);
+		// A first fetch that stopped after its question: records of files the
+		// remote has deleted since, and no base revision.
+		const stop = new AbortController();
+		let written = 0;
+		h.vault.before = (op) => {
+			if (op === "write" && ++written === 12) stop.abort();
+		};
+		expect((await h.pull({ signal: stop.signal })).outcome).toBe("cancelled");
+		h.vault.before = undefined;
+		await h.store.deleteMeta(FIRST_FETCH_CONFIRMED_KEY);
+		h.backend.commit({ ...Object.fromEntries(Object.keys(many).slice(0, 10).map((path) => [path, null])), "x.md": "theirs" });
+		h.vault.put("x.md", "mine");
+		h.answer = "later";
+
+		const result = await h.pull();
+
+		expect(h.asked[0]?.losses).not.toBeNull();
+		expect(h.asked[0]?.firstFetch).not.toBeNull();
+		expect(result).toMatchObject({ outcome: "waiting", waitingFor: "deletions" });
+	});
+
+	test("what a pull that stopped left half written is still moved away first, and told", async () => {
+		const h = await synced(many);
+		h.backend.commit({ ...Object.fromEntries(Object.keys(many).slice(0, 10).map((path) => [path, null])), "f11.md": "new" });
+		await h.store.putMarker(makeMarker("f11.md", blobHash("F11"), blobHash("new"), false));
+		h.vault.put("f11.md", "ne");
+		h.answer = "later";
+
+		const result = await h.pull();
+
+		expect(result).toMatchObject({ outcome: "waiting", halfWritten: ["f11.md"] });
+		expect(h.vault.trashed.map((file) => file.path)).toEqual(["f11.md"]);
+		expect(await h.store.getMeta(HALF_WRITTEN_KEY)).toBeUndefined();
+	});
+
+	test("it is worded as a wait, with nothing else to tell", async () => {
+		const h = await synced(many);
+		h.backend.commit(Object.fromEntries(Object.keys(many).slice(0, 10).map((path) => [path, null])));
+		h.answer = "later";
+
+		const report = pullReport(translatorFor("en"), await h.pull(), reportOptions);
+
+		expect(report.summary).toBe(
+			"Pulling would delete many files on this device, which needs your confirmation. Nothing was changed. Sync manually to be asked.",
+		);
+		expect(report.details).toEqual([]);
+	});
+});
+
+describe("a pull with the light check", () => {
+	/** A harness in sync on `files`, its index, and every call to the disk from here on. */
+	async function lightly(files: Record<string, FileContent>): Promise<{ h: Harness; index: MemoryIndex; ops: string[] }> {
+		const h = await synced(files);
+		// The files were written by the pull that fetched them, too close
+		// to it for their times to be recorded. This one records them.
+		await h.pull();
+		const ops: string[] = [];
+		h.vault.before = (op, path) => {
+			ops.push(`${op} ${path}`);
+		};
+		return { h, index: new MemoryIndex(h.vault), ops };
+	}
+	const files = { "a.md": "A", "notes/b.md": "B", "notes/deep/c.md": "C", ".github/ci.yml": "ci" };
+
+	test("with nothing changed, no folder is listed and no file is read", async () => {
+		const { h, index, ops } = await lightly(files);
+		const lines: string[] = [];
+
+		const result = await h.pull({ index, log: (line) => lines.push(line) });
+
+		expect(result.outcome).toBe("completed");
+		expect(result.counts).toEqual({ fetched: 0, deleted: 0, renamed: 0, conflicts: 0 });
+		// The one path the index does not hold, the rules, and the root `.git`.
+		expect(ops.sort()).toEqual(["stat .git", "stat .github/ci.yml", "stat .github/ci.yml", "stat .gitignore"]);
+		expect(lines).toEqual(["pull: light check: 4 files, 1 not in the index, 1 asked of the disk, 0 hashed, 0 ms"]);
+	});
+
+	test("with a .gitignore on the remote, the root is the one folder that is listed, for the rules", async () => {
+		const { h, index, ops } = await lightly({ ...files, ".gitignore": "*.tmp\n" });
+
+		expect((await h.pull({ index })).outcome).toBe("completed");
+
+		expect(ops.filter((op) => op.startsWith("list"))).toEqual(["list /"]);
+		expect(ops.filter((op) => op.startsWith("read"))).toEqual(["read .gitignore", "read .gitignore"]);
+		expect(ops.filter((op) => !op.includes(".git"))).toEqual(["list /"]);
+	});
+
+	test("what the remote changed is fetched, deleted and added as after a scan", async () => {
+		const { h, index } = await lightly(files);
+		const head = h.backend.commit({ "a.md": "A2", "notes/b.md": null, "new/n.md": "N", ".github/ci.yml": "ci2" });
+
+		const result = await h.pull({ index });
+
+		expect(result.outcome).toBe("completed");
+		expect(result.counts).toMatchObject({ fetched: 3, deleted: 1, conflicts: 0 });
+		expect(h.vault.snapshot()).toEqual({ ".github/ci.yml": "ci2", "a.md": "A2", "new/n.md": "N", "notes/deep/c.md": "C" });
+		expect(await h.base()).toBe(head);
+	});
+
+	test("a file of the vault at a . path the remote has newly got is compared, and not written over", async () => {
+		const { h, index } = await lightly(files);
+		h.vault.put(".github/new.yml", "mine");
+		h.backend.commit({ ".github/new.yml": "theirs" });
+
+		const result = await h.pull({ index });
+
+		const copy = h.copyName(".github/new.yml");
+		expect(result.conflicts).toEqual([{ path: ".github/new.yml", copyPath: copy, cause: "conflict" }]);
+		expect(h.vault.text(".github/new.yml")).toBe("theirs");
+		expect(h.vault.text(copy)).toBe("mine");
+	});
+
+	test("a file that changed on disk behind the index is not written over blind", async () => {
+		const { h, index } = await lightly(files);
+		const stale = h.vault.stats().find((file) => file.path === "a.md");
+		// Another app wrote the file, and the index still says what the record says.
+		h.vault.put("a.md", "edited elsewhere");
+		index.set("a.md", stale?.mtime ?? 0, stale?.size ?? 0);
+		h.backend.commit({ "a.md": "A2" });
+
+		const result = await h.pull({ index });
+
+		const copy = h.copyName("a.md");
+		expect(result.conflicts).toEqual([{ path: "a.md", copyPath: copy, cause: "conflict" }]);
+		expect(h.vault.text("a.md")).toBe("A2");
+		expect(h.vault.text(copy)).toBe("edited elsewhere");
+		expect(h.vault.trashed).toEqual([]);
+	});
+
+	test("a file that was deleted on disk behind the index is fetched again when the remote changed it", async () => {
+		const { h, index } = await lightly(files);
+		index.follow = false;
+		h.vault.remove("a.md");
+		h.backend.commit({ "a.md": "A2" });
+
+		expect((await h.pull({ index })).outcome).toBe("completed");
+
+		expect(h.vault.text("a.md")).toBe("A2");
+	});
+
+	test("a recorded file the index has lost is found on the disk, and not taken for deleted", async () => {
+		const { h, index } = await lightly(files);
+		index.drop("notes/b.md");
+		h.backend.commit({ "notes/b.md": "B2" });
+
+		const result = await h.pull({ index });
+
+		expect(result).toMatchObject({ outcome: "completed", conflicts: [] });
+		expect(h.vault.text("notes/b.md")).toBe("B2");
+	});
+
+	test("a notice it cannot find a reason for is not forgotten, so that the next scan does not tell it again", async () => {
+		const { h, index } = await lightly(files);
+		// A `.gitignore` in a subfolder that neither the remote nor a record knows.
+		h.vault.put("notes/.gitignore", "*.tmp\n");
+		const nested = { kind: "nested-gitignore", path: "notes/.gitignore" } as const;
+		expect((await h.pull()).notices).toEqual([nested]);
+
+		expect((await h.pull({ index })).notices).toEqual([]);
+		expect(await readNotices(h.store)).toEqual([nested]);
+
+		expect((await h.pull()).notices).toEqual([]);
+		expect((await h.pull({ index })).notices).toEqual([]);
+		expect((await h.pull()).notices).toEqual([]);
+	});
+
+	test("a notice that no longer applies stays until a pull that scans", async () => {
+		const { h, index } = await lightly(files);
+		await h.store.setMeta("notices", [{ kind: "git-at-root", path: ".git" }]);
+
+		expect((await h.pull({ index })).notices).toEqual([]);
+		expect(await readNotices(h.store)).toEqual([{ kind: "git-at-root", path: ".git" }]);
+
+		await h.pull();
+		expect(await readNotices(h.store)).toEqual([]);
+	});
+
+	test("what it does find is told, once", async () => {
+		const { h, index } = await lightly(files);
+		h.vault.put(".git/HEAD", "ref");
+
+		expect((await h.pull({ index })).notices).toEqual([{ kind: "git-at-root", path: ".git" }]);
+		expect((await h.pull({ index })).notices).toEqual([]);
+		expect((await h.pull()).notices).toEqual([]);
+	});
+
+	test("a question it comes to can be left for later like any other", async () => {
+		const many = Object.fromEntries(Array.from({ length: 12 }, (_, i) => [`f${i}.md`, `F${i}`]));
+		const { h, index } = await lightly(many);
+		h.backend.commit(Object.fromEntries(Object.keys(many).slice(0, 10).map((path) => [path, null])));
+		h.answer = "later";
+
+		expect(await h.pull({ index })).toMatchObject({ outcome: "waiting", waitingFor: "deletions" });
+		expect(h.vault.snapshot()).toEqual(many);
+	});
+});
+
+describe("a pull that started by itself", () => {
+	const AUTO = { automatic: true } as const;
+
+	test("starts no first fetch into an empty vault, though there is nothing to ask", async () => {
+		const h = harness();
+		h.backend.commit({ "a.md": "A", "notes/b.md": "B" });
+
+		const result = await h.pull(AUTO);
+
+		expect(result).toMatchObject({ outcome: "waiting", waitingFor: "first-fetch" });
+		expect(h.asked).toEqual([]);
+		expect(h.progress.map((event) => event.phase)).toEqual(["listing"]);
+		expect(h.vault.snapshot()).toEqual({});
+		expect(h.vault.log).toEqual([]);
+		expect(h.views).toEqual([]);
+		expect(await h.records()).toEqual({});
+		expect(await h.base()).toBeNull();
+		expect(await isFirstFetchConfirmed(h.store)).toBe(false);
+	});
+
+	test("the wait costs nothing: the vault is neither listed nor read, however large, and nothing is remembered", async () => {
+		const h = harness();
+		h.backend.commit({ "a.md": "theirs", ".gitignore": "*.tmp\n" });
+		const mine = Object.fromEntries(Array.from({ length: 30 }, (_, i) => [`notes/n${i}.md`, `note ${i}`]));
+		h.vault.putAll({ ...mine, "a.md": "mine", ".gitignore": "*.log\n" });
+		const ops: string[] = [];
+		h.vault.before = (op, path) => {
+			ops.push(`${op} ${path}`);
+		};
+		await h.store.setMeta("notices", [{ kind: "git-at-root", path: ".git" }]);
+
+		expect(await h.pull(AUTO)).toMatchObject({ outcome: "waiting", waitingFor: "first-fetch", notices: [] });
+
+		expect(ops).toEqual([]);
+		expect(await readNotices(h.store)).toEqual([{ kind: "git-at-root", path: ".git" }]);
+		expect(await isFirstFetchConfirmed(h.store)).toBe(false);
+
+		// The pull the user starts looks, and asks.
+		h.answer = "cancel";
+		expect((await h.pull()).outcome).toBe("declined");
+		expect(h.asked[0]?.firstFetch?.files.different).toEqual([".gitignore", "a.md"]);
+	});
+
+	test("nor into a vault that holds what the remote holds: no record is made", async () => {
+		const h = harness();
+		h.backend.commit({ "a.md": "A" });
+		h.vault.put("a.md", "A");
+
+		expect(await h.pull(AUTO)).toMatchObject({ outcome: "waiting", waitingFor: "first-fetch" });
+
+		expect(await h.records()).toEqual({});
+		expect(await h.base()).toBeNull();
+	});
+
+	test("it waits every time, until a pull the user starts has fetched", async () => {
+		const h = harness();
+		const head = h.backend.commit({ "a.md": "A" });
+		expect((await h.pull(AUTO)).outcome).toBe("waiting");
+		expect((await h.pull(AUTO)).outcome).toBe("waiting");
+
+		expect((await h.pull()).outcome).toBe("completed");
+		expect(h.asked).toEqual([]);
+		expect(await h.base()).toBe(head);
+
+		h.backend.commit({ "a.md": "A2" });
+		expect((await h.pull(AUTO)).outcome).toBe("completed");
+		expect(h.vault.text("a.md")).toBe("A2");
+	});
+
+	test("goes on with a first fetch the user said yes to and that stopped halfway", async () => {
+		const h = harness();
+		const head = h.backend.commit({ "a.md": "theirs", "b.md": "B", "c.md": "C" });
+		h.vault.put("a.md", "mine");
+		const stop = new AbortController();
+		h.vault.before = (op) => {
+			if (op === "write") stop.abort();
+		};
+		expect((await h.pull({ signal: stop.signal })).outcome).toBe("cancelled");
+		expect(h.asked).toHaveLength(1);
+		expect(await h.base()).toBeNull();
+		h.vault.before = undefined;
+
+		const result = await h.pull(AUTO);
+
+		expect(result.outcome).toBe("completed");
+		expect(h.asked).toHaveLength(1);
+		expect(await h.base()).toBe(head);
+	});
+
+	test("goes on with one that had nothing to ask and stopped halfway", async () => {
+		const h = harness();
+		const head = h.backend.commit({ "a.md": "A", "b.md": "B", "c.md": "C" });
+		const stop = new AbortController();
+		h.vault.before = (op) => {
+			if (op === "write") stop.abort();
+		};
+		expect((await h.pull({ signal: stop.signal })).outcome).toBe("cancelled");
+		expect(Object.keys(await h.records())).toHaveLength(1);
+		expect(await isFirstFetchConfirmed(h.store)).toBe(false);
+		h.vault.before = undefined;
+
+		expect((await h.pull(AUTO)).outcome).toBe("completed");
+
+		expect(await h.base()).toBe(head);
+		expect(h.vault.snapshot()).toEqual({ "a.md": "A", "b.md": "B", "c.md": "C" });
+	});
+
+	test("but not when the vault has got a file since that differs: that is still asked", async () => {
+		const h = harness();
+		h.backend.commit({ "a.md": "A", "b.md": "B", "c.md": "theirs" });
+		const stop = new AbortController();
+		h.vault.before = (op) => {
+			if (op === "write") stop.abort();
+		};
+		expect((await h.pull({ signal: stop.signal })).outcome).toBe("cancelled");
+		h.vault.before = undefined;
+		const before = h.vault.snapshot();
+		const unwritten = ["a.md", "b.md", "c.md"].find((path) => before[path] === undefined) ?? "";
+		h.vault.put(unwritten, "mine");
+
+		const result = await h.pull(AUTO);
+
+		expect(result).toMatchObject({ outcome: "waiting", waitingFor: "first-fetch" });
+		expect(h.vault.text(unwritten)).toBe("mine");
+	});
+
+	test("a remote without commits is still that, and nothing waits", async () => {
+		const h = harness();
+		h.backend.emptied = true;
+		h.vault.put("mine.md", "M");
+		expect((await h.pull(AUTO)).outcome).toBe("remote-empty");
+	});
+
+	test("asks nothing: where a pull would ask, it waits without the question being put", async () => {
+		const many = Object.fromEntries(Array.from({ length: 12 }, (_, i) => [`f${i}.md`, `F${i}`]));
+		const h = await synced(many);
+		h.backend.commit(Object.fromEntries(Object.keys(many).slice(0, 10).map((path) => [path, null])));
+		// Whatever the one who would be asked says.
+		h.answer = "proceed";
+
+		const result = await h.pull(AUTO);
+
+		expect(result).toMatchObject({ outcome: "waiting", waitingFor: "deletions" });
+		expect(h.asked).toEqual([]);
+		expect(h.vault.snapshot()).toEqual(many);
+	});
+
+	test("pulls like any other where there is nothing to ask", async () => {
+		const h = await synced({ "a.md": "A" });
+		h.backend.commit({ "a.md": "A2", "b.md": "B" });
+
+		const result = await h.pull(AUTO);
+
+		expect(result.outcome).toBe("completed");
+		expect(h.vault.snapshot()).toEqual({ "a.md": "A2", "b.md": "B" });
 	});
 });

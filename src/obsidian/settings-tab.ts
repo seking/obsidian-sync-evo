@@ -15,7 +15,19 @@ import type { Translate } from "../core/i18n";
 import type { SymlinkTarget } from "../core/pull";
 import type { PushFailure } from "../core/push-failure";
 import { pushFailureReminderText } from "../core/push-report";
-import { branchToStore, type DeviceSettings, deviceNameProblem, repositoryToStore } from "../core/settings";
+import {
+	type AutoSyncSettings,
+	branchToStore,
+	type DeviceSettings,
+	deviceNameProblem,
+	intervalToStore,
+	MAX_INTERVAL_MINUTES,
+	MIN_INTERVAL_MINUTES,
+	MIN_SENDING_INTERVAL_MINUTES,
+	minIntervalMinutes,
+	repositoryToStore,
+	withSendsChanges,
+} from "../core/settings";
 import { type ExclusionHost, ExclusionSettings, type Folds, grouped } from "./exclusion-settings";
 
 /** What the screen needs from the plugin. */
@@ -203,6 +215,8 @@ export class SyncEvoSettingTab extends PluginSettingTab {
 			});
 		});
 
+		this.showHowItSyncs(grouped(containerEl, t("settings.howItSyncs.heading"), null).listEl, stored.autoSync);
+
 		// What is synced: the switches for the root `.gitignore`, and the
 		// file. Read from the vault and the sync state, so filled in later,
 		// like the list below it. Nothing while there is no connection.
@@ -210,6 +224,77 @@ export class SyncEvoSettingTab extends PluginSettingTab {
 		void this.exclusion.draw();
 
 		void this.showSymlinks(containerEl.createDiv("sync-evo-part"), this.drawn);
+	}
+
+	/**
+	 * When this device syncs by itself, and whether it sends then. Nothing
+	 * here is a change of the connection: the sync state stays. A switch
+	 * takes effect with the next look at the clock (`auto-scheduler.ts`).
+	 */
+	private showHowItSyncs(el: HTMLElement, stored: AutoSyncSettings): void {
+		const t = this.host.t;
+		const change = (edit: (auto: AutoSyncSettings) => AutoSyncSettings): void => {
+			this.change((current) => ({ ...current, autoSync: edit(current.autoSync) }));
+		};
+		const sendingMin = MIN_SENDING_INTERVAL_MINUTES;
+
+		new Setting(el)
+			.setName(t("settings.autoSync.onStartup.name"))
+			.setDesc(t("settings.autoSync.onStartup.desc"))
+			.addToggle((toggle) => {
+				toggle.setValue(stored.onStartup).onChange((onStartup) => change((auto) => ({ ...auto, onStartup })));
+			});
+		new Setting(el)
+			.setName(t("settings.autoSync.atInterval.name"))
+			.setDesc(t("settings.autoSync.atInterval.desc"))
+			.addToggle((toggle) => {
+				toggle.setValue(stored.atInterval).onChange((atInterval) => change((auto) => ({ ...auto, atInterval })));
+			});
+
+		const interval = new Setting(el)
+			.setName(t("settings.autoSync.interval.name"))
+			.setDesc(t("settings.autoSync.interval.desc", { min: MIN_INTERVAL_MINUTES, max: MAX_INTERVAL_MINUTES, sendingMin }));
+		const intervalNote = note(interval);
+		// Puts the interval that is in use into the field: after the switch
+		// below has raised it.
+		let showInterval = (_minutes: number): void => {};
+		interval.addText((text) => {
+			text.inputEl.inputMode = "numeric";
+			text.setValue(String(stored.intervalMinutes));
+			showInterval = (minutes) => {
+				text.setValue(String(minutes));
+				intervalNote.setText("");
+			};
+			// Taken over when the field is left, like the repository: "1" on
+			// the way to "15" is an interval of its own.
+			const commit = (): void => {
+				const sends = this.host.deviceSettings?.autoSync.sendsChanges ?? stored.sendsChanges;
+				const minutes = intervalToStore(text.getValue(), sends);
+				if (minutes === null) {
+					// Nothing is saved, so the interval from before stays in use.
+					const min = minIntervalMinutes(sends);
+					intervalNote.setText(t("settings.autoSync.interval.invalid", { min, max: MAX_INTERVAL_MINUTES }));
+					return;
+				}
+				showInterval(minutes);
+				change((auto) => (auto.intervalMinutes === minutes ? auto : { ...auto, intervalMinutes: minutes }));
+			};
+			text.inputEl.addEventListener("change", commit);
+			this.commits.push(commit);
+		});
+
+		new Setting(el)
+			.setName(t("settings.autoSync.sends.name"))
+			.setDesc(t("settings.autoSync.sends.desc", { sendingMin }))
+			.addToggle((toggle) => {
+				toggle.setValue(stored.sendsChanges).onChange((sends) => {
+					change((auto) => withSendsChanges(auto, sends));
+					// The interval that is in use now, whatever the field held:
+					// one below the bound for sending was raised to it.
+					const now = this.host.deviceSettings?.autoSync.intervalMinutes;
+					if (now !== undefined) showInterval(now);
+				});
+			});
 	}
 
 	/**

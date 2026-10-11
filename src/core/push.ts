@@ -50,6 +50,7 @@ import { originalPathOfConflictCopy } from "./conflict-name";
 import { createExclusion, type Exclusion, type ExclusionPaths, untrackableByAddedLines } from "./exclusion";
 import { isFirstFetchConfirmed, markFirstFetchConfirmed } from "./first-fetch";
 import { addDefaultSection, isGitignoreAsRecorded, settleGitignoreWrite } from "./gitignore-file";
+import { lightCheckLine, scanLightly, type VaultIndex } from "./light-scan";
 import { readLocal, saved } from "./local-read";
 import {
 	type NoticeRef,
@@ -146,8 +147,12 @@ export interface PushConfirmRequest {
 	readonly sectionAdded?: SectionAdded;
 }
 
-/** "proceed": send all of it. "cancel": send none of it. */
-export type PushAnswer = "proceed" | "cancel";
+/**
+ * "proceed": send all of it. "cancel": send none of it. "later": no answer;
+ * nothing is sent, and the next push asks again. The answer of a sync that
+ * started by itself, which has no one to ask (`PushOutcome` "waiting").
+ */
+export type PushAnswer = "proceed" | "cancel" | "later";
 
 export type ConfirmPush = (request: PushConfirmRequest) => Promise<PushAnswer>;
 
@@ -185,6 +190,12 @@ export interface PushDeps {
 	 */
 	readonly addSection?: boolean;
 	/**
+	 * Set for the light check, as for a pull (`PullDeps.index`): the vault
+	 * is not walked. A new file with a `.` name somewhere in its path is
+	 * not found, and not sent, until a push that scans.
+	 */
+	readonly index?: VaultIndex;
+	/**
 	 * Called once the section is written, with what the result will carry.
 	 * For a push that then rejects: the file was changed all the same, and
 	 * no result says so.
@@ -215,8 +226,20 @@ export interface PushDeps {
  * - "declined": the user was asked and said no. Nothing was sent.
  * - "cancelled": stopped through the signal before the branch was moved,
  *   also while the question was open. Nothing shows on the remote.
+ * - "waiting": the question was not answered ("later"), and waits for a
+ *   push that can ask it (`PushRunResult.waitingFor`). Nothing was sent. No
+ *   failure, like a "no": a push that had not got to its end before this
+ *   one is as unfinished as it was. The section this push added to
+ *   `.gitignore` is in the file all the same (`sectionAdded`).
  */
-export type PushOutcome = "pushed" | "nothing-to-push" | "pull-first" | "declined" | "cancelled";
+export type PushOutcome = "pushed" | "nothing-to-push" | "pull-first" | "declined" | "cancelled" | "waiting";
+
+/**
+ * What a push that ended "waiting" has to ask: everything it sends, since
+ * no push of this sync state has gone through yet, or else the deletions
+ * that are past the threshold.
+ */
+export type PushWaitReason = "first-push" | "deletions";
 
 /**
  * - "no-base": this device has not pulled to the end yet, so what the vault
@@ -282,6 +305,8 @@ export interface PushRunResult {
 	readonly outcome: PushOutcome;
 	/** Only for "pull-first". */
 	readonly reason?: PullFirstReason;
+	/** Only for "waiting". */
+	readonly waitingFor?: PushWaitReason;
 	/** Only for "not-default-branch": the branch the first commit of the remote would go to. */
 	readonly defaultBranch?: string;
 	/** The commit that was made; `null` when none was. */
@@ -402,9 +427,10 @@ class PushRun {
 				result.reason === "remote-empty" ||
 				result.reason === "not-default-branch"
 			) {
-				// A "no" and a stop are the user's, and no failure. Nor is
-				// a remote without commits that nothing can be sent to: no
-				// later push would ever take the note away.
+				// A "no" and a stop are the user's, and no failure; a
+				// question left for later is none either. Nor is a remote
+				// without commits that nothing can be sent to: no later
+				// push would ever take the note away.
 				await this.quietly(() => restorePushFailure(store, before));
 			}
 			return result;
@@ -533,7 +559,10 @@ class PushRun {
 		const exclusion = createExclusion({ ...deps.paths, gitignore: await this.rootGitignore() });
 
 		this.progress("scanning");
-		const scan = await scanVault({ lister: vault, exclusion, remote: listing.entries, records });
+		const began = deps.now();
+		const scanned = { exclusion, remote: listing.entries, records };
+		const light = deps.index === undefined ? null : await scanLightly({ ...scanned, index: deps.index, vault });
+		const scan = light ?? (await scanVault({ ...scanned, lister: vault }));
 		const local = await readLocal(
 			{
 				vault,
@@ -547,12 +576,14 @@ class PushRun {
 				onProgress: (done, total) => this.progress("hashing", done, total),
 				saveEditors: true,
 				...(deps.yieldControl === undefined ? {} : { yieldControl: deps.yieldControl }),
+				...(light === null ? {} : { indexed: light.indexed }),
 			},
 			scan,
 			records,
 			listing,
 		);
 		if (local === null) return this.result("cancelled");
+		if (light !== null) deps.log?.(`push: ${lightCheckLine(light, local, deps.now() - began)}`);
 		// On disk it may be behind what the user sees.
 		for (const path of local.unsaved) this.held.add(foldedKey(path));
 		// Nothing is known of the content: not sent, and not deleted on the
@@ -622,7 +653,6 @@ class PushRun {
 		const guardDue = needsPushConfirmation(plan);
 		if (firstDue || guardDue) {
 			const added = firstDue ? this.sectionAdded : null;
-			this.sectionAsked = added !== null;
 			const answer = await deps.confirm({
 				firstPush: firstDue ? firstPushFiles(plan) : null,
 				remoteEmpty: starting,
@@ -630,6 +660,9 @@ class PushRun {
 				recordCount: plan.recordCount,
 				...(added === null ? {} : { sectionAdded: added }),
 			});
+			// Shown to no one: the section is told by the result instead.
+			if (answer === "later") return this.result("waiting", { waitingFor: firstDue ? "first-push" : "deletions" });
+			this.sectionAsked = added !== null;
 			// A question that was closed because the push was stopped is no
 			// answer of the user's: told as the stop it is.
 			if (answer !== "proceed") return this.result(this.aborted() ? "cancelled" : "declined");
@@ -911,7 +944,10 @@ class PushRun {
 		const remembered = await readNotices(store);
 		const mine = (notice: NoticeRef): boolean =>
 			SHARED_NOTICE_KINDS.includes(notice.kind) || PUSH_NOTICE_KINDS.includes(notice.kind);
-		const current: NoticeRef[] = remembered.filter((notice) => !mine(notice));
+		// A light check forgets nothing, as in a pull (`updateNotices`): it
+		// has not seen all a scan sees.
+		const light = this.deps.index !== undefined;
+		const current: NoticeRef[] = remembered.filter((notice) => light || !mine(notice));
 		// By the rules this push goes by: the file as it is on this device,
 		// with the section when this push added it.
 		current.push(

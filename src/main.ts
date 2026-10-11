@@ -10,6 +10,7 @@
  */
 
 import { getLanguage, Notice, Platform, Plugin } from "obsidian";
+import { TICK_MS } from "./core/auto-sync";
 import { type CheckOutcome, runConnectionCheck } from "./core/connection-check";
 import {
 	applyExclusionEdit,
@@ -37,6 +38,7 @@ import {
 	type DeviceSettings,
 } from "./core/settings";
 import { type UntrackConfirmRequest, untrackConfirmRequest } from "./core/untrack-report";
+import { AutoScheduler } from "./obsidian/auto-scheduler";
 import { exclusionPathsOf } from "./obsidian/exclusion-paths";
 import type { ExclusionChange, ExclusionLoad } from "./obsidian/exclusion-settings";
 import { obsidianHttp } from "./obsidian/http";
@@ -70,13 +72,16 @@ export default class SyncEvoPlugin extends Plugin implements SettingsHost, SyncH
 	 * answers "newer-version" or "unavailable" instead of a store when there
 	 * is nothing the sync may use. Nothing is opened before a sync asks, the
 	 * settings screen does for what it lists, or the app has started and a
-	 * push that did not finish is looked for; and never while there is no
-	 * connection.
+	 * push that did not finish is looked for, or, with automatic sync on,
+	 * the time of the last sync; and never while there is no connection.
 	 */
 	readonly syncState = new SyncState(syncStateDepsOf(this.app, () => this.syncs.stateBlocked()));
 
 	/** The one place a sync of any kind is started from, so that two never run at once. */
 	private readonly syncs = new SyncRunner(this);
+
+	/** Starts the syncs nobody asked for, when automatic sync is on and one is due. */
+	private readonly autoSync = new AutoScheduler(this, this.syncs);
 
 	/** The settings screen, once it is made: drawn again in part when an untracking has ended. */
 	private settingTab: SyncEvoSettingTab | null = null;
@@ -93,11 +98,12 @@ export default class SyncEvoPlugin extends Plugin implements SettingsHost, SyncH
 		this.settingTab = new SyncEvoSettingTab(this.app, this, this);
 		this.addSettingTab(this.settingTab);
 
-		// The only things that start a sync. Each is started by the user, and
-		// keeps the screen on while it runs (`SyncRunner.run`). The button
-		// of the ribbon is the sync: a pull, and then a push. Untracking is
-		// the one sync that has no command: it starts from the settings
-		// screen, where its files are listed (`untrack`).
+		// What the user starts a sync with. Each keeps the screen on while
+		// it runs (`SyncRunner.run`). The button of the ribbon is the sync:
+		// a pull, and then a push. Untracking is the one sync that has no
+		// command: it starts from the settings screen, where its files are
+		// listed (`untrack`). A sync that starts by itself comes from the
+		// clock further down.
 		this.addCommand({
 			id: "sync",
 			name: this.t("command.sync"),
@@ -125,9 +131,21 @@ export default class SyncEvoPlugin extends Plugin implements SettingsHost, SyncH
 			callback: () => this.syncs.requestStop(),
 		});
 
-		// Once the app is up. The sync state is only read: nothing is asked
-		// of the remote, and nothing is sent again.
-		this.app.workspace.onLayoutReady(() => void this.remindOfPushFailure());
+		// The clock of automatic sync. It does nothing while both of its
+		// switches are off, which is how they start. The timer stands still
+		// while a phone has the app in the background; the event tells of the
+		// return at once, and the timer tells of it too, by how late it fires.
+		// Both are taken away when the plugin is unloaded.
+		this.registerInterval(window.setInterval(() => this.autoSync.tick(), TICK_MS));
+		this.registerDomEvent(document, "visibilitychange", () => this.autoSync.visibilityChanged());
+
+		// Once the app is up. For the reminder the sync state is only read:
+		// nothing is asked of the remote, and nothing is sent again. A sync
+		// starts here only when automatic sync is on.
+		this.app.workspace.onLayoutReady(() => {
+			void this.remindOfPushFailure();
+			this.autoSync.started();
+		});
 	}
 
 	/** Tells once more, until it is dismissed, of a push that did not get to its end (`push-failure.ts`). */

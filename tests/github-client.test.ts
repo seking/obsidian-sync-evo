@@ -16,6 +16,7 @@ import { encodeBase64 } from "../src/core/github/base64";
 import {
 	GitHubClient,
 	type GitHubClientOptions,
+	HeadMemory,
 	isWorkflowsRefusal,
 	type RateLimitNotice,
 } from "../src/core/github/client";
@@ -1205,5 +1206,154 @@ describe("encodeBase64", () => {
 			for (let i = 0; i < length; i++) data[i] = (i * 31 + (i >> 8)) & 255;
 			expect(encodeBase64(data) === Buffer.from(data).toString("base64")).toBe(true);
 		}
+	});
+});
+
+describe("asking for the head conditionally", () => {
+	const ETAG = 'W/"0123abcd"';
+	const withEtag = (sha: string, etag = ETAG, name = "ETag") => json(200, { object: { type: "commit", sha } }, { [name]: etag });
+	const notModified = (): HttpResponse => raw(304, "", { ETag: ETAG });
+	const sentBack = (request: HttpRequest): string | undefined => request.headers["If-None-Match"];
+
+	test("the first request is a full one, and the next sends the ETag back", async () => {
+		const { client, http } = setup([withEtag(A), notModified()], { headMemory: new HeadMemory() });
+		expect(await client.resolveHead()).toEqual({ status: "commit", sha: A });
+		expect(sentBack(http.request(0))).toBeUndefined();
+		expect(await client.resolveHead()).toEqual({ status: "commit", sha: A });
+		expect(sentBack(http.request(1))).toBe(ETAG);
+		// Still asked of GitHub itself, and not of what the app kept.
+		expect(http.request(1).headers["Cache-Control"]).toBe("no-cache");
+	});
+
+	test("a 304 is the commit the ETag came with, as often as it is answered", async () => {
+		const { client, http } = setup([withEtag(A), notModified(), notModified()], { headMemory: new HeadMemory() });
+		await client.resolveHead();
+		expect(await client.resolveHead()).toEqual({ status: "commit", sha: A });
+		expect(await client.resolveHead()).toEqual({ status: "commit", sha: A });
+		expect(sentBack(http.request(2))).toBe(ETAG);
+	});
+
+	test("the header is found in whatever case the platform gives it", async () => {
+		const { client, http } = setup([withEtag(A, ETAG, "etag"), notModified()], { headMemory: new HeadMemory() });
+		await client.resolveHead();
+		await client.resolveHead();
+		expect(sentBack(http.request(1))).toBe(ETAG);
+	});
+
+	test("a 200 with the same commit works as before, where no 304 is ever shown", async () => {
+		const { client, http } = setup([withEtag(A), withEtag(A), withEtag(A)], { headMemory: new HeadMemory() });
+		expect(await client.resolveHead()).toEqual({ status: "commit", sha: A });
+		expect(await client.resolveHead()).toEqual({ status: "commit", sha: A });
+		expect(await client.resolveHead()).toEqual({ status: "commit", sha: A });
+		expect(sentBack(http.request(2))).toBe(ETAG);
+	});
+
+	test("a 200 with another commit takes the place of what was remembered", async () => {
+		const other = 'W/"9999"';
+		const { client, http } = setup([withEtag(A), withEtag(B, other), notModified()], { headMemory: new HeadMemory() });
+		await client.resolveHead();
+		expect(await client.resolveHead()).toEqual({ status: "commit", sha: B });
+		expect(await client.resolveHead()).toEqual({ status: "commit", sha: B });
+		expect(sentBack(http.request(2))).toBe(other);
+	});
+
+	test("without a memory nothing is sent back", async () => {
+		const { client, http } = setup([withEtag(A), withEtag(A)]);
+		await client.resolveHead();
+		await client.resolveHead();
+		expect(sentBack(http.request(1))).toBeUndefined();
+	});
+
+	test("an answer without an ETag leaves nothing to send back", async () => {
+		const { client, http } = setup([withEtag(A), ref(B), ref(B)], { headMemory: new HeadMemory() });
+		await client.resolveHead();
+		await client.resolveHead();
+		await client.resolveHead();
+		expect(sentBack(http.request(1))).toBe(ETAG);
+		expect(sentBack(http.request(2))).toBeUndefined();
+	});
+
+	test.each<[string, Partial<GitHubClientOptions>]>([
+		["another token", { token: "github_pat_OTHER" }],
+		["another branch", { branch: "work" }],
+		["another repository", { repo: "other" }],
+		["another owner", { owner: "someone" }],
+	])("the ETag of one request is not sent with %s", async (_name, change) => {
+		const headMemory = new HeadMemory();
+		const first = setup([withEtag(A)], { headMemory });
+		await first.client.resolveHead();
+		const second = setup([withEtag(B, 'W/"other"')], { headMemory, ...change });
+		expect(await second.client.resolveHead()).toEqual({ status: "commit", sha: B });
+		expect(sentBack(second.http.request(0))).toBeUndefined();
+		// What the second remembered is not the first's any more.
+		const again = setup([withEtag(A)], { headMemory });
+		await again.client.resolveHead();
+		expect(sentBack(again.http.request(0))).toBeUndefined();
+	});
+
+	test("the same connection in another client sends it back", async () => {
+		const headMemory = new HeadMemory();
+		await setup([withEtag(A)], { headMemory }).client.resolveHead();
+		const next = setup([notModified()], { headMemory });
+		expect(await next.client.resolveHead()).toEqual({ status: "commit", sha: A });
+		expect(sentBack(next.http.request(0))).toBe(ETAG);
+	});
+
+	test("a 304 to a request that sent no ETag names no commit, and fails", async () => {
+		const bare = setup([notModified()]);
+		expect(await kindOf(bare.client.resolveHead())).toBe("other");
+		const fresh = setup([notModified()], { headMemory: new HeadMemory() });
+		expect(await kindOf(fresh.client.resolveHead())).toBe("other");
+	});
+
+	test.each<[string, Step[]]>([
+		["a repository that has become empty", [json(409, { message: "Git Repository is empty." })]],
+		["a failure of the server", [json(502, { message: "Bad Gateway" })]],
+		["a branch that is gone", [notFound(), json(200, {})]],
+	])("after %s nothing is sent back", async (_name, answers) => {
+		const headMemory = new HeadMemory();
+		const { client, http } = setup([withEtag(A), ...answers, withEtag(A)], { headMemory });
+		await client.resolveHead();
+		await client.resolveHead().catch(() => {});
+		await client.resolveHead();
+		expect(sentBack(http.request(http.requests.length - 1))).toBeUndefined();
+	});
+
+	test("a request that got no answer leaves what was remembered", async () => {
+		const headMemory = new HeadMemory();
+		const { client, http } = setup([withEtag(A), new Error("offline"), notModified()], { headMemory });
+		await client.resolveHead();
+		expect(await kindOf(client.resolveHead())).toBe("unreachable");
+		expect(await client.resolveHead()).toEqual({ status: "commit", sha: A });
+		expect(sentBack(http.request(2))).toBe(ETAG);
+	});
+
+	test("a rate limit that is waited out sends the same conditional request again", async () => {
+		const limited = json(429, { message: "API rate limit exceeded" }, { "Retry-After": "30" });
+		const { client, http } = setup([withEtag(A), limited, notModified()], { headMemory: new HeadMemory() });
+		await client.resolveHead();
+		expect(await client.resolveHead()).toEqual({ status: "commit", sha: A });
+		expect(sentBack(http.request(2))).toBe(ETAG);
+	});
+
+	test("how the head was answered is logged", async () => {
+		const lines: string[] = [];
+		const { client } = setup([withEtag(A), notModified(), withEtag(B, 'W/"2"')], {
+			headMemory: new HeadMemory(),
+			log: (line) => lines.push(line),
+		});
+		await client.resolveHead();
+		await client.resolveHead();
+		await client.resolveHead();
+		expect(lines).toEqual(["head: asked in full (200)", "head: not modified (304)", "head: changed (200)"]);
+	});
+
+	test("the memory can be emptied", async () => {
+		const headMemory = new HeadMemory();
+		const { client, http } = setup([withEtag(A), withEtag(A)], { headMemory });
+		await client.resolveHead();
+		headMemory.forget();
+		await client.resolveHead();
+		expect(sentBack(http.request(1))).toBeUndefined();
 	});
 });

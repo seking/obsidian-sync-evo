@@ -464,7 +464,8 @@ export async function runUntrackSync(deps: UntrackSyncDeps): Promise<UntrackSync
 	const pull = await runPull(deps.pull);
 	deps.onPulled?.(pull);
 	if (!pushFollows(pull)) {
-		const skipped = pull.outcome === "declined" ? "pull-declined" : "pull-cancelled";
+		// A question left for later is one nobody said yes to, like a "no".
+		const skipped = pull.outcome === "cancelled" ? "pull-cancelled" : "pull-declined";
 		return { pull, push: null, untrack: null, skipped };
 	}
 	if (stopped()) return { pull, push: null, untrack: null, skipped: "cancelled" };

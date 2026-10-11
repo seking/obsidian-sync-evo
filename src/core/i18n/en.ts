@@ -61,6 +61,23 @@ export const en = baseCatalog({
 	"settings.reset.desc":
 		"Discards the settings of this vault on this device so that you can enter them again in this version. The token stays in Obsidian's Keychain.",
 	"settings.reset.button": "Discard settings",
+	// The group between the connection and what is synced. Its heading is
+	// not "Automatic sync": how a conflict is handled goes into it as well.
+	"settings.howItSyncs.heading": "How it syncs",
+	"settings.autoSync.onStartup.name": "Sync on startup",
+	"settings.autoSync.onStartup.desc":
+		"Syncs when Obsidian starts, and when you come back to it from another app. Not when the last sync started less than 5 minutes ago.",
+	"settings.autoSync.atInterval.name": "Sync at an interval",
+	"settings.autoSync.atInterval.desc":
+		"Syncs while Obsidian is in front, each time the interval below has passed since the last sync started.",
+	"settings.autoSync.interval.name": "Interval (minutes)",
+	"settings.autoSync.interval.desc":
+		"From {min} to {max} minutes. At least {sendingMin} while automatic sync also sends changes.",
+	"settings.autoSync.interval.invalid":
+		"Enter a whole number of minutes from {min} to {max}. The previous interval is still in use.",
+	"settings.autoSync.sends.name": "Also send changes in automatic sync",
+	"settings.autoSync.sends.desc":
+		"When this is off, automatic sync only receives: what you edit on this device is not sent until you sync manually. When it is on, each automatic sync that finds changes on this device makes a commit, so the interval is at least {sendingMin} minutes.",
 	"settings.symlinks.name": "Skipped symbolic links",
 	"settings.symlinks.summary": { one: "{count} link", other: "{count} links" },
 	"settings.symlinks.desc":
@@ -248,6 +265,21 @@ export const en = baseCatalog({
 	// A pull: its progress, its outcome, and what the user has to know of it.
 	"sync.alreadyRunning": "A sync is already running.",
 	"pull.notRunning": "No sync is running.",
+	// A sync that started by itself. It tells nothing when it went well.
+	// What it does tell comes under this line, the waits below included,
+	// which therefore do not name it again; what stands in its way is told
+	// once, and not again while it stays the same.
+	"auto.heading": "Automatic sync:",
+	"auto.waiting.deletions":
+		"Pulling would delete many files on this device, which needs your confirmation. Nothing was changed. Sync manually to be asked.",
+	"auto.waiting.rewritten":
+		"The history of the remote was rewritten, so pulling needs your confirmation. Nothing was changed. Sync manually to be asked.",
+	"auto.waiting.firstFetch":
+		"The first fetch into this vault is not finished. It is not started without you, and not continued while files in the vault differ from the remote's. Nothing was changed. Sync manually to start or continue it.",
+	"auto.waiting.firstPush":
+		"The first push from this device needs your confirmation. Nothing was sent. Sync manually to be asked.",
+	"auto.waiting.pushDeletions":
+		"Pushing would delete many files on the remote, which needs your confirmation. Nothing was sent. Sync manually to be asked.",
 	"pull.progress.starting": "Pull: starting…",
 	"pull.progress.listing": "Pull: checking the remote…",
 	"pull.progress.scanning": "Pull: looking through the vault…",

@@ -18,6 +18,7 @@ import type { ArchiveDownload, ArchiveGate } from "./archive-fetch";
 import type { Backend, FetchedFile, RemoteEntry } from "./backend";
 import type { ExclusionPaths } from "./exclusion";
 import type { FirstFetchFiles } from "./first-fetch";
+import type { VaultIndex } from "./light-scan";
 import type { NoticeRef } from "./notices";
 import type { PullLosses } from "./pull-plan";
 import type { PushCounts } from "./push-pending";
@@ -131,10 +132,16 @@ export interface PullConfirmRequest {
  * - "keep-local": only offered when the history was rewritten. The listed
  *   files stay as they are and everything else is pulled. Given for any
  *   other request, it is taken as "cancel".
+ * - "later": no answer. The pull ends where it stands and the question is
+ *   asked again by the next pull. Unlike "cancel" it takes nothing back:
+ *   what was confirmed before stays confirmed. What a pull that started by
+ *   itself goes by without asking (`PullDeps.automatic`, `PullOutcome`
+ *   "waiting").
  *
- * A request about a first fetch alone is answered with one of the first two.
+ * A request about a first fetch alone is answered with "proceed", "cancel"
+ * or "later".
  */
-export type PullAnswer = "proceed" | "cancel" | "keep-local";
+export type PullAnswer = "proceed" | "cancel" | "keep-local" | "later";
 
 export type ConfirmPull = (request: PullConfirmRequest) => Promise<PullAnswer>;
 
@@ -220,6 +227,16 @@ export interface PullDeps {
 	readonly now: () => number;
 	readonly confirm: ConfirmPull;
 	/**
+	 * Whether the pull started by itself, with no one there to ask. Such a
+	 * pull asks nothing: where it would, it ends "waiting", as if answered
+	 * "later", and `confirm` is not called. And it starts no first fetch,
+	 * whether or not there is something to ask about one: fetching a whole
+	 * repository is begun by the user, who is then there to keep the screen
+	 * on (`PullWaitReason` "first-fetch"). One that was begun and stopped
+	 * halfway is gone on with.
+	 */
+	readonly automatic?: boolean;
+	/**
 	 * Set for the "first fetch" command: the pull starts over. It decides as
 	 * if there were no sync state, without reading or changing the one given
 	 * as `store`, and always asks first (`FirstFetchRequest.discardsState`).
@@ -233,6 +250,13 @@ export interface PullDeps {
 	 * user said no, and nothing is settled then.
 	 */
 	readonly discardState?: (seed: StateSeed) => Promise<StateStore>;
+	/**
+	 * Set for the light check: the vault is not walked, and its files are
+	 * told apart from the app's index instead (`light-scan.ts`). For a sync
+	 * that starts by itself at an interval. Such a pull does not find a new
+	 * path with a `.` name, and forgets no notice (`updateNotices`).
+	 */
+	readonly index?: VaultIndex;
 	readonly beginBulkWrite?: BeginBulkWrite;
 	/**
 	 * Yields files one at a time; `backend.fetch` when absent. The pull uses
@@ -282,8 +306,28 @@ export interface PullDeps {
  *   also when the stop came before anything was done. A stop while the
  *   question was open is this too, and not a "no": it changes what a "no"
  *   changes, but for the confirmation from before, which stays.
+ * - "waiting": the question was not answered ("later"), and waits for a
+ *   pull that can ask it (`PullResult.waitingFor`). As after a "no", nothing
+ *   of the plan was carried out, and what a pull that stopped had left half
+ *   done was settled before. Nothing that is remembered was touched: not
+ *   what was confirmed before, and not what is remembered of notices, so the
+ *   result carries none and lists no "blocked" path. No push follows.
  */
-export type PullOutcome = "completed" | "incomplete" | "remote-empty" | "declined" | "cancelled";
+export type PullOutcome = "completed" | "incomplete" | "remote-empty" | "declined" | "cancelled" | "waiting";
+
+/**
+ * What a pull that ended "waiting" has to ask. One reason, the gravest when
+ * there is more than one:
+ *
+ * - "rewritten": the history of the remote was rewritten, and the pull
+ *   takes files away or writes over them.
+ * - "deletions": the pull deletes more files than it does unasked.
+ * - "first-fetch": a first fetch the user has not said yes to: into a
+ *   vault whose files differ from the remote's, or, for a pull that started
+ *   by itself (`PullDeps.automatic`), any first fetch that has not begun.
+ *   That one ends before the vault is looked at.
+ */
+export type PullWaitReason = "rewritten" | "deletions" | "first-fetch";
 
 /**
  * Content of the vault that was kept under the name of a copy.
@@ -398,6 +442,8 @@ export interface PullResult {
 	readonly remoteEmpty: boolean;
 	/** Whether the history of the remote no longer builds on the base revision. */
 	readonly rewritten: boolean;
+	/** Only for "waiting". */
+	readonly waitingFor?: PullWaitReason;
 	readonly counts: {
 		/** Files written with the remote's content. */
 		readonly fetched: number;

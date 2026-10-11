@@ -54,6 +54,21 @@ export const ja = completeTranslation(en, {
 	"settings.reset.desc":
 		"このデバイスにある、この保管庫の設定を破棄します。破棄すると、このバージョンで設定を入力し直せます。トークンは、Obsidian のキーチェーンに残ります。",
 	"settings.reset.button": "設定を破棄",
+	"settings.howItSyncs.heading": "同期のしかた",
+	"settings.autoSync.onStartup.name": "起動時に同期する",
+	"settings.autoSync.onStartup.desc":
+		"Obsidian を起動した時と、ほかのアプリから戻った時に同期します。直前の同期を始めてから5分たっていない時は、同期しません。",
+	"settings.autoSync.atInterval.name": "一定間隔で同期する",
+	"settings.autoSync.atInterval.desc":
+		"Obsidian が前に出ている間、直前の同期を始めてから下の間隔がたつたびに同期します。",
+	"settings.autoSync.interval.name": "間隔（分）",
+	"settings.autoSync.interval.desc":
+		"{min}〜{max} 分で指定します。「自動同期で手元の変更も送る」が入の時は、{sendingMin} 分以上です。",
+	"settings.autoSync.interval.invalid":
+		"{min}〜{max} の整数を、分で入力してください。前の間隔のままになっています。",
+	"settings.autoSync.sends.name": "自動同期で手元の変更も送る",
+	"settings.autoSync.sends.desc":
+		"切の時、自動同期は受け取るだけです。このデバイスで編集した内容は、手動で同期するまで送信されません。入の時は、このデバイスに変更があるたびにコミットが作られるため、間隔は {sendingMin} 分以上になります。",
 	"settings.symlinks.name": "飛ばしているシンボリックリンク",
 	"settings.symlinks.summary": "{count} 件",
 	"settings.symlinks.desc":
@@ -225,6 +240,17 @@ export const ja = completeTranslation(en, {
 
 	"sync.alreadyRunning": "同期は、すでに実行中です。",
 	"pull.notRunning": "同期は実行していません。",
+	"auto.heading": "自動同期：",
+	"auto.waiting.deletions":
+		"取り込むと、このデバイスのファイルが大量に削除されるため、確認が必要です。何も変更していません。手動で同期すると、確認が表示されます。",
+	"auto.waiting.rewritten":
+		"保存先の履歴が書き換えられているため、取り込む前に確認が必要です。何も変更していません。手動で同期すると、確認が表示されます。",
+	"auto.waiting.firstFetch":
+		"この保管庫の初回取得が終わっていません。初回取得は、自動では始めません。保管庫に保存先と違うファイルがある間は、続きも自動では行いません。何も変更していません。手動で同期すると、初回取得が始まるか、続きから進みます。",
+	"auto.waiting.firstPush":
+		"このデバイスからの最初の送信には、確認が必要です。何も送信していません。手動で同期すると、確認が表示されます。",
+	"auto.waiting.pushDeletions":
+		"送信すると、保存先のファイルが大量に削除されるため、確認が必要です。何も送信していません。手動で同期すると、確認が表示されます。",
 	"pull.progress.starting": "取り込み：始めています…",
 	"pull.progress.listing": "取り込み：保存先を確認中…",
 	"pull.progress.scanning": "取り込み：保管庫を確認中…",

@@ -49,6 +49,7 @@ import { originalPathOfConflictCopy } from "./conflict-name";
 import { createExclusion, type Exclusion, unsyncedSubmodules } from "./exclusion";
 import { GITIGNORE_WRITE_KEY, settleGitignoreWrite } from "./gitignore-file";
 import { firstFetchFiles, hasFirstFetchQuestion, isFirstFetchConfirmed, markFirstFetchConfirmed } from "./first-fetch";
+import { lightCheckLine, scanLightly } from "./light-scan";
 import { type LocalRead, readLocal } from "./local-read";
 import {
 	type NoticeKind,
@@ -74,6 +75,7 @@ import type {
 	PullOutcome,
 	PullPhase,
 	PullResult,
+	PullWaitReason,
 	UnwritablePath,
 	UnwritableReason,
 } from "./pull-io";
@@ -674,6 +676,16 @@ class PullRun {
 		if (!startOver && (await this.settleMarkers(listing)) === "stopped") return finish("cancelled");
 
 		const records = startOver ? [] : await store.readRecords();
+		// A pull that started by itself begins no first fetch, also where
+		// there would be nothing to ask about it. Ended here, before the
+		// vault is looked at: it comes by every few minutes for as long as
+		// the user has not started one, and must cost nothing then. With
+		// records, a first fetch was begun before, by a pull the user
+		// started; that one is gone on with, unless the question further
+		// down says otherwise.
+		if (deps.automatic === true && unconfirmed && records.length === 0) {
+			return finish("waiting", { waitingFor: "first-fetch" });
+		}
 		const first = await this.survey(listing, records, protect);
 		if (first === null) return finish("cancelled");
 		let { scan, local, plan, exclusion } = first;
@@ -700,11 +712,19 @@ class PullRun {
 		// nothing changed, and is told as the stop it is.
 		let stopped = false;
 		if (lossesDue || firstDue) {
-			const answer = await deps.confirm({
+			const request = {
 				losses: lossesDue ? losses : null,
 				recordCount: plan.recordCount,
 				firstFetch: firstDue ? { files, discardsState: startOver } : null,
-			});
+			};
+			const answer = deps.automatic === true ? "later" : await deps.confirm(request);
+			if (answer === "later") {
+				// Asked of no one. Returned from here, before anything else:
+				// nothing that is remembered is touched, so that the next
+				// pull stands where this one stood, and asks.
+				const waitingFor: PullWaitReason = !lossesDue ? "first-fetch" : losses.rewritten ? "rewritten" : "deletions";
+				return finish("waiting", { waitingFor });
+			}
 			const keep = answer === "keep-local" && lossesDue && rewritten;
 			if (answer !== "proceed" && !keep) {
 				stopped = this.aborted();
@@ -929,7 +949,11 @@ class PullRun {
 		const exclusion = createExclusion({ ...deps.paths, gitignore });
 
 		this.progress("scanning");
-		const scan = await scanVault({ lister: deps.vault, exclusion, remote: listing.entries, records });
+		const began = deps.now();
+		const scanned = { exclusion, remote: listing.entries, records };
+		const light =
+			deps.index === undefined ? null : await scanLightly({ ...scanned, index: deps.index, vault: deps.vault });
+		const scan = light ?? (await scanVault({ ...scanned, lister: deps.vault }));
 		const local = await readLocal(
 			{
 				vault: deps.vault,
@@ -942,12 +966,14 @@ class PullRun {
 				aborted: () => this.aborted(),
 				onProgress: (done, total) => this.progress("hashing", done, total),
 				...(deps.yieldControl === undefined ? {} : { yieldControl: deps.yieldControl }),
+				...(light === null ? {} : { indexed: light.indexed }),
 			},
 			scan,
 			records,
 			listing,
 		);
 		if (local === null) return null;
+		if (light !== null) deps.log?.(`pull: ${lightCheckLine(light, local, deps.now() - began)}`);
 		this.holdUnread(local, listing, records);
 
 		const plan = planPull({
@@ -1220,6 +1246,12 @@ class PullRun {
 		for (const notice of remembered) {
 			if (PUSH_NOTICE_KINDS.includes(notice.kind)) current.push(notice);
 		}
+		// A light check forgets nothing. It does not see every path a scan
+		// sees, so a notice it finds no reason for may apply all the same
+		// (a `.gitignore` in a folder it did not list); forgotten here, the
+		// next scan would tell it again, and so on after every light check.
+		// What it does find is told. Forgetting is left to a pull that scans.
+		if (deps.index !== undefined) current.push(...remembered);
 		if (scan.rootHasGit) add("git-at-root", ".git");
 		// By the rules this pull went by, which are the ones the root
 		// `.gitignore` has once it is done (`gitignoreAfter`). A `.gitignore`

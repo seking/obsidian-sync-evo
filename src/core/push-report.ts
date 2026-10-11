@@ -27,6 +27,7 @@ import {
 	noticeTexts,
 	type PullReport,
 	pushCountsText,
+	type ReportDetail,
 	type Question,
 	type QuestionPart,
 	recoveredPushText,
@@ -37,6 +38,7 @@ import {
 	type PushConfirmRequest,
 	type PushProgress,
 	type PushRunResult,
+	type PushWaitReason,
 	type SectionAdded,
 } from "./push";
 import type { Connection, DeviceSettings } from "./settings";
@@ -210,6 +212,16 @@ export function pushFailureReminderText(t: Translate, failure: PushFailure): str
 	return t("push.unfinished", { time: dateTime(failure.at) });
 }
 
+/**
+ * The text for a push of a sync that started by itself and came to a
+ * question: what there is to confirm, that nothing was sent, and that a
+ * sync the user starts asks. Shown under the line that names automatic
+ * sync, like the pull's.
+ */
+export function pushWaitingText(t: Translate, reason: PushWaitReason): string {
+	return t(reason === "first-push" ? "auto.waiting.firstPush" : "auto.waiting.pushDeletions");
+}
+
 export interface PushReportOptions {
 	/** The size limit the push ran with, in bytes. */
 	readonly sizeLimit: number;
@@ -219,7 +231,25 @@ export interface PushReportOptions {
 
 /** Words what a push answered. */
 export function pushReport(t: Translate, result: PushRunResult, options: PushReportOptions): PullReport {
-	const details: string[] = [];
+	const details = pushDetails(t, result, options).map((detail) => detail.text);
+	return { summary: summaryText(t, result, options.connectionChanged === true), details };
+}
+
+/** How a push ended, in a line: `PullReport.summary` of `pushReport`. */
+export function pushSummaryText(t: Translate, result: PushRunResult, connectionChanged = false): string {
+	return summaryText(t, result, connectionChanged);
+}
+
+/** The details of `pushReport`, each with whether it is told by every push while it is so (`ReportDetail`). */
+export function pushDetails(t: Translate, result: PushRunResult, options: PushReportOptions): ReportDetail[] {
+	const details: ReportDetail[] = [];
+	const happened = (text: string): void => {
+		details.push({ text, standing: false });
+	};
+	// What is not sent, by every push for as long as that is so.
+	const standing = (text: string): void => {
+		details.push({ text, standing: true });
+	};
 	// First: it is what this push wrote to the vault. Not a second time when
 	// the question showed it and the push then sent it. A push that was
 	// declined or turned down after the question is told again, since the
@@ -227,16 +257,16 @@ export function pushReport(t: Translate, result: PushRunResult, options: PushRep
 	// sent is the push's to say, and not read from how it ended.
 	const section = result.sectionAdded;
 	if (section !== undefined && !(section.asked && section.sent)) {
-		details.push(sectionAddedText(t, section, section.sent ? "sent" : "unsent"));
+		happened(sectionAddedText(t, section, section.sent ? "sent" : "unsent"));
 	}
-	if (result.recovered !== null) details.push(recoveredPushText(t, result.recovered));
-	if (result.recoveredUntrack !== undefined) details.push(recoveredUntrackText(t, result.recoveredUntrack));
+	if (result.recovered !== null) happened(recoveredPushText(t, result.recovered));
+	if (result.recoveredUntrack !== undefined) happened(recoveredUntrackText(t, result.recoveredUntrack));
 	if (result.held.length > 0) {
-		details.push(t("push.held", { count: result.held.length, list: listText(t, result.held) }));
+		standing(t("push.held", { count: result.held.length, list: listText(t, result.held) }));
 	}
 	const inTheWay = result.refused.filter((file) => file.reason === "remote-in-the-way").map((file) => file.path);
 	if (inTheWay.length > 0) {
-		details.push(t("push.remoteInTheWay", { count: inTheWay.length, list: listText(t, inTheWay) }));
+		standing(t("push.remoteInTheWay", { count: inTheWay.length, list: listText(t, inTheWay) }));
 	}
 	// A new file a cloud drive keeps is told apart: it is the cloud drive
 	// the user has to see to, and the next push alone changes nothing.
@@ -244,7 +274,7 @@ export function pushReport(t: Translate, result: PushRunResult, options: PushRep
 		result.leftOut.filter((file) => reasons.includes(file.reason)).map((file) => file.path);
 	const notDownloaded = leftOut("not-downloaded");
 	if (notDownloaded.length > 0) {
-		details.push(t("push.notDownloaded", { count: notDownloaded.length, list: listText(t, notDownloaded) }));
+		standing(t("push.notDownloaded", { count: notDownloaded.length, list: listText(t, notDownloaded) }));
 	}
 	// Left out for its size: waiting for the next push changes nothing, so
 	// these say what the user can do, apart from the ones that only need
@@ -252,26 +282,27 @@ export function pushReport(t: Translate, result: PushRunResult, options: PushRep
 	const grown = leftOut("too-large");
 	if (grown.length > 0) {
 		const limit = megabytes(options.sizeLimit);
-		details.push(t("push.grownTooLarge", { count: grown.length, limit, list: listText(t, grown) }));
+		standing(t("push.grownTooLarge", { count: grown.length, limit, list: listText(t, grown) }));
 	}
 	const refusedSize = leftOut("refused-size");
 	if (refusedSize.length > 0) {
-		details.push(t("push.refusedSize", { count: refusedSize.length, list: listText(t, refusedSize) }));
+		standing(t("push.refusedSize", { count: refusedSize.length, list: listText(t, refusedSize) }));
 	}
 	const workflows = leftOut("refused-workflows");
 	if (workflows.length > 0) {
-		details.push(t("push.refusedWorkflows", { count: workflows.length, list: listText(t, workflows) }));
+		standing(t("push.refusedWorkflows", { count: workflows.length, list: listText(t, workflows) }));
 	}
 	const others = leftOut("save-failed", "gone", "unreadable");
 	if (others.length > 0) {
-		details.push(t("push.leftOut", { count: others.length, list: listText(t, others) }));
+		standing(t("push.leftOut", { count: others.length, list: listText(t, others) }));
 	}
+	// Of the commit this push made.
 	if (result.storedOtherwise.length > 0) {
 		const paths = result.storedOtherwise;
-		details.push(t("push.storedOtherwise", { count: paths.length, list: listText(t, paths) }));
+		happened(t("push.storedOtherwise", { count: paths.length, list: listText(t, paths) }));
 	}
-	details.push(...noticeTexts(t, result.notices, options.sizeLimit));
-	return { summary: summaryText(t, result, options.connectionChanged === true), details };
+	for (const text of noticeTexts(t, result.notices, options.sizeLimit)) happened(text);
+	return details;
 }
 
 function summaryText(t: Translate, result: PushRunResult, connectionChanged: boolean): string {
@@ -301,6 +332,8 @@ function summaryText(t: Translate, result: PushRunResult, connectionChanged: boo
 			}
 		case "declined":
 			return t("push.declined");
+		case "waiting":
+			return pushWaitingText(t, result.waitingFor ?? "deletions");
 		case "cancelled":
 			return pushStoppedText(t, connectionChanged);
 	}

@@ -18,9 +18,16 @@ import { HASH_CHUNK_BYTES } from "./hash";
 import { foldedKey, pathKey } from "./paths";
 import type { LocalEntry } from "./plan";
 import { isLfsPointer, type Seen } from "./pull-apply";
-import type { PullVault } from "./pull-io";
+import type { PullVault, SaveResult } from "./pull-io";
 import type { ScanResult } from "./scan";
-import { isUnchangedByStat, RecordBatcher, refreshStat, type StateStore, type StoredRecord } from "./state";
+import {
+	type FileStat,
+	isUnchangedByStat,
+	RecordBatcher,
+	refreshStat,
+	type StateStore,
+	type StoredRecord,
+} from "./state";
 
 export interface LocalReadDeps {
 	readonly vault: Pick<PullVault, "stat" | "read" | "saveOpenEditors">;
@@ -43,6 +50,20 @@ export interface LocalReadDeps {
 	 * pull saves where it writes instead (`pull-apply.ts`).
 	 */
 	readonly saveEditors?: boolean;
+	/**
+	 * Only for the light check (`light-scan.ts`): what the app's index says
+	 * of each file it lists, by key. A file whose time and size there are
+	 * its record's is taken as unchanged without asking the disk, which is
+	 * what makes that check light.
+	 *
+	 * The index is only ever a reason not to look. Whatever it says that is
+	 * not the record's sends the file down the ordinary way, to the disk,
+	 * and nothing of the index is written to a record or handed on: were
+	 * the index to differ from the disk for good on some device, every
+	 * file would be asked of the disk on every check, which is slow and not
+	 * wrong, and no record would go back and forth between the two.
+	 */
+	readonly indexed?: ReadonlyMap<string, FileStat>;
 }
 
 export interface LocalRead {
@@ -74,11 +95,17 @@ export interface LocalRead {
 	 * that way for good.
 	 */
 	readonly placeholders: string[];
+	/** How many files the disk was asked about: all that were looked at, but for the ones the index settled. */
+	readonly statted: number;
+	/** How many files were read and hashed. */
+	readonly hashed: number;
 }
 
 /**
  * The hash of every file the scan found. A file whose time and size are
- * those of its record is not read. A file over the size limit is not read
+ * those of its record is not read; with `indexed`, one whose time and size
+ * in the app's index are those of its record is not even asked of the disk
+ * (`LocalReadDeps.indexed`). A file over the size limit is not read
  * either; it is listed with its size, which is what the plan turns it away
  * by. A file that cannot be read is listed without a hash (`unreadable`).
  * `null` when the sync was stopped.
@@ -100,6 +127,8 @@ export async function readLocal(
 	const placeholders: string[] = [];
 	const total = scan.paths.length;
 	let hashedBytes = 0;
+	let statted = 0;
+	let hashed = 0;
 
 	for (const [index, scanned] of scan.paths.entries()) {
 		if (deps.aborted()) {
@@ -123,9 +152,34 @@ export async function readLocal(
 			entries.push({ path, hash: "" });
 			continue;
 		}
-		if (deps.saveEditors === true && !(await saved(deps.vault, path))) {
-			entries.push({ path, hash: "" });
-			unsaved.push(path);
+		// Whether an editor wrote the file just now. The index may not have
+		// heard of that write yet, so it is not asked about this file.
+		let justSaved = false;
+		if (deps.saveEditors === true) {
+			const result = await saveResult(deps.vault, path);
+			if (result === "failed") {
+				entries.push({ path, hash: "" });
+				unsaved.push(path);
+				continue;
+			}
+			justSaved = result === "saved";
+		}
+		const record = byKey.get(key);
+		const inIndex = justSaved ? undefined : deps.indexed?.get(key);
+		if (
+			record !== undefined &&
+			record.mtime !== undefined &&
+			record.size !== undefined &&
+			inIndex !== undefined &&
+			record.size <= deps.sizeLimit &&
+			isUnchangedByStat(record, inIndex)
+		) {
+			// Unchanged, by the index. What is handed on is the record's
+			// time and size, which came from the disk: whoever writes over
+			// the file looks at the disk first, and compares with these.
+			entries.push({ path, hash: record.hash, size: record.size });
+			seen.set(key, { hash: record.hash, stat: { mtime: record.mtime, size: record.size } });
+			deps.onProgress(index + 1, total);
 			continue;
 		}
 		const leave = (): void => {
@@ -133,6 +187,7 @@ export async function readLocal(
 			unreadable.push(path);
 		};
 		let stat: Awaited<ReturnType<LocalReadDeps["vault"]["stat"]>>;
+		statted += 1;
 		try {
 			stat = await deps.vault.stat(path);
 		} catch {
@@ -146,7 +201,6 @@ export async function readLocal(
 			continue;
 		}
 
-		const record = byKey.get(key);
 		let hash: string;
 		if (record !== undefined && isUnchangedByStat(record, stat)) {
 			hash = record.hash;
@@ -159,6 +213,7 @@ export async function readLocal(
 				continue;
 			}
 			hash = await deps.backend.hashContent(content);
+			hashed += 1;
 			// Found here too, and not only when it is written: a pointer
 			// that was already in the vault is one all the same.
 			const remote = remoteByKey.get(key);
@@ -180,14 +235,18 @@ export async function readLocal(
 		deps.onProgress(index + 1, total);
 	}
 	await batcher.flush();
-	return { entries, seen, lfsPointers, unsaved, unreadable, placeholders };
+	return { entries, seen, lfsPointers, unsaved, unreadable, placeholders, statted, hashed };
 }
 
 /** Whether what the editors hold of the file is on disk: saved, or not open at all. */
 export async function saved(vault: Pick<PullVault, "saveOpenEditors">, path: string): Promise<boolean> {
+	return (await saveResult(vault, path)) !== "failed";
+}
+
+async function saveResult(vault: Pick<PullVault, "saveOpenEditors">, path: string): Promise<SaveResult> {
 	try {
-		return (await vault.saveOpenEditors(path)) !== "failed";
+		return await vault.saveOpenEditors(path);
 	} catch {
-		return false;
+		return "failed";
 	}
 }

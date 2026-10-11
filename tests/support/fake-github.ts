@@ -78,6 +78,14 @@ export class FakeGitHub {
 	 * would store such a content as other bytes (line ends, say).
 	 */
 	normalise: ((content: string) => string) | undefined;
+	/**
+	 * Whether the head is answered with an `ETag`, and a request that sends
+	 * it back with 304 while the branch has not moved. Off: every answer is
+	 * a full one, like a platform that never shows a 304.
+	 */
+	etags = true;
+	/** How many requests for the head were answered 304. */
+	notModified = 0;
 
 	/** Another device commits: sets the given paths, or removes them with `null`. Answers the new head. */
 	commit(changes: Record<string, FakeFile | null>, message = "from a Mac"): string {
@@ -127,6 +135,17 @@ export class FakeGitHub {
 		const instead = this.before?.(sent);
 		if (instead instanceof Error) throw instead;
 		if (instead !== undefined) return instead;
+		if (this.etags && sent.method === "GET" && sent.path === "/git/ref/heads/main" && this.head !== null) {
+			// Like GitHub's: it changes with the commit, and with the token.
+			const etag = `W/"${sha1(`${this.head} ${request.headers.Authorization ?? ""}`)}"`;
+			const sentBack = Object.entries(request.headers).find(([name]) => name.toLowerCase() === "if-none-match");
+			if (sentBack?.[1] === etag) {
+				this.notModified += 1;
+				return { status: 304, headers: { etag }, body: new ArrayBuffer(0) };
+			}
+			// Spelled as a desktop gives it; a phone gives `etag`.
+			return { ...this.answer(sent), headers: { ETag: etag } };
+		}
 		return this.answer(sent);
 	};
 

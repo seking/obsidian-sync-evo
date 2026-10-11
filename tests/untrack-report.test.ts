@@ -31,10 +31,18 @@ import {
 } from "../src/core/untrack-report";
 import { MemoryPullVault } from "./support/memory-pull-vault";
 import { MemoryStateStore } from "./support/memory-state-store";
+import { DEFAULT_AUTO_SYNC } from "../src/core/settings";
 
 const t = translatorFor("en");
 const ja = translatorFor("ja");
-const settings = { backend: "github", repository: "octo/notes", branch: "main", tokenSecret: "t", deviceName: "iPhone" } as const;
+const settings = {
+	backend: "github",
+	repository: "octo/notes",
+	branch: "main",
+	tokenSecret: "t",
+	deviceName: "iPhone",
+	autoSync: DEFAULT_AUTO_SYNC,
+} as const;
 
 const plain = (path: string): UntrackableFile => ({ path, symlink: false, ownFolder: false });
 

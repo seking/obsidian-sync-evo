@@ -23,7 +23,7 @@ import {
 import { GitHubClient, type HeadResult } from "../src/core/github/client";
 import type { HttpRequest, HttpResponse } from "../src/core/github/http";
 import { translatorFor } from "../src/core/i18n";
-import type { DeviceSettings } from "../src/core/settings";
+import { DEFAULT_AUTO_SYNC, type DeviceSettings } from "../src/core/settings";
 
 const TOKEN = "github_pat_SECRET0123456789";
 const A = "a".repeat(40);
@@ -34,6 +34,7 @@ const settings = (over: Partial<DeviceSettings> = {}): DeviceSettings => ({
 	branch: "main",
 	tokenSecret: "github-token",
 	deviceName: "Mac",
+	autoSync: DEFAULT_AUTO_SYNC,
 	...over,
 });
 

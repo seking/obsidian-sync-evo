@@ -31,10 +31,13 @@ import {
 	PENDING_PUSH_KEY,
 	readPendingPush,
 } from "../src/core/push-pending";
+import { translatorFor } from "../src/core/i18n";
 import { PUSH_FAILURE_KEY, readPushFailure } from "../src/core/push-failure";
+import { pushReport } from "../src/core/push-report";
 import { makeMarker, readBaseRevision, type StateStore } from "../src/core/state";
 import { pathsToHold, pushFollows, runSync, type SyncResult } from "../src/core/sync";
 import { blobHash, type FileContent, MemoryBackend } from "./support/memory-backend";
+import { MemoryIndex } from "./support/memory-index";
 import { MemoryPullVault, type VaultOp } from "./support/memory-pull-vault";
 import { MemoryStateStore } from "./support/memory-state-store";
 
@@ -3611,5 +3614,235 @@ describe("the notices that follow from the rules", () => {
 			{ kind: "local-path-collision", path: "case.md" },
 			nested("notes/.gitignore"),
 		]);
+	});
+});
+
+describe("a question that is left for later", () => {
+	const thirty = (): Record<string, string> =>
+		Object.fromEntries(Array.from({ length: 30 }, (_, i) => [`n/${String(i).padStart(2, "0")}.md`, `note ${i}`]));
+
+	test("before the first push: nothing is sent, and it is asked again", async () => {
+		const h = await synced({ "a.md": "A" }, { firstPush: true });
+		const before = h.backend.revision;
+		h.vault.put("new.md", "N");
+		h.answer = "later";
+
+		const result = await h.push();
+
+		expect(result).toMatchObject({ outcome: "waiting", waitingFor: "first-push", revision: null });
+		expect(h.backend.revision).toBe(before);
+		expect(h.backend.pushes).toBe(0);
+		expect(await h.records()).toEqual(hashes({ "a.md": "A" }));
+		expect(await h.store.getMeta(FIRST_PUSH_CONFIRMED_KEY)).toBeUndefined();
+
+		h.answer = "proceed";
+		expect((await h.push()).outcome).toBe("pushed");
+		expect(h.asked).toHaveLength(2);
+	});
+
+	test("too many deletions: nothing is sent or deleted", async () => {
+		const h = await synced(thirty());
+		const before = h.backend.revision;
+		for (let i = 0; i < 6; i++) h.vault.remove(`n/0${i}.md`);
+		h.vault.put("added.md", "also not sent");
+		h.answer = "later";
+
+		const result = await h.push();
+
+		expect(result).toMatchObject({ outcome: "waiting", waitingFor: "deletions" });
+		expect(h.backend.revision).toBe(before);
+		expect(h.backend.pushes).toBe(0);
+		expect(Object.keys(await h.remote())).toHaveLength(30);
+	});
+
+	test("it is no push that failed: nothing is told when the app starts", async () => {
+		const h = await synced({ "a.md": "A" }, { firstPush: true });
+		h.vault.put("new.md", "N");
+		h.answer = "later";
+
+		expect((await h.push()).outcome).toBe("waiting");
+
+		expect(await readPushFailure(h.store)).toBeNull();
+	});
+
+	test("a push that had not got to its end before it is as unfinished as it was", async () => {
+		const h = await synced({ "a.md": "A" }, { firstPush: true });
+		await h.store.setMeta(PUSH_FAILURE_KEY, { at: 12345 });
+		h.vault.put("new.md", "N");
+		h.answer = "later";
+
+		expect((await h.push()).outcome).toBe("waiting");
+
+		expect(await readPushFailure(h.store)).toEqual({ at: 12345 });
+	});
+
+	test("the section that was added to .gitignore is told by the result, since no question showed it", async () => {
+		const h = await synced({ "a.md": "A" }, { firstPush: true });
+		h.answer = "later";
+
+		const result = await h.push(ADDING);
+
+		expect(result.outcome).toBe("waiting");
+		expect(result.sectionAdded).toMatchObject({ created: true, asked: false, sent: false });
+		expect(h.backend.pushes).toBe(0);
+		const report = pushReport(translatorFor("en"), result, { sizeLimit: 50 * 1024 * 1024 });
+		expect(report.summary).toBe(
+			"The first push from this device needs your confirmation. Nothing was sent. Sync manually to be asked.",
+		);
+		expect(report.details).toHaveLength(1);
+	});
+
+	test("no push follows a pull that waits for its question", async () => {
+		const files = Object.fromEntries(Array.from({ length: 10 }, (_, i) => [`n${i}.md`, `note ${i}`]));
+		const h = await synced(files);
+		const head = h.backend.commit(Object.fromEntries(Array.from({ length: 6 }, (_, i) => [`n${i}.md`, null])));
+		h.vault.put("mine.md", "M");
+		h.pullAnswer = "later";
+
+		const { pull, push } = await h.sync();
+
+		expect(pull).toMatchObject({ outcome: "waiting", waitingFor: "deletions" });
+		expect(push).toBeNull();
+		expect(pushFollows(pull)).toBe(false);
+		expect(h.backend.revision).toBe(head);
+		expect(h.backend.pushes).toBe(0);
+		expect(await readPushFailure(h.store)).toBeNull();
+	});
+});
+
+describe("a sync that started by itself", () => {
+	function failing(h: Harness): TestBackend {
+		const backend = Object.create(h.backend) as TestBackend;
+		backend.list = () => Promise.reject(new BackendError("unreachable", "offline"));
+		return backend;
+	}
+	const deps = (h: Harness, backend: TestBackend): Parameters<typeof runSync>[0] => ({
+		pull: {
+			store: h.store,
+			backend,
+			vault: h.vault,
+			paths,
+			pluginId: "sync-evo",
+			deviceName: "iPhone",
+			now: h.now,
+			confirm: async () => "later",
+		},
+		push: { store: h.store, backend, vault: h.vault, paths, deviceName: "iPhone", now: h.now, confirm: async () => "later" },
+	});
+
+	test("whose pull fails leaves no push to tell of when the app starts", async () => {
+		const h = await synced({ "a.md": "A" });
+
+		await expect(runSync({ ...deps(h, failing(h)), automatic: true })).rejects.toMatchObject({ kind: "unreachable" });
+
+		expect(await readPushFailure(h.store)).toBeNull();
+	});
+
+	test("unlike one the user started, who asked for the push", async () => {
+		const h = await synced({ "a.md": "A" });
+
+		await expect(runSync(deps(h, failing(h)))).rejects.toMatchObject({ kind: "unreachable" });
+
+		expect(await readPushFailure(h.store)).toEqual({ at: h.now() });
+	});
+});
+
+describe("a push with the light check", () => {
+	const files = { "a.md": "A", "notes/b.md": "B", "gone.md": "G", ".github/ci.yml": "ci", ".github/old.yml": "old" };
+
+	test("sends what was edited and deletes what is gone, without listing a folder", async () => {
+		const h = await synced(files);
+		// Records the times of the files the first pull wrote.
+		await h.pull();
+		const index = new MemoryIndex(h.vault);
+		h.vault.put("a.md", "A2");
+		h.vault.put(".github/ci.yml", "ci2");
+		h.vault.put("notes/new.md", "N");
+		h.vault.remove("gone.md");
+		h.vault.remove(".github/old.yml");
+		const ops: string[] = [];
+		h.vault.before = (op, path) => {
+			ops.push(`${op} ${path}`);
+		};
+		const lines: string[] = [];
+
+		const result = await h.push({ index, log: (line) => lines.push(line) });
+
+		expect(result).toMatchObject({ outcome: "pushed", counts: { added: 1, modified: 2, deleted: 2 } });
+		expect(await h.remote()).toEqual({ ".github/ci.yml": "ci2", "a.md": "A2", "notes/b.md": "B", "notes/new.md": "N" });
+		expect(ops.filter((op) => op.startsWith("list"))).toEqual([]);
+		expect(lines).toEqual(["push: light check: 4 files, 3 not in the index, 3 asked of the disk, 3 hashed, 0 ms"]);
+		await expectNothingToPull(h);
+	});
+
+	test("a new file with a . name is not found, and is sent by the next push that scans", async () => {
+		const h = await synced(files);
+		const index = new MemoryIndex(h.vault);
+		h.vault.put(".github/new.yml", "new");
+
+		expect((await h.push({ index })).outcome).toBe("nothing-to-push");
+		expect((await h.remote())[".github/new.yml"]).toBeUndefined();
+
+		expect((await h.push()).outcome).toBe("pushed");
+		expect((await h.remote())[".github/new.yml"]).toBe("new");
+	});
+
+	test("a recorded file the index has lost is not deleted on the remote", async () => {
+		const h = await synced(files);
+		const index = new MemoryIndex(h.vault);
+		index.drop("notes/b.md");
+
+		expect((await h.push({ index })).outcome).toBe("nothing-to-push");
+
+		expect((await h.remote())["notes/b.md"]).toBe("B");
+	});
+
+	test("a file a cloud drive took off the device is not deleted on the remote", async () => {
+		const h = await synced(files);
+		const index = new MemoryIndex(h.vault);
+		h.vault.remove("notes/b.md");
+		h.vault.put("notes/.b.md.icloud", "stub");
+
+		const result = await h.push({ index });
+
+		expect(result).toMatchObject({ outcome: "nothing-to-push", leftOut: [] });
+		expect((await h.remote())["notes/b.md"]).toBe("B");
+	});
+
+	test("what an editor holds and has not saved is sent, though the index knows nothing of it", async () => {
+		const h = await synced(files);
+		const index = new MemoryIndex(h.vault);
+		index.follow = false;
+		h.vault.open("a.md", "typed");
+
+		expect((await h.push({ index })).outcome).toBe("pushed");
+
+		expect((await h.remote())["a.md"]).toBe("typed");
+	});
+
+	test("no notice is forgotten, so that the next scan does not tell it again", async () => {
+		const h = await synced(files, { caseSensitive: true });
+		h.vault.put("notes/.gitignore", "*.tmp\n");
+		const nested = { kind: "nested-gitignore", path: "notes/.gitignore" } as const;
+		expect((await h.push()).notices).toEqual([nested]);
+		const index = new MemoryIndex(h.vault);
+		// The file was sent: the light check knows it from here on. One
+		// that is not known is the case that matters.
+		h.vault.put("notes/deep/.gitignore", "*.tmp\n");
+		const deep = { kind: "nested-gitignore", path: "notes/deep/.gitignore" } as const;
+		await h.store.setMeta("notices", [nested, deep]);
+
+		expect((await h.push({ index })).notices).toEqual([]);
+		expect(await readNotices(h.store)).toEqual(expect.arrayContaining([nested, deep]));
+	});
+
+	test("a question it comes to can be left for later like any other", async () => {
+		const h = await synced(files, { firstPush: true });
+		const index = new MemoryIndex(h.vault);
+		h.vault.put("a.md", "A2");
+		h.answer = "later";
+
+		expect(await h.push({ index })).toMatchObject({ outcome: "waiting", waitingFor: "first-push" });
+		expect(h.backend.pushes).toBe(0);
 	});
 });

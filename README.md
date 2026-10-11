@@ -10,7 +10,7 @@ It is free, with all of its features. There is no account to create and no serve
 - **Push** sends what was added, changed, and deleted in the vault as one commit.
 - **Sync** does both, a pull and then a push. It is also the button in the ribbon.
 
-Nothing runs on its own: a sync happens when you press the button or run a command.
+Nothing runs on its own unless you switch it on: a sync happens when you press the button or run a command. Under "How it syncs" in the settings, Sync Evo can also sync when Obsidian starts or comes back from another app, and at an interval while it is in front. Such a sync only pulls, unless you let it send changes too; it says nothing when it went well, and never answers one of the questions below for you: it changes nothing then, and tells you once to sync manually. It does not start the first fetch of a vault either; that one you start yourself. A sync you start while an automatic one is running takes its place.
 
 A file that was changed both in the vault and in the repository is not overwritten. The repository's version takes the name, and the vault's version is kept beside it as `<name>.conflict-from-<device>-<date>-<time>.<extension>`. A file in the configuration folder gets no such copy: the vault's version goes to `.trash/` in the vault.
 
@@ -25,7 +25,6 @@ What is synced is decided by the `.gitignore` at the root of the vault, so that 
 
 ## Not supported yet
 
-- **Syncing on its own**, at startup or at intervals. Every sync is started by you.
 - **Merging** two versions of a note. A conflict always leaves both versions as files.
 - **Submodules.** The folder of a submodule is not created on the device, and nothing in it is fetched or sent. Sync Evo tells you once when the repository has one.
 - **Git LFS.** A pointer file is synced as it is, and the content it stands for is not fetched.
@@ -76,6 +75,14 @@ Excluding something deletes nothing. A file the repository already holds stays s
 
 The trash, the layout of the workspace, Sync Evo's own folder, and files an operating system leaves behind are left out by default.
 
+### How it syncs
+
+All three are off until you switch them on, and are kept per device.
+
+- **Sync on startup**: syncs when Obsidian starts, and when you come back to it from another app, unless the last sync started less than 5 minutes ago.
+- **Sync at an interval**: syncs while Obsidian is in front, each time the interval (in minutes) has passed since the last sync started. After a sync that failed, the next one waits twice as long, up to an hour.
+- **Also send changes in automatic sync**: when off, automatic sync only pulls, and what you edit on the device is sent when you sync manually. When on, the interval is at least 5 minutes, since every push is a commit.
+
 ### Commands
 
 | Command | What it does |
@@ -102,7 +109,7 @@ The settings and the record of what was synced are kept on the device, outside t
 
 ## Network use
 
-Sync Evo makes network requests only when you press "Test" in its settings, run one of its commands or press its button in the ribbon, or untrack files in its settings. All of them go to GitHub (`api.github.com`) and carry the token and the names of the repository and the branch. One kind of request, the download of a zip described below, is redirected by GitHub to another of its hosts (`codeload.github.com`).
+Sync Evo makes network requests only when you press "Test" in its settings, run one of its commands or press its button in the ribbon, or untrack files in its settings; and, when you have switched automatic sync on under "How it syncs", for the pulls and pushes it then starts by itself, which ask and send what a pull and a push do. All of them go to GitHub (`api.github.com`) and carry the token and the names of the repository and the branch. One kind of request, the download of a zip described below, is redirected by GitHub to another of its hosts (`codeload.github.com`).
 
 - **Connection test** asks for the branch you entered, and for the repository when the branch is not found, to tell you whether the token can reach them.
 - **Pull** asks for the branch (and, like the test, for the repository when the branch is not found), for the list of files in its latest commit, and for the content of each file that is new or changed. For a symbolic link, which is not written to the vault, it reads where the link points: one small request per link that is new or changed. When the branch has moved since the last pull, it also asks whether the new commit builds on the old one. When more than 1,000 files are new or changed (a first pull of a large repository, for one) and the zip is not expected to be too large for the device, it asks for the zip of that commit in one request instead of for each file, and then only for the files the zip does not hold as they are listed. The zip is kept in memory and never saved. A pull sends nothing from the vault: no file, no file name, and no content.

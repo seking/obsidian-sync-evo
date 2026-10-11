@@ -28,6 +28,85 @@ export interface DeviceSettings {
 	 */
 	readonly tokenSecret: string;
 	readonly deviceName: string;
+	readonly autoSync: AutoSyncSettings;
+}
+
+/**
+ * When this device syncs without being told to. Never, until the user
+ * switches one of the first two on.
+ */
+export interface AutoSyncSettings {
+	/**
+	 * When the app starts, and when it comes back to the front from another
+	 * app: on a phone the second is what happens, and the first is rare.
+	 */
+	readonly onStartup: boolean;
+	readonly atInterval: boolean;
+	/** In minutes, a whole number within the bounds (`clampInterval`). Kept while `atInterval` is off. */
+	readonly intervalMinutes: number;
+	/**
+	 * Whether a sync that starts by itself also sends the changes of this
+	 * device. Off, it only pulls, and a note that is half written is not
+	 * committed behind the user's back.
+	 */
+	readonly sendsChanges: boolean;
+}
+
+export const DEFAULT_INTERVAL_MINUTES = 15;
+/**
+ * The shortest interval while automatic sync only pulls. A pull that finds
+ * nothing new costs one request that is not counted against the quota.
+ */
+export const MIN_INTERVAL_MINUTES = 1;
+/**
+ * The shortest interval while automatic sync also sends. Not for the number
+ * of requests: every push is a commit, and a shorter interval would fill
+ * the history with commits of notes in the middle of being written.
+ */
+export const MIN_SENDING_INTERVAL_MINUTES = 5;
+/** A day. Longer than that is no interval any more. */
+export const MAX_INTERVAL_MINUTES = 1440;
+
+export const DEFAULT_AUTO_SYNC: AutoSyncSettings = {
+	onStartup: false,
+	atInterval: false,
+	intervalMinutes: DEFAULT_INTERVAL_MINUTES,
+	sendsChanges: false,
+};
+
+/** The shortest interval there can be, by whether automatic sync sends. */
+export function minIntervalMinutes(sendsChanges: boolean): number {
+	return sendsChanges ? MIN_SENDING_INTERVAL_MINUTES : MIN_INTERVAL_MINUTES;
+}
+
+/**
+ * The interval that is used for a number of minutes: a whole number within
+ * the bounds. What is no number at all is the default.
+ */
+export function clampInterval(minutes: number, sendsChanges: boolean): number {
+	if (!Number.isFinite(minutes)) return DEFAULT_INTERVAL_MINUTES;
+	return Math.min(Math.max(Math.round(minutes), minIntervalMinutes(sendsChanges)), MAX_INTERVAL_MINUTES);
+}
+
+/**
+ * What to store for the text typed into the interval field, or `null` to
+ * store nothing and keep what was there: anything but a whole number of
+ * minutes within the bounds. Not brought within them, unlike what is read
+ * from storage: the user would find another number saved than the one typed.
+ */
+export function intervalToStore(typed: string, sendsChanges: boolean): number | null {
+	const text = typed.trim();
+	if (!/^\d+$/.test(text)) return null;
+	const minutes = Number(text);
+	return minutes >= minIntervalMinutes(sendsChanges) && minutes <= MAX_INTERVAL_MINUTES ? minutes : null;
+}
+
+/**
+ * The settings with "also sends" switched. Switched on, an interval below
+ * the bound for sending is raised to it; switched off, the interval stays.
+ */
+export function withSendsChanges(auto: AutoSyncSettings, sendsChanges: boolean): AutoSyncSettings {
+	return { ...auto, sendsChanges, intervalMinutes: clampInterval(auto.intervalMinutes, sendsChanges) };
 }
 
 /**
@@ -36,6 +115,11 @@ export interface DeviceSettings {
  * a version that is not a number above this one is not recognised as newer,
  * and is taken for nothing stored. A field that an older version must not
  * drop is such a change too: that version writes back the fields it knows.
+ *
+ * The settings of automatic sync were added without a change of it. A
+ * version from before them drops them when it saves, and reads them as
+ * absent: automatic sync is then off, which is where it starts and the safe
+ * side.
  */
 export const SETTINGS_VERSION = 1;
 
@@ -53,7 +137,14 @@ export type ParsedSettings =
 	| { readonly status: "newer-version" };
 
 export function defaultSettings(defaultDeviceName: string): DeviceSettings {
-	return { backend: "github", repository: "", branch: "main", tokenSecret: "", deviceName: defaultDeviceName };
+	return {
+		backend: "github",
+		repository: "",
+		branch: "main",
+		tokenSecret: "",
+		deviceName: defaultDeviceName,
+		autoSync: DEFAULT_AUTO_SYNC,
+	};
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -85,7 +176,22 @@ export function parseSettings(raw: unknown, defaultDeviceName: string): ParsedSe
 			branch: branchToStore(text(raw.branch, "")) ?? defaults.branch,
 			tokenSecret: text(raw.tokenSecret, defaults.tokenSecret),
 			deviceName: deviceNameProblem(deviceName) === null ? deviceName : defaults.deviceName,
+			autoSync: parseAutoSync(raw.autoSync),
 		},
+	};
+}
+
+// A switch is on only when it was stored as on: anything else, from a
+// version that knew no such switch or from a damaged value, is off.
+function parseAutoSync(raw: unknown): AutoSyncSettings {
+	if (!isRecord(raw)) return DEFAULT_AUTO_SYNC;
+	const sendsChanges = raw.sendsChanges === true;
+	const minutes = typeof raw.intervalMinutes === "number" ? raw.intervalMinutes : DEFAULT_INTERVAL_MINUTES;
+	return {
+		onStartup: raw.onStartup === true,
+		atInterval: raw.atInterval === true,
+		intervalMinutes: clampInterval(minutes, sendsChanges),
+		sendsChanges,
 	};
 }
 
@@ -98,6 +204,12 @@ export function serializeSettings(settings: DeviceSettings): StoredSettings {
 		branch: settings.branch,
 		tokenSecret: settings.tokenSecret,
 		deviceName: settings.deviceName,
+		autoSync: {
+			onStartup: settings.autoSync.onStartup,
+			atInterval: settings.autoSync.atInterval,
+			intervalMinutes: settings.autoSync.intervalMinutes,
+			sendsChanges: settings.autoSync.sendsChanges,
+		},
 	};
 }
 

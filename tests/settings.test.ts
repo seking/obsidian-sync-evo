@@ -11,12 +11,18 @@
 
 import { describe, expect, test } from "vitest";
 import {
+	type AutoSyncSettings,
+	clampInterval,
 	type Connection,
 	connectionChange,
 	connectionOf,
+	DEFAULT_AUTO_SYNC,
 	defaultDeviceName,
 	defaultSettings,
 	type DeviceSettings,
+	intervalToStore,
+	minIntervalMinutes,
+	withSendsChanges,
 	deviceNameProblem,
 	normalizeRepository,
 	repositoryToStore,
@@ -33,6 +39,7 @@ const settings = (over: Partial<DeviceSettings> = {}): DeviceSettings => ({
 	branch: "main",
 	tokenSecret: "github-token",
 	deviceName: "Mac",
+	autoSync: DEFAULT_AUTO_SYNC,
 	...over,
 });
 
@@ -44,6 +51,7 @@ describe("the default settings", () => {
 			branch: "main",
 			tokenSecret: "",
 			deviceName: "iPhone",
+			autoSync: { onStartup: false, atInterval: false, intervalMinutes: 15, sendsChanges: false },
 		});
 		expect(connectionOf(defaultSettings("iPhone"))).toBeNull();
 	});
@@ -73,6 +81,7 @@ describe("reading stored settings", () => {
 			branch: "main",
 			tokenSecret: "github-token",
 			deviceName: "Mac",
+			autoSync: { onStartup: false, atInterval: false, intervalMinutes: 15, sendsChanges: false },
 		});
 	});
 
@@ -392,5 +401,118 @@ describe("a change of the connection", () => {
 		const withToken = { ...withRepository, tokenSecret: "github-token" };
 		expect(change(start, withRepository)).toBe("set");
 		expect(change(withRepository, withToken)).toBe("none");
+	});
+});
+
+describe("the settings of automatic sync", () => {
+	const auto = (over: Partial<AutoSyncSettings> = {}): AutoSyncSettings => ({ ...DEFAULT_AUTO_SYNC, ...over });
+	const stored = (autoSync: unknown): unknown => ({ ...serializeSettings(settings()), autoSync });
+	const read = (autoSync: unknown): AutoSyncSettings => {
+		const parsed = parseSettings(stored(autoSync), "Mac");
+		if (parsed.status !== "ok") throw new Error("not read");
+		return parsed.settings.autoSync;
+	};
+
+	test("everything is off by default, and the interval is 15 minutes", () => {
+		expect(DEFAULT_AUTO_SYNC).toEqual({ onStartup: false, atInterval: false, intervalMinutes: 15, sendsChanges: false });
+	});
+
+	test("what was saved is read back the same, also through JSON", () => {
+		const saved = settings({ autoSync: { onStartup: true, atInterval: true, intervalMinutes: 30, sendsChanges: true } });
+		expect(parseSettings(JSON.parse(JSON.stringify(serializeSettings(saved))), "Mac")).toEqual({
+			status: "ok",
+			settings: saved,
+		});
+	});
+
+	test("the stored form carries only the known fields", () => {
+		const withExtra = { ...auto({ onStartup: true }), secret: "x" } as AutoSyncSettings;
+		expect(serializeSettings(settings({ autoSync: withExtra })).autoSync).toEqual({
+			onStartup: true,
+			atInterval: false,
+			intervalMinutes: 15,
+			sendsChanges: false,
+		});
+	});
+
+	test("settings stored before there was automatic sync have it off", () => {
+		const { autoSync: _dropped, ...older } = serializeSettings(settings());
+		expect(parseSettings(older, "Mac")).toEqual({ status: "ok", settings: settings() });
+	});
+
+	test.each<[string, unknown]>([
+		["nothing", undefined],
+		["null", null],
+		["a list", [true, true]],
+		["text", "on"],
+	])("%s in its place is everything off", (_name, raw) => {
+		expect(read(raw)).toEqual(DEFAULT_AUTO_SYNC);
+	});
+
+	test("a switch is on only when it was stored as on", () => {
+		expect(read({ onStartup: 1, atInterval: "true", sendsChanges: {}, intervalMinutes: 20 })).toEqual(
+			auto({ intervalMinutes: 20 }),
+		);
+		expect(read({ onStartup: true })).toEqual(auto({ onStartup: true }));
+	});
+
+	test.each<[unknown, boolean, number]>([
+		[0, false, 1],
+		[-5, false, 1],
+		[1, false, 1],
+		[1, true, 5],
+		[4, true, 5],
+		[5, true, 5],
+		[1440, false, 1440],
+		[100_000, true, 1440],
+		[7.4, false, 7],
+		["20", false, 15],
+		[null, false, 15],
+		[Number.NaN, false, 15],
+		[Number.POSITIVE_INFINITY, false, 15],
+	])("a stored interval of %j, sending %j, is read as %j", (minutes, sendsChanges, expected) => {
+		expect(read({ atInterval: true, sendsChanges, intervalMinutes: minutes }).intervalMinutes).toBe(expected);
+	});
+
+	test("the lower bound is 5 minutes when sending and 1 minute when not", () => {
+		expect(minIntervalMinutes(true)).toBe(5);
+		expect(minIntervalMinutes(false)).toBe(1);
+		expect(clampInterval(3, true)).toBe(5);
+		expect(clampInterval(3, false)).toBe(3);
+		expect(clampInterval(2000, false)).toBe(1440);
+	});
+
+	test("switching sending on raises an interval below 5 minutes to 5", () => {
+		expect(withSendsChanges(auto({ intervalMinutes: 2 }), true)).toEqual(auto({ intervalMinutes: 5, sendsChanges: true }));
+		expect(withSendsChanges(auto({ intervalMinutes: 30 }), true).intervalMinutes).toBe(30);
+	});
+
+	test("switching sending off leaves the interval as it is", () => {
+		expect(withSendsChanges(auto({ intervalMinutes: 5, sendsChanges: true }), false)).toEqual(auto({ intervalMinutes: 5 }));
+	});
+
+	test.each<[string, boolean, number | null]>([
+		["15", false, 15],
+		[" 15 ", false, 15],
+		["1", false, 1],
+		["1", true, null],
+		["4", true, null],
+		["5", true, 5],
+		["1440", true, 1440],
+		["1441", false, null],
+		["0", false, null],
+		["", false, null],
+		["-3", false, null],
+		["1.5", false, null],
+		["ten", false, null],
+		["1e2", false, null],
+	])("typed %j, sending %j, is stored as %j", (typed, sendsChanges, expected) => {
+		expect(intervalToStore(typed, sendsChanges)).toBe(expected);
+	});
+
+	test("changing them is no change of the connection", () => {
+		const before = settings();
+		const after = settings({ autoSync: { onStartup: true, atInterval: true, intervalMinutes: 5, sendsChanges: true } });
+		expect(connectionChange(connectionOf(before), connectionOf(after))).toBe("none");
 	});
 });
