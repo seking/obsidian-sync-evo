@@ -87,7 +87,7 @@ const offline = new BackendError("unreachable", "resolve head: the request faile
 describe("a pull that started by itself", () => {
 	test("that went well tells nothing, whatever it fetched", () => {
 		const report = pull({ counts: { fetched: 12, deleted: 3, renamed: 1, conflicts: 0 }, refetched: 2 });
-		expect(report).toEqual({ happened: [], standing: [], cause: null, end: "success" });
+		expect(report).toEqual({ happened: [], standing: [], questions: [], cause: null, end: "success" });
 		expect(pull({ outcome: "remote-empty", revision: null, remoteEmpty: true })).toEqual(report);
 	});
 
@@ -182,7 +182,7 @@ describe("a pull that started by itself", () => {
 		["a stop", { outcome: "cancelled" }],
 		["a no", { outcome: "declined" }],
 	])("%s is neither a success nor a failure, and has nothing to tell", (_name, result) => {
-		expect(pull(result)).toEqual({ happened: [], standing: [], cause: null, end: "neither" });
+		expect(pull(result)).toEqual({ happened: [], standing: [], questions: [], cause: null, end: "neither" });
 	});
 
 	test("a file that is being typed in beside one that cannot be read: only the second is told, and is the cause", () => {
@@ -210,7 +210,7 @@ describe("a pull that started by itself", () => {
 				{ path: "after.md", reason: "depends-on-deferred" },
 			],
 		});
-		expect(report).toEqual({ happened: [], standing: [], cause: null, end: "neither" });
+		expect(report).toEqual({ happened: [], standing: [], questions: [], cause: null, end: "neither" });
 	});
 
 	test.each<[NonNullable<PullResult["waitingFor"]>, string]>([
@@ -225,6 +225,8 @@ describe("a pull that started by itself", () => {
 		expect(report.standing[0]).toContain("Nothing was changed. Sync manually to ");
 		// Named once, by the heading.
 		expect(report.standing[0]?.match(/utomatic sync/g)).toHaveLength(1);
+		// The one text that is taken down when the user starts a sync.
+		expect(report.questions).toEqual(report.standing);
 	});
 
 	test("the wait for a first fetch is worded so that it is true with and without something to confirm", () => {
@@ -249,6 +251,7 @@ describe("a push that started by itself", () => {
 		expect(push({ counts: { added: 2, modified: 1, deleted: 1 } })).toEqual({
 			happened: [],
 			standing: [],
+			questions: [],
 			cause: null,
 			end: "success",
 		});
@@ -314,7 +317,7 @@ describe("a push that started by itself", () => {
 
 	test("another device that pushed in between is neither told nor a failure: the next sync pulls first", () => {
 		const report = push({ outcome: "pull-first", reason: "remote-moved", revision: null });
-		expect(report).toEqual({ happened: [], standing: [], cause: null, end: "neither" });
+		expect(report).toEqual({ happened: [], standing: [], questions: [], cause: null, end: "neither" });
 	});
 
 	test.each<NonNullable<PushRunResult["reason"]>>([
@@ -340,6 +343,8 @@ describe("a push that started by itself", () => {
 		expect(report.standing[0]?.startsWith(HEADING + start)).toBe(true);
 		expect(report.standing[0]).toContain("Nothing was sent. Sync manually to be asked.");
 		expect(report.standing[0]?.match(/utomatic sync/g)).toHaveLength(1);
+		// The one text that is taken down when the user starts a sync.
+		expect(report.questions).toEqual(report.standing);
 	});
 
 	test("a stop and a no are neither", () => {
@@ -355,6 +360,7 @@ describe("a sync that ended by throwing", () => {
 		expect(report).toEqual({
 			happened: [],
 			standing: [`${HEADING}The pull failed. Could not reach GitHub. Check the network connection and try again.`],
+			questions: [],
 			cause: "error:unreachable",
 			end: "failure",
 		});
@@ -374,6 +380,7 @@ describe("a sync that ended by throwing", () => {
 		expect(failureAutoReport(t, new BackendError("cancelled", "stopped"), "x")).toEqual({
 			happened: [],
 			standing: [],
+			questions: [],
 			cause: null,
 			end: "neither",
 		});
@@ -384,6 +391,7 @@ describe("a sync that ended by throwing", () => {
 		expect(report).toEqual({
 			happened: [],
 			standing: [`${HEADING}The secret holds no token.`],
+			questions: [],
 			cause: "not-ready:token-value",
 			end: "failure",
 		});
@@ -397,7 +405,7 @@ describe("a sync that ended by throwing", () => {
 });
 
 describe("the parts of one sync as one", () => {
-	const good: AutoReport = { happened: [], standing: [], cause: null, end: "success" };
+	const good: AutoReport = { happened: [], standing: [], questions: [], cause: null, end: "success" };
 
 	test("a pull and a push that went well went well", () => {
 		expect(joinAutoReports([good, good])).toEqual(good);
@@ -426,11 +434,13 @@ describe("the parts of one sync as one", () => {
 
 		expect(whole.happened).toEqual([...first.happened, ...second.happened]);
 		expect(whole.standing).toEqual([...first.standing, ...second.standing]);
+		// Only the question: a file that could not be read stays told.
+		expect(whole.questions).toEqual([second.standing[0]]);
 		expect(whole.cause).toBe(`pull:incomplete:unreadable#${filesDigest(["b.md"])} push:waiting:deletions`);
 	});
 
 	test("no part at all is nothing to go by", () => {
-		expect(joinAutoReports([])).toEqual({ happened: [], standing: [], cause: null, end: "neither" });
+		expect(joinAutoReports([])).toEqual({ happened: [], standing: [], questions: [], cause: null, end: "neither" });
 	});
 });
 
@@ -438,7 +448,7 @@ describe("what is told, and what is remembered of it", () => {
 	const START = 1_700_000_000_000;
 	const memory = (over: Partial<AutoSyncMemory> = {}): AutoSyncMemory => ({ ...NO_AUTO_SYNC_MEMORY, lastStartedAt: START, ...over });
 	const failed = failureAutoReport(t, offline, "The pull failed.");
-	const good: AutoReport = { happened: [], standing: [], cause: null, end: "success" };
+	const good: AutoReport = { happened: [], standing: [], questions: [], cause: null, end: "success" };
 
 	/** Automatic syncs one after the other: how many notices each showed, and what is remembered at the end. */
 	function run(reports: readonly AutoReport[], from = memory()): { shown: number[]; memory: AutoSyncMemory } {

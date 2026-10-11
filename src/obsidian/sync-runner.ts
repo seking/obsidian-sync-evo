@@ -197,6 +197,12 @@ export class SyncRunner {
 	private late: number | null = null;
 	/** The running sync, part by part, as a sync that started by itself tells it (`auto-report.ts`). */
 	private parts: AutoReport[] = [];
+	/**
+	 * The notices of syncs that started by themselves that say a question
+	 * waits for a sync the user starts (`AutoReport.questions`), until one
+	 * does. They stay until dismissed, and would lie over that question.
+	 */
+	private questions: Notice[] = [];
 
 	constructor(host: SyncHost) {
 		this.host = host;
@@ -292,12 +298,23 @@ export class SyncRunner {
 	 * (`UntrackQuestion.shown`).
 	 */
 	run(mode: SyncMode = "sync", shown: readonly string[] = []): Promise<void> {
+		this.hideQuestions();
 		// A sync that started by itself is in the way. The user sees none
 		// running, and is not told that one is.
 		if (this.controller !== null && this.quiet && !this.takingOver && !this.stopped) {
 			return this.takeOver(mode, shown);
 		}
 		return this.start(mode, shown, null);
+	}
+
+	/**
+	 * What the user was told to do is being done: the questions that wait
+	 * for a sync by hand go off the screen. Only off the screen: what was
+	 * told stays remembered as told.
+	 */
+	private hideQuestions(): void {
+		for (const notice of this.questions) notice.hide();
+		this.questions = [];
 	}
 
 	/**
@@ -322,6 +339,9 @@ export class SyncRunner {
 			} finally {
 				this.takingOver = false;
 			}
+			// The one that was stopped may have been past its end already,
+			// and have put its question up while it was waited for.
+			this.hideQuestions();
 			// The plugin went away, or the user said stop after all.
 			if (this.stopped || this.takeOverStopped) return;
 			// The connection was changed meanwhile. What was asked for was
@@ -817,7 +837,10 @@ export class SyncRunner {
 		log(`automatic sync: ${whole.end}${whole.cause === null ? "" : ` (${whole.cause})`}`);
 		// The user asked for the stop, and is told that it was heard.
 		if (this.stopping && !this.connectionChanged) this.show(this.stoppedText());
-		for (const text of autoTexts(whole, tell)) this.show(text, 0);
+		for (const text of autoTexts(whole, tell)) {
+			const notice = this.show(text, 0);
+			if (notice !== null && whole.questions.includes(text)) this.questions.push(notice);
+		}
 	}
 
 	/**
@@ -995,8 +1018,8 @@ export class SyncRunner {
 			: stoppedText(t, this.connectionChanged);
 	}
 
-	private show(text: string, duration?: number): void {
-		if (this.stopped) return;
-		new Notice(text, duration);
+	private show(text: string, duration?: number): Notice | null {
+		if (this.stopped) return null;
+		return new Notice(text, duration);
 	}
 }

@@ -5905,6 +5905,7 @@ describe("a file that is being typed in, in a pull that started by itself", () =
 		expect(pullAutoReport(translatorFor("en"), result, reportOptions)).toEqual({
 			happened: [],
 			standing: [],
+			questions: [],
 			cause: null,
 			end: "neither",
 		});
@@ -6000,7 +6001,7 @@ describe("a file that is being typed in, in a pull that started by itself", () =
 		const result = await h.pull(typingIn("a.md"));
 
 		const t = translatorFor("en");
-		expect(pullAutoReport(t, result, reportOptions)).toEqual({ happened: [], standing: [], cause: null, end: "neither" });
+		expect(pullAutoReport(t, result, reportOptions)).toEqual({ happened: [], standing: [], questions: [], cause: null, end: "neither" });
 		expect(pullReport(t, result, reportOptions).details).toEqual([]);
 	});
 

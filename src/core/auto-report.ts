@@ -58,6 +58,11 @@ export interface AutoReport {
 	/** What stands in the way. Shown when `cause` is not the one that was last told. */
 	readonly standing: readonly string[];
 	/**
+	 * Those of `standing` that say a question waits for a sync the user
+	 * starts. Once one has started they have said it, and are taken down.
+	 */
+	readonly questions: readonly string[];
+	/**
 	 * What `standing` is about: the same text for as long as the same thing
 	 * is wrong. `null` when nothing is. Where it is about files of the
 	 * vault that have to be seen to one by one (a file that cannot be read,
@@ -69,7 +74,7 @@ export interface AutoReport {
 	readonly end: SyncEnd;
 }
 
-const NOTHING: AutoReport = { happened: [], standing: [], cause: null, end: "neither" };
+const NOTHING: AutoReport = { happened: [], standing: [], questions: [], cause: null, end: "neither" };
 
 // The reasons a file is put off that are told (`pull-report.ts`). The others
 // are an editor in the middle of typing: no text tells them, and the next
@@ -125,14 +130,17 @@ export function pullAutoReport(t: Translate, result: PullResult, options: PullRe
 	switch (result.outcome) {
 		case "completed":
 		case "remote-empty":
-			return { happened, standing: [], cause: null, end: "success" };
-		case "waiting":
+			return { happened, standing: [], questions: [], cause: null, end: "success" };
+		case "waiting": {
+			const question = headed(t, pullSummaryText(t, result));
 			return {
 				happened,
-				standing: [headed(t, pullSummaryText(t, result))],
+				standing: [question],
+				questions: [question],
 				cause: `pull:waiting:${result.waitingFor ?? "deletions"}`,
 				end: "waiting",
 			};
+		}
 		case "incomplete": {
 			if (isCancellation(result.fetchError)) return { ...NOTHING, happened };
 			const reasons = new Set<string>();
@@ -144,7 +152,8 @@ export function pullAutoReport(t: Translate, result: PullResult, options: PullRe
 			}
 			// Files that were being typed in, and nothing else.
 			if (reasons.size === 0) return { ...NOTHING, happened };
-			return { happened, standing, cause: `pull:incomplete:${[...reasons].sort().join(",")}`, end: "failure" };
+			const cause = `pull:incomplete:${[...reasons].sort().join(",")}`;
+			return { happened, standing, questions: [], cause, end: "failure" };
 		}
 		case "declined":
 		case "cancelled":
@@ -157,6 +166,7 @@ export function pushAutoReport(t: Translate, result: PushRunResult, options: Pus
 	const details = pushDetails(t, result, options);
 	const happened = details.filter((detail) => !detail.standing).map((detail) => headed(t, detail.text));
 	const standing = details.filter((detail) => detail.standing).map((detail) => headed(t, detail.text));
+	const questions: string[] = [];
 
 	// What the texts of the files that were not sent are about, each with
 	// which files.
@@ -192,14 +202,15 @@ export function pushAutoReport(t: Translate, result: PushRunResult, options: Pus
 		case "waiting":
 			end = "waiting";
 			causes.unshift(`push:waiting:${result.waitingFor ?? "deletions"}`);
-			standing.unshift(headed(t, pushSummaryText(t, result)));
+			questions.push(headed(t, pushSummaryText(t, result)));
+			standing.unshift(...questions);
 			break;
 		case "declined":
 		case "cancelled":
 			end = "neither";
 			break;
 	}
-	return { happened, standing, cause: causes.length === 0 ? null : causes.join(" "), end };
+	return { happened, standing, questions, cause: causes.length === 0 ? null : causes.join(" "), end };
 }
 
 /**
@@ -210,7 +221,7 @@ export function pushAutoReport(t: Translate, result: PushRunResult, options: Pus
  */
 export function failureAutoReport(t: Translate, error: unknown, text: string): AutoReport {
 	if (isCancellation(error)) return NOTHING;
-	return { happened: [], standing: [headed(t, text)], cause: `error:${kindOf(error)}`, end: "failure" };
+	return { happened: [], standing: [headed(t, text)], questions: [], cause: `error:${kindOf(error)}`, end: "failure" };
 }
 
 /**
@@ -221,7 +232,7 @@ export function failureAutoReport(t: Translate, error: unknown, text: string): A
  * at the clock.
  */
 export function notReadyAutoReport(t: Translate, reason: NotReadyReason, text: string): AutoReport {
-	return { happened: [], standing: [headed(t, text)], cause: `not-ready:${reason}`, end: "failure" };
+	return { happened: [], standing: [headed(t, text)], questions: [], cause: `not-ready:${reason}`, end: "failure" };
 }
 
 /** A sync that had no sync state to run with. */
@@ -229,6 +240,7 @@ export function stateAutoReport(t: Translate, problem: StateProblem): AutoReport
 	return {
 		happened: [],
 		standing: [headed(t, stateProblemText(t, problem))],
+		questions: [],
 		cause: `state:${problem}`,
 		end: "failure",
 	};
@@ -247,6 +259,7 @@ export function joinAutoReports(parts: readonly AutoReport[]): AutoReport {
 	return {
 		happened: parts.flatMap((part) => part.happened),
 		standing: parts.flatMap((part) => part.standing),
+		questions: parts.flatMap((part) => part.questions),
 		cause: causes.length === 0 ? null : causes.join(" "),
 		end: parts.reduce<SyncEnd>(
 			(worst, part) => (END_ORDER.indexOf(part.end) > END_ORDER.indexOf(worst) ? part.end : worst),

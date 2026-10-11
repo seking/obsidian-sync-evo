@@ -24,6 +24,8 @@ import { MemoryStateStore } from "./support/memory-state-store";
 const app = vi.hoisted(() => ({
 	/** Every notice that was put up, in order. */
 	notices: [] as string[],
+	/** Every notice that was taken down, in order. */
+	hidden: [] as string[],
 	/** Answers a request: rejects like a device without a network unless a test says otherwise. */
 	request: (): Promise<unknown> => Promise.reject(new Error("net::ERR_INTERNET_DISCONNECTED")),
 	requests: 0,
@@ -31,11 +33,15 @@ const app = vi.hoisted(() => ({
 
 vi.mock("obsidian", () => {
 	class Notice {
+		private readonly text: string;
 		constructor(text: string) {
+			this.text = text;
 			app.notices.push(text);
 		}
 		setMessage(): void {}
-		hide(): void {}
+		hide(): void {
+			app.hidden.push(this.text);
+		}
 	}
 	class Empty {}
 	return {
@@ -161,6 +167,7 @@ const underWay = async (): Promise<void> => {
 
 beforeEach(() => {
 	app.notices.length = 0;
+	app.hidden.length = 0;
 	app.requests = 0;
 	app.request = () => Promise.reject(new Error("net::ERR_INTERNET_DISCONNECTED"));
 	vi.stubGlobal("window", { setTimeout, clearTimeout });
@@ -477,6 +484,45 @@ describe("where the user types", () => {
 
 		expect(app.requests).toBeGreaterThan(1);
 		expect(editing.asked).toBe(0);
+	});
+});
+
+describe("what a sync that started by itself left on the screen", () => {
+	const sending = { autoSync: { ...DEFAULT_AUTO_SYNC, atInterval: true, sendsChanges: true } };
+	const QUESTION = "The first push from this device needs your confirmation.";
+	const automatic = (texts: string[]): string[] => texts.filter((text) => text.startsWith(HEADING));
+
+	test("a question that waits is taken down when the user starts a sync, and stays remembered as told", async () => {
+		const { runner, store } = setup(sending, { "a.md": "A" });
+		emptyRemote();
+		await runner.runAuto("full");
+		expect(automatic(app.hidden)).toEqual([]);
+		const { told } = await readAutoSyncMemory(store);
+		// Held, so that the sync the user starts has not ended when it is looked at.
+		const held = heldRequest();
+		app.requests = 0;
+
+		const manual = runner.run("pull");
+		await underWay();
+
+		expect(automatic(app.hidden)).toEqual([expect.stringContaining(QUESTION)]);
+		expect(await readAutoSyncMemory(store)).toMatchObject({ told });
+		held.fail();
+		await manual;
+		// Once: a later sync does not take it down again.
+		app.request = () => Promise.reject(new Error("offline"));
+		await runner.run("pull");
+		expect(automatic(app.hidden)).toHaveLength(1);
+	});
+
+	test("a failure is not: it stays until it is dismissed", async () => {
+		const { runner } = setup();
+		await runner.runAuto("full");
+		expect(app.notices).toEqual([HEADING + OFFLINE]);
+
+		await runner.run("pull");
+
+		expect(automatic(app.hidden)).toEqual([]);
 	});
 });
 
