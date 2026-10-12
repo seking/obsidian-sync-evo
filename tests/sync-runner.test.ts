@@ -206,7 +206,7 @@ beforeEach(() => {
 	app.request = () => Promise.reject(new Error("net::ERR_INTERNET_DISCONNECTED"));
 	vi.stubGlobal("window", { setTimeout, clearTimeout });
 	vi.stubGlobal("document", { visibilityState: "visible", addEventListener: () => {}, removeEventListener: () => {} });
-	vi.spyOn(console, "info").mockImplementation(() => {});
+	vi.spyOn(console, "debug").mockImplementation(() => {});
 	vi.spyOn(console, "error").mockImplementation(() => {});
 });
 
@@ -647,7 +647,7 @@ describe("the end of a sync", () => {
 			throw new Error("the sync state is gone");
 		};
 		// And what tells of it fails as well.
-		vi.mocked(console.info).mockImplementation((message?: unknown) => {
+		vi.mocked(console.debug).mockImplementation((message?: unknown) => {
 			if (String(message).includes("automatic sync: failure")) throw new Error("no console");
 		});
 

@@ -20,7 +20,7 @@ const ring = new LogRing();
 /** Writes a line to the console, and keeps it to be read on the device (`showLog`). */
 export const log = (message: string): void => {
 	ring.add(Date.now(), message);
-	console.info(`Sync Evo: ${message}`);
+	console.debug(`Sync Evo: ${message}`);
 };
 
 /** Shows the lines that are kept, as they are at this moment. */

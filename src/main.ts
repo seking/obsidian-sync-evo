@@ -23,7 +23,6 @@ import {
 } from "./core/exclusion-settings";
 import { settleGitignoreWrite } from "./core/gitignore-file";
 import { GitHubClient } from "./core/github/client";
-import { timerSleep } from "./core/github/timer-sleep";
 import { type Translate, translatorFor } from "./core/i18n";
 import { DEFAULT_SIZE_LIMIT } from "./core/plan";
 import { readSymlinkTargets, type SymlinkTarget } from "./core/pull";
@@ -49,6 +48,7 @@ import { type SyncHost, SyncRunner } from "./obsidian/sync-runner";
 import { SettingsStore } from "./obsidian/settings-store";
 import { type SettingsHost, SyncEvoSettingTab } from "./obsidian/settings-tab";
 import { SyncState, syncStateDepsOf } from "./obsidian/sync-state";
+import { windowSleep } from "./obsidian/window-sleep";
 
 export default class SyncEvoPlugin extends Plugin implements SettingsHost, SyncHost {
 	/** Looks up every text the plugin shows, in the language of the app. */
@@ -390,7 +390,7 @@ export default class SyncEvoPlugin extends Plugin implements SettingsHost, SyncH
 					...target,
 					http: deviceNetwork().http,
 					now: Date.now,
-					sleep: timerSleep,
+					sleep: windowSleep,
 					// The user is looking at the button. A limit is reported, not waited out.
 					onRateLimit: () => false,
 				}),

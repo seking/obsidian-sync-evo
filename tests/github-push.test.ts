@@ -21,7 +21,7 @@ import {
 	TREE_CHUNK_INLINE_FILES,
 } from "../src/core/github/backend";
 import { GitHubClient, HeadMemory } from "../src/core/github/client";
-import { timerSleep } from "../src/core/github/timer-sleep";
+import { timerSleepOn } from "../src/core/github/timer-sleep";
 import { runPull } from "../src/core/pull";
 import { defaultSectionLines } from "../src/core/exclusion";
 import { withSection } from "../src/core/gitignore-section";
@@ -37,6 +37,8 @@ import { MemoryStateStore } from "./support/memory-state-store";
 
 // The push of the GitHub backend, through the real client, against a fake of
 // GitHub that answers at the level of HTTP.
+
+const timerSleep = timerSleepOn({ setTimeout, clearTimeout });
 
 function setup(signal?: AbortSignal) {
 	const github = new FakeGitHub();

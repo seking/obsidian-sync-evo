@@ -45,7 +45,6 @@ import { type FetchLimitState, FetchLimitWatch, NO_FETCH_LIMIT, sameFetchLimit }
 import { type GitignoreEdit, GitignoreGate } from "../core/gitignore-gate";
 import { GitHubBackend } from "../core/github/backend";
 import { GitHubClient, HeadMemory } from "../core/github/client";
-import { timerSleep } from "../core/github/timer-sleep";
 import type { MessageKey, Translate } from "../core/i18n";
 import { DEFAULT_SIZE_LIMIT } from "../core/plan";
 import { type PullDeps, type PullProgress, type PullResult, runPull } from "../core/pull";
@@ -80,6 +79,7 @@ import { confirmPushIn } from "./push-confirm";
 import type { SyncState } from "./sync-state";
 import { vaultIndexOf } from "./vault-index";
 import { ScreenWakeLock } from "./wake-lock";
+import { windowSleep } from "./window-sleep";
 
 /** What a sync needs from the plugin. Read when a sync starts, so that it runs with the settings of that moment. */
 export interface SyncHost {
@@ -450,7 +450,7 @@ export class SyncRunner {
 			store = opened.store;
 			await this.rememberStart(opened.store);
 
-			const yieldControl = (): Promise<void> => timerSleep(0);
+			const yieldControl = (): Promise<void> => windowSleep(0);
 			// Only a sync that started by itself keeps away from a file that
 			// is being typed in. Starting one by hand ends the typing.
 			const beingEdited =
@@ -460,7 +460,7 @@ export class SyncRunner {
 				...prepared.target,
 				http: network.http,
 				now: Date.now,
-				sleep: timerSleep,
+				sleep: windowSleep,
 				signal: controller.signal,
 				headMemory: this.heads,
 				// Waited out: a fetch of thousands of files does not fit in

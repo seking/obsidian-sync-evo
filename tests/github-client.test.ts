@@ -21,7 +21,7 @@ import {
 	type RateLimitNotice,
 } from "../src/core/github/client";
 import type { HttpRequest, HttpResponse } from "../src/core/github/http";
-import { timerSleep } from "../src/core/github/timer-sleep";
+import { timerSleepOn } from "../src/core/github/timer-sleep";
 
 const TOKEN = "github_pat_SECRET0123456789";
 const REPO = "https://api.github.com/repos/octo/notes";
@@ -1096,7 +1096,8 @@ describe("timeouts and connection failures", () => {
 	});
 });
 
-describe("timerSleep", () => {
+describe("timerSleepOn", () => {
+	const timerSleep = timerSleepOn({ setTimeout, clearTimeout });
 	const pause = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 	/** Whether the sleep has resolved, read without waiting for it. */
