@@ -50,7 +50,8 @@ export const ANDROID_CONCURRENT_FETCH_BYTES = 8 * 1024 * 1024;
 
 // The one host known to allow a call from another origin with the headers
 // the client sends. Every request of the client goes here; a redirect to
-// another host (the zip) is followed by `requestUrl`.
+// another host (the zip) is followed by `requestUrl`, where the zip is asked
+// for at all (`archiveAllowedFor`).
 const CROSS_ORIGIN_HOST = "https://api.github.com/";
 
 // The request headers `fetch` sends, in lower case. GitHub's answer to the
@@ -81,6 +82,22 @@ export function transportFor(request: HttpRequest, platform: HttpPlatform): Http
 /** The limit on the bytes fetched at once that a platform's backend is given. */
 export function concurrentFetchBytesFor(platform: HttpPlatform): number {
 	return platform.isAndroidApp ? ANDROID_CONCURRENT_FETCH_BYTES : MAX_CONCURRENT_FETCH_BYTES;
+}
+
+/**
+ * Whether a platform may fetch by the archive (zip) of a commit. Not on
+ * Android: the zip comes from another host (`codeload.github.com`), which
+ * does not allow a call from another origin, so it cannot be taken with
+ * `fetch` and goes through `requestUrl`, and Java (`FETCH_MIN_BYTES`). A zip
+ * of 65MB crashed the app twice. How large a zip comes through depends on
+ * the limit of the Java heap, which differs by device and cannot be read
+ * from a plugin, and no zip was seen through to its end on Android. So none
+ * is asked for there, of any size, and every pull fetches one file at a
+ * time. To be taken back if Obsidian's request function stops encoding the
+ * response on the Java side.
+ */
+export function archiveAllowedFor(platform: HttpPlatform): boolean {
+	return !platform.isAndroidApp;
 }
 
 /**

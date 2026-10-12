@@ -316,6 +316,12 @@ export interface PullDeps {
 	 * for is still on its way (`ArchiveGate`).
 	 */
 	readonly archiveGate?: ArchiveGate;
+	/**
+	 * Whether this device may fetch by the archive of the remote at all; it
+	 * may when absent. Where it may not, every file is fetched one at a time
+	 * and nothing about the archive is told (`ArchiveSourceDeps.allowed`).
+	 */
+	readonly archiveAllowed?: boolean;
 	/** For the record of how the fetching went, in English. Nothing a user has to read. */
 	readonly log?: (message: string) => void;
 	readonly onProgress?: (progress: PullProgress) => void;

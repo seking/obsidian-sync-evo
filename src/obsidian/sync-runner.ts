@@ -520,7 +520,8 @@ export class SyncRunner {
 					? {
 							// With it go what the device remembers of the zip of the
 							// commit (that it gave up on it, and a download left
-							// unfinished), so that the first fetch tries the zip again.
+							// unfinished), so that the first fetch tries the zip again (on a
+							// device that may use it).
 							// Emptied in place and not removed: see `startOver`.
 							discardState: async (seed) => {
 								await opened.store.startOver(seed);
@@ -536,6 +537,8 @@ export class SyncRunner {
 				// Only the files that are fetched one at a time come through
 				// here: the pull takes many files from the zip of the commit
 				// instead, which is one request and no matter of the quota.
+				// On a device that may not use the zip (`archiveAllowed`),
+				// every file does.
 				// Where the number of files to fetch is known, right before
 				// the first is asked for: a fetch that does not fit in the
 				// quota is told from here on.
@@ -545,6 +548,8 @@ export class SyncRunner {
 					return contents;
 				},
 				archiveGate: this.archiveGate,
+				// Not on Android (`archiveAllowedFor`).
+				archiveAllowed: network.archiveAllowed,
 				// The estimate of the zip beside its real size, to see later
 				// whether the estimate holds.
 				log,

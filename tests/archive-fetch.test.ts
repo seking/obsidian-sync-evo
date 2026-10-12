@@ -140,6 +140,13 @@ describe("the choice of the means", () => {
 		expect(chooseFetchMeans({ ...base, disabled: true })).toBe("per-file");
 		expect(chooseFetchMeans({ ...base, available: false })).toBe("per-file");
 	});
+
+	test("a device that may not use it fetches one file at a time, whatever else holds", () => {
+		expect(chooseFetchMeans({ ...base, allowed: false })).toBe("per-file");
+		expect(chooseFetchMeans({ ...base, allowed: true })).toBe("archive");
+		// It may when nothing is said.
+		expect(chooseFetchMeans(base)).toBe("archive");
+	});
 });
 
 // ---------------------------------------------------------------------------
@@ -1113,6 +1120,71 @@ describe("a device that stops using the archive", () => {
 		expect((await h.pull()).notices).toEqual([]);
 		h.backend.commit({ "new.md": "new" });
 		expect((await h.pull()).notices).toEqual([]);
+	});
+});
+
+describe("a device that may not use the archive", () => {
+	test("fetches one file at a time where the archive would be chosen, and marks no attempt", async () => {
+		const h = harness();
+		const files = notes(1001);
+		h.backend.commit(files);
+		const marks: unknown[] = [];
+		const setMeta = h.store.setMeta.bind(h.store);
+		h.store.setMeta = async (key, value) => {
+			if (key === ARCHIVE_ATTEMPT_KEY) marks.push(value);
+			await setMeta(key, value);
+		};
+
+		const result = await h.pull({ archiveAllowed: false });
+		expect(result.outcome).toBe("completed");
+		expect(result.counts.fetched).toBe(1001);
+		expect(result.notices).toEqual([]);
+		expect(h.backend.zipRequests).toEqual([]);
+		expect(h.perFile.map((asked) => asked.length)).toEqual([1001]);
+		expect(h.vault.snapshot()).toEqual(files);
+		expect(marks).toEqual([]);
+		expect(await h.attempt()).toBeUndefined();
+		expect(await h.disabled()).toBe(false);
+		expect(await h.ceiling()).toBeNull();
+		expect(h.progress.some((event) => event.archive !== undefined)).toBe(false);
+		expect(h.logs.filter((line) => line.startsWith("fetch:"))).toEqual([
+			`fetch: 1001 files to fetch, archive estimated at ${await estimateOf(h)} bytes, archive not used on this platform: per-file`,
+		]);
+
+		// The same pull on a device that may: the archive.
+		const other = harness();
+		other.backend.commit(files);
+		await other.pull({ archiveAllowed: true });
+		expect(other.backend.zipRequests).toHaveLength(1);
+	});
+
+	test("a mark left from before is taken away without a ceiling and without a notice", async () => {
+		const h = harness();
+		h.backend.commit(notes(1001));
+		// Two attempts that did not end: a ceiling, on a device that may.
+		await h.store.setMeta(ARCHIVE_ATTEMPT_KEY, { retries: 1, estimate: 1_000_000 });
+
+		const result = await h.pull({ archiveAllowed: false });
+		expect(result.outcome).toBe("completed");
+		expect(result.notices).toEqual([]);
+		expect(h.backend.zipRequests).toEqual([]);
+		expect(await h.attempt()).toBeUndefined();
+		expect(await h.ceiling()).toBeNull();
+		expect(await h.disabled()).toBe(false);
+		expect(h.progress.some((event) => event.archive !== undefined)).toBe(false);
+		expect(h.logs.some((line) => line.startsWith("archive:"))).toBe(false);
+	});
+
+	test("what it remembered of the archive before is not told", async () => {
+		const h = harness();
+		h.backend.commit(notes(10));
+		await h.store.setMeta(ARCHIVE_CEILING_KEY, 1000);
+		expect((await h.pull({ archiveAllowed: false })).notices).toEqual([]);
+
+		const given = harness();
+		given.backend.commit(notes(10));
+		await given.store.setMeta(ARCHIVE_DISABLED_KEY, true);
+		expect((await given.pull({ archiveAllowed: false })).notices).toEqual([]);
 	});
 });
 

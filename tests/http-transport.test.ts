@@ -14,6 +14,7 @@ import { MAX_CONCURRENT_FETCH_BYTES } from "../src/core/concurrent-fetch";
 import type { HttpRequest } from "../src/core/github/http";
 import {
 	ANDROID_CONCURRENT_FETCH_BYTES,
+	archiveAllowedFor,
 	concurrentFetchBytesFor,
 	FETCH_MIN_BYTES,
 	fetchHttp,
@@ -91,6 +92,11 @@ describe("which way a request goes", () => {
 		expect(concurrentFetchBytesFor(OTHER)).toBe(MAX_CONCURRENT_FETCH_BYTES);
 		// A blob that goes through Java never fills the limit by itself.
 		expect(FETCH_MIN_BYTES).toBeLessThan(ANDROID_CONCURRENT_FETCH_BYTES);
+	});
+
+	test("only Android is kept from the zip of a commit", () => {
+		expect(archiveAllowedFor(ANDROID)).toBe(false);
+		expect(archiveAllowedFor(OTHER)).toBe(true);
 	});
 });
 

@@ -35,6 +35,8 @@ const app = vi.hoisted(() => ({
 	platform: { isAndroidApp: false },
 	/** The options every backend was built with, in order. */
 	backends: [] as { maxConcurrentFetchBytes?: number }[],
+	/** What every pull was given of `archiveAllowed`, in order. */
+	pulls: [] as (boolean | undefined)[],
 }));
 
 vi.mock("obsidian", () => {
@@ -74,6 +76,16 @@ vi.mock("../src/core/github/backend", async (importOriginal) => {
 		}
 	}
 	return { ...original, GitHubBackend };
+});
+
+// The pull is the real one as well; only what it was told of the archive is noted.
+vi.mock("../src/core/pull", async (importOriginal) => {
+	const original = await importOriginal<typeof import("../src/core/pull")>();
+	const runPull: typeof original.runPull = (deps) => {
+		app.pulls.push(deps.archiveAllowed);
+		return original.runPull(deps);
+	};
+	return { ...original, runPull };
 });
 
 const { SyncRunner } = await import("../src/obsidian/sync-runner");
@@ -190,6 +202,7 @@ beforeEach(() => {
 	app.requests = 0;
 	app.platform.isAndroidApp = false;
 	app.backends.length = 0;
+	app.pulls.length = 0;
 	app.request = () => Promise.reject(new Error("net::ERR_INTERNET_DISCONNECTED"));
 	vi.stubGlobal("window", { setTimeout, clearTimeout });
 	vi.stubGlobal("document", { visibilityState: "visible", addEventListener: () => {}, removeEventListener: () => {} });
@@ -613,6 +626,17 @@ describe("the limit on the bytes fetched at once", () => {
 			MAX_CONCURRENT_FETCH_BYTES,
 			ANDROID_CONCURRENT_FETCH_BYTES,
 		]);
+	});
+});
+
+describe("the zip of a commit", () => {
+	test("is not for a pull on Android, and is for one anywhere else", async () => {
+		const { runner } = setup();
+		await runner.runAuto("light");
+		app.platform.isAndroidApp = true;
+		await runner.runAuto("light");
+
+		expect(app.pulls).toEqual([true, false]);
 	});
 });
 

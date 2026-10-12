@@ -107,11 +107,17 @@ export interface FetchMeansInput {
 	readonly ceiling?: number | null;
 	/** Whether the remote has an archive to fetch. */
 	readonly available: boolean;
+	/**
+	 * Whether this device may use the archive at all: a matter of its
+	 * platform, known before anything is tried, and not of what it remembers
+	 * (`disabled`). It may when absent.
+	 */
+	readonly allowed?: boolean;
 }
 
 /** The means for one pull. Everything it goes by is in `input`. */
 export function chooseFetchMeans(input: FetchMeansInput): FetchMeans {
-	if (!input.available || input.disabled) return "per-file";
+	if (!input.available || input.disabled || input.allowed === false) return "per-file";
 	if (input.fetchCount <= ARCHIVE_FILE_THRESHOLD) return "per-file";
 	if (input.estimate > MAX_ARCHIVE_ESTIMATE_BYTES) return "per-file";
 	if (input.ceiling !== undefined && input.ceiling !== null && input.estimate >= input.ceiling) return "per-file";
@@ -255,6 +261,15 @@ export interface ArchiveSourceDeps {
 	readonly signal?: AbortSignal;
 	/** Where the request for the archive is kept while it is on its way. Without one, nothing is waited for. */
 	readonly gate?: ArchiveGate;
+	/**
+	 * Whether this device may use the archive at all; it may when absent.
+	 * `false` on a platform where the archive is known not to be safe to ask
+	 * for, whatever its size. Such a device fetches one file at a time
+	 * always, marks no attempt, and remembers nothing: neither a ceiling nor
+	 * that it gave the archive up, which are what a device that may use it
+	 * learns by trying.
+	 */
+	readonly allowed?: boolean;
 	/** For the record: the estimate and the real size, to see later whether the estimate holds. */
 	readonly log?: (message: string) => void;
 	/**
@@ -309,6 +324,10 @@ export interface ArchiveSourceDeps {
  * archive at all. Any other is not remembered, and the next pull tries the
  * archive again: see `saysDeviceCannot`.
  *
+ * A device that may not use the archive (`allowed`) has none of this: it
+ * fetches with `perFile`, and a mark that is found is taken away without a
+ * word. It was left before the device was kept from the archive.
+ *
  * A failure of the sync state is not one of the fetching: it is thrown as a
  * `SourcedStateError`, and ends the pull.
  */
@@ -325,11 +344,18 @@ async function* fetchByMeans(
 	const store = stateOf(deps.store);
 	const log = deps.log ?? ((): void => {});
 
+	const allowed = deps.allowed ?? true;
 	const estimate = estimateArchiveSize(deps.listing.entries);
 	let left = await readAttempt(store);
 	const disabled = await isArchiveDisabled(store);
 	let ceiling = await readArchiveCeiling(store);
-	if (left !== null && left.retries >= MAX_ARCHIVE_RETRIES) {
+	if (!allowed) {
+		// No attempt is made here, so a mark is one of a version that still
+		// made them. It is not counted towards a ceiling, which this device
+		// has no use for; it is only kept from lingering.
+		if (left !== null) await store.deleteMeta(ARCHIVE_ATTEMPT_KEY);
+		left = null;
+	} else if (left !== null && left.retries >= MAX_ARCHIVE_RETRIES) {
 		// Twice in a row. Whatever the reason, it is not tried for ever: an
 		// archive of that estimate is not asked for again, nor one near it.
 		const lowered = Math.floor((left.estimate ?? estimate) * ARCHIVE_CEILING_RATIO);
@@ -347,12 +373,14 @@ async function* fetchByMeans(
 	const means =
 		revision === null || fetchArchive === undefined
 			? "per-file"
-			: chooseFetchMeans({ fetchCount: entries.length, estimate, disabled, ceiling, available: true });
-	log(
-		`fetch: ${entries.length} files to fetch, archive estimated at ${estimate} bytes` +
-			`${disabled ? ", archive not used on this device" : ""}` +
-			`${ceiling === null ? "" : `, not used from ${ceiling} bytes on`}: ${means}`,
-	);
+			: chooseFetchMeans({ fetchCount: entries.length, estimate, disabled, ceiling, available: true, allowed });
+	// What the device remembers is beside the point where it may not use the
+	// archive in the first place.
+	const why = !allowed
+		? ", archive not used on this platform"
+		: `${disabled ? ", archive not used on this device" : ""}` +
+			`${ceiling === null ? "" : `, not used from ${ceiling} bytes on`}`;
+	log(`fetch: ${entries.length} files to fetch, archive estimated at ${estimate} bytes${why}: ${means}`);
 	if (revision === null || fetchArchive === undefined || means === "per-file") {
 		// A mark that is left stays for the next time the archive is chosen.
 		yield* deps.perFile(revision, entries);

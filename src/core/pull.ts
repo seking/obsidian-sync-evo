@@ -1134,6 +1134,7 @@ class PullRun {
 			...(deps.signal === undefined ? {} : { signal: deps.signal }),
 			...(deps.log === undefined ? {} : { log: deps.log }),
 			...(deps.archiveGate === undefined ? {} : { gate: deps.archiveGate }),
+			...(deps.archiveAllowed === undefined ? {} : { allowed: deps.archiveAllowed }),
 			onDownload: (download) => {
 				this.download = download;
 				this.progress("applying", this.applied.done, this.applied.total);
@@ -1312,11 +1313,15 @@ class PullRun {
 		// Read from the sync state and not handed over by the fetching: the
 		// pull that made the device remember it can have been killed before
 		// it told anything, and the next one tells it then.
-		if (await isArchiveDisabled(this.store)) add("archive-given-up", "");
-		else {
-			// The path is the ceiling: one that came down is told again.
-			const ceiling = await readArchiveCeiling(this.store);
-			if (ceiling !== null) add("archive-limited", String(ceiling));
+		// Not on a device that may not use the archive: what it remembers is
+		// of a version before it was kept from it, and changes nothing there.
+		if (deps.archiveAllowed !== false) {
+			if (await isArchiveDisabled(this.store)) add("archive-given-up", "");
+			else {
+				// The path is the ceiling: one that came down is told again.
+				const ceiling = await readArchiveCeiling(this.store);
+				if (ceiling !== null) add("archive-limited", String(ceiling));
+			}
 		}
 		for (const collision of plan.collisions) {
 			for (const spelling of collision.spellings) add("remote-path-collision", spelling);

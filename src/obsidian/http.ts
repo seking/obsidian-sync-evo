@@ -11,7 +11,7 @@
 
 import { Platform, requestUrl } from "obsidian";
 import type { HttpFunction } from "../core/github/http";
-import { concurrentFetchBytesFor, fetchHttp, type HttpPlatform, transportFor } from "./http-transport";
+import { archiveAllowedFor, concurrentFetchBytesFor, fetchHttp, type HttpPlatform, transportFor } from "./http-transport";
 
 /**
  * `requestUrl` as the core's HTTP function. It is used instead of `fetch`
@@ -58,8 +58,14 @@ export interface DeviceNetwork {
 	readonly http: HttpFunction;
 	/** For `GitHubBackendOptions.maxConcurrentFetchBytes`. */
 	readonly maxConcurrentFetchBytes: number;
+	/** For `PullDeps.archiveAllowed`. */
+	readonly archiveAllowed: boolean;
 }
 
 export function deviceNetwork(): DeviceNetwork {
-	return { http: httpFor(Platform), maxConcurrentFetchBytes: concurrentFetchBytesFor(Platform) };
+	return {
+		http: httpFor(Platform),
+		maxConcurrentFetchBytes: concurrentFetchBytesFor(Platform),
+		archiveAllowed: archiveAllowedFor(Platform),
+	};
 }
