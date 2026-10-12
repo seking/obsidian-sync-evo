@@ -106,6 +106,7 @@ export class SyncEvoSettingTab extends PluginSettingTab {
 		const repository = new Setting(connection)
 			.setName(t("settings.repository.name"))
 			.setDesc(t("settings.repository.desc"));
+		repository.settingEl.addClass("sync-evo-repository");
 		const repositoryNote = note(repository);
 		// Whether the field holds text that was not taken over. The settings
 		// then still name the repository from before, which is not the one on

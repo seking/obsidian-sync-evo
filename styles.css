@@ -59,6 +59,11 @@
 	font-weight: var(--font-normal);
 }
 
+/* The repository in the settings: wide enough to show an owner/name. Where the description and the field share a row (a tablet, a desktop), the long description otherwise leaves the field a few letters wide. On a phone the field is already as wide as the screen, and this changes nothing. */
+.sync-evo-repository input[type="text"] {
+	min-width: min(22em, 60vw);
+}
+
 /* The editor of .gitignore in the settings: as wide as the screen. */
 .sync-evo-gitignore-editor {
 	width: 100%;
