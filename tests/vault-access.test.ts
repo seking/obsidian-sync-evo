@@ -10,6 +10,7 @@
  */
 
 import { describe, expect, test } from "vitest";
+import { mergedCopyPath } from "../src/core/conflict-name";
 import { runPull } from "../src/core/pull";
 import type { PullDeps, PullResult } from "../src/core/pull-io";
 import { readBaseRevision } from "../src/core/state";
@@ -661,7 +662,7 @@ describe("a pull through the routing", () => {
 	);
 
 	test.each(["system", "none", "local"])(
-		"a conflict that is merged: the content from before is written into .trash/ of the vault, with the setting %j",
+		"a conflict that is merged: the content from before is written into its folder in .trash/ of the vault, with the setting %j",
 		async (setting) => {
 			const { ports, backend, pull } = harness(false);
 			ports.trashSetting = setting;
@@ -674,15 +675,19 @@ describe("a pull through the routing", () => {
 			const result = await pull({ mergeConflicts: true });
 
 			expect(result.outcome).toBe("completed");
-			expect(result.merged).toEqual([{ path: "notes/a.md", keptAt: ".trash/a.md" }]);
+			// Two pulls, a minute each, from the start of the harness's clock.
+			const kept = mergedCopyPath("notes/a.md", new Date(Date.UTC(2026, 9, 3, 12, 2, 0)));
+			expect(kept).toMatch(/^\.trash\/\.sync-evo-merged\/2026-10-0[34] a\.md$/);
+			expect(result.merged).toEqual([{ path: "notes/a.md", keptAt: kept }]);
 			expect(ports.text("notes/a.md")).toBe("one, here\ntwo\nthree, there\n");
-			expect(ports.text(".trash/a.md")).toBe("one, here\ntwo\nthree\n");
+			expect(ports.text(kept)).toBe("one, here\ntwo\nthree\n");
 			// Written there, on the disk: nothing is moved away, so the note
 			// is never missing, and the setting for deleted files plays no part.
 			expect(ports.trashed).toEqual([]);
 			expect(ports.calls.filter((call) => /^(writeBinary|modify|create|mkdir) /.test(call))).toEqual([
 				"mkdir .trash",
-				"writeBinary .trash/a.md",
+				"mkdir .trash/.sync-evo-merged",
+				`writeBinary ${kept}`,
 				"modify notes/a.md",
 			]);
 

@@ -19,7 +19,12 @@ import {
 	type ListResult,
 	RateLimitedError,
 } from "../src/core/backend";
-import { conflictCopyPath, isCopyInConflictFolder, originalPathOfConflictCopy } from "../src/core/conflict-name";
+import {
+	conflictCopyPath,
+	isCopyInConflictFolder,
+	mergedCopyPath,
+	originalPathOfConflictCopy,
+} from "../src/core/conflict-name";
 import { FIRST_FETCH_CONFIRMED_KEY, isFirstFetchConfirmed } from "../src/core/first-fetch";
 import { translatorFor } from "../src/core/i18n";
 import { readNotices } from "../src/core/notices";
@@ -723,7 +728,10 @@ describe("a conflict", () => {
 
 describe("a conflict on a device that merges", () => {
 	const PATH = "notes/a.md";
-	const KEPT = ".trash/a.md";
+	// The day of the harness's clock, which the tests move by seconds alone.
+	const kept = (attempt: number): string => mergedCopyPath(PATH, new Date(Date.UTC(2026, 9, 3, 12, 0, 0)), attempt);
+	const KEPT = kept(1);
+	const KEPT_2 = kept(2);
 	const BASE = "# Title\n\none\n\ntwo\n\nthree\n";
 	const MINE = BASE.replace("one", "one, here");
 	const THEIRS = BASE.replace("three", "three, there");
@@ -820,20 +828,20 @@ describe("a conflict on a device that merges", () => {
 		expect(h.backend.contentRequests).toEqual([blobHash(BASE)]);
 	});
 
-	test("a name that is taken in the .trash/ gets a number, like a file the app moves there", async () => {
+	test("a name that is taken gets a number, like the copy of a conflict", async () => {
 		const h = await inConflict();
 		h.vault.put(KEPT, "an older one");
-		h.vault.put(".trash/a 2.md", "and another");
+		h.vault.put(KEPT_2, "and another");
 
 		const result = await h.pull(merging);
 
-		expect(result.merged).toEqual([{ path: PATH, keptAt: ".trash/a 3.md" }]);
+		expect(result.merged).toEqual([{ path: PATH, keptAt: kept(3) }]);
 		expect(h.vault.text(KEPT)).toBe("an older one");
-		expect(h.vault.text(".trash/a 3.md")).toBe(MINE);
+		expect(h.vault.text(kept(3))).toBe(MINE);
 		expect(h.vault.text(PATH)).toBe(MERGED);
 	});
 
-	test("two files of one name in different folders: each has its own file in the .trash/, with its own content", async () => {
+	test("two files of one name in different folders: each has its own file from before, with its own content", async () => {
 		const other = "drafts/a.md";
 		const mineThere = BASE.replace("two", "two, here");
 		const h = await synced({ [PATH]: BASE, [other]: BASE });
@@ -846,7 +854,7 @@ describe("a conflict on a device that merges", () => {
 		expect(result.conflicts).toEqual([]);
 		// Whichever is merged first gets the name without a number.
 		expect(result.merged.map((merge) => merge.path).sort()).toEqual([other, PATH]);
-		expect(result.merged.map((merge) => merge.keptAt).sort()).toEqual([".trash/a 2.md", KEPT]);
+		expect(result.merged.map((merge) => merge.keptAt).sort()).toEqual([KEPT_2, KEPT]);
 		const keptOf = (path: string): string | undefined =>
 			h.vault.text(result.merged.find((merge) => merge.path === path)?.keptAt ?? "");
 		expect(keptOf(PATH)).toBe(MINE);
@@ -1105,9 +1113,9 @@ describe("a conflict on a device that merges", () => {
 			const second = await h.pull(merging);
 
 			expect(second.outcome).toBe("completed");
-			expect(second.merged).toEqual([{ path: PATH, keptAt: ".trash/a 2.md" }]);
+			expect(second.merged).toEqual([{ path: PATH, keptAt: KEPT_2 }]);
 			expect(h.vault.text(PATH)).toBe(MERGED_NEWER.replace("# Title", "# Title, again"));
-			expect(h.vault.text(".trash/a 2.md")).toBe(last);
+			expect(h.vault.text(KEPT_2)).toBe(last);
 		});
 
 		test("changed to something that does not merge: a copy of the newer content", async () => {
@@ -1157,7 +1165,7 @@ describe("a conflict on a device that merges", () => {
 			h.vault.before = undefined;
 			const second = await h.pull(merging);
 
-			expect(second.merged).toEqual([{ path: PATH, keptAt: ".trash/a 2.md" }]);
+			expect(second.merged).toEqual([{ path: PATH, keptAt: KEPT_2 }]);
 			expect(h.vault.text(PATH)).toBe(MERGED);
 		});
 	});
@@ -5098,7 +5106,10 @@ describe("going on after a pull that stopped while writing", () => {
 
 	describe("a merge", () => {
 		const PATH = "notes/a.md";
-		const KEPT = ".trash/a.md";
+		// The day of the harness's clock, which the tests move by seconds alone.
+		const kept = (attempt: number): string => mergedCopyPath(PATH, new Date(Date.UTC(2026, 9, 3, 12, 0, 0)), attempt);
+		const KEPT = kept(1);
+		const KEPT_2 = kept(2);
 		const BASE = "# Title\n\none\n\ntwo\n\nthree\n";
 		const MINE = BASE.replace("one", "one, here");
 		const THEIRS = BASE.replace("three", "three, there");
@@ -5156,9 +5167,9 @@ describe("going on after a pull that stopped while writing", () => {
 
 			const result = await h.pull(merging);
 
-			expect(result.merged).toEqual([{ path: PATH, keptAt: ".trash/a 2.md" }]);
+			expect(result.merged).toEqual([{ path: PATH, keptAt: KEPT_2 }]);
 			expect(result.halfWritten).toEqual([]);
-			expect(h.vault.snapshot()).toEqual({ [PATH]: MERGED, [KEPT]: MINE.slice(0, 9), ".trash/a 2.md": MINE });
+			expect(h.vault.snapshot()).toEqual({ [PATH]: MERGED, [KEPT]: MINE.slice(0, 9), [KEPT_2]: MINE });
 		});
 
 		test("killed right before the merged content was written: the file is as it was, and is merged again", async () => {
@@ -5174,11 +5185,11 @@ describe("going on after a pull that stopped while writing", () => {
 			expect(result.outcome).toBe("completed");
 			expect(result.halfWritten).toEqual([]);
 			expect(result.conflicts).toEqual([]);
-			expect(result.merged).toEqual([{ path: PATH, keptAt: ".trash/a 2.md" }]);
+			expect(result.merged).toEqual([{ path: PATH, keptAt: KEPT_2 }]);
 			expect(h.vault.text(PATH)).toBe(MERGED);
 			// Kept twice, and lost never.
 			expect(h.vault.text(KEPT)).toBe(MINE);
-			expect(h.vault.text(".trash/a 2.md")).toBe(MINE);
+			expect(h.vault.text(KEPT_2)).toBe(MINE);
 			expect(await h.store.readMarkers()).toEqual([]);
 			expect(await h.store.readRecords()).toEqual([mergedRecord]);
 		});
@@ -5375,11 +5386,11 @@ describe("going on after a pull that stopped while writing", () => {
 			expect(result.conflicts).toEqual([]);
 			expect(result.merged).toEqual([
 				{ path: PATH, keptAt: KEPT },
-				{ path: PATH, keptAt: ".trash/a 2.md" },
+				{ path: PATH, keptAt: KEPT_2 },
 			]);
 			expect(h.vault.text(PATH)).toBe("# Title\n\none, here\n\ntwo, there as well\n\nthree, there\n");
 			expect(h.vault.text(KEPT)).toBe(MINE);
-			expect(h.vault.text(".trash/a 2.md")).toBe(MERGED);
+			expect(h.vault.text(KEPT_2)).toBe(MERGED);
 			expect(await h.records()).toEqual(hashes({ [PATH]: later }));
 		});
 

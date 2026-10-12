@@ -82,7 +82,7 @@ export const en = baseCatalog({
 		"When this is off, automatic sync only receives: what you edit on this device is not sent until you sync manually. When it is on, each automatic sync that finds changes on this device makes a commit, so the interval is at least {sendingMin} minutes.",
 	"settings.onConflict.name": "On a conflict",
 	"settings.onConflict.desc":
-		"What happens to a file that was changed both on this device and on the remote. Merging goes line by line, and a file that cannot be merged is kept as a separate file. What a file held on this device before a merge is put in .trash/ in this vault.",
+		"What happens to a file that was changed both on this device and on the remote. Merging goes line by line, and a file that cannot be merged is kept as a separate file. What a file held on this device before a merge is put in .trash/.sync-evo-merged/ in this vault.",
 	"settings.onConflict.merge": "Merge automatically",
 	"settings.onConflict.copy": "Keep as a separate file",
 	"settings.symlinks.name": "Skipped symbolic links",
@@ -372,8 +372,8 @@ export const en = baseCatalog({
 	"pull.conflict.becameFolder": "{copy} ({path} is a folder on the remote now)",
 	"pull.conflict.nameTaken": "{copy} (the remote renamed another file to {path})",
 	"pull.merged": {
-		one: "{count} file was changed both on this device and on the remote, and now holds the changes of both. What it held on this device before is in .trash/ in this vault:\n{list}",
-		other: "{count} files were changed both on this device and on the remote, and now hold the changes of both. What they held on this device before is in .trash/ in this vault:\n{list}",
+		one: "{count} file was changed both on this device and on the remote, and now holds the changes of both. What it held on this device before is in .trash/.sync-evo-merged/ in this vault:\n{list}",
+		other: "{count} files were changed both on this device and on the remote, and now hold the changes of both. What they held on this device before is in .trash/.sync-evo-merged/ in this vault:\n{list}",
 	},
 	"pull.merged.item": "{path} (before: {kept})",
 	"pull.replacedSettings": {
@@ -389,8 +389,8 @@ export const en = baseCatalog({
 		other: "An earlier pull stopped while it was writing {count} files. What was left of them was moved to .trash/ in this vault. A pull fetches the content of the remote. If you had edited them since, you can get your edits back from there:\n{list}",
 	},
 	"pull.halfMerged": {
-		one: "An earlier pull stopped while it was writing the merged content of {count} file. A pull fetches the content of the remote, without the changes of this device. What the file held on this device before the merge is in .trash/ in this vault:\n{list}",
-		other: "An earlier pull stopped while it was writing the merged content of {count} files. A pull fetches the content of the remote, without the changes of this device. What the files held on this device before the merge is in .trash/ in this vault:\n{list}",
+		one: "An earlier pull stopped while it was writing the merged content of {count} file. A pull fetches the content of the remote, without the changes of this device. What the file held on this device before the merge is in .trash/.sync-evo-merged/ in this vault:\n{list}",
+		other: "An earlier pull stopped while it was writing the merged content of {count} files. A pull fetches the content of the remote, without the changes of this device. What the files held on this device before the merge is in .trash/.sync-evo-merged/ in this vault:\n{list}",
 	},
 	"pull.halfCopies": {
 		one: "{count} conflict copy that an earlier pull left unfinished was moved to .trash/ in this vault. A complete copy is made again. If you had edited the copy, your edit is there:\n{list}",

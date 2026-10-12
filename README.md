@@ -16,6 +16,8 @@ A file that was changed both in the vault and in the repository is not overwritt
 
 A copy is kept for 30 days from the end of the day in its name. After that a sync moves it to `.trash/` in the vault, and tells how many it moved; the next push deletes the copy in the repository, and the other devices then remove it as they remove any deleted file. To keep a copy, move it out of `_conflicts/` or rename it. Up to 0.2.0 a copy was made beside its file, as `<name>.conflict-from-<device>-<date>-<time>.<extension>`. Copies of that form stay where they are, are synced as before, and are never moved to `.trash/`.
 
+Under "How it syncs" in the settings, "On a conflict" can be set to merge instead, device by device. Such a file then gets the changes of both sides, line by line, under its own name, and the notice of the sync names it. A file that does not merge that way (both sides changed the same lines, or it is no text, a `.canvas` or a `.base`) is kept as a copy as above. What the file held on the device before the merge is kept in `.trash/.sync-evo-merged/` in the vault, as `<date> <name>.<extension>`: for `notes/a.md` that is `.trash/.sync-evo-merged/2026-10-13 a.md`, and a second one on the same day is `2026-10-13 a (1).md`. It is not synced, Obsidian does not show it, and Sync Evo never deletes it: delete the folder when you no longer need what is in it.
+
 Sync Evo stops and asks before it goes on when
 
 - a pull or a push would delete many files (more than 50, or more than 5 that are also more than a tenth of all files),
@@ -28,7 +30,6 @@ What is synced is decided by the `.gitignore` at the root of the vault, so that 
 
 ## Not supported yet
 
-- **Merging** two versions of a note. A conflict always leaves both versions as files.
 - **Submodules.** The folder of a submodule is not created on the device, and nothing in it is fetched or sent. Sync Evo tells you once when the repository has one.
 - **Git LFS.** A pointer file is synced as it is, and the content it stands for is not fetched.
 - **Line ending conversion.** The `text` and `eol` settings of `.gitattributes` are not applied: every file is stored and written byte for byte as the repository holds it.

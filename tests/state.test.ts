@@ -263,26 +263,26 @@ describe("a write marker", () => {
 	});
 
 	test("the marker of a merge says what it writes, what the remote has, and where the content from before is", () => {
-		const marker = makeMergeMarker("notes/a.md", OTHER, HASH, "c".repeat(40), ".trash/a.md");
+		const marker = makeMergeMarker("notes/a.md", OTHER, HASH, "c".repeat(40), ".trash/.sync-evo-merged/2026-10-13 a.md");
 		expect(marker).toEqual({
 			key: "notes/a.md",
 			path: "notes/a.md",
 			before: OTHER,
 			writing: HASH,
 			conflictCopy: false,
-			merge: { onto: "c".repeat(40), kept: ".trash/a.md" },
+			merge: { onto: "c".repeat(40), kept: ".trash/.sync-evo-merged/2026-10-13 a.md" },
 		});
-		expect(mergeOf(marker)).toEqual({ onto: "c".repeat(40), kept: ".trash/a.md" });
+		expect(mergeOf(marker)).toEqual({ onto: "c".repeat(40), kept: ".trash/.sync-evo-merged/2026-10-13 a.md" });
 		expect(mergeOf(makeMarker("notes/a.md", OTHER, HASH, false))).toBeNull();
 	});
 
 	test("stored field by field: what a marker says of a merge is kept when it is whole, and never on a copy", () => {
-		const marker = makeMergeMarker("notes/a.md", OTHER, HASH, "c".repeat(40), ".trash/a.md");
-		const merge = { onto: "c".repeat(40), kept: ".trash/a.md" };
+		const marker = makeMergeMarker("notes/a.md", OTHER, HASH, "c".repeat(40), ".trash/.sync-evo-merged/2026-10-13 a.md");
+		const merge = { onto: "c".repeat(40), kept: ".trash/.sync-evo-merged/2026-10-13 a.md" };
 		expect(plainMarker({ ...marker, extra: 1 } as WriteMarker)).toEqual(marker);
 		expect(plainMarker({ ...marker, merge: { ...merge, more: 1 } } as WriteMarker)).toEqual(marker);
 		const plain = makeMarker("notes/a.md", OTHER, HASH, false);
-		for (const bad of [null, "x", {}, { onto: "c" }, { kept: ".trash/a.md" }, { onto: 1, kept: ".trash/a.md" }]) {
+		for (const bad of [null, "x", {}, { onto: "c" }, { kept: ".trash/.sync-evo-merged/2026-10-13 a.md" }, { onto: 1, kept: ".trash/.sync-evo-merged/2026-10-13 a.md" }]) {
 			const stored = plainMarker({ ...plain, merge: bad } as unknown as WriteMarker);
 			expect(stored).toEqual(plain);
 			expect(mergeOf({ ...plain, merge: bad } as unknown as WriteMarker)).toBeNull();

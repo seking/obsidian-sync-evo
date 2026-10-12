@@ -47,7 +47,7 @@
 // neither: it is thrown, and ends the pull.
 
 import type { Backend, RemoteEntry, RemoteListing } from "./backend";
-import { CONFLICT_FOLDER, conflictCopyPath, isConflictFolder } from "./conflict-name";
+import { CONFLICT_FOLDER, MERGED_FOLDER, conflictCopyPath, isConflictFolder, mergedCopyPath } from "./conflict-name";
 import { isInConfigDir } from "./exclusion";
 import { areMergeable, isMergedPath, mergeContents } from "./merge";
 import { foldedKey, pathKey } from "./paths";
@@ -104,9 +104,6 @@ export interface Seen {
 
 /** A vault file as it was read. */
 type ReadFile = Seen & { readonly content: Uint8Array };
-
-/** The `.trash/` of the vault, where the app puts deleted files when it is set to. */
-const VAULT_TRASH = ".trash";
 
 /**
  * A conflict whose copy a pull that stopped wrote in full, and which no pull
@@ -1405,24 +1402,23 @@ class Applier {
 
 	/**
 	 * Puts the content a file had before a merge into the `.trash/` of the
-	 * vault, whatever the app's setting for deleted files: under a name
-	 * nothing has there, or at `over`, where this pull put the content a
-	 * moment ago. Answers where it is, or `null` when it could not be
-	 * written.
+	 * vault, whatever the app's setting for deleted files: into the folder
+	 * of such content there (`MERGED_FOLDER`), under a name nothing has, or
+	 * at `over`, where this pull put the content a moment ago. Answers where
+	 * it is, or `null` when it could not be written.
 	 *
 	 * Written there as a file of its own, and not by moving the file away
 	 * (`PullVault.trash`): the path would be empty until the merged content
 	 * is written, and a pull that stopped in between would leave a file that
-	 * reads as deleted on this device. The name is the one the app gives a
-	 * file it moves there: the last name of the path, with a number when
-	 * that is taken.
+	 * reads as deleted on this device. Not directly in the `.trash/` either,
+	 * where nothing tells it from a file the user deleted.
 	 *
 	 * No marker: what is half written there is in nobody's way, and a pull
 	 * that resumes writes the content again, under the next name.
 	 */
 	private async keepBefore(path: string, over: string | null, content: Uint8Array): Promise<string | null> {
 		try {
-			const kept = over ?? (await this.freeTrashPath(path));
+			const kept = over ?? (await this.freeMergedPath(path));
 			await this.env.beforeWrite();
 			await this.change(() => this.vault.write(kept, content));
 			return kept;
@@ -1431,15 +1427,19 @@ class Applier {
 		}
 	}
 
-	private async freeTrashPath(path: string): Promise<string> {
-		const name = lastPart(path);
-		const dot = name.lastIndexOf(".");
-		const [stem, ending] = dot > 0 ? [name.slice(0, dot), name.slice(dot)] : [name, ""];
+	/**
+	 * A path for the content from before a merge that no file has
+	 * (`mergedCopyPath`), with the day of this device's clock, like the name
+	 * of a copy (`freeCopyPath`). Only the vault is asked: nothing in the
+	 * `.trash/` is synced.
+	 */
+	private async freeMergedPath(path: string): Promise<string> {
+		const at = new Date(this.env.now());
 		for (let n = 1; n <= MAX_COPY_ATTEMPTS; n++) {
-			const candidate = `${VAULT_TRASH}/${n === 1 ? name : `${stem} ${n}${ending}`}`;
+			const candidate = mergedCopyPath(path, at, n);
 			if ((await this.vault.stat(candidate)) === null) return candidate;
 		}
-		throw new Error(`No free name in ${VAULT_TRASH}/ for ${path}`);
+		throw new Error(`No free name in ${MERGED_FOLDER}/ for ${path}`);
 	}
 
 	/**

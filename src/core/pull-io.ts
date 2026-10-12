@@ -418,7 +418,8 @@ export interface PullMerge {
 	readonly path: string;
 	/**
 	 * Where the content the vault had before the merge is: a file in the
-	 * `.trash/` of the vault, whatever the app's setting for deleted files.
+	 * `.trash/` of the vault, in the folder of such files (`MERGED_FOLDER`),
+	 * whatever the app's setting for deleted files.
 	 */
 	readonly keptAt: string;
 }

@@ -30,11 +30,22 @@
 // No copy is given that form any more, but a vault can hold such copies, and
 // a device with an older version still makes them. They are read back from
 // the shape of the end of the file name (`originalPathOfConflictCopy`).
+//
+// What a file held before a merge is kept under a name of the same form,
+// without the device, in a folder of its own (`mergedCopyPath`).
 
 import { foldedKey } from "./paths";
 
 /** The folder at the vault root the copies are made in. Not a setting, and not translated. */
 export const CONFLICT_FOLDER = "_conflicts";
+
+/**
+ * The folder the content from before a merge is kept in, inside the `.trash/`
+ * of the vault. Not a setting, and not translated. A name nobody gives a
+ * folder of their own: a folder of that name, once deleted, could be put
+ * at the same place by the app.
+ */
+export const MERGED_FOLDER = ".trash/.sync-evo-merged";
 
 /** What most file systems allow for one file name, in bytes of UTF-8. */
 const MAX_NAME_BYTES = 255;
@@ -78,14 +89,20 @@ export function conflictCopyPath(
 	attempt = 1,
 	folder = CONFLICT_FOLDER,
 ): string {
-	const fileName = path.slice(path.lastIndexOf("/") + 1);
-	const dot = fileName.lastIndexOf(".");
-	const name = dot > 0 ? fileName.slice(0, dot) : fileName;
-	const extension = dot > 0 ? fileName.slice(dot) : "";
+	return `${folder}/${datedName(path, at, ` (${deviceName})`, attempt)}`;
+}
 
-	const before = `${stamp(at)} `;
-	const after = ` (${deviceName})${attempt > 1 ? ` (${attempt - 1})` : ""}${extension}`;
-	return `${folder}/${before}${shortened(name, MAX_NAME_BYTES - byteLength(before) - byteLength(after))}${after}`;
+/**
+ * The path the content `path` held before a merge is kept at:
+ *
+ *   .trash/.sync-evo-merged/<YYYY-MM-DD> <name>[ (N)].<extension>
+ *
+ * The name is made like the one of a conflict copy (`conflictCopyPath`),
+ * with the same `at` and `attempt`, and shortened the same way. No device
+ * is named: the file is on this device alone, and is never sent.
+ */
+export function mergedCopyPath(path: string, at: Date, attempt = 1): string {
+	return `${MERGED_FOLDER}/${datedName(path, at, "", attempt)}`;
 }
 
 /**
@@ -161,6 +178,19 @@ export function originalPathOfConflictCopy(path: string): string | null {
 	if (dot <= 0) return null;
 	const stem = COPY_END.exec(fileName.slice(0, dot));
 	return stem === null ? null : folder + (stem[1] ?? "") + fileName.slice(dot);
+}
+
+// The file name of a copy of `path`: the date, the name, `mark`, the number
+// of the attempt, and the extension.
+function datedName(path: string, at: Date, mark: string, attempt: number): string {
+	const fileName = path.slice(path.lastIndexOf("/") + 1);
+	const dot = fileName.lastIndexOf(".");
+	const name = dot > 0 ? fileName.slice(0, dot) : fileName;
+	const extension = dot > 0 ? fileName.slice(dot) : "";
+
+	const before = `${stamp(at)} `;
+	const after = `${mark}${attempt > 1 ? ` (${attempt - 1})` : ""}${extension}`;
+	return `${before}${shortened(name, MAX_NAME_BYTES - byteLength(before) - byteLength(after))}${after}`;
 }
 
 function stamp(at: Date): string {

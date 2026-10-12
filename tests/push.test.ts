@@ -11,7 +11,7 @@
 
 import { describe, expect, test } from "vitest";
 import { BackendError, type EntryKind, type ListResult, type PushRefusal } from "../src/core/backend";
-import { conflictCopyPath } from "../src/core/conflict-name";
+import { conflictCopyPath, mergedCopyPath } from "../src/core/conflict-name";
 import { readTidiedCopies, TIDIED_COPIES_KEY } from "../src/core/conflict-tidy";
 import { defaultSectionLines } from "../src/core/exclusion";
 import { GITIGNORE_WRITE_KEY } from "../src/core/gitignore-file";
@@ -1903,6 +1903,7 @@ describe("a sync: a pull, and then a push", () => {
 		// a record is stored then, and a merged file whose record had one
 		// would not be read by the push.
 		const ahead = (h: Harness) => ({ mergeConflicts: true, now: () => h.now() + 10_000 });
+		const kept = (h: Harness): string => mergedCopyPath("a.md", new Date(h.now()));
 
 		async function inConflict(): Promise<Harness> {
 			const h = await synced({ "a.md": BASE, "b.md": "B" });
@@ -1917,19 +1918,19 @@ describe("a sync: a pull, and then a push", () => {
 
 			const { pull, push } = await h.sync({ pull: ahead(h), push: { now: () => h.now() + 10_000 } });
 
-			expect(pull).toMatchObject({ outcome: "completed", merged: [{ path: "a.md", keptAt: ".trash/a.md" }] });
+			expect(pull).toMatchObject({ outcome: "completed", merged: [{ path: "a.md", keptAt: kept(h) }] });
 			expect(push).toMatchObject({ outcome: "pushed", counts: { added: 0, modified: 1, deleted: 0 } });
 			expect(await h.remote()).toEqual({ "a.md": MERGED, "b.md": "B" });
 			// One revision on top of the other device's, and nothing of the `.trash/`.
 			expect(h.backend.revision).not.toBe(theirs);
-			expect(h.vault.snapshot()).toEqual({ "a.md": MERGED, "b.md": "B", ".trash/a.md": MINE });
+			expect(h.vault.snapshot()).toEqual({ "a.md": MERGED, "b.md": "B", [kept(h)]: MINE });
 			await expectNothingToPull(h);
 		});
 
 		test("merged by a pull alone: the next sync sends it, and until then it reads as unsent", async () => {
 			const h = await inConflict();
 			const pulled = await h.pull(ahead(h));
-			expect(pulled.merged).toEqual([{ path: "a.md", keptAt: ".trash/a.md" }]);
+			expect(pulled.merged).toEqual([{ path: "a.md", keptAt: kept(h) }]);
 			expect(await h.remote()).toEqual({ "a.md": THEIRS, "b.md": "B" });
 			expect(await h.records()).toEqual(hashes({ "a.md": THEIRS, "b.md": "B" }));
 

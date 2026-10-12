@@ -120,13 +120,13 @@ describe("a pull that started by itself", () => {
 	});
 
 	test("tells a merge, with the file and where the content from before is, and still went well", () => {
-		const result: Partial<PullResult> = { merged: [{ path: "notes/a.md", keptAt: ".trash/a.md" }] };
+		const result: Partial<PullResult> = { merged: [{ path: "notes/a.md", keptAt: ".trash/.sync-evo-merged/2026-10-13 a.md" }] };
 
 		const report = pull(result);
 
 		expect(report.happened).toEqual(pullReport(t, pulled(result), options).details.map((text) => HEADING + text));
 		expect(report.happened).toHaveLength(1);
-		expect(report.happened[0]).toContain("notes/a.md (before: .trash/a.md)");
+		expect(report.happened[0]).toContain("notes/a.md (before: .trash/.sync-evo-merged/2026-10-13 a.md)");
 		expect(report).toMatchObject({ standing: [], cause: null, end: "success" });
 	});
 

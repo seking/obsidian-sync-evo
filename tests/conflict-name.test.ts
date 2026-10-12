@@ -11,9 +11,11 @@
 
 import { describe, expect, test } from "vitest";
 import {
+	MERGED_FOLDER,
 	conflictCopyPath,
 	isConflictFolder,
 	isCopyInConflictFolder,
+	mergedCopyPath,
 	originalPathOfConflictCopy,
 	dayEndOfConflictCopy,
 } from "../src/core/conflict-name";
@@ -110,6 +112,71 @@ describe("making the name", () => {
 		expect(conflictCopyPath(earlier, "Mac", new Date(2026, 9, 12, 8, 0, 0))).toBe(
 			"_conflicts/2026-10-12 a.conflict-from-iPhone-20261011-221500 (Mac).md",
 		);
+	});
+});
+
+describe("the name of the content from before a merge", () => {
+	const inFolder = (path: string): string => path.slice(`${MERGED_FOLDER}/`.length);
+
+	test("it goes to a folder of its own in the .trash/, with the day first and no device", () => {
+		expect(MERGED_FOLDER).toBe(".trash/.sync-evo-merged");
+		expect(mergedCopyPath("notes/a.md", at)).toBe(".trash/.sync-evo-merged/2026-10-11 a.md");
+	});
+
+	test("the folders of the file are not kept", () => {
+		expect(mergedCopyPath("a.md", at)).toBe(".trash/.sync-evo-merged/2026-10-11 a.md");
+		expect(mergedCopyPath("a/b/c/d.md", at)).toBe(".trash/.sync-evo-merged/2026-10-11 d.md");
+	});
+
+	test("the day is the one of the device's clock, and nothing of the time of day", () => {
+		expect(mergedCopyPath("a.md", new Date(2026, 9, 11, 0, 0, 0))).toBe(mergedCopyPath("a.md", new Date(2026, 9, 11, 23, 59, 59)));
+		expect(mergedCopyPath("a.md", new Date(2026, 0, 2, 3, 4, 5))).toBe(".trash/.sync-evo-merged/2026-01-02 a.md");
+	});
+
+	test("a second one of a day gets a number before the extension, counted from 1", () => {
+		expect(mergedCopyPath("notes/a.md", at, 1)).toBe(".trash/.sync-evo-merged/2026-10-11 a.md");
+		expect(mergedCopyPath("notes/a.md", at, 2)).toBe(".trash/.sync-evo-merged/2026-10-11 a (1).md");
+		expect(mergedCopyPath("notes/a.md", at, 3)).toBe(".trash/.sync-evo-merged/2026-10-11 a (2).md");
+		expect(mergedCopyPath("a.tar.gz", at, 2)).toBe(".trash/.sync-evo-merged/2026-10-11 a.tar (1).gz");
+	});
+
+	test("a name without an extension gets none, and the number at its end", () => {
+		expect(mergedCopyPath("LICENSE", at)).toBe(".trash/.sync-evo-merged/2026-10-11 LICENSE");
+		expect(mergedCopyPath("v1.2/README", at, 2)).toBe(".trash/.sync-evo-merged/2026-10-11 README (1)");
+	});
+
+	test("a leading dot does not start an extension", () => {
+		expect(mergedCopyPath(".gitignore", at)).toBe(".trash/.sync-evo-merged/2026-10-11 .gitignore");
+		expect(mergedCopyPath(".gitignore", at, 2)).toBe(".trash/.sync-evo-merged/2026-10-11 .gitignore (1)");
+		expect(mergedCopyPath("sub/.env.local", at)).toBe(".trash/.sync-evo-merged/2026-10-11 .env.local");
+		expect(mergedCopyPath("sub/.env.local", at, 2)).toBe(".trash/.sync-evo-merged/2026-10-11 .env (1).local");
+	});
+
+	test("a name of characters of several bytes is kept as it is", () => {
+		expect(mergedCopyPath("日記/今日のメモ 𠮷.md", at)).toBe(".trash/.sync-evo-merged/2026-10-11 今日のメモ 𠮷.md");
+		expect(mergedCopyPath("日記/今日のメモ 𠮷.md", at, 2)).toBe(".trash/.sync-evo-merged/2026-10-11 今日のメモ 𠮷 (1).md");
+	});
+
+	test("a file name over 255 bytes is shortened at the end of the name, between characters", () => {
+		const bytes = (text: string): number => new TextEncoder().encode(text).length;
+		// Three bytes each, and one of four made of two code units.
+		const long = `${"あ".repeat(90)}𠮷`;
+		const fileName = inFolder(mergedCopyPath(`notes/${long}.md`, at));
+		expect(bytes(fileName)).toBeLessThanOrEqual(255);
+		expect(bytes(fileName)).toBeGreaterThan(255 - 3);
+		expect(fileName).toMatch(/^2026-10-11 あ+\.md$/);
+		// With a number, the name gives way for it.
+		const second = inFolder(mergedCopyPath(`notes/${long}.md`, at, 12));
+		expect(bytes(second)).toBeLessThanOrEqual(255);
+		expect(second).toMatch(/^2026-10-11 あ+ \(11\)\.md$/);
+		// One byte each, with nothing to cut between.
+		const plain = inFolder(mergedCopyPath(`${"a".repeat(300)}.md`, at));
+		expect(plain).toBe(`2026-10-11 ${"a".repeat(255 - "2026-10-11 .md".length)}.md`);
+	});
+
+	test("a name that fits is not shortened", () => {
+		const name = "a".repeat(255 - "2026-10-11 .md".length);
+		expect(mergedCopyPath(`${name}.md`, at)).toBe(`.trash/.sync-evo-merged/2026-10-11 ${name}.md`);
 	});
 });
 
