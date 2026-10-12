@@ -48,7 +48,7 @@
 //    and the base revision (`finishPush`).
 
 import { untilAborted } from "./archive-fetch";
-import { type Backend, BackendError, type PushFile, type RemoteEntry, type RemoteListing } from "./backend";
+import { type Backend, BackendError, type PushFile, type PushResult, type RemoteEntry, type RemoteListing } from "./backend";
 import { forgetTidiedCopies, readTidiedCopies } from "./conflict-tidy";
 import { createExclusion, type Exclusion, type ExclusionPaths, untrackableByAddedLines } from "./exclusion";
 import { isFirstFetchConfirmed, markFirstFetchConfirmed } from "./first-fetch";
@@ -89,6 +89,7 @@ import {
 	withoutTidiedCopies,
 } from "./push-plan";
 import { type ScanResult, scanVault } from "./scan";
+import type { SentBlobMemory } from "./sent-blobs";
 import {
 	copiedPathOf,
 	currentListing,
@@ -238,6 +239,13 @@ export interface PushDeps {
 	 * with such a file, whether or not the typing has stopped by now.
 	 */
 	readonly holdQuietly?: readonly string[];
+	/**
+	 * The blobs this device sent before, for going on from where a push
+	 * stopped (`sent-blobs.ts`). Left out, every push sends all of its
+	 * blobs. Whoever hands it in also saves it at the moments this push
+	 * cannot see: before a long wait, and when the app goes to the back.
+	 */
+	readonly sentBlobs?: SentBlobMemory;
 	/**
 	 * Whether the default section is added to a root `.gitignore` that has
 	 * none, before the vault is looked at. Left out, it is. The app never
@@ -532,6 +540,20 @@ class PushRun {
 		return this.deps.signal?.aborted === true;
 	}
 
+	/** The blobs sent by the pushes before this one, read now; `null` without any to go by, or when they cannot be read. */
+	private async sentBlobs(): Promise<SentBlobMemory | null> {
+		const memory = this.deps.sentBlobs;
+		if (memory === undefined) return null;
+		try {
+			await memory.load();
+			return memory;
+		} catch {
+			// Every blob is sent, as it was before there was a memory.
+			this.deps.log?.("push: the sent blobs could not be read");
+			return null;
+		}
+	}
+
 	/** For tidying up after a failure: what fails here must not take the place of that failure. */
 	private async quietly(step: () => Promise<void>): Promise<void> {
 		try {
@@ -798,6 +820,7 @@ class PushRun {
 			return this.result("pushed", { revision: onto, counts: { ...NO_COUNTS, added: 1 } });
 		}
 
+		const counted = new Set<string>();
 		const writes = sends.map((send): PushFile => {
 			const { path } = send.local;
 			const leave = (reason: LeftOutReason): null => {
@@ -813,7 +836,12 @@ class PushRun {
 				// newer than what was planned: a note that is typed in
 				// during the push is no reason to fail all of it.
 				read: async () => {
-					this.progress("sending", ++done, total);
+					// Counted once: a file whose remembered blob the remote
+					// no longer holds is read a second time (`PushRequest.sentBlobs`).
+					if (!counted.has(send.path)) {
+						counted.add(send.path);
+						this.progress("sending", ++done, total);
+					}
 					// The typing began after the vault was looked at. The
 					// editor is not asked to save in the middle of it; what
 					// is on disk, which is what was planned a moment ago,
@@ -843,20 +871,31 @@ class PushRun {
 
 		total = writes.length;
 		this.progress("sending", 0, total);
-		const pushed = await deps.backend.push({
-			baseRevision: onto,
-			writes,
-			deletes: plan.deletes.map((entry) => entry.remote),
-			deviceName: deps.deviceName,
-			beforePublish: async ({ revision, written }) => {
-				await rememberPendingPush(store, this.pendingOf(plan, onto, revision, written, stats));
-				this.remembered = true;
-				this.progress("finishing");
-			},
-			onPublish: () => {
-				this.publishing = true;
-			},
-		});
+		// Read here and not earlier: a push that was found to have gone
+		// through on the way here has forgotten them (`finishPush`).
+		const sentBlobs = await this.sentBlobs();
+		let pushed: PushResult;
+		try {
+			pushed = await deps.backend.push({
+				baseRevision: onto,
+				writes,
+				deletes: plan.deletes.map((entry) => entry.remote),
+				deviceName: deps.deviceName,
+				...(sentBlobs === null ? {} : { sentBlobs }),
+				beforePublish: async ({ revision, written }) => {
+					await rememberPendingPush(store, this.pendingOf(plan, onto, revision, written, stats));
+					this.remembered = true;
+					this.progress("finishing");
+				},
+				onPublish: () => {
+					this.publishing = true;
+				},
+			});
+		} finally {
+			// However it ended: the blobs that were sent are there for the
+			// next push, which is what goes on from where this one stopped.
+			await sentBlobs?.save();
+		}
 		// Only now that the remote has answered, whatever it answered: a
 		// push that threw is told as a failure, without the notices.
 		await tell();
@@ -884,6 +923,8 @@ class PushRun {
 		// The listing of the new commit is the remote's own, or none at
 		// all: the next sync then lists the remote again.
 		const stored = pushed.listing ?? null;
+		// Their commit is in the branch: nothing is left to go on from.
+		sentBlobs?.settled();
 		await finishPush(store, pending, stored);
 		// The copies that were tidied and are gone from the remote now have
 		// nothing left to be remembered for. The next push forgets them

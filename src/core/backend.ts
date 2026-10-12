@@ -96,7 +96,7 @@ export interface PushFile {
 	readonly replaces?: RemoteEntry;
 	/**
 	 * Read lazily, so that a large push does not hold every file in memory,
-	 * and once. What it answers is what is sent, also when it is no longer
+	 * and once (but see `PushRequest.sentBlobs`). What it answers is what is sent, also when it is no longer
 	 * the content of `hash`: a note that is typed in while the push runs is
 	 * sent as it is by then, under the hash it has by then (`PushResult`).
 	 * `null` leaves the file out of this push, and everything else is sent.
@@ -123,6 +123,27 @@ export interface PendingPush {
 	readonly written: readonly RemoteEntry[];
 }
 
+/**
+ * The contents this device has sent to the remote before, by hash, kept
+ * from one push to the next (`sent-blobs.ts`). Only for a remote that
+ * stores a content apart from the revision that names it, so that a
+ * content sent by a push that never got to its revision is still there.
+ */
+export interface SentBlobs {
+	/** Whether the content was sent, and is taken to be on the remote still. */
+	has(hash: string): boolean;
+	/** The content is on the remote now. */
+	add(hash: string): void;
+	/** The remote has shown not to hold a content that was remembered: none of them is counted on any more. */
+	forget(): void;
+	/**
+	 * Stores what was added. Awaited once every content was sent and
+	 * before the revision is made, so that a failure of the last steps
+	 * leaves the contents remembered. Never rejects.
+	 */
+	save(): Promise<void>;
+}
+
 export interface PushRequest {
 	/** The revision the changes were computed against; `null` for an empty remote. */
 	readonly baseRevision: string | null;
@@ -144,6 +165,13 @@ export interface PushRequest {
 	 * It carries no writes.
 	 */
 	readonly untrack?: boolean;
+	/**
+	 * Left out, every content is sent. With it, a content that was sent
+	 * before is named and not sent again, and `PushFile.read` may be
+	 * called a second time for such a file: when the remote turns out not
+	 * to hold the content any more, the file is read and sent again.
+	 */
+	readonly sentBlobs?: SentBlobs;
 	/**
 	 * Awaited once, after everything was sent and right before the new
 	 * revision is made the head of the remote: the last moment at which

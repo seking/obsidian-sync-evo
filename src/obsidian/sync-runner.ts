@@ -63,6 +63,7 @@ import {
 	pushStoppedText,
 	sectionAddedText,
 } from "../core/push-report";
+import { SentBlobMemory } from "../core/sent-blobs";
 import type { DeviceSettings } from "../core/settings";
 import type { StateStore } from "../core/state";
 import { runSync } from "../core/sync";
@@ -424,6 +425,8 @@ export class SyncRunner {
 		let sectionAdded: SectionAdded | null = null;
 		// Whether the first fetch follows this sync (`refetchAsked`).
 		let refetch = false;
+		// What saves the sent blobs when the app goes to the back, while this sync runs.
+		let onHidden: (() => void) | null = null;
 		if (auto === null) {
 			this.progress = new Notice(t(mode === "push" ? "push.progress.starting" : "pull.progress.starting"), 0);
 		} else {
@@ -449,6 +452,16 @@ export class SyncRunner {
 			}
 			store = opened.store;
 			await this.rememberStart(opened.store);
+			// The blobs a push sends, remembered for the push that goes on
+			// from where one stopped. Saved here at the two moments the
+			// push cannot see: before a wait for the remote's limit, and
+			// when the app goes to the back, after which a phone may run
+			// nothing more of this sync.
+			const sentBlobs = new SentBlobMemory(opened.store, Date.now, log);
+			onHidden = () => {
+				if (document.visibilityState === "hidden") void sentBlobs.save();
+			};
+			document.addEventListener("visibilitychange", onHidden);
 
 			const yieldControl = (): Promise<void> => windowSleep(0);
 			// Only a sync that started by itself keeps away from a file that
@@ -470,6 +483,9 @@ export class SyncRunner {
 				// Not by a sync that started by itself: it fails, and a later
 				// one goes on from where it stopped.
 				onRateLimit: (notice) => {
+					// Before the wait, which may be as long as an hour and
+					// may be the last thing this sync does.
+					void sentBlobs.save();
 					if (auto !== null) return false;
 					limitWatch.rateLimited(notice.until);
 					this.showLimit();
@@ -565,6 +581,7 @@ export class SyncRunner {
 			const pushDeps: Omit<PushDeps, "hold"> = {
 				store: opened.store,
 				backend,
+				sentBlobs,
 				vault: pullDeps.vault,
 				paths: pullDeps.paths,
 				deviceName: settings.deviceName,
@@ -679,6 +696,7 @@ export class SyncRunner {
 			// that started by itself must not come up once it has ended.
 			if (this.late !== null) window.clearTimeout(this.late);
 			this.late = null;
+			if (onHidden !== null) document.removeEventListener("visibilitychange", onHidden);
 			try {
 				// However it ended: what it leaves remembered, and what a
 				// sync that started by itself has to tell.

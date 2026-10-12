@@ -20,6 +20,7 @@
 
 import type { Backend, RemoteListing } from "./backend";
 import { pathKey } from "./paths";
+import { forgetSentBlobs } from "./sent-blobs";
 import {
 	plainRecord,
 	readBaseRevision,
@@ -127,7 +128,11 @@ export async function readPendingPush(store: Pick<StateStore, "getMeta">): Promi
  *    whose base revision is further back has a pull to finish first, which
  *    is what moves it: a history that was rewritten is told by the base
  *    revision, and must not read as continuous because of a push;
- * 5. that a push has gone through, and last, the push itself forgotten.
+ * 5. the blobs that were sent, forgotten (`sent-blobs.ts`): they were there
+ *    for a push that stopped before its commit. Also by a push that
+ *    untracked, which sent none: one place, and losing them costs requests
+ *    alone;
+ * 6. that a push has gone through, and last, the push itself forgotten.
  *    Not for a push that untracked: it sent nothing of the vault, and the
  *    question before the first push that does is still to be asked.
  *
@@ -146,6 +151,7 @@ export async function finishPush(
 	else if (listing !== undefined) await store.putListing(listing);
 	if ((await readBaseRevision(store)) === pending.parent) await writeBaseRevision(store, pending.revision);
 	if (pending.untrack !== true) await store.setMeta(FIRST_PUSH_CONFIRMED_KEY, true);
+	await forgetSentBlobs(store);
 	await forgetPendingPush(store);
 }
 

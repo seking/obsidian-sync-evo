@@ -128,6 +128,18 @@ function isRefusal(error: unknown): boolean {
 }
 
 /**
+ * Whether a tree may have been refused for naming a blob the repository
+ * does not hold: GitHub answers 422, "tree.sha <hash> is not a valid blob"
+ * (measured 2026-10-12), and creates nothing. The wording may change and is
+ * not relied on; the refusals of a tree that are known to be of something
+ * else are left out, so that no blob is sent again for them.
+ */
+function mayNameUnknownBlob(error: unknown): boolean {
+	if (!(error instanceof BackendError) || error.status !== 422 || error.kind !== "other") return false;
+	return !/timed out|too large/i.test(error.message);
+}
+
+/**
  * Whether a text has a control character other than a tab, a line end or a
  * form feed. The codes are compared one by one: a pattern that names control
  * characters is what the automated review of plugins objects to.
@@ -312,39 +324,125 @@ export class GitHubBackend implements Backend {
 		const sent = new Map<string, PushFile>();
 		const changes: CommitChange[] = removals.map((removal) => ({ kind: "deleted", path: removal.path }));
 		const written: RemoteEntry[] = [];
+		const drop = (list: { path: string }[], path: string): void => {
+			const at = list.findIndex((entry) => entry.path === path);
+			if (at >= 0) list.splice(at, 1);
+		};
+		// The blobs this push has made or found remembered, so that many
+		// files of one content (empty ones, most of all) cost one request.
+		const blobs = new Set<string>();
+		// The contents the remote would not take, so that a second file of
+		// the same content is not sent to be refused again.
+		const refusedBlobs = new Set<string>();
+		// Those of `blobs` that were not sent by this push but remembered
+		// from one before (`PushRequest.sentBlobs`), and the files whose
+		// entry names one of them, by path.
+		const { sentBlobs } = request;
+		const recalledBlobs = new Set<string>();
+		const recalled = new Map<string, { file: PushFile; target: WriteTarget }>();
+		// Makes the blob of a content, once. `false`: the remote would not
+		// take it for its size, and the file is left out of the push.
+		const sendBlob = async (file: PushFile, content: Uint8Array, hash: string): Promise<boolean> => {
+			if (blobs.has(hash)) return true;
+			if (refusedBlobs.has(hash)) {
+				file.refused?.("too-large");
+				return false;
+			}
+			this.throwIfStopped();
+			let sha: string;
+			try {
+				sha = await this.client.createBlob(content);
+			} catch (error) {
+				if (!(error instanceof BackendError) || error.kind !== "too-large") throw error;
+				refusedBlobs.add(hash);
+				file.refused?.("too-large");
+				return false;
+			}
+			// The record of the file is made with `hash`.
+			if (sha !== hash) throw new BackendError("other", `push: the blob is not the content that was sent: ${file.path}`);
+			blobs.add(hash);
+			sentBlobs?.add(hash);
+			return true;
+		};
+		// A tree was refused that names blobs remembered from a push before:
+		// the repository may not hold them any more. None that is remembered
+		// is counted on from here on, and the files of this tree that named
+		// one are read and sent again. Answers the tree to ask for instead.
+		const resend = async (pending: readonly TreeChange[]): Promise<TreeChange[]> => {
+			sentBlobs?.forget();
+			for (const hash of recalledBlobs) blobs.delete(hash);
+			recalledBlobs.clear();
+			const kept: TreeChange[] = [];
+			for (const change of pending) {
+				const again = recalled.get(change.path);
+				if (again === undefined) {
+					kept.push(change);
+					continue;
+				}
+				const { file, target } = again;
+				const { path, mode } = target;
+				drop(written, path);
+				this.throwIfStopped();
+				const content = await file.read();
+				const hash = content === null ? null : await this.hashContent(content);
+				if (content === null || hash === null || (hash !== target.existing && !(await sendBlob(file, content, hash)))) {
+					// Not on the remote, so not among what was written.
+					drop(changes, path);
+					sent.delete(path);
+					continue;
+				}
+				written.push({ path, kind: "file", hash, size: content.length });
+				// Read again, and it is what the remote holds: nothing to send.
+				if (hash === target.existing) drop(changes, path);
+				else kept.push({ path, mode, sha: hash });
+			}
+			recalled.clear();
+			return kept;
+		};
 		const flush = async (): Promise<void> => {
 			if (chunk.length === 0) return;
-			this.throwIfStopped();
-			try {
-				current = await this.client.createTree(current, chunk);
-			} catch (error) {
-				const kept = chunk.filter((change) => !isWorkflowWrite(change));
-				if (kept.length === chunk.length || !isRefusal(error)) throw error;
-				// GitHub refuses a tree that adds or changes a file under
-				// `.github/workflows/` to a token without the Workflows
-				// permission, with the words it has for any lack of
-				// permission. The same tree without those files tells:
-				// taken, and it was them. With nothing else in the tree,
-				// a blob tells whether the token may write at all.
+			let pending = chunk;
+			// The refusal the tree met with its workflow files in it, once
+			// it is asked for without them.
+			let refusal: BackendError | null = null;
+			let resent = false;
+			for (;;) {
 				this.throwIfStopped();
 				try {
-					if (kept.length > 0) current = await this.client.createTree(current, kept);
-					else await this.client.createBlob(new Uint8Array());
-				} catch (second) {
-					if (!isRefusal(second)) throw second;
-					throw error;
+					if (pending.length > 0) current = await this.client.createTree(current, pending);
+					else if (refusal !== null) await this.client.createBlob(new Uint8Array());
+					break;
+				} catch (error) {
+					// GitHub refuses a tree that adds or changes a file under
+					// `.github/workflows/` to a token without the Workflows
+					// permission, with the words it has for any lack of
+					// permission. The same tree without those files tells:
+					// taken, and it was them. With nothing else in the tree,
+					// a blob tells whether the token may write at all.
+					if (error instanceof BackendError && isRefusal(error)) {
+						if (refusal !== null) throw refusal;
+						const kept = pending.filter((change) => !isWorkflowWrite(change));
+						if (kept.length === pending.length) throw error;
+						refusal = error;
+						pending = kept;
+						continue;
+					}
+					// After the workflow files, and once: the two may meet in one tree.
+					if (resent || !mayNameUnknownBlob(error) || !pending.some((change) => recalled.has(change.path))) throw error;
+					resent = true;
+					pending = await resend(pending);
 				}
+			}
+			if (refusal !== null) {
 				for (const change of chunk) {
 					if (!isWorkflowWrite(change)) continue;
-					const drop = (list: { path: string }[]): void => {
-						const at = list.findIndex((entry) => entry.path === change.path);
-						if (at >= 0) list.splice(at, 1);
-					};
-					drop(written);
-					drop(changes);
+					drop(written, change.path);
+					drop(changes, change.path);
 					sent.get(change.path)?.refused?.("workflows");
 				}
 			}
+			// Every blob these trees name is in the repository: none of them is in doubt any more.
+			for (const change of chunk) recalled.delete(change.path);
 			chunk = [];
 			chunkBytes = 0;
 			chunkInline = 0;
@@ -369,12 +467,6 @@ export class GitHubBackend implements Backend {
 		// written is not documented.
 		if (targets.some((target) => target.swaps)) await flush();
 
-		// The blobs this push has made, so that many files of one content
-		// (empty ones, most of all) cost one request.
-		const blobs = new Set<string>();
-		// The contents the remote would not take, so that a second file of
-		// the same content is not sent to be refused again.
-		const refusedBlobs = new Set<string>();
 		for (const [index, file] of writes.entries()) {
 			const target = targets[index];
 			if (target === undefined) continue;
@@ -396,32 +488,25 @@ export class GitHubBackend implements Backend {
 			if (text !== null) {
 				await add({ path, mode, content: text }, content.length);
 			} else {
-				// Not on the remote, so not among what was written.
-				if (refusedBlobs.has(hash)) {
-					file.refused?.("too-large");
-					continue;
-				}
-				if (!blobs.has(hash)) {
-					this.throwIfStopped();
-					let sha: string;
-					try {
-						sha = await this.client.createBlob(content);
-					} catch (error) {
-						if (!(error instanceof BackendError) || error.kind !== "too-large") throw error;
-						refusedBlobs.add(hash);
-						file.refused?.("too-large");
-						continue;
-					}
-					// The record of the file is made with `hash`.
-					if (sha !== hash) throw new BackendError("other", `push: the blob is not the content that was sent: ${path}`);
+				// Sent by a push before this one, which did not get to its
+				// commit. Should the repository not hold it any more, the
+				// tree that names it is refused (`resend`).
+				if (!blobs.has(hash) && sentBlobs?.has(hash) === true) {
 					blobs.add(hash);
+					recalledBlobs.add(hash);
 				}
+				// Not on the remote, so not among what was written.
+				if (!(await sendBlob(file, content, hash))) continue;
 				await add({ path, mode, sha: hash }, 0);
+				if (recalledBlobs.has(hash)) recalled.set(path, { file, target });
 			}
 			sent.set(path, file);
 			written.push(entry);
 			changes.push({ kind: target.existing === undefined ? "added" : "modified", path });
 		}
+		// Before the last tree, the commit and the move of the branch: a
+		// failure there leaves the blobs that were sent remembered.
+		await sentBlobs?.save();
 		await flush();
 		if (current === parent.treeSha) return { status: "unchanged" };
 
