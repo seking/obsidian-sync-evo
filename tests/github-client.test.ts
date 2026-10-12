@@ -1165,6 +1165,35 @@ describe("timerSleepOn", () => {
 		await pause(60);
 		expect(state.done).toBe(false);
 	});
+
+	test("it runs on the timer it was given, and on no other", async () => {
+		const started: { id: number; run: () => void; ms: number }[] = [];
+		const cleared: number[] = [];
+		const sleepOn = timerSleepOn<number>({
+			setTimeout: (run, ms) => {
+				started.push({ id: started.length + 1, run, ms });
+				return started.length;
+			},
+			clearTimeout: (id) => {
+				cleared.push(id);
+			},
+		});
+
+		// Only the given timer can end it: the time itself does not.
+		const state = watch(sleepOn(10));
+		expect(started.map(({ id, ms }) => ({ id, ms }))).toEqual([{ id: 1, ms: 10 }]);
+		await pause(40);
+		expect(state.done).toBe(false);
+		started[0]?.run();
+		await pause(0);
+		expect(state.done).toBe(true);
+
+		// An abort clears the timer by the id that the given timer handed out.
+		const controller = new AbortController();
+		void sleepOn(10, controller.signal);
+		controller.abort();
+		expect(cleared).toEqual([2]);
+	});
 });
 
 describe("the token", () => {

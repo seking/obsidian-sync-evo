@@ -270,8 +270,9 @@ export class RoutedVault<Handle> implements PullVault {
 			case "adapter-remove":
 				await ports.remove(path);
 				return;
+			// The last two are the routes of the index, which a path outside
+			// it cannot take.
 			case "adapter-local":
-			// The two routes of the index, which a path outside it cannot take.
 			case "file-manager":
 			case "vault-local":
 				await ports.trashLocal(path);

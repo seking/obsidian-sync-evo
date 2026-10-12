@@ -390,7 +390,7 @@ export class IdbStateStore implements StateStore {
 			};
 			transaction.oncomplete = () => resolve(result);
 			transaction.onabort = () => {
-				if (cause !== undefined) reject(cause.error);
+				if (cause !== undefined) reject(cause.error instanceof Error ? cause.error : new Error(String(cause.error)));
 				else reject(transaction.error ?? new Error("the transaction was aborted"));
 			};
 			try {
