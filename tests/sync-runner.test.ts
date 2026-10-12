@@ -37,6 +37,8 @@ const app = vi.hoisted(() => ({
 	backends: [] as { maxConcurrentFetchBytes?: number }[],
 	/** What every pull was given of `archiveAllowed`, in order. */
 	pulls: [] as (boolean | undefined)[],
+	/** What every pull was given of `mergeConflicts`, in order. */
+	merges: [] as (boolean | undefined)[],
 }));
 
 vi.mock("obsidian", () => {
@@ -83,6 +85,7 @@ vi.mock("../src/core/pull", async (importOriginal) => {
 	const original = await importOriginal<typeof import("../src/core/pull")>();
 	const runPull: typeof original.runPull = (deps) => {
 		app.pulls.push(deps.archiveAllowed);
+		app.merges.push(deps.mergeConflicts);
 		return original.runPull(deps);
 	};
 	return { ...original, runPull };
@@ -124,6 +127,7 @@ function setup(over: Partial<DeviceSettings> = {}, files: Record<string, string>
 		tokenSecret: "github-token",
 		deviceName: "iPhone",
 		autoSync: { ...DEFAULT_AUTO_SYNC, onStartup: true, atInterval: true },
+		onConflict: "copy",
 		...over,
 	};
 	const tokens: Record<string, string | null> = { "github-token": "github_pat_SECRET" };
@@ -203,6 +207,7 @@ beforeEach(() => {
 	app.platform.isAndroidApp = false;
 	app.backends.length = 0;
 	app.pulls.length = 0;
+	app.merges.length = 0;
 	app.request = () => Promise.reject(new Error("net::ERR_INTERNET_DISCONNECTED"));
 	vi.stubGlobal("window", { setTimeout, clearTimeout });
 	vi.stubGlobal("document", { visibilityState: "visible", addEventListener: () => {}, removeEventListener: () => {} });
@@ -626,6 +631,15 @@ describe("the limit on the bytes fetched at once", () => {
 			MAX_CONCURRENT_FETCH_BYTES,
 			ANDROID_CONCURRENT_FETCH_BYTES,
 		]);
+	});
+});
+
+describe("what becomes of a conflict", () => {
+	test("a pull merges on a device that is set to, and on no other", async () => {
+		await setup().runner.runAuto("light");
+		await setup({ onConflict: "merge" }).runner.runAuto("light");
+
+		expect(app.merges).toEqual([false, true]);
 	});
 });
 

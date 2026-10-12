@@ -294,6 +294,18 @@ export interface Backend {
 	fetchArchive?(revision: string): Promise<ArchiveContents>;
 
 	/**
+	 * The content that has `hash`, whichever revision named it: what a file
+	 * held when it was last synced, which a merge compares the two sides
+	 * with (`merge.ts`). `null` when the remote does not hold such a
+	 * content, or not any more. Absent on a remote that cannot look a
+	 * content up by its hash; nothing is merged there.
+	 *
+	 * Like `fetch`, it does not promise that what comes back has the hash.
+	 * The caller checks with `hashContent`.
+	 */
+	contentOf?(hash: string): Promise<Uint8Array | null>;
+
+	/**
 	 * Applies writes and deletes on top of `baseRevision`, as one revision.
 	 * Paths not named are left as they are. Answers "stale" instead of
 	 * overwriting when the remote has moved, and looks for that before any

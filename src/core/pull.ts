@@ -74,6 +74,7 @@ import type {
 	DeferredFile,
 	PullConflict,
 	PullDeps,
+	PullMerge,
 	PullOutcome,
 	PullPhase,
 	PullResult,
@@ -99,6 +100,7 @@ import {
 	copiedPathOf,
 	currentListing,
 	makeRecord,
+	mergeOf,
 	readBaseRevision,
 	type FileStat,
 	type StateSeed,
@@ -119,8 +121,9 @@ export const SYMLINK_TARGETS_KEY = "symlink-targets";
 /**
  * The key of what a resuming pull found and no pull has answered with yet
  * (`Unsaid`): the paths it moved to the `.trash/` of the vault
- * (`PullResult.halfWritten` and `halfCopies`), and the conflicts it tells
- * of a pull that made them and told nothing (`tellAwaited`). Stored before
+ * (`PullResult.halfWritten`, `halfMerged` and `halfCopies`), and the conflicts and the
+ * merges it tells of a pull that made them and told nothing (`tellAwaited`,
+ * `settleMerge`). Stored before
  * each is moved or stops waiting, so that the user is told also when the
  * pull that did it is killed. Kept when a pull rejects; it goes when a pull
  * has answered, or with a sync state that is discarded.
@@ -135,6 +138,10 @@ interface Unsaid {
 	readonly copies: readonly string[];
 	/** Conflicts of the cause "conflict" that were made by a pull that told nothing. */
 	readonly conflicts: readonly Pick<PullConflict, "path" | "copyPath">[];
+	/** Merges that were written by a pull that told nothing. Left out when there is none. */
+	readonly merged?: readonly PullMerge[];
+	/** `PullResult.halfMerged`. Left out when there is none. */
+	readonly halfMerged?: readonly PullMerge[];
 }
 
 /**
@@ -213,6 +220,8 @@ class PullRun {
 	private readonly unsettled: WriteMarker[] = [];
 	/** The conflicts of `awaited` that this pull tells. They are in the tally too. */
 	private readonly resumedConflicts: PullConflict[] = [];
+	/** The merges a pull that stopped had written, which this pull tells. They are in the tally too. */
+	private readonly resumedMerges: PullMerge[] = [];
 	/** The conflicts that are yet to be told, as they are stored (`AWAITED_CONFLICTS_KEY`). */
 	private awaited: AwaitedConflict[] = [];
 	/** What a push that this pull found to have gone through had changed (`settlePendingPush`). */
@@ -290,6 +299,16 @@ class PullRun {
 	 *   content like a file that is new. No copy is made of it: half a file
 	 *   would stay as a copy, and be sent.
 	 *
+	 * The marker of a merge (`makeMergeMarker`) differs in the first case
+	 * alone. The content that was to be written is not the remote's, so the
+	 * record is not made with its hash: it is the one the merge would have
+	 * stored (`settleMerge`). In the other two cases nothing of the merge is
+	 * left to go on with, and they are as above: a file that still holds
+	 * what it held before is a conflict again for the plan, which merges it
+	 * again. A file that is moved away is told with where the content from
+	 * before the merge is (`PullResult.halfMerged`): the path gets the
+	 * remote's content, and what the vault had is in neither.
+	 *
 	 * Whether the remote still has the path plays no part: with the record
 	 * made, or gone with the file, the plan decides the same as for any
 	 * other path the remote deleted or spells otherwise now.
@@ -328,7 +347,10 @@ class PullRun {
 		const unsaid = storedUnsaid(await store.getMeta(HALF_WRITTEN_KEY));
 		tally.halfWritten.push(...unsaid.files);
 		tally.halfCopies.push(...unsaid.copies);
+		tally.halfMerged.push(...(unsaid.halfMerged ?? []));
 		for (const conflict of unsaid.conflicts) this.tellResumed({ ...conflict, cause: "conflict" });
+		this.resumedMerges.push(...(unsaid.merged ?? []));
+		tally.merged.push(...(unsaid.merged ?? []));
 		this.awaited = storedAwaited(await store.getMeta(AWAITED_CONFLICTS_KEY));
 
 		const markers = await store.readMarkers();
@@ -351,6 +373,11 @@ class PullRun {
 			} else if (marker.conflictCopy) {
 				await this.settleCopy(marker, there);
 			} else if (there !== null && there.hash === marker.writing) {
+				const merge = mergeOf(marker);
+				if (merge !== null) {
+					await this.settleMerge(marker, merge, there);
+					continue;
+				}
 				// Removes the marker in the same transaction.
 				const written = { path, kind: "file", hash: marker.writing } as const;
 				await store.commitWrite(makeRecord(written, there.stat, this.startedAt));
@@ -363,7 +390,19 @@ class PullRun {
 				// is a fetch; with the record left, a remote that has its
 				// content again would read as "deleted on this device".
 				await store.deleteRecord(key);
-				if (!(await this.trashHalf(path, tally.halfWritten))) {
+				// Of a merge: where the content from before it is, remembered
+				// with the path, before the file is moved.
+				const merge = mergeOf(marker);
+				const before =
+					merge === null || tally.halfMerged.some((told) => told.path === path)
+						? null
+						: { path, keptAt: merge.kept };
+				if (before !== null) tally.halfMerged.push(before);
+				if (!(await this.trashHalf(path, tally.halfWritten, before !== null))) {
+					if (before !== null) {
+						tally.halfMerged.splice(tally.halfMerged.indexOf(before), 1);
+						await this.rememberUnsaid();
+					}
 					this.hold(marker, "trash-failed");
 					continue;
 				}
@@ -390,6 +429,36 @@ class PullRun {
 		if (this.held.has(GITIGNORE)) return;
 		this.held.add(GITIGNORE);
 		this.tally.deferred.push({ path: GITIGNORE, reason: "unreadable" });
+	}
+
+	/**
+	 * The marker of a merge whose content was written (`settleMarkers`):
+	 * the record the merge would have stored, with the hash the remote had
+	 * for the path and without the time and the size of the file
+	 * (`writeMerged` in `pull-apply.ts`). The file then reads as changed on
+	 * this device, and is sent. A remote that has changed the file again
+	 * since is a conflict for the plan to find, between the merged content
+	 * and the newer one.
+	 *
+	 * The merge is told by this pull: the one that wrote it told nothing.
+	 * Remembered before the marker goes, like what is moved away.
+	 */
+	private async settleMerge(
+		marker: WriteMarker,
+		merge: { readonly onto: string; readonly kept: string },
+		there: MarkedContent,
+	): Promise<void> {
+		const { path } = marker;
+		if (!this.tally.merged.some((told) => told.path === path)) {
+			const told: PullMerge = { path, keptAt: merge.kept };
+			this.resumedMerges.push(told);
+			this.tally.merged.push(told);
+			await this.rememberUnsaid();
+		}
+		// A merge that came out as the remote's content is a file in sync.
+		const stat = merge.onto === marker.writing ? there.stat : undefined;
+		// Removes the marker in the same transaction.
+		await this.store.commitWrite(makeRecord({ path, kind: "file", hash: merge.onto }, stat, this.startedAt));
 	}
 
 	/** The marker of the copy of a conflict (`settleMarkers`). */
@@ -549,14 +618,13 @@ class PullRun {
 	 * To the `.trash/` of the vault, whatever the setting: the content may
 	 * be the user's and nowhere else. Listed in `list`, which is remembered
 	 * before the file is moved. Answers `false` when the vault refused; the
-	 * path is not listed then.
+	 * path is not listed then. `more`: whether something else was added to
+	 * what is remembered, and is stored with it.
 	 */
-	private async trashHalf(path: string, list: string[]): Promise<boolean> {
+	private async trashHalf(path: string, list: string[], more = false): Promise<boolean> {
 		const added = !list.includes(path);
-		if (added) {
-			list.push(path);
-			await this.rememberUnsaid();
-		}
+		if (added) list.push(path);
+		if (added || more) await this.rememberUnsaid();
 		try {
 			await this.deps.vault.trash(path, "vault-trash");
 			return true;
@@ -570,7 +638,9 @@ class PullRun {
 	}
 
 	private hasUnsaid(): boolean {
-		return this.tally.halfWritten.length + this.tally.halfCopies.length + this.resumedConflicts.length > 0;
+		const { halfWritten, halfMerged, halfCopies } = this.tally;
+		const moved = halfWritten.length + halfMerged.length + halfCopies.length;
+		return moved + this.resumedConflicts.length + this.resumedMerges.length > 0;
 	}
 
 	private unsaid(): Unsaid {
@@ -578,6 +648,8 @@ class PullRun {
 			files: [...this.tally.halfWritten],
 			copies: [...this.tally.halfCopies],
 			conflicts: this.resumedConflicts.map(({ path, copyPath }) => ({ path, copyPath })),
+			...(this.resumedMerges.length === 0 ? {} : { merged: [...this.resumedMerges] }),
+			...(this.tally.halfMerged.length === 0 ? {} : { halfMerged: [...this.tally.halfMerged] }),
 		};
 	}
 
@@ -946,9 +1018,11 @@ class PullRun {
 				conflicts: tally.conflicts.length,
 			},
 			conflicts: tally.conflicts,
+			merged: tally.merged,
 			replacedSettings: tally.replacedSettings,
 			trashed: tally.trashed,
 			halfWritten: tally.halfWritten,
+			halfMerged: tally.halfMerged,
 			halfCopies: tally.halfCopies,
 			deferred: tally.deferred,
 			unwritable,
@@ -1101,6 +1175,7 @@ class PullRun {
 			...(deps.signal === undefined ? {} : { signal: deps.signal }),
 			listing,
 			protect,
+			merge: deps.mergeConflicts === true,
 			seen,
 			localPaths,
 			awaited: this.awaited,
@@ -1488,10 +1563,9 @@ function storedAwaited(value: unknown): AwaitedConflict[] {
 }
 
 function storedUnsaid(value: unknown): Unsaid {
-	const { files, copies, conflicts } = (typeof value === "object" && value !== null ? value : {}) as Record<
-		string,
-		unknown
-	>;
+	const { files, copies, conflicts, merged, halfMerged } = (
+		typeof value === "object" && value !== null ? value : {}
+	) as Record<string, unknown>;
 	const paths = (list: unknown): string[] =>
 		Array.isArray(list) ? list.filter((item): item is string => typeof item === "string") : [];
 	const pairs: Pick<PullConflict, "path" | "copyPath">[] = [];
@@ -1500,7 +1574,22 @@ function storedUnsaid(value: unknown): Unsaid {
 		const { path, copyPath } = item as Record<string, unknown>;
 		if (typeof path === "string" && typeof copyPath === "string") pairs.push({ path, copyPath });
 	}
-	return { files: paths(files), copies: paths(copies), conflicts: pairs };
+	const merges = (list: unknown): PullMerge[] => {
+		const read: PullMerge[] = [];
+		for (const item of Array.isArray(list) ? (list as unknown[]) : []) {
+			if (typeof item !== "object" || item === null) continue;
+			const { path, keptAt } = item as Record<string, unknown>;
+			if (typeof path === "string" && typeof keptAt === "string") read.push({ path, keptAt });
+		}
+		return read;
+	};
+	return {
+		files: paths(files),
+		copies: paths(copies),
+		conflicts: pairs,
+		merged: merges(merged),
+		halfMerged: merges(halfMerged),
+	};
 }
 
 function readConfirmation(value: unknown): PullConfirmation | undefined {

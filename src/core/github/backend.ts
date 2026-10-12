@@ -32,8 +32,12 @@ import { type CommitChange, commitMessage, untrackMessage } from "../commit-mess
 import { fetchConcurrently } from "../concurrent-fetch";
 import { gitBlobHash } from "../hash";
 import { isPathFromRoot } from "../paths";
+import { inlineText } from "../text";
 import { openZip } from "../zip";
 import type { FileMode, GitHubClient, GitTreeItem, TreeChange } from "./client";
+
+// Where it was before it moved to `text.ts`, for whoever names it from here.
+export { inlineText };
 
 /** The calls of the client a backend is built from. */
 export type GitHubBackendClient = Pick<
@@ -139,19 +143,6 @@ function mayNameUnknownBlob(error: unknown): boolean {
 	return !/timed out|too large/i.test(error.message);
 }
 
-/**
- * Whether a text has a control character other than a tab, a line end or a
- * form feed. The codes are compared one by one: a pattern that names control
- * characters is what the automated review of plugins objects to.
- */
-function hasControlCharacter(text: string): boolean {
-	for (let i = 0; i < text.length; i++) {
-		const code = text.charCodeAt(i);
-		if (code <= 0x08 || code === 0x0b || (code >= 0x0e && code <= 0x1f)) return true;
-	}
-	return false;
-}
-
 // What a path and the fields around it add to the body of a request.
 const TREE_ENTRY_BYTES = 100;
 
@@ -227,6 +218,22 @@ export class GitHubBackend implements Backend {
 			...(signal === undefined ? {} : { signal }),
 			...(maxBytes === undefined ? {} : { maxBytes }),
 		});
+	}
+
+	/**
+	 * One blob, by its hash, in one request. GitHub keeps a blob for as long
+	 * as something reaches it, so one that no history holds any more (after
+	 * a force push) is gone some day: its 404 is the "no" here. The same 404
+	 * comes for a repository that is out of sight, which the caller cannot
+	 * use either.
+	 */
+	async contentOf(hash: string): Promise<Uint8Array | null> {
+		try {
+			return await this.client.getBlob(hash);
+		} catch (error) {
+			if (error instanceof BackendError && error.kind === "not-found") return null;
+			throw error;
+		}
 	}
 
 	/**
@@ -671,29 +678,4 @@ class ParentTree {
 		}
 		return item;
 	}
-}
-
-/**
- * The content as text, when sending it as text gives back these very
- * bytes: it is UTF-8, and encoding what was decoded makes no difference.
- * `null` for everything else, which goes as a blob: bytes that are not
- * UTF-8, a byte order mark (dropped by decoding), and control characters
- * other than tabs and line ends. A NUL marks a file as binary wherever git
- * looks at it; and each such character is six bytes in the body of the
- * request, which the size of a tree is not reckoned with.
- */
-export function inlineText(content: Uint8Array): string | null {
-	let text: string;
-	try {
-		text = new TextDecoder("utf-8", { fatal: true }).decode(content);
-	} catch {
-		return null;
-	}
-	if (hasControlCharacter(text)) return null;
-	const again = new TextEncoder().encode(text);
-	if (again.length !== content.length) return null;
-	for (let i = 0; i < again.length; i++) {
-		if (again[i] !== content[i]) return null;
-	}
-	return text;
 }

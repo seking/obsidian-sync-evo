@@ -17,6 +17,7 @@ import {
 	type BaseRelation,
 	type FetchedFile,
 	type ListResult,
+	RateLimitedError,
 } from "../src/core/backend";
 import { conflictCopyPath, isCopyInConflictFolder, originalPathOfConflictCopy } from "../src/core/conflict-name";
 import { FIRST_FETCH_CONFIRMED_KEY, isFirstFetchConfirmed } from "../src/core/first-fetch";
@@ -40,7 +41,7 @@ import {
 	runPull,
 } from "../src/core/pull";
 import { DEFAULT_AUTO_SYNC } from "../src/core/settings";
-import { makeMarker, readBaseRevision, type StateStore } from "../src/core/state";
+import { makeMarker, makeMergeMarker, readBaseRevision, type StateStore } from "../src/core/state";
 import { blobHash, bytes, type FileContent, MemoryBackend } from "./support/memory-backend";
 import { MemoryIndex } from "./support/memory-index";
 import { MemoryPullVault, type VaultOp } from "./support/memory-pull-vault";
@@ -57,6 +58,7 @@ const reportOptions = {
 		tokenSecret: "t",
 		deviceName: "iPhone",
 		autoSync: DEFAULT_AUTO_SYNC,
+		onConflict: "copy",
 	},
 	sizeLimit: 50 * 1024 * 1024,
 } as const;
@@ -716,6 +718,515 @@ describe("a conflict", () => {
 		}
 		// Listing, marker, copy, marker, file, record, marker, and more.
 		expect(stops).toBeGreaterThan(8);
+	});
+});
+
+describe("a conflict on a device that merges", () => {
+	const PATH = "notes/a.md";
+	const KEPT = ".trash/a.md";
+	const BASE = "# Title\n\none\n\ntwo\n\nthree\n";
+	const MINE = BASE.replace("one", "one, here");
+	const THEIRS = BASE.replace("three", "three, there");
+	const MERGED = "# Title\n\none, here\n\ntwo\n\nthree, there\n";
+	const merging = { mergeConflicts: true } as const;
+
+	/** Both sides have changed the file since it was synced. */
+	async function inConflict(mine: FileContent = MINE, theirs: FileContent = THEIRS, path = PATH): Promise<Harness> {
+		const h = await synced({ [path]: BASE, "other.md": "O" });
+		h.backend.commit({ [path]: theirs });
+		h.vault.put(path, mine);
+		return h;
+	}
+
+	/** The conflict was kept as a copy, as on a device that does not merge. */
+	function expectCopied(h: Harness, result: PullResult, mine = MINE, theirs = THEIRS, path = PATH): void {
+		const copy = h.copyName(path);
+		expect(result.merged).toEqual([]);
+		expect(result.conflicts).toEqual([{ path, copyPath: copy, cause: "conflict" }]);
+		expect(h.vault.snapshot()).toEqual({ [path]: theirs, "other.md": "O", [copy]: mine });
+		expect(h.vault.trashed).toEqual([]);
+	}
+
+	test("changes to different lines: the file holds both, and what the vault had is in its .trash/", async () => {
+		const h = await inConflict();
+
+		const result = await h.pull(merging);
+
+		expect(result.outcome).toBe("completed");
+		expect(result.merged).toEqual([{ path: PATH, keptAt: KEPT }]);
+		expect(h.vault.snapshot()).toEqual({ [PATH]: MERGED, "other.md": "O", [KEPT]: MINE });
+		// Kept first, and by a write of its own: the path is never empty.
+		expect(h.vault.log).toEqual([`write ${KEPT}`, `write ${PATH}`]);
+		expect(h.vault.trashed).toEqual([]);
+		// One request for what the file held when it was last synced.
+		expect(h.backend.contentRequests).toEqual([blobHash(BASE)]);
+		expect(await h.store.readMarkers()).toEqual([]);
+		expect(await h.base()).toBe(h.backend.revision);
+	});
+
+	test("it is neither a conflict nor a fetch: no copy, and it is told as a merge with where the content from before is", async () => {
+		const h = await inConflict();
+
+		const result = await h.pull(merging);
+
+		expect(result.conflicts).toEqual([]);
+		expect(result.counts).toEqual({ fetched: 0, deleted: 0, renamed: 0, conflicts: 0 });
+		expect(h.copies()).toEqual([]);
+		for (const language of ["en", "ja"] as const) {
+			const report = pullReport(translatorFor(language), result, reportOptions);
+			const text = report.details.join("\n");
+			expect(text).toContain(PATH);
+			expect(text).toContain(KEPT);
+			expect(report.summary).not.toBe(translatorFor(language)("pull.upToDate"));
+		}
+	});
+
+	test("the record names the remote's content, and carries neither the time nor the size of the file", async () => {
+		const h = await inConflict();
+		h.backend.commit({ "other.md": "O2" });
+
+		// The clock of the sync is ahead of the files, so that a time that
+		// is handed to a record is stored: with the clocks alike, every file
+		// a pull writes is too recent for that (`makeRecord`).
+		await h.pull({ ...merging, now: () => h.now() + 10_000 });
+
+		const records = await h.store.readRecords();
+		const merged = records.find((record) => record.path === PATH);
+		// With them, the next sync would not read the file and would take
+		// the remote's hash for the file's: nothing would be sent.
+		expect(merged).toEqual({ key: PATH, path: PATH, kind: "file", hash: blobHash(THEIRS) });
+		expect(merged?.hash).not.toBe(blobHash(MERGED));
+		// A file that was fetched in the same pull has them.
+		const fetched = records.find((record) => record.path === "other.md");
+		expect(fetched?.mtime).toBeTypeOf("number");
+		expect(fetched?.size).toBe(2);
+	});
+
+	test("the next pull reads the file, finds it changed on this device alone, and leaves it and its record alone", async () => {
+		const h = await inConflict();
+		await h.pull({ ...merging, now: () => h.now() + 10_000 });
+		h.vault.log.length = 0;
+
+		const again = await h.pull({ ...merging, now: () => h.now() + 10_000 });
+
+		expect(again.outcome).toBe("completed");
+		expect(again.merged).toEqual([]);
+		expect(again.conflicts).toEqual([]);
+		expect(h.vault.log).toEqual([]);
+		expect(h.vault.text(PATH)).toBe(MERGED);
+		const [record] = (await h.store.readRecords()).filter((each) => each.path === PATH);
+		expect(record).toEqual({ key: PATH, path: PATH, kind: "file", hash: blobHash(THEIRS) });
+		// Nothing more was asked of the remote for it.
+		expect(h.backend.contentRequests).toEqual([blobHash(BASE)]);
+	});
+
+	test("a name that is taken in the .trash/ gets a number, like a file the app moves there", async () => {
+		const h = await inConflict();
+		h.vault.put(KEPT, "an older one");
+		h.vault.put(".trash/a 2.md", "and another");
+
+		const result = await h.pull(merging);
+
+		expect(result.merged).toEqual([{ path: PATH, keptAt: ".trash/a 3.md" }]);
+		expect(h.vault.text(KEPT)).toBe("an older one");
+		expect(h.vault.text(".trash/a 3.md")).toBe(MINE);
+		expect(h.vault.text(PATH)).toBe(MERGED);
+	});
+
+	test("two files of one name in different folders: each has its own file in the .trash/, with its own content", async () => {
+		const other = "drafts/a.md";
+		const mineThere = BASE.replace("two", "two, here");
+		const h = await synced({ [PATH]: BASE, [other]: BASE });
+		h.backend.commit({ [PATH]: THEIRS, [other]: THEIRS });
+		h.vault.putAll({ [PATH]: MINE, [other]: mineThere });
+
+		const result = await h.pull(merging);
+
+		expect(result.outcome).toBe("completed");
+		expect(result.conflicts).toEqual([]);
+		// Whichever is merged first gets the name without a number.
+		expect(result.merged.map((merge) => merge.path).sort()).toEqual([other, PATH]);
+		expect(result.merged.map((merge) => merge.keptAt).sort()).toEqual([".trash/a 2.md", KEPT]);
+		const keptOf = (path: string): string | undefined =>
+			h.vault.text(result.merged.find((merge) => merge.path === path)?.keptAt ?? "");
+		expect(keptOf(PATH)).toBe(MINE);
+		expect(keptOf(other)).toBe(mineThere);
+		expect(h.vault.text(PATH)).toBe(MERGED);
+		expect(h.vault.text(other)).toBe("# Title\n\none\n\ntwo, here\n\nthree, there\n");
+	});
+
+	test("a file is where the .trash/ would be: nothing is merged, and a copy is made", async () => {
+		const h = await inConflict();
+		h.vault.put(".trash", "not a folder");
+
+		const result = await h.pull(merging);
+
+		const copy = h.copyName(PATH);
+		expect(result.outcome).toBe("completed");
+		expect(result.merged).toEqual([]);
+		expect(result.conflicts).toEqual([{ path: PATH, copyPath: copy, cause: "conflict" }]);
+		expect(h.vault.snapshot()).toEqual({ [PATH]: THEIRS, "other.md": "O", [copy]: MINE, ".trash": "not a folder" });
+		expect(h.vault.trashed).toEqual([]);
+	});
+
+	test("with the default setting nothing is merged, and the remote is not asked for anything more", async () => {
+		const h = await inConflict();
+
+		const result = await h.pull();
+
+		expectCopied(h, result);
+		expect(h.backend.contentRequests).toEqual([]);
+		expect(h.vault.log).toEqual([`write ${h.copyName(PATH)}`, `write ${PATH}`]);
+	});
+
+	test("both sides changed the same line: a copy, and no conflict marks anywhere", async () => {
+		const mine = BASE.replace("two", "two, here");
+		const theirs = BASE.replace("two", "two, there");
+		const h = await inConflict(mine, theirs);
+
+		const result = await h.pull(merging);
+
+		expectCopied(h, result, mine, theirs);
+		expect(Object.values(h.vault.snapshot()).join("\n")).not.toMatch(/<<<<<<<|=======|>>>>>>>/);
+	});
+
+	test("the remote does not hold the last synced content any more: a copy", async () => {
+		const h = await inConflict();
+		h.backend.lostContents.add(blobHash(BASE));
+
+		expectCopied(h, await h.pull(merging));
+		expect(h.backend.contentRequests).toEqual([blobHash(BASE)]);
+	});
+
+	test.each([
+		["the network", new BackendError("unreachable", "timed out")],
+		["the quota", new RateLimitedError(Date.UTC(2026, 9, 3, 13), "rate limited")],
+		["anything else", new Error("boom")],
+	])("the request for the last synced content fails (%s): a copy, and the pull is done", async (_what, failure) => {
+		const h = await inConflict();
+		h.backend.contentFailure = failure;
+
+		const result = await h.pull(merging);
+
+		expectCopied(h, result);
+		expect(result.outcome).toBe("completed");
+	});
+
+	test("the remote answers with another content than the one asked for: a copy", async () => {
+		const h = await inConflict();
+		h.backend.contentInstead = bytes("# Title\n\nsomething else\n");
+
+		expectCopied(h, await h.pull(merging));
+	});
+
+	test("a remote that cannot look a content up by its hash: a copy", async () => {
+		const h = await inConflict();
+		const backend = Object.create(h.backend, { contentOf: { value: undefined } }) as TestBackend;
+
+		expectCopied(h, await h.pull({ ...merging, backend }));
+	});
+
+	test("no record, as in a first fetch into a vault that has the file: a copy, and nothing is asked", async () => {
+		const h = harness();
+		h.backend.commit({ [PATH]: THEIRS, "other.md": "O" });
+		h.vault.put(PATH, MINE);
+
+		const result = await h.pull(merging);
+
+		expectCopied(h, result);
+		expect(h.backend.contentRequests).toEqual([]);
+	});
+
+	test.each(["board.canvas", "tasks.base"])("%s is not merged, and nothing is asked", async (path) => {
+		const h = await inConflict(MINE, THEIRS, path);
+
+		expectCopied(h, await h.pull(merging), MINE, THEIRS, path);
+		expect(h.backend.contentRequests).toEqual([]);
+	});
+
+	test("a side that is no text: a copy, and nothing is asked", async () => {
+		const binary = new Uint8Array([0xff, 0xfe, 0x00, 0x01]);
+		const h = await inConflict(binary);
+
+		const result = await h.pull(merging);
+
+		expect(result.merged).toEqual([]);
+		expect(result.conflicts).toEqual([{ path: PATH, copyPath: h.copyName(PATH), cause: "conflict" }]);
+		expect(h.vault.text(PATH)).toBe(THEIRS);
+		expect(h.backend.contentRequests).toEqual([]);
+	});
+
+	test("a byte order mark on one side alone: a copy", async () => {
+		const mine = `﻿${MINE}`;
+		const h = await inConflict(mine);
+
+		const result = await h.pull(merging);
+
+		expect(result.merged).toEqual([]);
+		expect(result.conflicts).toHaveLength(1);
+		expect(h.vault.text(PATH)).toBe(THEIRS);
+		expect(h.backend.contentRequests).toEqual([]);
+	});
+
+	test("one side changed every line end: a copy", async () => {
+		const theirs = THEIRS.replace(/\n/g, "\r\n");
+		const h = await inConflict(MINE, theirs);
+
+		expectCopied(h, await h.pull(merging), MINE, theirs);
+	});
+
+	test("inside the configuration folder nothing is merged: the remote's content, and the vault's to the .trash/", async () => {
+		const file = ".obsidian/app.json";
+		const h = await synced({ [file]: BASE });
+		h.backend.commit({ [file]: THEIRS });
+		h.vault.put(file, MINE);
+
+		const result = await h.pull(merging);
+
+		expect(result.merged).toEqual([]);
+		expect(result.replacedSettings).toEqual([file]);
+		expect(h.vault.text(file)).toBe(THEIRS);
+		expect(h.backend.contentRequests).toEqual([]);
+	});
+
+	test("after a history that was rewritten nothing is merged", async () => {
+		const h = await synced({ [PATH]: BASE, "other.md": "O" });
+		h.backend.rewriteHistory({ [PATH]: THEIRS, "other.md": "O" });
+		h.vault.put(PATH, MINE);
+
+		const result = await h.pull(merging);
+
+		expect(result.rewritten).toBe(true);
+		expect(result.merged).toEqual([]);
+		expect(result.conflicts).toEqual([{ path: PATH, copyPath: h.copyName(PATH), cause: "conflict" }]);
+		expect(h.vault.text(PATH)).toBe(THEIRS);
+		expect(h.backend.contentRequests).toEqual([]);
+	});
+
+	test("the content from before cannot be put into the .trash/: nothing is merged, and a copy is made", async () => {
+		const h = await inConflict();
+		h.vault.before = (op, path) => {
+			if (op === "write" && path.startsWith(".trash/")) throw new Error("read-only");
+		};
+
+		const result = await h.pull(merging);
+
+		expectCopied(h, result);
+	});
+
+	test("the remote's changes are all in the vault's content already: nothing is written or kept, and the file is sent", async () => {
+		const both = MINE.replace("three", "three, there");
+		const h = await inConflict(both);
+
+		const result = await h.pull({ ...merging, now: () => h.now() + 10_000 });
+
+		expect(result.outcome).toBe("completed");
+		expect(result.merged).toEqual([]);
+		expect(result.conflicts).toEqual([]);
+		expect(h.vault.log).toEqual([]);
+		expect(h.vault.snapshot()).toEqual({ [PATH]: both, "other.md": "O" });
+		const [record] = (await h.store.readRecords()).filter((each) => each.path === PATH);
+		expect(record).toEqual({ key: PATH, path: PATH, kind: "file", hash: blobHash(THEIRS) });
+	});
+
+	test("the vault's changes are all in the remote's content already: the file gets it, and what the vault had is kept", async () => {
+		const both = THEIRS.replace("one", "one, here");
+		const h = await inConflict(MINE, both);
+
+		const result = await h.pull(merging);
+
+		expect(result.merged).toEqual([{ path: PATH, keptAt: KEPT }]);
+		expect(result.conflicts).toEqual([]);
+		expect(h.vault.snapshot()).toEqual({ [PATH]: both, "other.md": "O", [KEPT]: MINE });
+		expect(await h.records()).toEqual(hashes({ [PATH]: both, "other.md": "O" }));
+	});
+
+	test("a file that was synced, then changed here while the pull ran, is merged too", async () => {
+		const h = await synced({ [PATH]: BASE, "other.md": "O" });
+		h.backend.commit({ [PATH]: THEIRS });
+
+		const result = await h.pull({
+			...merging,
+			// Planned as a fetch over a file that is as it was synced.
+			fetchContents: (revision, entries) => {
+				h.vault.put(PATH, MINE);
+				return h.backend.fetch(revision, entries);
+			},
+		});
+
+		expect(result.merged).toEqual([{ path: PATH, keptAt: KEPT }]);
+		expect(h.vault.text(PATH)).toBe(MERGED);
+		expect(h.vault.text(KEPT)).toBe(MINE);
+	});
+
+	describe("a file that changes while it is merged", () => {
+		const NEWER = MINE.replace("two", "two, typed since");
+		const MERGED_NEWER = MERGED.replace("two", "two, typed since");
+
+		test("changed once: merged again with the newer content, which is also what is kept", async () => {
+			const h = await inConflict();
+			// A save before each look and each read. The first two write
+			// what the merge then reads; the third, at the look right
+			// before the write, has more.
+			h.vault.open(PATH, MINE, MINE, NEWER);
+
+			const result = await h.pull(merging);
+
+			expect(result.outcome).toBe("completed");
+			expect(result.merged).toEqual([{ path: PATH, keptAt: KEPT }]);
+			expect(h.vault.text(PATH)).toBe(MERGED_NEWER);
+			// At the same place, and not as a second file.
+			expect(h.vault.text(KEPT)).toBe(NEWER);
+			expect(h.vault.paths().filter((path) => path.startsWith(".trash/"))).toEqual([KEPT]);
+			expect(h.backend.contentRequests).toEqual([blobHash(BASE)]);
+		});
+
+		test("changed twice: left as it is for the next sync, which merges it", async () => {
+			const h = await inConflict();
+			const last = NEWER.replace("# Title", "# Title, again");
+			// The file changes at the look that follows the keeping, and
+			// again at the one after the second merge.
+			h.vault.open(PATH, MINE, MINE, NEWER, NEWER, last);
+
+			const first = await h.pull(merging);
+
+			expect(first.outcome).toBe("incomplete");
+			expect(first.deferred).toEqual([{ path: PATH, reason: "changed-during-pull" }]);
+			expect(first.merged).toEqual([]);
+			expect(first.conflicts).toEqual([]);
+			expect(h.vault.text(PATH)).toBe(last);
+			expect(h.copies()).toEqual([]);
+			expect(await h.store.readMarkers()).toEqual([]);
+			expect(await h.records()).toEqual(hashes({ [PATH]: BASE, "other.md": "O" }));
+			// What was kept stays: it holds nothing the file does not.
+			expect(h.vault.text(KEPT)).toBe(NEWER);
+
+			h.vault.close(PATH);
+			const second = await h.pull(merging);
+
+			expect(second.outcome).toBe("completed");
+			expect(second.merged).toEqual([{ path: PATH, keptAt: ".trash/a 2.md" }]);
+			expect(h.vault.text(PATH)).toBe(MERGED_NEWER.replace("# Title", "# Title, again"));
+			expect(h.vault.text(".trash/a 2.md")).toBe(last);
+		});
+
+		test("changed to something that does not merge: a copy of the newer content", async () => {
+			const h = await inConflict();
+			const clashing = MINE.replace("three", "three, here too");
+			h.vault.open(PATH, MINE, MINE, clashing);
+
+			const result = await h.pull(merging);
+
+			const copy = h.copyName(PATH);
+			expect(result.merged).toEqual([]);
+			expect(result.conflicts).toEqual([{ path: PATH, copyPath: copy, cause: "conflict" }]);
+			expect(h.vault.text(PATH)).toBe(THEIRS);
+			expect(h.vault.text(copy)).toBe(clashing);
+		});
+
+		test("deleted in between: the remote's content is fetched, and what the file held is in the .trash/", async () => {
+			const h = await inConflict();
+			h.vault.before = (op, path) => {
+				if (op === "write" && path === KEPT) h.vault.remove(PATH);
+			};
+
+			const result = await h.pull(merging);
+
+			expect(result.outcome).toBe("completed");
+			expect(result.merged).toEqual([]);
+			expect(result.counts.fetched).toBe(1);
+			expect(h.vault.snapshot()).toEqual({ [PATH]: THEIRS, "other.md": "O", [KEPT]: MINE });
+		});
+
+		test("the vault refuses the merged content: nothing is recorded, and the next pull merges again", async () => {
+			const h = await inConflict();
+			h.vault.before = (op, path) => {
+				if (op === "write" && path === PATH) throw new Error("locked");
+			};
+
+			const first = await h.pull(merging);
+
+			expect(first.merged).toEqual([]);
+			expect(first.unwritable.map(({ path, reason }) => ({ path, reason }))).toEqual([
+				{ path: PATH, reason: "write-failed" },
+			]);
+			expect(h.vault.text(PATH)).toBe(MINE);
+			expect(await h.store.readMarkers()).toEqual([]);
+			expect(await h.records()).toEqual(hashes({ [PATH]: BASE, "other.md": "O" }));
+
+			h.vault.before = undefined;
+			const second = await h.pull(merging);
+
+			expect(second.merged).toEqual([{ path: PATH, keptAt: ".trash/a 2.md" }]);
+			expect(h.vault.text(PATH)).toBe(MERGED);
+		});
+	});
+
+	describe("in a pull that started by itself", () => {
+		test("a file that is being typed in is not merged, kept, or asked about", async () => {
+			const h = await inConflict();
+
+			const result = await h.pull({ ...merging, automatic: true, beingEdited: (path) => path === PATH });
+
+			expect(result.deferred).toEqual([{ path: PATH, reason: "being-edited" }]);
+			expect(result.merged).toEqual([]);
+			expect(h.vault.snapshot()).toEqual({ [PATH]: MINE, "other.md": "O" });
+			expect(h.backend.contentRequests).toEqual([]);
+		});
+
+		test("typing that begins right before the merged content is written: nothing is written, and no marker is left", async () => {
+			const h = await inConflict();
+			// Not at the look that follows the keeping, and then at the one
+			// right before the write.
+			let asked = 0;
+
+			const result = await h.pull({
+				...merging,
+				automatic: true,
+				beingEdited: (path) => path === PATH && h.vault.text(KEPT) !== undefined && ++asked > 1,
+			});
+
+			expect(result.merged).toEqual([]);
+			expect(result.deferred).toEqual([{ path: PATH, reason: "being-edited" }]);
+			expect(h.vault.text(PATH)).toBe(MINE);
+			expect(await h.store.readMarkers()).toEqual([]);
+			expect(await h.records()).toEqual(hashes({ [PATH]: BASE, "other.md": "O" }));
+		});
+	});
+
+	test("a pull that is stopped while the last synced content is asked for does nothing to the file", async () => {
+		const h = await inConflict();
+		const stop = new AbortController();
+		const backend = Object.create(h.backend, {
+			contentOf: {
+				value: async (): Promise<Uint8Array | null> => {
+					stop.abort();
+					throw new BackendError("cancelled", "stopped");
+				},
+			},
+		}) as TestBackend;
+
+		const result = await h.pull({ ...merging, backend, signal: stop.signal });
+
+		expect(result.outcome).toBe("cancelled");
+		expect(result.merged).toEqual([]);
+		expect(result.conflicts).toEqual([]);
+		expect(h.vault.snapshot()).toEqual({ [PATH]: MINE, "other.md": "O" });
+		expect(await h.records()).toEqual(hashes({ [PATH]: BASE, "other.md": "O" }));
+	});
+
+	test("a conflict whose copy a pull that stopped has made is gone on with as a copy", async () => {
+		const h = await inConflict();
+		const copy = "_conflicts/2026-10-03 a (iPhone).md";
+		h.vault.put(copy, MINE);
+		await h.store.putMarker(makeMarker(copy, null, blobHash(MINE), true, PATH));
+
+		const result = await h.pull(merging);
+
+		expect(result.merged).toEqual([]);
+		expect(result.conflicts).toEqual([{ path: PATH, copyPath: copy, cause: "conflict" }]);
+		expect(h.vault.snapshot()).toEqual({ [PATH]: THEIRS, "other.md": "O", [copy]: MINE });
+		expect(h.backend.contentRequests).toEqual([]);
 	});
 });
 
@@ -3106,6 +3617,7 @@ describe("a file moved to a folder the disk spells otherwise", () => {
 				startedAt: time,
 				listing: { revision: null, entries: [] },
 				protect: false,
+				merge: false,
 				seen,
 				localPaths: [from],
 				awaited: [],
@@ -4582,6 +5094,309 @@ describe("going on after a pull that stopped while writing", () => {
 			expect(await h.store.getMeta(AWAITED_CONFLICTS_KEY)).toBeUndefined();
 			expect(h.vault.text("a.md")).toBe("typed since");
 		}
+	});
+
+	describe("a merge", () => {
+		const PATH = "notes/a.md";
+		const KEPT = ".trash/a.md";
+		const BASE = "# Title\n\none\n\ntwo\n\nthree\n";
+		const MINE = BASE.replace("one", "one, here");
+		const THEIRS = BASE.replace("three", "three, there");
+		const MERGED = "# Title\n\none, here\n\ntwo\n\nthree, there\n";
+		const merging = { mergeConflicts: true } as const;
+		const mergedRecord = { key: PATH, path: PATH, kind: "file", hash: blobHash(THEIRS) };
+
+		async function inConflict(): Promise<Harness> {
+			const h = await synced({ [PATH]: BASE });
+			h.backend.commit({ [PATH]: THEIRS });
+			h.vault.put(PATH, MINE);
+			return h;
+		}
+
+		/** Killed between the write of the merged content and its record. */
+		async function killedBeforeRecord(): Promise<Harness> {
+			const h = await inConflict();
+			await expect(h.pull({ ...merging, store: killingStore(h, "commitWrite", PATH) })).rejects.toThrow(
+				"the app is gone",
+			);
+			expect(h.vault.snapshot()).toEqual({ [PATH]: MERGED, [KEPT]: MINE });
+			expect(await h.records()).toEqual(hashes({ [PATH]: BASE }));
+			// The marker says what was written, which is not what the remote has.
+			expect(await h.store.readMarkers()).toEqual([
+				makeMergeMarker(PATH, blobHash(MINE), blobHash(MERGED), blobHash(THEIRS), KEPT),
+			]);
+			restart(h);
+			return h;
+		}
+
+		test("killed before anything was written: merged by the next pull", async () => {
+			const h = await inConflict();
+			killBeforeWrite(h, (path) => path.startsWith(".trash/"));
+			await expect(h.pull(merging)).rejects.toThrow("the app is gone");
+			expect(h.vault.snapshot()).toEqual({ [PATH]: MINE });
+			restart(h);
+
+			const result = await h.pull(merging);
+
+			expect(result.outcome).toBe("completed");
+			expect(result.merged).toEqual([{ path: PATH, keptAt: KEPT }]);
+			expect(h.vault.snapshot()).toEqual({ [PATH]: MERGED, [KEPT]: MINE });
+		});
+
+		test("killed while the content from before was put into the .trash/: it is put there again, under the next name", async () => {
+			const h = await inConflict();
+			killBeforeWrite(
+				h,
+				(path) => path.startsWith(".trash/"),
+				(path) => h.vault.put(path, MINE.slice(0, 9)),
+			);
+			await expect(h.pull(merging)).rejects.toThrow("the app is gone");
+			expect(await h.store.readMarkers()).toEqual([]);
+			restart(h);
+
+			const result = await h.pull(merging);
+
+			expect(result.merged).toEqual([{ path: PATH, keptAt: ".trash/a 2.md" }]);
+			expect(result.halfWritten).toEqual([]);
+			expect(h.vault.snapshot()).toEqual({ [PATH]: MERGED, [KEPT]: MINE.slice(0, 9), ".trash/a 2.md": MINE });
+		});
+
+		test("killed right before the merged content was written: the file is as it was, and is merged again", async () => {
+			const h = await inConflict();
+			killBeforeWrite(h, (path) => path === PATH);
+			await expect(h.pull(merging)).rejects.toThrow("the app is gone");
+			expect(h.vault.snapshot()).toEqual({ [PATH]: MINE, [KEPT]: MINE });
+			expect(await markerPaths(h)).toEqual([PATH]);
+			restart(h);
+
+			const result = await h.pull(merging);
+
+			expect(result.outcome).toBe("completed");
+			expect(result.halfWritten).toEqual([]);
+			expect(result.conflicts).toEqual([]);
+			expect(result.merged).toEqual([{ path: PATH, keptAt: ".trash/a 2.md" }]);
+			expect(h.vault.text(PATH)).toBe(MERGED);
+			// Kept twice, and lost never.
+			expect(h.vault.text(KEPT)).toBe(MINE);
+			expect(h.vault.text(".trash/a 2.md")).toBe(MINE);
+			expect(await h.store.readMarkers()).toEqual([]);
+			expect(await h.store.readRecords()).toEqual([mergedRecord]);
+		});
+
+		test("killed in the middle of writing the merged content: the half file goes to the .trash/, and what the vault had is there too", async () => {
+			const h = await inConflict();
+			killBeforeWrite(
+				h,
+				(path) => path === PATH,
+				() => h.vault.put(PATH, MERGED.slice(0, 12)),
+			);
+			await expect(h.pull(merging)).rejects.toThrow("the app is gone");
+			restart(h);
+
+			const result = await h.pull(merging);
+
+			// Half a file cannot be told from one that was edited since:
+			// as for every write that was cut short, the remote's content
+			// is fetched. Nothing is lost by it: the vault's is kept.
+			expect(result.outcome).toBe("completed");
+			expect(result.halfWritten).toEqual([PATH]);
+			expect(result.merged).toEqual([]);
+			expect(h.vault.trashed.map((file) => file.content)).toEqual([MERGED.slice(0, 12)]);
+			expect(h.vault.snapshot()).toEqual({ [PATH]: THEIRS, [KEPT]: MINE });
+			expect(await h.records()).toEqual(hashes({ [PATH]: THEIRS }));
+			// Where it is kept is told: it is not in the file that was moved.
+			expect(result.halfMerged).toEqual([{ path: PATH, keptAt: KEPT }]);
+			for (const language of ["en", "ja"] as const) {
+				const details = pullReport(translatorFor(language), result, reportOptions).details;
+				expect(details).toHaveLength(2);
+				expect(details[1]).toContain(PATH);
+				expect(details[1]).toContain(KEPT);
+			}
+			expect(await h.store.getMeta(HALF_WRITTEN_KEY)).toBeUndefined();
+
+			// Told once.
+			const next = await h.pull(merging);
+			expect(next.halfWritten).toEqual([]);
+			expect(next.halfMerged).toEqual([]);
+		});
+
+		test("the pull that moves the half file away is killed too: where the content from before is, is still told", async () => {
+			const h = await inConflict();
+			killBeforeWrite(
+				h,
+				(path) => path === PATH,
+				() => h.vault.put(PATH, MERGED.slice(0, 12)),
+			);
+			await expect(h.pull(merging)).rejects.toThrow("the app is gone");
+			restart(h);
+			await expect(h.pull({ ...merging, store: killingStore(h, "deleteMarker", PATH) })).rejects.toThrow(
+				"the app is gone",
+			);
+			expect(h.vault.snapshot()).toEqual({ [KEPT]: MINE });
+			expect(await h.store.getMeta(HALF_WRITTEN_KEY)).toEqual({
+				files: [PATH],
+				copies: [],
+				conflicts: [],
+				halfMerged: [{ path: PATH, keptAt: KEPT }],
+			});
+			restart(h);
+
+			const result = await h.pull(merging);
+
+			expect(result.outcome).toBe("completed");
+			expect(result.halfWritten).toEqual([PATH]);
+			expect(result.halfMerged).toEqual([{ path: PATH, keptAt: KEPT }]);
+			expect(h.vault.snapshot()).toEqual({ [PATH]: THEIRS, [KEPT]: MINE });
+			expect(await h.store.getMeta(HALF_WRITTEN_KEY)).toBeUndefined();
+			expect((await h.pull(merging)).halfMerged).toEqual([]);
+		});
+
+		test("the half file cannot be moved away: nothing is told of it, and the next pull moves and tells it", async () => {
+			const h = await inConflict();
+			killBeforeWrite(
+				h,
+				(path) => path === PATH,
+				() => h.vault.put(PATH, MERGED.slice(0, 12)),
+			);
+			await expect(h.pull(merging)).rejects.toThrow("the app is gone");
+			restart(h);
+			h.vault.before = (op) => {
+				if (op === "trash") throw new Error("busy");
+			};
+
+			const held = await h.pull(merging);
+
+			expect(held.outcome).toBe("incomplete");
+			expect(held.halfWritten).toEqual([]);
+			expect(held.halfMerged).toEqual([]);
+			expect(await h.store.getMeta(HALF_WRITTEN_KEY)).toBeUndefined();
+			h.vault.before = undefined;
+
+			const result = await h.pull(merging);
+
+			expect(result.halfWritten).toEqual([PATH]);
+			expect(result.halfMerged).toEqual([{ path: PATH, keptAt: KEPT }]);
+			expect(h.vault.snapshot()).toEqual({ [PATH]: THEIRS, [KEPT]: MINE });
+		});
+
+		test("killed between the merged content and its record: the record the merge would have stored, and the merge is told", async () => {
+			const h = await killedBeforeRecord();
+
+			const result = await h.pull({ ...merging, now: () => h.now() + 10_000 });
+
+			expect(result.outcome).toBe("completed");
+			expect(result.merged).toEqual([{ path: PATH, keptAt: KEPT }]);
+			expect(result.conflicts).toEqual([]);
+			expect(result.halfWritten).toEqual([]);
+			expect(h.vault.log).toEqual([]);
+			expect(h.vault.trashed).toEqual([]);
+			expect(h.vault.snapshot()).toEqual({ [PATH]: MERGED, [KEPT]: MINE });
+			// The remote's hash, and neither time nor size: the file is sent.
+			expect(await h.store.readRecords()).toEqual([mergedRecord]);
+			expect(await h.store.readMarkers()).toEqual([]);
+			expect(await h.store.getMeta(HALF_WRITTEN_KEY)).toBeUndefined();
+			// What the file held when it was synced was asked for once, by the pull that merged.
+			expect(h.backend.contentRequests).toEqual([blobHash(BASE)]);
+
+			// Told once.
+			expect((await h.pull(merging)).merged).toEqual([]);
+			expect(h.vault.text(PATH)).toBe(MERGED);
+		});
+
+		test("a merge that came out as the remote's content: the record of a file in sync, with its time and size", async () => {
+			const both = THEIRS.replace("one", "one, here");
+			const h = await synced({ [PATH]: BASE });
+			h.backend.commit({ [PATH]: both });
+			h.vault.put(PATH, MINE);
+			await expect(h.pull({ ...merging, store: killingStore(h, "commitWrite", PATH) })).rejects.toThrow(
+				"the app is gone",
+			);
+			expect(h.vault.snapshot()).toEqual({ [PATH]: both, [KEPT]: MINE });
+			expect(await h.store.readMarkers()).toEqual([
+				makeMergeMarker(PATH, blobHash(MINE), blobHash(both), blobHash(both), KEPT),
+			]);
+			restart(h);
+
+			// The clock of the sync is ahead of the file, so that its time is stored (`makeRecord`).
+			const result = await h.pull({ ...merging, now: () => h.now() + 10_000 });
+
+			expect(result.outcome).toBe("completed");
+			expect(result.merged).toEqual([{ path: PATH, keptAt: KEPT }]);
+			expect(result.halfWritten).toEqual([]);
+			expect(h.vault.log).toEqual([]);
+			const stat = await h.vault.stat(PATH);
+			expect(await h.store.readRecords()).toEqual([
+				{ key: PATH, path: PATH, kind: "file", hash: blobHash(both), mtime: stat?.mtime, size: stat?.size },
+			]);
+			expect(await h.store.readMarkers()).toEqual([]);
+		});
+
+		test("the same on a device that no longer merges, and with a remote that has lost the content from before", async () => {
+			const h = await killedBeforeRecord();
+			h.backend.lostContents.add(blobHash(BASE));
+
+			const result = await h.pull();
+
+			expect(result.merged).toEqual([{ path: PATH, keptAt: KEPT }]);
+			expect(result.conflicts).toEqual([]);
+			expect(h.vault.snapshot()).toEqual({ [PATH]: MERGED, [KEPT]: MINE });
+			expect(await h.store.readRecords()).toEqual([mergedRecord]);
+		});
+
+		test("the pull that goes on is killed too, before the record: the merge is still told, and once", async () => {
+			const h = await killedBeforeRecord();
+			await expect(h.pull({ ...merging, store: killingStore(h, "commitWrite", PATH) })).rejects.toThrow(
+				"the app is gone",
+			);
+			expect(await h.store.getMeta(HALF_WRITTEN_KEY)).toEqual({
+				files: [],
+				copies: [],
+				conflicts: [],
+				merged: [{ path: PATH, keptAt: KEPT }],
+			});
+			restart(h);
+
+			const result = await h.pull(merging);
+
+			expect(result.merged).toEqual([{ path: PATH, keptAt: KEPT }]);
+			expect(h.vault.snapshot()).toEqual({ [PATH]: MERGED, [KEPT]: MINE });
+			expect(await h.store.readRecords()).toEqual([mergedRecord]);
+			expect(await h.store.getMeta(HALF_WRITTEN_KEY)).toBeUndefined();
+		});
+
+		test("and the remote changed the file again since: merged with that too, on top of what was merged", async () => {
+			const h = await killedBeforeRecord();
+			const later = THEIRS.replace("two", "two, there as well");
+			h.backend.commit({ [PATH]: later });
+
+			const result = await h.pull(merging);
+
+			expect(result.outcome).toBe("completed");
+			expect(result.conflicts).toEqual([]);
+			expect(result.merged).toEqual([
+				{ path: PATH, keptAt: KEPT },
+				{ path: PATH, keptAt: ".trash/a 2.md" },
+			]);
+			expect(h.vault.text(PATH)).toBe("# Title\n\none, here\n\ntwo, there as well\n\nthree, there\n");
+			expect(h.vault.text(KEPT)).toBe(MINE);
+			expect(h.vault.text(".trash/a 2.md")).toBe(MERGED);
+			expect(await h.records()).toEqual(hashes({ [PATH]: later }));
+		});
+
+		test("a marker that has lost what it says of the merge is one of an ordinary write", async () => {
+			const h = await killedBeforeRecord();
+			const [marker] = await h.store.readMarkers();
+			if (marker === undefined) throw new Error("expected a marker");
+			await h.store.putMarker(makeMarker(marker.path, marker.before, marker.writing, false));
+
+			const result = await h.pull(merging);
+
+			// As an earlier version would settle it: the file is taken for
+			// one in sync with its own content, and the remote's is fetched
+			// over it. What the vault had is in its `.trash/`.
+			expect(result.merged).toEqual([]);
+			expect(h.vault.snapshot()).toEqual({ [PATH]: THEIRS, [KEPT]: MINE });
+		});
 	});
 
 	describe("a marker of a path the remote has deleted since", () => {

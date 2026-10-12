@@ -84,9 +84,11 @@ const pulled: PullResult = {
 	rewritten: false,
 	counts: { fetched: 0, deleted: 0, renamed: 0, conflicts: 0 },
 	conflicts: [],
+	merged: [],
 	replacedSettings: [],
 	trashed: [],
 	halfWritten: [],
+	halfMerged: [],
 	halfCopies: [],
 	deferred: [],
 	unwritable: [],
@@ -148,6 +150,7 @@ function setup() {
 		tokenSecret: "github-token",
 		deviceName: "iPhone",
 		autoSync: { ...DEFAULT_AUTO_SYNC, onStartup: true, atInterval: true, sendsChanges: true },
+		onConflict: "copy",
 	};
 	const host = {
 		app: {

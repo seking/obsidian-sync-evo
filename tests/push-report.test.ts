@@ -35,6 +35,7 @@ const settings = {
 	tokenSecret: "t",
 	deviceName: "iPhone",
 	autoSync: DEFAULT_AUTO_SYNC,
+	onConflict: "copy",
 } as const;
 const target = { repository: "octo/notes", branch: "main" };
 const options = { sizeLimit: 50 * 1024 * 1024 };
@@ -473,9 +474,11 @@ describe("how a push ended", () => {
 			rewritten: false,
 			counts: { fetched: 0, deleted: 0, renamed: 0, conflicts: 0 },
 			conflicts: [],
+			merged: [],
 			replacedSettings: [],
 			trashed: [],
 			halfWritten: [],
+			halfMerged: [],
 			halfCopies: [],
 			deferred: [],
 			unwritable: [],

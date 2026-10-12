@@ -80,6 +80,11 @@ export const en = baseCatalog({
 	"settings.autoSync.sends.name": "Also send changes in automatic sync",
 	"settings.autoSync.sends.desc":
 		"When this is off, automatic sync only receives: what you edit on this device is not sent until you sync manually. When it is on, each automatic sync that finds changes on this device makes a commit, so the interval is at least {sendingMin} minutes.",
+	"settings.onConflict.name": "On a conflict",
+	"settings.onConflict.desc":
+		"What happens to a file that was changed both on this device and on the remote. Merging goes line by line, and a file that cannot be merged is kept as a separate file. What a file held on this device before a merge is put in .trash/ in this vault.",
+	"settings.onConflict.merge": "Merge automatically",
+	"settings.onConflict.copy": "Keep as a separate file",
 	"settings.symlinks.name": "Skipped symbolic links",
 	"settings.symlinks.summary": { one: "{count} link", other: "{count} links" },
 	"settings.symlinks.desc":
@@ -317,6 +322,7 @@ export const en = baseCatalog({
 	"pull.count.deleted": { one: "{count} file deleted", other: "{count} files deleted" },
 	"pull.count.renamed": { one: "{count} file renamed", other: "{count} files renamed" },
 	"pull.count.conflicts": { one: "{count} conflict", other: "{count} conflicts" },
+	"pull.count.merged": { one: "{count} file merged", other: "{count} files merged" },
 	"pull.summary": "Pull finished: {details}.",
 	"pull.refetched": {
 		one: "{count} file was missing from the download of all files, or differed from GitHub's listing there. It was fetched on its own.",
@@ -365,6 +371,11 @@ export const en = baseCatalog({
 		"{copy} ({path} is a symbolic link on the remote now, which is not written to this device)",
 	"pull.conflict.becameFolder": "{copy} ({path} is a folder on the remote now)",
 	"pull.conflict.nameTaken": "{copy} (the remote renamed another file to {path})",
+	"pull.merged": {
+		one: "{count} file was changed both on this device and on the remote, and now holds the changes of both. What it held on this device before is in .trash/ in this vault:\n{list}",
+		other: "{count} files were changed both on this device and on the remote, and now hold the changes of both. What they held on this device before is in .trash/ in this vault:\n{list}",
+	},
+	"pull.merged.item": "{path} (before: {kept})",
 	"pull.replacedSettings": {
 		one: "{count} file in the configuration folder now has the content of the remote. What it held on this device before is in .trash/ in this vault:\n{list}",
 		other: "{count} files in the configuration folder now have the content of the remote. What they held on this device before is in .trash/ in this vault:\n{list}",
@@ -376,6 +387,10 @@ export const en = baseCatalog({
 	"pull.halfWritten": {
 		one: "An earlier pull stopped while it was writing {count} file. What was left of it was moved to .trash/ in this vault. A pull fetches the content of the remote. If you had edited the file since, you can get your edit back from there:\n{list}",
 		other: "An earlier pull stopped while it was writing {count} files. What was left of them was moved to .trash/ in this vault. A pull fetches the content of the remote. If you had edited them since, you can get your edits back from there:\n{list}",
+	},
+	"pull.halfMerged": {
+		one: "An earlier pull stopped while it was writing the merged content of {count} file. A pull fetches the content of the remote, without the changes of this device. What the file held on this device before the merge is in .trash/ in this vault:\n{list}",
+		other: "An earlier pull stopped while it was writing the merged content of {count} files. A pull fetches the content of the remote, without the changes of this device. What the files held on this device before the merge is in .trash/ in this vault:\n{list}",
 	},
 	"pull.halfCopies": {
 		one: "{count} conflict copy that an earlier pull left unfinished was moved to .trash/ in this vault. A complete copy is made again. If you had edited the copy, your edit is there:\n{list}",

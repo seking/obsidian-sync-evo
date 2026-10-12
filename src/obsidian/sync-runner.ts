@@ -517,6 +517,7 @@ export class SyncRunner {
 				paths: exclusionPathsOf(host.app, host.manifest),
 				pluginId: host.manifest.id,
 				deviceName: settings.deviceName,
+				mergeConflicts: settings.onConflict === "merge",
 				now: Date.now,
 				confirm: async (request) => {
 					// No one is there to ask. Nothing is opened, and the

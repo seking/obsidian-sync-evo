@@ -660,6 +660,40 @@ describe("a pull through the routing", () => {
 		},
 	);
 
+	test.each(["system", "none", "local"])(
+		"a conflict that is merged: the content from before is written into .trash/ of the vault, with the setting %j",
+		async (setting) => {
+			const { ports, backend, pull } = harness(false);
+			ports.trashSetting = setting;
+			backend.commit({ "notes/a.md": "one\ntwo\nthree\n" });
+			await pull();
+
+			ports.put("notes/a.md", "one, here\ntwo\nthree\n");
+			backend.commit({ "notes/a.md": "one\ntwo\nthree, there\n" });
+			ports.calls.length = 0;
+			const result = await pull({ mergeConflicts: true });
+
+			expect(result.outcome).toBe("completed");
+			expect(result.merged).toEqual([{ path: "notes/a.md", keptAt: ".trash/a.md" }]);
+			expect(ports.text("notes/a.md")).toBe("one, here\ntwo\nthree, there\n");
+			expect(ports.text(".trash/a.md")).toBe("one, here\ntwo\nthree\n");
+			// Written there, on the disk: nothing is moved away, so the note
+			// is never missing, and the setting for deleted files plays no part.
+			expect(ports.trashed).toEqual([]);
+			expect(ports.calls.filter((call) => /^(writeBinary|modify|create|mkdir) /.test(call))).toEqual([
+				"mkdir .trash",
+				"writeBinary .trash/a.md",
+				"modify notes/a.md",
+			]);
+
+			// What is in the `.trash/` is not taken for a file of the vault.
+			ports.calls.length = 0;
+			const again = await pull({ mergeConflicts: true });
+			expect(again).toMatchObject({ outcome: "completed", merged: [], conflicts: [] });
+			expect(ports.text("notes/a.md")).toBe("one, here\ntwo\nthree, there\n");
+		},
+	);
+
 	test("a folder renamed in case on the remote is renamed here, in one call, where the cases are not told apart", async () => {
 		const { ports, backend, pull } = harness(false);
 		backend.commit({ "notes/a.md": "a", "notes/b.md": "b" });

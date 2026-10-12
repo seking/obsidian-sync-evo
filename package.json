@@ -24,7 +24,8 @@
 	},
 	"dependencies": {
 		"fflate": "0.8.3",
-		"ignore": "7.0.12"
+		"ignore": "7.0.12",
+		"node-diff3": "3.2.1"
 	},
 	"devDependencies": {
 		"@types/node": "25.9.9",

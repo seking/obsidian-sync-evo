@@ -23,6 +23,16 @@ import esbuild from "esbuild";
 const bundled = [
 	{ name: "fflate", version: "0.8.3", copyright: "Copyright (c) 2026 Arjun Barrett" },
 	{ name: "ignore", version: "7.0.12", copyright: "Copyright (c) 2013 Kael Zhang <i@kael.me>, contributors" },
+	{
+		name: "node-diff3",
+		version: "3.2.1",
+		// Three lines in its licence file. Each goes on a line of its own.
+		copyright: [
+			"Copyright (c) 2006, 2008 Tony Garnock-Jones <tonyg@lshift.net>",
+			"Copyright (c) 2006, 2008 LShift Ltd. <query@lshift.net>",
+			"Copyright (c) 2019-2026 Bryan Housel <bhousel@gmail.com>",
+		].join("\n * "),
+	},
 ];
 
 const { dependencies = {} } = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8"));

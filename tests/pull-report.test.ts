@@ -38,6 +38,7 @@ const settings: DeviceSettings = {
 	tokenSecret: "github-token",
 	deviceName: "Mac",
 	autoSync: DEFAULT_AUTO_SYNC,
+	onConflict: "copy",
 };
 const options = { settings, sizeLimit: 50 * 1024 * 1024 };
 
@@ -48,9 +49,11 @@ const result = (over: Partial<PullResult> = {}): PullResult => ({
 	rewritten: false,
 	counts: { fetched: 0, deleted: 0, renamed: 0, conflicts: 0 },
 	conflicts: [],
+	merged: [],
 	replacedSettings: [],
 	trashed: [],
 	halfWritten: [],
+	halfMerged: [],
 	halfCopies: [],
 	deferred: [],
 	unwritable: [],
@@ -276,6 +279,25 @@ describe("the summary", () => {
 		expect(pullReport(ja, result({ halfWritten: ["a.md", "b.md"] }), options).details).toEqual([
 			"前の取り込みが、2 件のファイルを書いている途中で止まっていました。残っていた内容は、この保管庫の .trash/ へ移しました。保存先の内容は、取り込みで取得します。その後に編集していた時は、そこから戻せます：\na.md\nb.md",
 		]);
+	});
+
+	test("a file a merge was writing is told once more, with where the content from before the merge is", () => {
+		const moved = { halfWritten: ["notes/a.md", "b.md"], halfMerged: [{ path: "notes/a.md", keptAt: ".trash/a.md" }] };
+		for (const outcome of ["completed", "cancelled", "declined", "incomplete"] as const) {
+			const details = pullReport(t, result({ outcome, ...moved }), options).details;
+			expect(details).toHaveLength(2);
+			expect(details[0]).toContain("while it was writing 2 files");
+			expect(details[1]).toBe(
+				"An earlier pull stopped while it was writing the merged content of 1 file. A pull fetches the content of the remote, without the changes of this device. What the file held on this device before the merge is in .trash/ in this vault:\nnotes/a.md (before: .trash/a.md)",
+			);
+		}
+		const two = [...moved.halfMerged, { path: "b.md", keptAt: ".trash/b.md" }];
+		expect(pullReport(t, result({ ...moved, halfMerged: two }), options).details[1]).toBe(
+			"An earlier pull stopped while it was writing the merged content of 2 files. A pull fetches the content of the remote, without the changes of this device. What the files held on this device before the merge is in .trash/ in this vault:\nnotes/a.md (before: .trash/a.md)\nb.md (before: .trash/b.md)",
+		);
+		expect(pullReport(ja, result(moved), options).details[1]).toBe(
+			"前の取り込みが、統合した内容を 1 件のファイルに書いている途中で止まっていました。取り込みで取得するのは保存先の内容で、このデバイスの変更は入りません。統合する前のこのデバイスの内容は、この保管庫の .trash/ にあります：\nnotes/a.md（前の内容：.trash/a.md）",
+		);
 	});
 
 	test("conflict copies that were tidied are counted, with how one is kept, and not listed", () => {
@@ -590,6 +612,47 @@ describe("what the user has to know", () => {
 		expect(lines[0]).toContain("12 files");
 		expect(lines).toHaveLength(12);
 		expect(lines[11]).toBe("…and 2 more");
+	});
+
+	test("files that were merged, with where the content from before is, apart from the conflicts and the fetched", () => {
+		const merged = result({
+			merged: [
+				{ path: "notes/a.md", keptAt: ".trash/a.md" },
+				{ path: "b.md", keptAt: ".trash/b 2.md" },
+			],
+		});
+		expect(pullReport(t, merged, options)).toEqual({
+			summary: "Pull finished: 2 files merged.",
+			details: [
+				"2 files were changed both on this device and on the remote, and now hold the changes of both. What they held on this device before is in .trash/ in this vault:\nnotes/a.md (before: .trash/a.md)\nb.md (before: .trash/b 2.md)",
+			],
+		});
+		expect(pullReport(ja, merged, options)).toEqual({
+			summary: "取り込みが終わりました：統合 2 件",
+			details: [
+				"このデバイスと保存先の両方で変更していたファイル 2 件を、両方の変更を入れた内容にしました。統合する前のこのデバイスの内容は、この保管庫の .trash/ にあります：\nnotes/a.md（前の内容：.trash/a.md）\nb.md（前の内容：.trash/b 2.md）",
+			],
+		});
+		const one = result({ merged: [{ path: "a.md", keptAt: ".trash/a.md" }] });
+		expect(pullReport(t, one, options)).toEqual({
+			summary: "Pull finished: 1 file merged.",
+			details: [
+				"1 file was changed both on this device and on the remote, and now holds the changes of both. What it held on this device before is in .trash/ in this vault:\na.md (before: .trash/a.md)",
+			],
+		});
+
+		// After the conflicts, and counted after them.
+		const both = result({
+			counts: { fetched: 2, deleted: 0, renamed: 0, conflicts: 1 },
+			conflicts: [{ path: "c.md", copyPath: "_conflicts/2026-10-03 c (Mac).md", cause: "conflict" }],
+			merged: [{ path: "a.md", keptAt: ".trash/a.md" }],
+		});
+		const report = pullReport(ja, both, options);
+		expect(report.summary).toBe("取り込みが終わりました：取得 2 件、競合 1 件、統合 1 件");
+		expect(report.details.map((detail) => detail.split("\n")[0])).toEqual([
+			"このデバイスのファイル 1 件の内容を、別名で残しました：",
+			"このデバイスと保存先の両方で変更していたファイル 1 件を、両方の変更を入れた内容にしました。統合する前のこのデバイスの内容は、この保管庫の .trash/ にあります：",
+		]);
 	});
 
 	test("files in the configuration folder that got the content of the remote, apart from the conflicts", () => {

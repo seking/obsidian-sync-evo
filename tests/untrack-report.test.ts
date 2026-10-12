@@ -42,6 +42,7 @@ const settings = {
 	tokenSecret: "t",
 	deviceName: "iPhone",
 	autoSync: DEFAULT_AUTO_SYNC,
+	onConflict: "copy",
 } as const;
 
 const plain = (path: string): UntrackableFile => ({ path, symlink: false, ownFolder: false });
@@ -61,9 +62,11 @@ const pulled: PullResult = {
 	rewritten: false,
 	counts: { fetched: 0, deleted: 0, renamed: 0, conflicts: 0 },
 	conflicts: [],
+	merged: [],
 	replacedSettings: [],
 	trashed: [],
 	halfWritten: [],
+	halfMerged: [],
 	halfCopies: [],
 	deferred: [],
 	unwritable: [],

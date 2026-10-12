@@ -35,6 +35,7 @@ const settings = (over: Partial<DeviceSettings> = {}): DeviceSettings => ({
 	tokenSecret: "github-token",
 	deviceName: "Mac",
 	autoSync: DEFAULT_AUTO_SYNC,
+	onConflict: "copy",
 	...over,
 });
 

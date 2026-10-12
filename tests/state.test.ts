@@ -18,7 +18,9 @@ import {
 	isStatUpdateOf,
 	isUnchangedByStat,
 	makeMarker,
+	makeMergeMarker,
 	makeRecord,
+	mergeOf,
 	plainMarker,
 	RACY_MTIME_MARGIN_MS,
 	RecordBatcher,
@@ -258,6 +260,36 @@ describe("a write marker", () => {
 			makeMarker("a.md", null, HASH, false),
 		);
 		expect(plainMarker({ ...marker, original: 5 } as unknown as WriteMarker)).not.toHaveProperty("original");
+	});
+
+	test("the marker of a merge says what it writes, what the remote has, and where the content from before is", () => {
+		const marker = makeMergeMarker("notes/a.md", OTHER, HASH, "c".repeat(40), ".trash/a.md");
+		expect(marker).toEqual({
+			key: "notes/a.md",
+			path: "notes/a.md",
+			before: OTHER,
+			writing: HASH,
+			conflictCopy: false,
+			merge: { onto: "c".repeat(40), kept: ".trash/a.md" },
+		});
+		expect(mergeOf(marker)).toEqual({ onto: "c".repeat(40), kept: ".trash/a.md" });
+		expect(mergeOf(makeMarker("notes/a.md", OTHER, HASH, false))).toBeNull();
+	});
+
+	test("stored field by field: what a marker says of a merge is kept when it is whole, and never on a copy", () => {
+		const marker = makeMergeMarker("notes/a.md", OTHER, HASH, "c".repeat(40), ".trash/a.md");
+		const merge = { onto: "c".repeat(40), kept: ".trash/a.md" };
+		expect(plainMarker({ ...marker, extra: 1 } as WriteMarker)).toEqual(marker);
+		expect(plainMarker({ ...marker, merge: { ...merge, more: 1 } } as WriteMarker)).toEqual(marker);
+		const plain = makeMarker("notes/a.md", OTHER, HASH, false);
+		for (const bad of [null, "x", {}, { onto: "c" }, { kept: ".trash/a.md" }, { onto: 1, kept: ".trash/a.md" }]) {
+			const stored = plainMarker({ ...plain, merge: bad } as unknown as WriteMarker);
+			expect(stored).toEqual(plain);
+			expect(mergeOf({ ...plain, merge: bad } as unknown as WriteMarker)).toBeNull();
+		}
+		const copy = makeMarker("_conflicts/2026-10-11 a (iPhone).md", null, HASH, true, "notes/a.md");
+		expect(plainMarker({ ...copy, merge })).toEqual(copy);
+		expect(mergeOf({ ...copy, merge })).toBeNull();
 	});
 
 	test("what a copy is of: what its marker says, or else what a name of the earlier form tells, or nothing", () => {

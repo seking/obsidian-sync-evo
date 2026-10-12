@@ -41,6 +41,7 @@ const settings: DeviceSettings = {
 	tokenSecret: "github-token",
 	deviceName: "iPhone",
 	autoSync: DEFAULT_AUTO_SYNC,
+	onConflict: "copy",
 };
 const options = { settings, sizeLimit: 50 * 1024 * 1024 };
 
@@ -51,9 +52,11 @@ const pulled = (over: Partial<PullResult> = {}): PullResult => ({
 	rewritten: false,
 	counts: { fetched: 0, deleted: 0, renamed: 0, conflicts: 0 },
 	conflicts: [],
+	merged: [],
 	replacedSettings: [],
 	trashed: [],
 	halfWritten: [],
+	halfMerged: [],
 	halfCopies: [],
 	deferred: [],
 	unwritable: [],
@@ -113,6 +116,17 @@ describe("a pull that started by itself", () => {
 		expect(report.happened).toHaveLength(9);
 		// The copies that were tidied are told also by a sync nobody started.
 		expect(report.happened.some((text) => text.includes("1 conflict copy in _conflicts/ was made 30 days ago"))).toBe(true);
+		expect(report).toMatchObject({ standing: [], cause: null, end: "success" });
+	});
+
+	test("tells a merge, with the file and where the content from before is, and still went well", () => {
+		const result: Partial<PullResult> = { merged: [{ path: "notes/a.md", keptAt: ".trash/a.md" }] };
+
+		const report = pull(result);
+
+		expect(report.happened).toEqual(pullReport(t, pulled(result), options).details.map((text) => HEADING + text));
+		expect(report.happened).toHaveLength(1);
+		expect(report.happened[0]).toContain("notes/a.md (before: .trash/a.md)");
 		expect(report).toMatchObject({ standing: [], cause: null, end: "success" });
 	});
 

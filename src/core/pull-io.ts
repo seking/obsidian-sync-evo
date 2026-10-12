@@ -259,6 +259,12 @@ export interface PullDeps {
 	readonly pluginId: string;
 	/** The name of this device, for the names of conflict copies. */
 	readonly deviceName: string;
+	/**
+	 * Whether a conflict is merged where it can be (`PullMerge`), before the
+	 * vault's content is kept as a copy. Absent or `false`: every conflict
+	 * is kept as a copy, and nothing is asked of the remote for it.
+	 */
+	readonly mergeConflicts?: boolean;
 	/** Milliseconds since the epoch, on the clock the file times come from. */
 	readonly now: () => number;
 	readonly confirm: ConfirmPull;
@@ -404,6 +410,20 @@ export interface PullConflict {
 }
 
 /**
+ * A file both sides had changed, which now holds the changes of both
+ * (`merge.ts`). The remote does not hold that content yet: the file reads
+ * as changed on this device, and the next push sends it.
+ */
+export interface PullMerge {
+	readonly path: string;
+	/**
+	 * Where the content the vault had before the merge is: a file in the
+	 * `.trash/` of the vault, whatever the app's setting for deleted files.
+	 */
+	readonly keptAt: string;
+}
+
+/**
  * A file that was left as it is and is tried again by the next sync. While
  * there is one, the base revision does not move.
  *
@@ -523,6 +543,13 @@ export interface PullResult {
 	 */
 	readonly replacedSettings: readonly string[];
 	/**
+	 * Files that had a conflict and were merged (`PullDeps.mergeConflicts`).
+	 * Not among `conflicts` and not counted there, nor in `counts.fetched`.
+	 * With the ones a pull that stopped had written and not told: each is
+	 * listed once.
+	 */
+	readonly merged: readonly PullMerge[];
+	/**
 	 * Files moved to the `.trash/` of the vault to protect their content, as
 	 * they were spelled. With the files inside the configuration folder that
 	 * were in the way of something else and would have been moved to the name
@@ -540,6 +567,14 @@ export interface PullResult {
 	 * answered: a pull that was killed after moving one has told nothing.
 	 */
 	readonly halfWritten: readonly string[];
+	/**
+	 * The files of `halfWritten` that were being written with a merged
+	 * content, each with where the content the vault had before the merge
+	 * is: the remote's content is fetched for such a file, and nothing of
+	 * the merge is left at its path. Listed like `halfWritten`, by every pull
+	 * until one has answered.
+	 */
+	readonly halfMerged: readonly PullMerge[];
 	/**
 	 * The same for the copies of conflicts: a copy a pull that stopped was
 	 * writing, found with another content than the one it was to get. Moved

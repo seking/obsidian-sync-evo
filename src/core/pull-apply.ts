@@ -26,6 +26,13 @@
 // copy a pull that stopped was writing for this very conflict is used again
 // (`AwaitedConflict`).
 //
+// Where the device is set to merge (`ApplyEnv.merge`), a conflict is merged
+// before a copy is thought of (`merge`), and the copy is what is left for
+// every conflict that does not merge. The file then holds the changes of
+// both sides, which the remote does not: its record names the remote's
+// content, so that the push after this pull sends the file. What the vault
+// had before is put into its `.trash/` first.
+//
 // Inside the configuration folder no copy is ever made (`isInConfigDir`).
 // What would be kept as a copy anywhere else goes to the `.trash/` of the
 // vault there: the vault's side of a conflict (`replaceSettings`), and a file
@@ -42,6 +49,7 @@
 import type { Backend, RemoteEntry, RemoteListing } from "./backend";
 import { CONFLICT_FOLDER, conflictCopyPath, isConflictFolder } from "./conflict-name";
 import { isInConfigDir } from "./exclusion";
+import { areMergeable, isMergedPath, mergeContents } from "./merge";
 import { foldedKey, pathKey } from "./paths";
 import type { LocalEntry, SyncRecord } from "./plan";
 import {
@@ -50,6 +58,7 @@ import {
 	type DeferredFile,
 	type PullConflict,
 	type PullConflictCause,
+	type PullMerge,
 	type PullVault,
 	readWhole,
 	type SourcedFile,
@@ -67,7 +76,14 @@ import type {
 	RecordChange,
 	StrayMove,
 } from "./pull-plan";
-import { type FileStat, makeMarker, makeRecord, RACY_MTIME_MARGIN_MS, type StateStore } from "./state";
+import {
+	type FileStat,
+	makeMarker,
+	makeMergeMarker,
+	makeRecord,
+	RACY_MTIME_MARGIN_MS,
+	type StateStore,
+} from "./state";
 
 /** What an LFS pointer file starts with. Such a file is written as it is. */
 const LFS_POINTER_START = "version https://git-lfs.github.com/spec/v1";
@@ -85,6 +101,12 @@ export interface Seen {
 	readonly hash: string;
 	readonly stat: FileStat;
 }
+
+/** A vault file as it was read. */
+type ReadFile = Seen & { readonly content: Uint8Array };
+
+/** The `.trash/` of the vault, where the app puts deleted files when it is set to. */
+const VAULT_TRASH = ".trash";
 
 /**
  * A conflict whose copy a pull that stopped wrote in full, and which no pull
@@ -110,11 +132,15 @@ export class Tally {
 	deleted = 0;
 	renamed = 0;
 	readonly conflicts: PullConflict[] = [];
+	/** `PullResult.merged`. */
+	readonly merged: PullMerge[] = [];
 	/** `PullResult.replacedSettings`. */
 	readonly replacedSettings: string[] = [];
 	readonly trashed: string[] = [];
 	/** `PullResult.halfWritten`. */
 	readonly halfWritten: string[] = [];
+	/** `PullResult.halfMerged`. */
+	readonly halfMerged: PullMerge[] = [];
 	/** `PullResult.halfCopies`. */
 	readonly halfCopies: string[] = [];
 	readonly deferred: DeferredFile[] = [];
@@ -154,6 +180,8 @@ export interface ApplyEnv {
 	 * nowhere else.
 	 */
 	readonly protect: boolean;
+	/** `PullDeps.mergeConflicts`. */
+	readonly merge: boolean;
 	/** The vault files as the scan and the hashing found them, by key. Kept up to date here. */
 	readonly seen: Map<string, Seen>;
 	/** Every path the scan found, for the files below a folder that is to be renamed. */
@@ -1065,7 +1093,7 @@ class Applier {
 		}
 		// Planned as a conflict, or not what the decision saw: changed since,
 		// or a file where there was none. All of them are the same case.
-		await this.conflict(path, remote, content);
+		await this.conflict(path, remote, content, write.record);
 	}
 
 	/**
@@ -1152,8 +1180,16 @@ class Applier {
 	 * because the user may have typed on in between.
 	 *
 	 * Inside the configuration folder there is no copy (`replaceSettings`).
+	 *
+	 * `record` is what the path was last synced with, when the plan knew of
+	 * such a content: what a merge compares the two sides with (`merge`).
 	 */
-	private async conflict(path: string, remote: RemoteEntry, content: Uint8Array): Promise<void> {
+	private async conflict(
+		path: string,
+		remote: RemoteEntry,
+		content: Uint8Array,
+		record: SyncRecord | undefined,
+	): Promise<void> {
 		const key = pathKey(path);
 		let mine = await this.readSaved(path, key);
 		if (mine === PUT_OFF) return;
@@ -1171,15 +1207,17 @@ class Applier {
 			return;
 		}
 
-		// A merge of the two contents would be tried here (T039): when it
-		// succeeds, the merged content is written through `writeRemote`'s
-		// marker and re-check like the remote's, and no copy is made.
-
 		let copy = await this.awaitedCopy(path, mine.hash);
 		// Whether this pull wrote the copy. Only then is it ours to rewrite
 		// or to take away again.
 		const ours = copy === null;
 		if (copy === null) {
+			// Merged, where that can be done; the copy is for what is left.
+			// Not a conflict a pull that stopped has made the copy of: that
+			// one is gone on with as it was begun.
+			const left = await this.merge(path, key, remote, content, mine, record);
+			if (left === null) return;
+			mine = left;
 			copy = await this.writeCopy(path, null, mine, null);
 			if (copy === null) return;
 		}
@@ -1237,6 +1275,221 @@ class Applier {
 		await this.store.deleteMarker(pathKey(copy));
 		if (!written) return;
 		this.tally.conflicts.push({ path, copyPath: copy, cause: "conflict" });
+	}
+
+	/**
+	 * Merges the two sides of a conflict, where the device is set to and it
+	 * can be done, and writes the merged content to the path. Answers `null`
+	 * when nothing is left to do for the path in this pull: it was merged,
+	 * or put off, or the pull was stopped. Otherwise the vault's content,
+	 * for the copy that is made instead: `mine`, or what the file holds by
+	 * now when it changed in between.
+	 *
+	 * The order is the one of a copy and the path (`conflict`): the vault's
+	 * content is put into the `.trash/` of the vault first (`keepBefore`),
+	 * then the file is looked at once more, then it is written. So the
+	 * content from before the merge is in one of the two places whenever the
+	 * pull stops, and the path is never without a file: a pull that stops in
+	 * between finds the conflict as it was, and merges again.
+	 *
+	 * A file that changed since it was read is merged again with the newer
+	 * content, once, and the content that is kept is written again with it,
+	 * at the same place. A file that changed a second time is being typed
+	 * in, and is left to the next sync. What was kept stays in the `.trash/`
+	 * then, also when the file was put off: it holds nothing the file does
+	 * not, and nothing takes a file out of there again.
+	 */
+	private async merge(
+		path: string,
+		key: string,
+		remote: RemoteEntry,
+		content: Uint8Array,
+		mine: ReadFile,
+		record: SyncRecord | undefined,
+	): Promise<ReadFile | null> {
+		const base = await this.baseOf(path, remote, content, mine, record);
+		if (base === "stopped") return null;
+		let merged = base === null ? null : mergeContents(path, mine.content, base, content);
+		if (base === null || merged === null) return mine;
+
+		let kept: string | null = null;
+		for (let again = 0; ; again++) {
+			const hash = await this.env.backend.hashContent(merged);
+			if (hash === mine.hash) {
+				// Everything the remote changed is in the file already. That
+				// is also what a merge reads as that was written by a pull
+				// which then lost its marker: merged again, it gives itself.
+				// Nothing is written and nothing is kept; the record alone
+				// says that the file is the remote's content with changes.
+				await this.store.commitWrite(makeRecord(recordOf(remote), undefined, this.env.startedAt));
+				return null;
+			}
+			// Without it nothing is merged: a merge can spoil a text, and
+			// what the vault had would be nowhere then. A copy is made.
+			kept = await this.keepBefore(path, kept, mine.content);
+			if (kept === null) return mine;
+
+			const now = await this.look(path, key);
+			if (now === PUT_OFF) return null;
+			if (now === null) {
+				// Deleted while this went on. The remote's content is written
+				// like a new file, as after a copy (`conflict`).
+				await this.writeRemote(path, remote, content, null);
+				return null;
+			}
+			if (now !== "folder" && now.hash === mine.hash) {
+				await this.writeMerged(path, remote, merged, hash, mine.hash, kept);
+				return null;
+			}
+			if (now === "folder" || again === 1) {
+				this.defer(path, "changed-during-pull");
+				return null;
+			}
+			const newer = await this.readSaved(path, key);
+			if (newer === PUT_OFF) return null;
+			if (newer === null) {
+				await this.writeRemote(path, remote, content, null);
+				return null;
+			}
+			if (newer.hash === remote.hash) {
+				await this.store.commitWrite(makeRecord(recordOf(remote), newer.stat, this.env.startedAt));
+				return null;
+			}
+			const next = mergeContents(path, newer.content, base, content);
+			if (next === null) return newer;
+			mine = newer;
+			merged = next;
+		}
+	}
+
+	/**
+	 * What the file at `path` held when it was last synced, for a merge: the
+	 * content of the record's hash, asked of the remote, in one request.
+	 * `null` when there is nothing to merge with, for whatever reason; the
+	 * conflict is then kept as a copy. "stopped" when the pull was stopped
+	 * while the remote was asked: nothing was done to the file, and nothing
+	 * is to be.
+	 *
+	 * Nothing is asked of the remote before everything else says that the
+	 * conflict can be merged: the device is set to, the remote has a regular
+	 * file, there is a record of one with a content that is neither side's,
+	 * and both sides are text of a name that is merged.
+	 *
+	 * Not when the history was rewritten (`ApplyEnv.protect`): the remote's
+	 * content may not have come from the record's then, and a merge would
+	 * take for the remote's changes what never were changes.
+	 *
+	 * Any failure of the request is the same as a remote that does not hold
+	 * the content: a merge is an offer, and no reason to fail a pull.
+	 */
+	private async baseOf(
+		path: string,
+		remote: RemoteEntry,
+		content: Uint8Array,
+		mine: ReadFile,
+		record: SyncRecord | undefined,
+	): Promise<Uint8Array | null | "stopped"> {
+		const { backend } = this.env;
+		if (!this.env.merge || this.env.protect || backend.contentOf === undefined) return null;
+		if (remote.kind !== "file" || record === undefined || record.kind !== "file") return null;
+		if (record.hash === mine.hash || record.hash === remote.hash) return null;
+		if (!isMergedPath(path) || !areMergeable([mine.content, content])) return null;
+		try {
+			const base = await backend.contentOf(record.hash);
+			if (base === null || (await backend.hashContent(base)) !== record.hash) return null;
+			return base;
+		} catch {
+			return this.aborted() ? "stopped" : null;
+		}
+	}
+
+	/**
+	 * Puts the content a file had before a merge into the `.trash/` of the
+	 * vault, whatever the app's setting for deleted files: under a name
+	 * nothing has there, or at `over`, where this pull put the content a
+	 * moment ago. Answers where it is, or `null` when it could not be
+	 * written.
+	 *
+	 * Written there as a file of its own, and not by moving the file away
+	 * (`PullVault.trash`): the path would be empty until the merged content
+	 * is written, and a pull that stopped in between would leave a file that
+	 * reads as deleted on this device. The name is the one the app gives a
+	 * file it moves there: the last name of the path, with a number when
+	 * that is taken.
+	 *
+	 * No marker: what is half written there is in nobody's way, and a pull
+	 * that resumes writes the content again, under the next name.
+	 */
+	private async keepBefore(path: string, over: string | null, content: Uint8Array): Promise<string | null> {
+		try {
+			const kept = over ?? (await this.freeTrashPath(path));
+			await this.env.beforeWrite();
+			await this.change(() => this.vault.write(kept, content));
+			return kept;
+		} catch {
+			return null;
+		}
+	}
+
+	private async freeTrashPath(path: string): Promise<string> {
+		const name = lastPart(path);
+		const dot = name.lastIndexOf(".");
+		const [stem, ending] = dot > 0 ? [name.slice(0, dot), name.slice(dot)] : [name, ""];
+		for (let n = 1; n <= MAX_COPY_ATTEMPTS; n++) {
+			const candidate = `${VAULT_TRASH}/${n === 1 ? name : `${stem} ${n}${ending}`}`;
+			if ((await this.vault.stat(candidate)) === null) return candidate;
+		}
+		throw new Error(`No free name in ${VAULT_TRASH}/ for ${path}`);
+	}
+
+	/**
+	 * Writes a merged content to the path, with the care of `writeRemote`:
+	 * marker, write, then the record and the end of the marker in one
+	 * transaction. `hash` is the hash of `merged`, `before` the hash of the
+	 * file that is written over, which was looked at right before, and
+	 * `kept` where its content is.
+	 *
+	 * The marker says what is written, which is not the remote's content
+	 * (`makeMergeMarker`). The record names the remote's hash all the same:
+	 * the file is the remote's content with changes on top, and the push
+	 * after this pull sends it as that. So the record carries neither the
+	 * time nor the size of the file. With them, the next sync would not read
+	 * the file (`isUnchangedByStat`) and would take the record's hash for
+	 * the file's: the merged content would never be sent, and read as in
+	 * sync. Only a merge that came out as the remote's very content is
+	 * recorded like a fetch.
+	 */
+	private async writeMerged(
+		path: string,
+		remote: RemoteEntry,
+		merged: Uint8Array,
+		hash: string,
+		before: string,
+		kept: string,
+	): Promise<void> {
+		const key = pathKey(path);
+		await this.store.putMarker(makeMergeMarker(path, before, hash, remote.hash, kept));
+		await this.env.beforeWrite();
+		// As in `writeRemote`: nothing was begun, and the marker goes.
+		if (this.env.beingEdited?.(path) === true) {
+			this.defer(path, "being-edited");
+			await this.store.deleteMarker(key);
+			return;
+		}
+		try {
+			await this.change(() => this.vault.write(path, merged));
+		} catch (error) {
+			await this.dropMarkerIfUntouched(path, key, before);
+			this.refuse(path, path, "write-failed", error);
+			return;
+		}
+		const stat = await this.statOf(path);
+		const same = hash === remote.hash;
+		await this.store.commitWrite(makeRecord(recordOf(remote), same ? stat : undefined, this.env.startedAt));
+		if (stat === undefined) this.seen.delete(key);
+		else this.remember(key, hash, stat);
+		if (same) this.tally.written.add(key);
+		this.tally.merged.push({ path, keptAt: kept });
 	}
 
 	/**
@@ -1302,10 +1555,7 @@ class Applier {
 	}
 
 	/** Has the editors save, then reads the file. `null` when there is none. */
-	private async readSaved(
-		path: string,
-		key: string,
-	): Promise<(Seen & { readonly content: Uint8Array }) | null | PutOff> {
+	private async readSaved(path: string, key: string): Promise<ReadFile | null | PutOff> {
 		if (!(await this.saved(path))) {
 			return PUT_OFF;
 		}
@@ -1358,7 +1608,7 @@ class Applier {
 	private async writeCopy(
 		path: string,
 		over: string | null,
-		mine: Seen & { readonly content: Uint8Array },
+		mine: ReadFile,
 		before: string | null,
 	): Promise<string | null> {
 		let copy: string;

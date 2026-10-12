@@ -76,6 +76,18 @@ test("fetch returns the content of a listing even after the remote moved on", as
 	expect(fetched).toEqual(new Map([["a.md", "A"], ["b.md", "B"]]));
 });
 
+test("a content is found by its hash after the remote moved on, and not one the remote never held or has lost", async () => {
+	const backend = new MemoryBackend();
+	backend.commit({ "a.md": "A" });
+	backend.commit({ "a.md": "A2" });
+
+	expect(text((await backend.contentOf(blobHash("A"))) ?? new Uint8Array())).toBe("A");
+	expect(await backend.contentOf(blobHash("never"))).toBeNull();
+	backend.lostContents.add(blobHash("A"));
+	expect(await backend.contentOf(blobHash("A"))).toBeNull();
+	expect(backend.contentRequests).toEqual([blobHash("A"), blobHash("never"), blobHash("A")]);
+});
+
 test("a push on the current revision writes, deletes, leaves the rest, and moves the revision", async () => {
 	const backend = new MemoryBackend();
 	const base = backend.commit({ "keep.md": "K", "old.md": "O", "edit.md": "E" });

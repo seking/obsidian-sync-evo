@@ -40,6 +40,7 @@ const settings = (over: Partial<DeviceSettings> = {}): DeviceSettings => ({
 	tokenSecret: "github-token",
 	deviceName: "Mac",
 	autoSync: DEFAULT_AUTO_SYNC,
+	onConflict: "copy",
 	...over,
 });
 
@@ -52,6 +53,7 @@ describe("the default settings", () => {
 			tokenSecret: "",
 			deviceName: "iPhone",
 			autoSync: { onStartup: false, atInterval: false, intervalMinutes: 15, sendsChanges: false },
+			onConflict: "copy",
 		});
 		expect(connectionOf(defaultSettings("iPhone"))).toBeNull();
 	});
@@ -82,7 +84,22 @@ describe("reading stored settings", () => {
 			tokenSecret: "github-token",
 			deviceName: "Mac",
 			autoSync: { onStartup: false, atInterval: false, intervalMinutes: 15, sendsChanges: false },
+			onConflict: "copy",
 		});
+	});
+
+	test("what to do on a conflict is read back, and anything that is neither of the two is the default: a copy", () => {
+		const read = (onConflict: unknown): unknown => {
+			const parsed = parseSettings({ ...serializeSettings(settings()), onConflict }, "Mac");
+			return parsed.status === "ok" ? parsed.settings.onConflict : parsed.status;
+		};
+		expect(serializeSettings(settings({ onConflict: "merge" })).onConflict).toBe("merge");
+		expect(read("merge")).toBe("merge");
+		expect(read("copy")).toBe("copy");
+		for (const bad of [undefined, null, "", "Merge", "auto", true, 1, {}, ["merge"]]) expect(read(bad)).toBe("copy");
+		// Stored by a version from before the setting: no field at all.
+		const { onConflict: _dropped, ...older } = serializeSettings(settings({ onConflict: "merge" }));
+		expect(parseSettings(older, "Mac")).toEqual({ status: "ok", settings: settings() });
 	});
 
 	test.each<[string, unknown]>([

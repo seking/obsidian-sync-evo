@@ -417,6 +417,25 @@ describe("fetch", () => {
 	});
 });
 
+describe("contentOf", () => {
+	test("one blob by its hash, whichever commit named it", async () => {
+		const client = new FakeClient();
+		client.blobs.set(B, new Uint8Array([1, 2]));
+		expect(await new GitHubBackend(client).contentOf(B)).toEqual(new Uint8Array([1, 2]));
+		expect(client.calls).toEqual([`getBlob ${B} undefined`]);
+	});
+
+	test("a blob GitHub no longer holds is no content, and no failure", async () => {
+		expect(await new GitHubBackend(new FakeClient()).contentOf(B)).toBeNull();
+	});
+
+	test("every other failure is thrown as the client threw it", async () => {
+		const client = new FakeClient();
+		client.blobs.set(B, new BackendError("unreachable", "timeout"));
+		expect(await kindOf(new GitHubBackend(client).contentOf(B))).toBe("unreachable");
+	});
+});
+
 describe("fetchArchive", () => {
 	test("the zip of the commit, with the folder GitHub puts everything in left out", async () => {
 		const client = new FakeClient();

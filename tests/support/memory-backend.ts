@@ -98,6 +98,22 @@ export class MemoryBackend implements Backend {
 		}
 	}
 
+	/** The hashes `contentOf` was asked for, in order. */
+	readonly contentRequests: string[] = [];
+	/** Hashes the remote holds no content of any more, as after a force push. */
+	readonly lostContents = new Set<string>();
+	/** Thrown by `contentOf`, while set. */
+	contentFailure: unknown = undefined;
+	/** What `contentOf` answers in place of the content, while set: a remote that gives something else. */
+	contentInstead: Uint8Array | undefined;
+
+	async contentOf(hash: string): Promise<Uint8Array | null> {
+		this.contentRequests.push(hash);
+		if (this.contentFailure !== undefined) throw this.contentFailure;
+		if (this.lostContents.has(hash)) return null;
+		return this.contentInstead ?? this.contents.get(hash) ?? null;
+	}
+
 	async push(request: PushRequest): Promise<PushResult> {
 		if (request.baseRevision !== this.revision) return { status: "stale" };
 		if (request.writes.length === 0 && request.deletes.length === 0) return { status: "unchanged" };

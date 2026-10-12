@@ -81,6 +81,7 @@ function setup(auto: Partial<AutoSyncSettings>, over: Partial<DeviceSettings> = 
 			tokenSecret: "github-token",
 			deviceName: "iPhone",
 			autoSync: { ...DEFAULT_AUTO_SYNC, ...auto },
+			onConflict: "copy",
 			...over,
 		},
 	};

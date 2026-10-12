@@ -167,6 +167,21 @@ export interface WriteMarker {
 	 * wrote back, is without it (`copiedPathOf`).
 	 */
 	readonly original?: string;
+	/**
+	 * Only on the marker of a merge (`makeMergeMarker`): `writing` is then
+	 * the hash of the merged content, which the remote does not hold. A
+	 * field that may be lost, like `original`: without it the write is
+	 * taken for one of the remote's content.
+	 */
+	readonly merge?: MarkedMerge;
+}
+
+/** What the marker of a merge says beside what every marker says. */
+export interface MarkedMerge {
+	/** The hash the remote has for the path: what the record is made with. */
+	readonly onto: string;
+	/** Where the content the vault had before the merge was put. */
+	readonly kept: string;
 }
 
 /** `original`: for the marker of a copy, the path of the file it is a copy of. */
@@ -181,6 +196,28 @@ export function makeMarker(
 	return conflictCopy && original !== undefined ? { ...marker, original } : marker;
 }
 
+/**
+ * The marker of a file that is written with a merged content: `writing` is
+ * the hash of that content, `onto` the hash the remote has for the path, and
+ * `kept` where the content from before the merge is.
+ *
+ * The record of such a file names the remote's hash and not the file's, so
+ * that the next push sends the merged content on top of what the remote
+ * has. A resume that finds the merged content at the path makes that same
+ * record, and has to be told the hash to make it with: the remote may have
+ * moved on by then, and a record of the merged content's own hash would
+ * have the next pull write the remote's content over it.
+ */
+export function makeMergeMarker(
+	path: string,
+	before: string | null,
+	writing: string,
+	onto: string,
+	kept: string,
+): WriteMarker {
+	return { key: pathKey(path), path, before, writing, conflictCopy: false, merge: { onto, kept } };
+}
+
 /** Field by field, like `plainRecord`. */
 export function plainMarker(marker: WriteMarker): WriteMarker {
 	const plain = {
@@ -190,7 +227,21 @@ export function plainMarker(marker: WriteMarker): WriteMarker {
 		writing: marker.writing,
 		conflictCopy: marker.conflictCopy,
 	};
-	return marker.conflictCopy && typeof marker.original === "string" ? { ...plain, original: marker.original } : plain;
+	if (marker.conflictCopy) return typeof marker.original === "string" ? { ...plain, original: marker.original } : plain;
+	const merge = mergeOf(marker);
+	return merge === null ? plain : { ...plain, merge };
+}
+
+/**
+ * What the marker of a merge says of it, or `null`: for any other marker,
+ * and for one whose field is not what it should be. Checked, because a
+ * marker is read back from storage.
+ */
+export function mergeOf(marker: WriteMarker): MarkedMerge | null {
+	const merge: unknown = marker.merge;
+	if (marker.conflictCopy || typeof merge !== "object" || merge === null) return null;
+	const { onto, kept } = merge as Record<string, unknown>;
+	return typeof onto === "string" && typeof kept === "string" ? { onto, kept } : null;
 }
 
 /**

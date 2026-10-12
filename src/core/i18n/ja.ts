@@ -71,6 +71,11 @@ export const ja = completeTranslation(en, {
 	"settings.autoSync.sends.name": "自動同期で手元の変更も送る",
 	"settings.autoSync.sends.desc":
 		"切の時、自動同期は受け取るだけです。このデバイスで編集した内容は、手動で同期するまで送信されません。入の時は、このデバイスに変更があるたびにコミットが作られるため、間隔は {sendingMin} 分以上になります。",
+	"settings.onConflict.name": "競合した時",
+	"settings.onConflict.desc":
+		"このデバイスと保存先の両方で変更したファイルの扱いです。統合は行単位で行い、統合できないファイルは別ファイルとして残します。統合する前のこのデバイスの内容は、この保管庫の .trash/ に入れます。",
+	"settings.onConflict.merge": "自動で統合する",
+	"settings.onConflict.copy": "別ファイルとして残す",
 	"settings.symlinks.name": "飛ばしているシンボリックリンク",
 	"settings.symlinks.summary": "{count} 件",
 	"settings.symlinks.desc":
@@ -285,6 +290,7 @@ export const ja = completeTranslation(en, {
 	"pull.count.deleted": "削除 {count} 件",
 	"pull.count.renamed": "名前の変更 {count} 件",
 	"pull.count.conflicts": "競合 {count} 件",
+	"pull.count.merged": "統合 {count} 件",
 	"pull.summary": "取り込みが終わりました：{details}",
 	"pull.refetched":
 		"{count} 件のファイルは、まとめて取得した中に無いか、中身が GitHub の一覧と合わなかったため、1件ずつ取得しました。",
@@ -318,12 +324,17 @@ export const ja = completeTranslation(en, {
 		"{copy}（{path} は保存先でシンボリックリンクになりました。リンクは、このデバイスに書き込みません）",
 	"pull.conflict.becameFolder": "{copy}（{path} は保存先でフォルダになりました）",
 	"pull.conflict.nameTaken": "{copy}（保存先で、別のファイルの名前が {path} に変わりました）",
+	"pull.merged":
+		"このデバイスと保存先の両方で変更していたファイル {count} 件を、両方の変更を入れた内容にしました。統合する前のこのデバイスの内容は、この保管庫の .trash/ にあります：\n{list}",
+	"pull.merged.item": "{path}（前の内容：{kept}）",
 	"pull.replacedSettings":
 		"設定フォルダのファイル {count} 件を、保存先の内容にしました。このデバイスの前の内容は、この保管庫の .trash/ にあります：\n{list}",
 	"pull.trashed":
 		"取り込みで、{count} 件のファイルをこの保管庫の .trash/ へ移しました。内容は失われていません。そこから戻せます：\n{list}",
 	"pull.halfWritten":
 		"前の取り込みが、{count} 件のファイルを書いている途中で止まっていました。残っていた内容は、この保管庫の .trash/ へ移しました。保存先の内容は、取り込みで取得します。その後に編集していた時は、そこから戻せます：\n{list}",
+	"pull.halfMerged":
+		"前の取り込みが、統合した内容を {count} 件のファイルに書いている途中で止まっていました。取り込みで取得するのは保存先の内容で、このデバイスの変更は入りません。統合する前のこのデバイスの内容は、この保管庫の .trash/ にあります：\n{list}",
 	"pull.halfCopies":
 		"前の取り込みが作りかけていた競合の別名 {count} 件を、この保管庫の .trash/ へ移しました。別名は作り直します。別名を編集していた時は、編集した内容がそこにあります：\n{list}",
 	"pull.tidiedCopies":

@@ -29,6 +29,25 @@ export interface DeviceSettings {
 	readonly tokenSecret: string;
 	readonly deviceName: string;
 	readonly autoSync: AutoSyncSettings;
+	readonly onConflict: ConflictHandling;
+}
+
+/**
+ * What this device does with a file both sides have changed.
+ *
+ * - "copy": the remote's content goes to the file, and what the device had
+ *   is kept beside it as a file of its own.
+ * - "merge": the changes of both sides are put into the one file, line by
+ *   line. A file that does not merge is kept as with "copy".
+ */
+export type ConflictHandling = "merge" | "copy";
+
+/** A merge can spoil a text without anyone noticing, so it is the user's to switch on. */
+export const DEFAULT_ON_CONFLICT: ConflictHandling = "copy";
+
+/** What was stored as the handling of conflicts, or the default for anything that is neither of the two. */
+export function conflictHandlingOf(value: unknown): ConflictHandling {
+	return value === "merge" || value === "copy" ? value : DEFAULT_ON_CONFLICT;
 }
 
 /**
@@ -119,7 +138,8 @@ export function withSendsChanges(auto: AutoSyncSettings, sendsChanges: boolean):
  * The settings of automatic sync were added without a change of it. A
  * version from before them drops them when it saves, and reads them as
  * absent: automatic sync is then off, which is where it starts and the safe
- * side.
+ * side. The handling of conflicts was added the same way: read as absent,
+ * it is "copy".
  */
 export const SETTINGS_VERSION = 1;
 
@@ -144,6 +164,7 @@ export function defaultSettings(defaultDeviceName: string): DeviceSettings {
 		tokenSecret: "",
 		deviceName: defaultDeviceName,
 		autoSync: DEFAULT_AUTO_SYNC,
+		onConflict: DEFAULT_ON_CONFLICT,
 	};
 }
 
@@ -177,6 +198,7 @@ export function parseSettings(raw: unknown, defaultDeviceName: string): ParsedSe
 			tokenSecret: text(raw.tokenSecret, defaults.tokenSecret),
 			deviceName: deviceNameProblem(deviceName) === null ? deviceName : defaults.deviceName,
 			autoSync: parseAutoSync(raw.autoSync),
+			onConflict: conflictHandlingOf(raw.onConflict),
 		},
 	};
 }
@@ -210,6 +232,7 @@ export function serializeSettings(settings: DeviceSettings): StoredSettings {
 			intervalMinutes: settings.autoSync.intervalMinutes,
 			sendsChanges: settings.autoSync.sendsChanges,
 		},
+		onConflict: settings.onConflict,
 	};
 }
 

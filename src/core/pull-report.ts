@@ -335,6 +335,10 @@ export function pullDetails(t: Translate, result: PullResult, options: PullRepor
 		const lines = result.conflicts.map((conflict) => conflictLine(t, conflict));
 		happened(t("pull.conflicts", { count: lines.length, list: listText(t, lines, 10) }));
 	}
+	if (result.merged.length > 0) {
+		const lines = result.merged.map((merge) => t("pull.merged.item", { path: merge.path, kept: merge.keptAt }));
+		happened(t("pull.merged", { count: lines.length, list: listText(t, lines, 10) }));
+	}
 	if (result.replacedSettings.length > 0) {
 		const { replacedSettings } = result;
 		happened(t("pull.replacedSettings", { count: replacedSettings.length, list: listText(t, replacedSettings) }));
@@ -346,6 +350,12 @@ export function pullDetails(t: Translate, result: PullResult, options: PullRepor
 	if (result.halfWritten.length > 0) {
 		const { halfWritten } = result;
 		happened(t("pull.halfWritten", { count: halfWritten.length, list: listText(t, halfWritten) }));
+	}
+	// The ones of them a merge was writing: what the vault had is not in the
+	// file that was moved away, and the path gets the remote's content.
+	if (result.halfMerged.length > 0) {
+		const lines = result.halfMerged.map((merge) => t("pull.merged.item", { path: merge.path, kept: merge.keptAt }));
+		happened(t("pull.halfMerged", { count: lines.length, list: listText(t, lines, 10) }));
 	}
 	if (result.halfCopies.length > 0) {
 		const { halfCopies } = result;
@@ -400,6 +410,7 @@ function summaryText(t: Translate, result: PullResult, connectionChanged: boolea
 	if (deleted > 0) parts.push(t("pull.count.deleted", { count: deleted }));
 	if (renamed > 0) parts.push(t("pull.count.renamed", { count: renamed }));
 	if (conflicts > 0) parts.push(t("pull.count.conflicts", { count: conflicts }));
+	if (result.merged.length > 0) parts.push(t("pull.count.merged", { count: result.merged.length }));
 	const details = parts.join(t("list.separator"));
 
 	if (result.outcome === "cancelled" || isCancellation(result.fetchError)) {

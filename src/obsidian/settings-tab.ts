@@ -18,6 +18,7 @@ import { pushFailureReminderText } from "../core/push-report";
 import {
 	type AutoSyncSettings,
 	branchToStore,
+	conflictHandlingOf,
 	type DeviceSettings,
 	deviceNameProblem,
 	intervalToStore,
@@ -216,7 +217,7 @@ export class SyncEvoSettingTab extends PluginSettingTab {
 			});
 		});
 
-		this.showHowItSyncs(grouped(containerEl, t("settings.howItSyncs.heading"), null).listEl, stored.autoSync);
+		this.showHowItSyncs(grouped(containerEl, t("settings.howItSyncs.heading"), null).listEl, stored);
 
 		// What is synced: the switches for the root `.gitignore`, and the
 		// file. Read from the vault and the sync state, so filled in later,
@@ -228,12 +229,15 @@ export class SyncEvoSettingTab extends PluginSettingTab {
 	}
 
 	/**
-	 * When this device syncs by itself, and whether it sends then. Nothing
-	 * here is a change of the connection: the sync state stays. A switch
-	 * takes effect with the next look at the clock (`auto-scheduler.ts`).
+	 * When this device syncs by itself, whether it sends then, and what it
+	 * does with a conflict. Nothing here is a change of the connection: the
+	 * sync state stays. A switch takes effect with the next look at the
+	 * clock (`auto-scheduler.ts`), the handling of conflicts with the next
+	 * sync.
 	 */
-	private showHowItSyncs(el: HTMLElement, stored: AutoSyncSettings): void {
+	private showHowItSyncs(el: HTMLElement, settings: DeviceSettings): void {
 		const t = this.host.t;
+		const stored = settings.autoSync;
 		const change = (edit: (auto: AutoSyncSettings) => AutoSyncSettings): void => {
 			this.change((current) => ({ ...current, autoSync: edit(current.autoSync) }));
 		};
@@ -315,6 +319,20 @@ export class SyncEvoSettingTab extends PluginSettingTab {
 						intervalRaised.setText(t("settings.autoSync.interval.raised", { minutes: now }));
 					}
 				});
+			});
+
+		new Setting(el)
+			.setName(t("settings.onConflict.name"))
+			.setDesc(t("settings.onConflict.desc"))
+			.addDropdown((dropdown) => {
+				dropdown
+					.addOption("copy", t("settings.onConflict.copy"))
+					.addOption("merge", t("settings.onConflict.merge"))
+					.setValue(settings.onConflict)
+					.onChange((chosen) => {
+						const onConflict = conflictHandlingOf(chosen);
+						this.change((current) => (current.onConflict === onConflict ? current : { ...current, onConflict }));
+					});
 			});
 	}
 
