@@ -11,7 +11,7 @@
 
 import { describe, expect, test } from "vitest";
 import type { PushFile, RemoteEntry, SentBlobs } from "../src/core/backend";
-import { GitHubBackend, INLINE_FILE_BYTES } from "../src/core/github/backend";
+import { GitHubBackend, INLINE_FILE_BYTES, TREE_CHUNK_BYTES } from "../src/core/github/backend";
 import { GitHubClient } from "../src/core/github/client";
 import { timerSleepOn } from "../src/core/github/timer-sleep";
 import { runPull } from "../src/core/pull";
@@ -430,6 +430,26 @@ describe("a push to GitHub that goes by the blobs sent before", () => {
 		expect(count(github, "POST /git/blobs")).toBe(1);
 		expect(reads).toEqual(["early.png", "late.png", "late.png"]);
 		expect([...github.files().keys()].sort()).toEqual(["1.md", "2.md", "3.md", "a.md", "early.png", "late.png"]);
+	});
+
+	test("the file that fills a tree is itself in doubt when that tree is refused", async () => {
+		const { github, backend } = setup();
+		const base = github.commit({ "a.md": "A" });
+		// Long paths, so that a few hundred entries fill a tree; every blob
+		// is remembered, and the repository holds none of them.
+		const count_ = Math.ceil(TREE_CHUNK_BYTES / (3000 * 3)) + 5;
+		const contents = Array.from({ length: count_ }, (_, i) => binary(i >> 8, i & 0xff));
+		const { memory } = remembering(...contents.map((content) => blobHash(content)));
+		const writes = contents.map((content, i) => file(`${"p".repeat(3000)}${i}.png`, content));
+
+		const result = await backend.push({ baseRevision: base, writes, deletes: [], sentBlobs: memory });
+
+		expect(result.status).toBe("pushed");
+		expect(github.files().size).toBe(count_ + 1);
+		expect(count(github, "POST /git/blobs")).toBe(count_);
+		for (const [i, content] of contents.entries()) {
+			expect(github.files().get(`${"p".repeat(3000)}${i}.png`)?.sha).toBe(blobHash(content));
+		}
 	});
 });
 

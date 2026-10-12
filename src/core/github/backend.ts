@@ -379,6 +379,7 @@ export class GitHubBackend implements Backend {
 					kept.push(change);
 					continue;
 				}
+				recalled.delete(change.path);
 				const { file, target } = again;
 				const { path, mode } = target;
 				drop(written, path);
@@ -396,7 +397,6 @@ export class GitHubBackend implements Backend {
 				if (hash === target.existing) drop(changes, path);
 				else kept.push({ path, mode, sha: hash });
 			}
-			recalled.clear();
 			return kept;
 		};
 		const flush = async (): Promise<void> => {
@@ -497,8 +497,12 @@ export class GitHubBackend implements Backend {
 				}
 				// Not on the remote, so not among what was written.
 				if (!(await sendBlob(file, content, hash))) continue;
-				await add({ path, mode, sha: hash }, 0);
+				// Noted before the entry is added: adding it may send the
+				// tree before it, and that tree being refused forgets every
+				// remembered blob, this one among them. Its entry names the
+				// blob all the same, and is in doubt until its own tree is taken.
 				if (recalledBlobs.has(hash)) recalled.set(path, { file, target });
+				await add({ path, mode, sha: hash }, 0);
 			}
 			sent.set(path, file);
 			written.push(entry);
