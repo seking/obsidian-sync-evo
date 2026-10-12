@@ -285,6 +285,16 @@ describe("reading", () => {
 		expect(http.request(0).headers.Authorization).toBe(`Bearer ${TOKEN}`);
 	});
 
+	test("getBlob hands the size on as what to expect, when it has one", async () => {
+		const { client, http } = setup([raw(200, "x"), raw(200, "x"), raw(200, "x")]);
+		await client.getBlob(A, 5_000_000);
+		await client.getBlob(B);
+		await client.getBlob(C, 0);
+		expect(http.request(0).expectedBytes).toBe(5_000_000);
+		expect("expectedBytes" in http.request(1)).toBe(false);
+		expect("expectedBytes" in http.request(2)).toBe(false);
+	});
+
 	test("getZip asks by commit and returns the body", async () => {
 		const content = new Uint8Array([80, 75, 3, 4]);
 		const { client, http } = setup([raw(200, content)]);

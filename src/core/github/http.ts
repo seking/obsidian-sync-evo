@@ -19,6 +19,12 @@ export interface HttpRequest {
 	readonly headers: Readonly<Record<string, string>>;
 	/** Already serialised. The matching `Content-Type` is among the headers. */
 	readonly body?: string;
+	/**
+	 * How many bytes the body of the response is expected to have, where the
+	 * caller knows. A hint for the platform: one that cannot take a large
+	 * response the usual way takes it another way. Absent means not known, or small.
+	 */
+	readonly expectedBytes?: number;
 }
 
 export interface HttpResponse {

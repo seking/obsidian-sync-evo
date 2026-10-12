@@ -336,6 +336,32 @@ describe("fetch", () => {
 		expect(client.calls).toHaveLength(2);
 	});
 
+	test("a limit on the bytes given to the backend takes the place of the usual one", async () => {
+		const client = new SlowClient();
+		const limit = 8 * 1024 * 1024;
+		const entries = [file("a.bin", hashOf(1), limit / 2), file("b.bin", hashOf(2), limit / 2), file("c.md", hashOf(3), 1)];
+		const iterator = new GitHubBackend(client, { maxConcurrentFetchBytes: limit }).fetch(A, entries)[Symbol.asyncIterator]();
+		iterator.next();
+		await settle();
+		expect(client.calls).toHaveLength(2);
+	});
+
+	test("a blob over the limit on the bytes is fetched alone", async () => {
+		const client = new SlowClient();
+		const limit = 8 * 1024 * 1024;
+		const entries = [file("a.bin", hashOf(1), limit * 4), file("b.md", hashOf(2), 1)];
+		const iterator = new GitHubBackend(client, { maxConcurrentFetchBytes: limit }).fetch(A, entries)[Symbol.asyncIterator]();
+		const first = iterator.next();
+		await settle();
+		expect(client.calls).toHaveLength(1);
+
+		await client.answerOne();
+		expect((await first).value?.entry).toBe(entries[0]);
+		iterator.next();
+		await settle();
+		expect(client.calls).toHaveLength(2);
+	});
+
 	test("a stop ends the fetch, and starts nothing more", async () => {
 		const client = new SlowClient();
 		const stop = new AbortController();

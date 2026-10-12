@@ -11,8 +11,10 @@
 
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { AUTO_SYNC_KEY, readAutoSyncMemory } from "../src/core/auto-sync";
+import { MAX_CONCURRENT_FETCH_BYTES } from "../src/core/concurrent-fetch";
 import { translatorFor } from "../src/core/i18n";
 import { DEFAULT_AUTO_SYNC, type DeviceSettings } from "../src/core/settings";
+import { ANDROID_CONCURRENT_FETCH_BYTES } from "../src/obsidian/http-transport";
 import type { SyncHost } from "../src/obsidian/sync-runner";
 import { MemoryStateStore } from "./support/memory-state-store";
 
@@ -29,6 +31,10 @@ const app = vi.hoisted(() => ({
 	/** Answers a request: rejects like a device without a network unless a test says otherwise. */
 	request: (): Promise<unknown> => Promise.reject(new Error("net::ERR_INTERNET_DISCONNECTED")),
 	requests: 0,
+	/** What the app says the device is. */
+	platform: { isAndroidApp: false },
+	/** The options every backend was built with, in order. */
+	backends: [] as { maxConcurrentFetchBytes?: number }[],
 }));
 
 vi.mock("obsidian", () => {
@@ -50,11 +56,24 @@ vi.mock("obsidian", () => {
 		ButtonComponent: Empty,
 		TFile: Empty,
 		TFolder: Empty,
+		Platform: app.platform,
 		requestUrl: () => {
 			app.requests += 1;
 			return app.request();
 		},
 	};
+});
+
+// The backend is the real one; only what it was built with is noted.
+vi.mock("../src/core/github/backend", async (importOriginal) => {
+	const original = await importOriginal<typeof import("../src/core/github/backend")>();
+	class GitHubBackend extends original.GitHubBackend {
+		constructor(...given: ConstructorParameters<typeof original.GitHubBackend>) {
+			super(...given);
+			app.backends.push(given[1] ?? {});
+		}
+	}
+	return { ...original, GitHubBackend };
 });
 
 const { SyncRunner } = await import("../src/obsidian/sync-runner");
@@ -169,6 +188,8 @@ beforeEach(() => {
 	app.notices.length = 0;
 	app.hidden.length = 0;
 	app.requests = 0;
+	app.platform.isAndroidApp = false;
+	app.backends.length = 0;
 	app.request = () => Promise.reject(new Error("net::ERR_INTERNET_DISCONNECTED"));
 	vi.stubGlobal("window", { setTimeout, clearTimeout });
 	vi.stubGlobal("document", { visibilityState: "visible", addEventListener: () => {}, removeEventListener: () => {} });
@@ -578,6 +599,20 @@ describe("a sync that started by itself and was stopped", () => {
 		await runner.run("pull");
 		expect(app.requests).toBe(0);
 		expect(app.notices).toEqual([]);
+	});
+});
+
+describe("the limit on the bytes fetched at once", () => {
+	test("is the smaller one on Android, and the usual one anywhere else", async () => {
+		const { runner } = setup();
+		await runner.runAuto("light");
+		app.platform.isAndroidApp = true;
+		await runner.runAuto("light");
+
+		expect(app.backends.map((options) => options.maxConcurrentFetchBytes)).toEqual([
+			MAX_CONCURRENT_FETCH_BYTES,
+			ANDROID_CONCURRENT_FETCH_BYTES,
+		]);
 	});
 });
 

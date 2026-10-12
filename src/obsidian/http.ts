@@ -9,8 +9,9 @@
  * Source: https://github.com/seking/obsidian-sync-evo
  */
 
-import { requestUrl } from "obsidian";
+import { Platform, requestUrl } from "obsidian";
 import type { HttpFunction } from "../core/github/http";
+import { concurrentFetchBytesFor, fetchHttp, type HttpPlatform, transportFor } from "./http-transport";
 
 /**
  * `requestUrl` as the core's HTTP function. It is used instead of `fetch`
@@ -41,3 +42,24 @@ export const obsidianHttp: HttpFunction = async (request) => {
 	});
 	return { status: response.status, headers: response.headers ?? {}, body: response.arrayBuffer };
 };
+
+/**
+ * The HTTP function of a platform: `requestUrl`, and on Android `fetch` for
+ * the requests `transportFor` names. A large response crashes the app there
+ * when it comes through `requestUrl`.
+ */
+export function httpFor(platform: HttpPlatform): HttpFunction {
+	if (!platform.isAndroidApp) return obsidianHttp;
+	return (request) => (transportFor(request, platform) === "fetch" ? fetchHttp(request) : obsidianHttp(request));
+}
+
+/** How this device reaches GitHub: what its client and its backend are built with. */
+export interface DeviceNetwork {
+	readonly http: HttpFunction;
+	/** For `GitHubBackendOptions.maxConcurrentFetchBytes`. */
+	readonly maxConcurrentFetchBytes: number;
+}
+
+export function deviceNetwork(): DeviceNetwork {
+	return { http: httpFor(Platform), maxConcurrentFetchBytes: concurrentFetchBytesFor(Platform) };
+}

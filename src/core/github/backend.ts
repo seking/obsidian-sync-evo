@@ -64,6 +64,12 @@ export interface GitHubBackendOptions {
 	 * sent either, and once it was, the push has happened.
 	 */
 	readonly signal?: AbortSignal;
+	/**
+	 * The most the blobs fetched at once may add up to, in bytes
+	 * (`ConcurrentFetchOptions.maxBytes`). `MAX_CONCURRENT_FETCH_BYTES` when
+	 * absent; a platform with less room for responses gives less.
+	 */
+	readonly maxConcurrentFetchBytes?: number;
 }
 
 const SYMLINK_MODE = "120000";
@@ -193,11 +199,11 @@ export class GitHubBackend implements Backend {
 		if (submodule !== undefined) {
 			throw new BackendError("other", `fetch: a submodule has no content: ${submodule.path}`);
 		}
-		yield* fetchConcurrently(
-			entries,
-			(entry) => this.client.getBlob(entry.hash, entry.size),
-			this.options.signal === undefined ? {} : { signal: this.options.signal },
-		);
+		const { signal, maxConcurrentFetchBytes: maxBytes } = this.options;
+		yield* fetchConcurrently(entries, (entry) => this.client.getBlob(entry.hash, entry.size), {
+			...(signal === undefined ? {} : { signal }),
+			...(maxBytes === undefined ? {} : { maxBytes }),
+		});
 	}
 
 	/**

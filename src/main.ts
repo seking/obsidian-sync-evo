@@ -42,7 +42,7 @@ import { AutoScheduler } from "./obsidian/auto-scheduler";
 import { EditingWatch } from "./obsidian/editing-watch";
 import { exclusionPathsOf } from "./obsidian/exclusion-paths";
 import type { ExclusionChange, ExclusionLoad } from "./obsidian/exclusion-settings";
-import { obsidianHttp } from "./obsidian/http";
+import { deviceNetwork } from "./obsidian/http";
 import { showLog } from "./obsidian/log";
 import { pullVaultOf } from "./obsidian/pull-vault";
 import { type SyncHost, SyncRunner } from "./obsidian/sync-runner";
@@ -388,7 +388,7 @@ export default class SyncEvoPlugin extends Plugin implements SettingsHost, SyncH
 			(target) =>
 				new GitHubClient({
 					...target,
-					http: obsidianHttp,
+					http: deviceNetwork().http,
 					now: Date.now,
 					sleep: timerSleep,
 					// The user is looking at the button. A limit is reported, not waited out.

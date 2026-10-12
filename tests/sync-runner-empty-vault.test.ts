@@ -46,7 +46,15 @@ vi.mock("obsidian", () => {
 		hide(): void {}
 	}
 	class Empty {}
-	return { Notice, Modal: Empty, ButtonComponent: Empty, TFile: Empty, TFolder: Empty, requestUrl: () => Promise.reject(new Error("offline")) };
+	return {
+		Notice,
+		Modal: Empty,
+		ButtonComponent: Empty,
+		TFile: Empty,
+		TFolder: Empty,
+		Platform: { isAndroidApp: false },
+		requestUrl: () => Promise.reject(new Error("offline")),
+	};
 });
 
 vi.mock("../src/obsidian/empty-vault-confirm", () => ({

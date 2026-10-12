@@ -72,7 +72,7 @@ import { untrackedSome, untrackFailureText, untrackStopped, untrackSyncReport } 
 import { askEmptyVaultIn } from "./empty-vault-confirm";
 import { exclusionPathsOf } from "./exclusion-paths";
 import { graphViewPause } from "./graph-views";
-import { obsidianHttp } from "./http";
+import { deviceNetwork } from "./http";
 import { log } from "./log";
 import { confirmPullIn, type PullTarget } from "./pull-confirm";
 import { pullVaultOf } from "./pull-vault";
@@ -455,9 +455,10 @@ export class SyncRunner {
 			// is being typed in. Starting one by hand ends the typing.
 			const beingEdited =
 				auto === null ? {} : { beingEdited: (path: string) => isBeingEdited(host.editing.facts(), path, Date.now()) };
+			const network = deviceNetwork();
 			const client: GitHubClient = new GitHubClient({
 				...prepared.target,
-				http: obsidianHttp,
+				http: network.http,
 				now: Date.now,
 				sleep: timerSleep,
 				signal: controller.signal,
@@ -479,7 +480,11 @@ export class SyncRunner {
 			});
 			const limitWatch = new FetchLimitWatch(() => client.quota, Date.now);
 			this.limitWatch = limitWatch;
-			const backend = new GitHubBackend(client, { yieldControl, signal: controller.signal });
+			const backend = new GitHubBackend(client, {
+				yieldControl,
+				signal: controller.signal,
+				maxConcurrentFetchBytes: network.maxConcurrentFetchBytes,
+			});
 			const fetchContents = limitWatch.watch((revision, entries) => backend.fetch(revision, entries));
 			const pullDeps: PullDeps = {
 				store: opened.store,

@@ -408,13 +408,15 @@ export class GitHubClient {
 	}
 
 	/**
-	 * The content of a blob. `size` is its size in bytes as the tree gave it;
-	 * it only sets how long the download may take.
+	 * The content of a blob. `size` is its size in bytes as the tree gave it:
+	 * it sets how long the download may take, and it is handed to the HTTP
+	 * function as what to expect (`HttpRequest.expectedBytes`).
 	 */
 	async getBlob(sha: string, size = 0): Promise<Uint8Array> {
 		const what = "get blob";
 		// The raw media type returns the bytes themselves instead of base64 in JSON.
-		const request = this.get(`/git/blobs/${this.sha(what, sha)}`, "application/vnd.github.raw+json");
+		const blob = this.get(`/git/blobs/${this.sha(what, sha)}`, "application/vnd.github.raw+json");
+		const request: HttpRequest = size > 0 ? { ...blob, expectedBytes: size } : blob;
 		const response = await this.send(what, request, this.transferTimeout(size));
 		if (response.status !== 200) throw this.failure(what, response);
 		return new Uint8Array(response.body);
