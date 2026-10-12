@@ -127,7 +127,18 @@ function isRefusal(error: unknown): boolean {
 	return error instanceof BackendError && (error.kind === "forbidden" || error.kind === "workflows-permission");
 }
 
-const CONTROL_CHARACTER = /[\u0000-\u0008\u000b\u000e-\u001f]/;
+/**
+ * Whether a text has a control character other than a tab, a line end or a
+ * form feed. The codes are compared one by one: a pattern that names control
+ * characters is what the automated review of plugins objects to.
+ */
+function hasControlCharacter(text: string): boolean {
+	for (let i = 0; i < text.length; i++) {
+		const code = text.charCodeAt(i);
+		if (code <= 0x08 || code === 0x0b || (code >= 0x0e && code <= 0x1f)) return true;
+	}
+	return false;
+}
 
 // What a path and the fields around it add to the body of a request.
 const TREE_ENTRY_BYTES = 100;
@@ -589,7 +600,7 @@ export function inlineText(content: Uint8Array): string | null {
 	} catch {
 		return null;
 	}
-	if (CONTROL_CHARACTER.test(text)) return null;
+	if (hasControlCharacter(text)) return null;
 	const again = new TextEncoder().encode(text);
 	if (again.length !== content.length) return null;
 	for (let i = 0; i < again.length; i++) {

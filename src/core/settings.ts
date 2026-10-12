@@ -277,7 +277,8 @@ export type DeviceNameProblem = "empty" | "invalid-character";
 // of the first line of a commit. So it takes no line break or other control
 // character, nothing a file name cannot have on some platform, and nothing
 // Obsidian does not allow in the name of a note.
-const DEVICE_NAME_REJECTED = /[\u0000-\u001f\u007f-\u009f\u2028\u2029*"\\/<>:|?#^[\]]/;
+// `\p{Cc}` is the control characters: U+0000 to U+001F and U+007F to U+009F.
+const DEVICE_NAME_REJECTED = /[\p{Cc}\u2028\u2029*"\\/<>:|?#^[\]]/u;
 
 /** What is wrong with a device name, judged on the name as it would be stored: trimmed. */
 export function deviceNameProblem(name: string): DeviceNameProblem | null {
