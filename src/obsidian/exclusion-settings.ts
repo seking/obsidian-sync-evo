@@ -85,6 +85,13 @@ export interface ExclusionHost {
 	 * This part is drawn again when it has ended.
 	 */
 	untrack(shown: readonly string[]): void;
+	/**
+	 * Takes the notices of the syncs that stay off the screen while a
+	 * question is open, and answers what puts them back
+	 * (`SyncRunner.hideStaying`): in a narrow window they cover the button
+	 * that says no.
+	 */
+	hideNotices(): () => void;
 }
 
 // The names of the switches are those of the same options of Obsidian Sync.
@@ -360,6 +367,7 @@ export class ExclusionSettings {
 		// The settings were closed while the vault was looked at: a question
 		// about a screen that is gone is not put up.
 		if (this.disposed || !this.el.isConnected) return;
+		const putBack = host.hideNotices();
 		const close = askUntrackIn(
 			this.app,
 			t,
@@ -373,6 +381,7 @@ export class ExclusionSettings {
 			// Answered either way, or closed: the next question may be asked.
 			() => {
 				this.asking = null;
+				putBack();
 			},
 		);
 		this.asking = { close };

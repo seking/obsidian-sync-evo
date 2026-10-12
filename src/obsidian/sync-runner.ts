@@ -328,6 +328,9 @@ export class SyncRunner {
 	 */
 	private hideQuestions(): void {
 		for (const notice of this.questions) notice.hide();
+		// Nor are they put back after a question (`whileAsking`): a notice
+		// that was told to go is still on the screen for a moment.
+		this.staying = this.staying.filter(({ notice }) => !this.questions.includes(notice));
 		this.questions = [];
 	}
 
@@ -1099,13 +1102,26 @@ export class SyncRunner {
 	private async whileAsking<T>(ask: () => Promise<T>): Promise<T> {
 		this.progress?.hide();
 		this.progress = null;
-		const hidden = this.staying.filter(({ notice }) => (notice.containerEl as HTMLElement | undefined)?.isConnected !== false);
-		this.staying = [];
-		for (const { notice } of hidden) notice.hide();
+		const putBack = this.hideStaying();
 		try {
 			return await ask();
 		} finally {
-			for (const { text } of hidden) this.show(text, 0);
+			putBack();
 		}
+	}
+
+	/**
+	 * Takes the notices that stay off the screen, for a question that is
+	 * asked outside a sync (the one before files are untracked, from the
+	 * settings). Answers what puts them back, to be called once the
+	 * question is gone.
+	 */
+	hideStaying(): () => void {
+		const hidden = this.staying.filter(({ notice }) => (notice.containerEl as HTMLElement | undefined)?.isConnected !== false);
+		this.staying = [];
+		for (const { notice } of hidden) notice.hide();
+		return () => {
+			for (const { text } of hidden) this.show(text, 0);
+		};
 	}
 }

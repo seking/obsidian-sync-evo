@@ -327,6 +327,10 @@ export default class SyncEvoPlugin extends Plugin implements SettingsHost, SyncH
 		}
 	}
 
+	hideNotices(): () => void {
+		return this.syncs.hideStaying();
+	}
+
 	/**
 	 * Untracks the paths the user confirmed, after the sync it needs
 	 * (`SyncRunner.run`). Called from the handler of the button that

@@ -67,7 +67,7 @@ Sync Evo is not in the community plugin directory yet. Until it is, it can be in
 2. In Obsidian, open Settings → Sync Evo and fill in "Connection":
    - **Repository**: as `owner/name`, or its address pasted from the browser.
    - **Branch**: the branch to sync with. Sync Evo does not create it.
-   - **Token**: the secret that holds the token. It is kept in Obsidian's Keychain, and not in a file of the vault. On iPhone, iPad and Android, every vault on the device can link the same secret; on Windows, each vault has its own, and a vault that is removed from the list of vaults and opened again asks for the token again.
+   - **Token**: the secret that holds the token. It is kept in Obsidian's Keychain, and not in a file of the vault. On iPhone and Android, every vault on the device can link the same secret; on Windows, each vault has its own, and a vault that is removed from the list of vaults and opened again asks for the token again.
    - **Device name**: it appears in commit messages and in the names of files kept from a conflict.
 3. Press **Test** under "Connection test". It tells you whether the token reaches the repository and the branch.
 4. Run **Sync** from the ribbon or the command palette. The first pull asks when files in the vault differ from the repository's, and the first push shows what it is about to send and asks.
@@ -107,7 +107,7 @@ A push makes one commit, with the message `Sync Evo: <device name> (<n> added, <
 
 ## Tested on
 
-iPhone (iOS) and Mac (macOS). The basic sync was also tried on one Android phone (a Pixel 6a). It has not been tried on iPad, Windows, or Linux yet.
+iPhone (iOS) and Mac (macOS). The basic sync was also tried on one Android phone (a Pixel 6a), one iPad, and one Windows 11 PC. It has not been tried on Linux.
 
 On Android, files are always fetched one at a time: the zip of the whole commit is not used there, because Obsidian's request function runs out of memory on a large response. So the first fetch of a vault of more than about 5,000 files runs into GitHub's hourly request limit: a sync started by hand waits for the limit to lift and takes over an hour, and a sync that started by itself stops there and a later one goes on. Files of 2 MB and more are downloaded with the WebView's `fetch`, which does not go through the part that runs out of memory.
 
