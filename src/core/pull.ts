@@ -81,6 +81,7 @@ import type {
 	UnwritablePath,
 	UnwritableReason,
 } from "./pull-io";
+import { readWhole } from "./pull-io";
 import {
 	confirmationOf,
 	isConfirmed,
@@ -537,7 +538,8 @@ class PullRun {
 			// Not read: a pull writes nothing of that size, so it is neither
 			// content a marker knows.
 			if (stat.size > this.sizeLimit) return { hash: "", stat };
-			return { hash: await backend.hashContent(await vault.read(path)), stat };
+			const whole = await readWhole(vault, path, stat);
+			return { hash: await backend.hashContent(whole.content), stat: whole.stat };
 		} catch {
 			return "unreadable";
 		}
@@ -1259,7 +1261,7 @@ class PullRun {
 		const { vault } = this.deps;
 		const stat = await vault.stat(GITIGNORE);
 		if (stat === null || stat.type !== "file" || stat.size > this.sizeLimit) return null;
-		return new TextDecoder().decode(await vault.read(GITIGNORE));
+		return new TextDecoder().decode((await readWhole(vault, GITIGNORE, stat)).content);
 	}
 
 	// -----------------------------------------------------------------------

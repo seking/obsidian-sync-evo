@@ -33,7 +33,6 @@ What is synced is decided by the `.gitignore` at the root of the vault, so that 
 - **Git LFS.** A pointer file is synced as it is, and the content it stands for is not fetched.
 - **Line ending conversion.** The `text` and `eol` settings of `.gitattributes` are not applied: every file is stored and written byte for byte as the repository holds it.
 - **Symbolic links.** They are not written to the device and are left as they are in the repository. The settings list them.
-- **Vaults in iCloud Drive.** See below.
 - **Other services** than GitHub.
 
 Also:
@@ -44,7 +43,15 @@ Also:
 
 ## Before you use it
 
-**Keep the vault on the device, not in iCloud Drive.** A vault in iCloud Drive is not supported. iCloud removes files from the device to save space and leaves placeholders, a removed file looks as if it was deleted, and it can then be deleted in the repository as well. On an iPhone, create the vault under "On My iPhone".
+**A vault in iCloud Drive works, but support is experimental.** It was checked on one iPhone, on Wi-Fi, with a small vault. Before you rely on it:
+
+- The first sync (and a sync after the sync state was reset) reads every file. Files that iCloud has taken off the device are downloaded for that read, so it needs the space and the connection for the whole vault. As long as even one file cannot be downloaded, that sync does not finish, and nothing is sent.
+- When GitHub can be reached and iCloud cannot (iCloud Drive switched off for mobile data, for example), a file that is off the device cannot be read. Sync Evo leaves it alone, says so in the result of the sync, and tries again the next time.
+- When iCloud finds two versions of a file, it may keep both and name one `<name> 2.md`. Sync Evo sends that as a new file.
+- Do not make the iCloud vault a git working tree on the Mac. With the vault in iCloud, the Mac and the iPhone share one folder: what Sync Evo sends from the iPhone, git on the Mac does not know of, and its next pull stops. If Sync Evo on the iPhone tells you that the vault has a `.git`, this is what happened.
+- Do not sync the same iCloud vault with Sync Evo on two devices. iCloud already carries every change between them, and two syncs of the same change can leave duplicates.
+
+If you can choose, a vault under "On My iPhone" is the simpler setup.
 
 **On a device where the vault is a git repository, use git.** If the vault has a `.git` at its root, sync that device with git or with the Obsidian Git plugin. Git does not learn of what Sync Evo sends, and its next pull would stop. Sync Evo is for the devices that have no git.
 

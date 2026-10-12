@@ -66,7 +66,7 @@ import {
 } from "./notices";
 import { foldedKey, pathKey } from "./paths";
 import { DEFAULT_SIZE_LIMIT } from "./plan";
-import type { PullVault } from "./pull-io";
+import { type PullVault, readWhole } from "./pull-io";
 import {
 	FIRST_PUSH_CONFIRMED_KEY,
 	finishPush,
@@ -826,9 +826,10 @@ class PushRun {
 						const stat = await vault.stat(path);
 						if (stat === null || stat.type !== "file") return leave("gone");
 						if (stat.size > this.sizeLimit) return leave("too-large");
-						const content = await vault.read(path);
-						stats.set(pathKey(send.path), { mtime: stat.mtime, size: stat.size });
-						return content;
+						const whole = await readWhole(vault, path, stat);
+						if (whole.stat.size > this.sizeLimit) return leave("too-large");
+						stats.set(pathKey(send.path), { mtime: whole.stat.mtime, size: whole.stat.size });
+						return whole.content;
 					} catch {
 						return leave("unreadable");
 					}
@@ -930,7 +931,15 @@ class PushRun {
 		const start = backend.start.bind(backend);
 		const before = await vault.stat(GITIGNORE);
 		if (before !== null && before.type !== "file") return this.result("pull-first", { reason: "gitignore-unreadable" });
-		const content = before === null ? new Uint8Array() : await vault.read(GITIGNORE);
+		let content: Uint8Array = new Uint8Array();
+		if (before !== null) {
+			// A part of the file would be the `.gitignore` of the first commit.
+			try {
+				content = (await readWhole(vault, GITIGNORE, before)).content;
+			} catch {
+				return this.result("pull-first", { reason: "gitignore-unreadable" });
+			}
+		}
 		const first = await this.asked(() => start({ path: GITIGNORE, content, deviceName: this.deps.deviceName }));
 		if (first.status === "stale") return this.result("pull-first", { reason: "remote-moved" });
 		if (first.status === "other-branch") {
@@ -1059,7 +1068,7 @@ class PushRun {
 		const { vault } = this.deps;
 		const stat = await vault.stat(GITIGNORE);
 		if (stat === null || stat.type !== "file" || stat.size > this.sizeLimit) return null;
-		return new TextDecoder().decode(await vault.read(GITIGNORE));
+		return new TextDecoder().decode((await readWhole(vault, GITIGNORE, stat)).content);
 	}
 
 	/**

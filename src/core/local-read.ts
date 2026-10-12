@@ -18,7 +18,7 @@ import { HASH_CHUNK_BYTES } from "./hash";
 import { foldedKey, pathKey } from "./paths";
 import type { LocalEntry } from "./plan";
 import { isLfsPointer, type Seen } from "./pull-apply";
-import type { PullVault, SaveResult } from "./pull-io";
+import { type PullVault, readWhole, type SaveResult } from "./pull-io";
 import type { ScanResult } from "./scan";
 import {
 	type FileStat,
@@ -226,7 +226,7 @@ export async function readLocal(
 		} else {
 			let content: Uint8Array;
 			try {
-				content = await deps.vault.read(path);
+				({ content, stat } = await readWhole(deps.vault, path, stat));
 			} catch {
 				leave();
 				continue;

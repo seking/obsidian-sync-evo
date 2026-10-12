@@ -51,6 +51,7 @@ import {
 	type PullConflict,
 	type PullConflictCause,
 	type PullVault,
+	readWhole,
 	type SourcedFile,
 	SourcedStateError,
 	type UnwritablePath,
@@ -442,8 +443,8 @@ class Applier {
 		) {
 			return before;
 		}
-		const content = await this.vault.read(path);
-		return this.remember(key, await this.env.backend.hashContent(content), stat);
+		const whole = await readWhole(this.vault, path, stat);
+		return this.remember(key, await this.env.backend.hashContent(whole.content), whole.stat);
 	}
 
 	private remember(key: string, hash: string, stat: FileStat): Seen {
@@ -1311,8 +1312,8 @@ class Applier {
 		try {
 			const stat = await this.vault.stat(path);
 			if (stat === null || stat.type !== "file") return null;
-			const content = await this.vault.read(path);
-			const seen = this.remember(key, await this.env.backend.hashContent(content), stat);
+			const { content, stat: read } = await readWhole(this.vault, path, stat);
+			const seen = this.remember(key, await this.env.backend.hashContent(content), read);
 			return { ...seen, content };
 		} catch {
 			this.defer(path, "unreadable");

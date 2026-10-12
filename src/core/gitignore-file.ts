@@ -32,7 +32,7 @@ import { defaultSectionLines, type ExclusionPaths } from "./exclusion";
 import { findSection, SECTION_END, SECTION_START, withSection } from "./gitignore-section";
 import { foldedKey, pathKey } from "./paths";
 import type { SyncRecord } from "./plan";
-import type { PullVault } from "./pull-io";
+import { type PullVault, readWhole } from "./pull-io";
 import { fromRoot, placeholderTarget } from "./scan";
 import type { StateStore } from "./state";
 
@@ -114,7 +114,7 @@ async function readRaw(vault: Pick<PullVault, "list" | "stat" | "read">, sizeLim
 		if (stat === null) return unreadable("read-failed");
 		if (stat.type !== "file") return unreadable("not-a-file");
 		if (stat.size > sizeLimit) return unreadable("too-large");
-		return { kind: "bytes", content: await vault.read(ROOT_GITIGNORE) };
+		return { kind: "bytes", content: (await readWhole(vault, ROOT_GITIGNORE, stat)).content };
 	} catch {
 		return unreadable("read-failed");
 	}

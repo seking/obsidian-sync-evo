@@ -98,6 +98,42 @@ export interface PullVault extends FolderLister {
 	saveOpenEditors(path: string): Promise<SaveResult>;
 }
 
+/** A read gave another number of bytes than the file is said to have, twice. */
+export class ShortReadError extends Error {
+	constructor(path: string, read: number, size: number) {
+		super(`read ${read} of the ${size} bytes of ${path}`);
+		this.name = "ShortReadError";
+	}
+}
+
+/**
+ * Reads the file `stat` is of, and takes the content only when it is as long
+ * as the file is said to be. A read that fails is safe: the file is left
+ * alone. One that answers with a part of the file is not: the part would be
+ * taken for an edit, and sent over the whole file on the remote. A cloud
+ * drive that has the content off the device (iCloud Drive) fetches it when
+ * the file is read, and what a read gives when that fetch breaks off is not
+ * known.
+ *
+ * The file may also have been written between the stat and the read, so it
+ * is looked at once more before the read is given up. Answers the stat the
+ * content goes with. Throws what the vault throws, a `ShortReadError`, or
+ * when the file is gone at the second look.
+ */
+export async function readWhole(
+	vault: Pick<PullVault, "stat" | "read">,
+	path: string,
+	stat: VaultStat,
+): Promise<{ readonly content: Uint8Array; readonly stat: VaultStat }> {
+	const content = await vault.read(path);
+	if (content.length === stat.size) return { content, stat };
+	const again = await vault.stat(path);
+	if (again === null || again.type !== "file") throw new ShortReadError(path, content.length, stat.size);
+	const second = await vault.read(path);
+	if (second.length !== again.size) throw new ShortReadError(path, second.length, again.size);
+	return { content: second, stat: again };
+}
+
 /** The part of a question that is about a first fetch (`first-fetch.ts`). */
 export interface FirstFetchRequest {
 	readonly files: FirstFetchFiles;

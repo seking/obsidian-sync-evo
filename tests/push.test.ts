@@ -2927,6 +2927,120 @@ describe("a file that cannot be read while the vault is compared", () => {
 		expect(await h.base()).toBe(h.backend.revision);
 	});
 
+	/** Every read of `bad` answers with its first bytes only, as a fetch from a cloud drive that broke off might. */
+	function cutShort(h: Harness, bad: string, length: number, whole = 0): () => void {
+		const read = h.vault.read;
+		let reads = 0;
+		h.vault.read = async (path) => {
+			const content = await read.call(h.vault, path);
+			// The first `whole` reads of it are the comparing of the vault, which is to get through.
+			return path === bad && ++reads > whole ? content.slice(0, length) : content;
+		};
+		return () => {
+			h.vault.read = read;
+		};
+	}
+
+	test("a read that gives a part of the file is no edit: a push leaves the file out, and the remote keeps the whole", async () => {
+		const h = await synced({ "bad.md": "the whole note", "ok.md": "O" });
+		// Touched, so that it is read: the time is not the record's any more.
+		h.vault.put("bad.md", "the whole note");
+		h.vault.put("ok.md", "O2");
+		const whole = cutShort(h, "bad.md", 3);
+
+		const result = await h.push();
+
+		expect(result).toMatchObject({
+			outcome: "pushed",
+			counts: { added: 0, modified: 1, deleted: 0 },
+			leftOut: [{ path: "bad.md", reason: "unreadable" }],
+		});
+		expect(await h.remote()).toEqual({ "bad.md": "the whole note", "ok.md": "O2" });
+		expect((await h.records())["bad.md"]).toBe(blobHash("the whole note"));
+
+		// Read whole again, there is nothing to send: it never changed.
+		whole();
+		expect(await h.push()).toMatchObject({ outcome: "nothing-to-push", leftOut: [] });
+		expect(await h.remote()).toEqual({ "bad.md": "the whole note", "ok.md": "O2" });
+	});
+
+	test("an empty read of a file that is not empty is not sent as an empty file", async () => {
+		const h = await synced({ "bad.md": "the whole note" });
+		h.vault.put("bad.md", "the whole note");
+		cutShort(h, "bad.md", 0);
+
+		const result = await h.push();
+
+		expect(result).toMatchObject({ leftOut: [{ path: "bad.md", reason: "unreadable" }] });
+		expect(await h.remote()).toEqual({ "bad.md": "the whole note" });
+	});
+
+	test("a pull does not take the part for an edit: no conflict, the file as it is, and incomplete", async () => {
+		const h = await synced({ "bad.md": "the whole note", "ok.md": "O" });
+		const base = await h.base();
+		h.vault.put("bad.md", "the whole note");
+		h.backend.commit({ "bad.md": "from the Mac", "ok.md": "O from the Mac" });
+		const whole = cutShort(h, "bad.md", 3);
+
+		const result = await h.pull();
+
+		expect(result).toMatchObject({
+			outcome: "incomplete",
+			counts: { fetched: 1, conflicts: 0 },
+			deferred: [{ path: "bad.md", reason: "unreadable" }],
+		});
+		expect(h.vault.snapshot()).toEqual({ "bad.md": "the whole note", "ok.md": "O from the Mac" });
+		expect(await h.base()).toBe(base);
+
+		// Read whole again: unchanged here, so the remote's content comes in, with no copy.
+		whole();
+		expect(await h.pull()).toMatchObject({ outcome: "completed", counts: { fetched: 1, conflicts: 0 } });
+		expect(h.vault.snapshot()).toEqual({ "bad.md": "from the Mac", "ok.md": "O from the Mac" });
+	});
+
+	test("a part read only when the file is sent is not sent: the file is left out, and sent whole the next time", async () => {
+		const h = await synced({ "bad.md": "B", "ok.md": "O" });
+		h.vault.put("bad.md", "the edited note");
+		h.vault.put("ok.md", "O2");
+		const whole = cutShort(h, "bad.md", 3, 1);
+
+		const result = await h.push();
+
+		expect(result).toMatchObject({
+			outcome: "pushed",
+			counts: { modified: 1 },
+			leftOut: [{ path: "bad.md", reason: "unreadable" }],
+		});
+		expect(await h.remote()).toEqual({ "bad.md": "B", "ok.md": "O2" });
+		expect((await h.records())["bad.md"]).toBe(blobHash("B"));
+
+		whole();
+		expect(await h.push()).toMatchObject({ outcome: "pushed", counts: { modified: 1 }, leftOut: [] });
+		expect(await h.remote()).toEqual({ "bad.md": "the edited note", "ok.md": "O2" });
+	});
+
+	test("a part read when a conflict is kept makes no copy of the part: the file is put off", async () => {
+		const h = await synced({ "bad.md": "B" });
+		const base = await h.base();
+		h.vault.put("bad.md", "edited on the phone");
+		h.backend.commit({ "bad.md": "edited on the Mac" });
+		const whole = cutShort(h, "bad.md", 3, 1);
+
+		const result = await h.pull();
+
+		expect(result).toMatchObject({
+			outcome: "incomplete",
+			counts: { conflicts: 0 },
+			deferred: [{ path: "bad.md", reason: "unreadable" }],
+		});
+		expect(h.vault.snapshot()).toEqual({ "bad.md": "edited on the phone" });
+		expect(await h.base()).toBe(base);
+
+		whole();
+		expect(await h.pull()).toMatchObject({ outcome: "completed", counts: { conflicts: 1 } });
+		expect(h.vault.text("bad.md")).toBe("edited on the Mac");
+	});
+
 	test("in a sync, the push after such a pull keeps away from the file", async () => {
 		const h = await synced({ "bad.md": "B", "ok.md": "O" });
 		h.vault.put("bad.md", "B2");
