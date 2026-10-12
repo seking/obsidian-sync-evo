@@ -12,7 +12,7 @@
 import { type App, ButtonComponent, Modal } from "obsidian";
 import type { Translate } from "../core/i18n";
 import { type UntrackConfirmRequest, type UntrackQuestion, untrackQuestion } from "../core/untrack-report";
-import { renderPathList } from "./pull-confirm";
+import { keyboardOn, renderPathList } from "./pull-confirm";
 
 /** How many paths of a list a phone is shown before the rest is asked for: the buttons are below the lists. */
 const PHONE_LIST_START = 10;
@@ -83,9 +83,8 @@ class UntrackConfirmModal extends Modal {
 				this.proceed(question.shown);
 				this.close();
 			});
-		// The safe answer is the one the keyboard is on.
 		const cancel = new ButtonComponent(buttons).setButtonText(question.cancel).onClick(() => this.close());
-		cancel.buttonEl.focus();
+		keyboardOn(buttons, cancel.buttonEl);
 	}
 
 	override onClose(): void {

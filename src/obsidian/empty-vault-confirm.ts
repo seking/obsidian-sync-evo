@@ -13,7 +13,7 @@ import { type App, ButtonComponent, Modal } from "obsidian";
 import type { Translate } from "../core/i18n";
 import type { AskEmptyVault, EmptyVaultAnswer, EmptyVaultRequest } from "../core/push";
 import { emptyVaultQuestion } from "../core/push-report";
-import { closeWhenAborted, type PullTarget } from "./pull-confirm";
+import { closeWhenAborted, keyboardOn, type PullTarget } from "./pull-confirm";
 
 /** Asks in a dialog. Closing it in any way but a button is "cancel". */
 export function askEmptyVaultIn(app: App, t: Translate, target: PullTarget, signal?: AbortSignal): AskEmptyVault {
@@ -71,14 +71,16 @@ class EmptyVaultModal extends Modal {
 		}
 
 		const buttons = contentEl.createDiv({ cls: "modal-button-container" });
+		let safe: HTMLElement | null = null;
 		for (const choice of question.choices) {
 			const button = new ButtonComponent(buttons).setButtonText(choice.label).onClick(() => this.closeWith(choice.answer));
 			// The one that deletes is marked as the others' "proceed" is, and
 			// is neither the one that stands out nor the one the keyboard is
 			// on: that is the safe answer.
 			if (choice.answer === "delete") button.setWarning();
-			if (choice.answer === "cancel") button.buttonEl.focus();
+			if (choice.answer === "cancel") safe = button.buttonEl;
 		}
+		if (safe !== null) keyboardOn(buttons, safe);
 	}
 
 	override onClose(): void {

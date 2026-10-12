@@ -23,6 +23,10 @@ import { MemoryStateStore } from "./support/memory-state-store";
 // answer sends, is tested in the core (`push.test.ts`).
 const app = vi.hoisted(() => ({
 	notices: [] as string[],
+	/** The notices that stay as they come and go, and the dialog as it opens, in order. */
+	events: [] as string[],
+	/** What the pull answers on top of nothing to do. */
+	pulled: {} as Record<string, unknown>,
 	/** Every sync that ran, by what it was: a pull, a first fetch, a push. */
 	ran: [] as string[],
 	/** Every time the dialog was opened. */
@@ -39,11 +43,19 @@ const app = vi.hoisted(() => ({
 
 vi.mock("obsidian", () => {
 	class Notice {
-		constructor(text: string) {
+		private readonly stays: boolean;
+		constructor(
+			private readonly text: string,
+			duration?: number,
+		) {
 			app.notices.push(text);
+			this.stays = duration === 0;
+			if (this.stays) app.events.push(`shown: ${text}`);
 		}
 		setMessage(): void {}
-		hide(): void {}
+		hide(): void {
+			if (this.stays) app.events.push(`hidden: ${this.text}`);
+		}
 	}
 	class Empty {}
 	return {
@@ -60,6 +72,7 @@ vi.mock("obsidian", () => {
 vi.mock("../src/obsidian/empty-vault-confirm", () => ({
 	askEmptyVaultIn: () => async (request: EmptyVaultRequest) => {
 		app.dialogs.push(request);
+		app.events.push("dialog");
 		return app.answer as EmptyVaultAnswer;
 	},
 }));
@@ -104,7 +117,7 @@ vi.mock("../src/core/pull", async (original) => ({
 	runPull: async (deps: PullDeps): Promise<PullResult> => {
 		app.ran.push(deps.discardState === undefined ? "pull" : "first fetch");
 		app.lit.push(app.held);
-		return pulled;
+		return { ...pulled, ...app.pulled } as PullResult;
 	},
 }));
 
@@ -154,6 +167,8 @@ function setup() {
 
 beforeEach(() => {
 	app.notices.length = 0;
+	app.events.length = 0;
+	app.pulled = {};
 	app.ran.length = 0;
 	app.dialogs.length = 0;
 	app.answered.length = 0;
@@ -221,6 +236,21 @@ describe("a push that finds none of the files it has a record of", () => {
 		expect(app.answered).toEqual(["refetch"]);
 		expect(app.held).toBe(false);
 		expect(runner.running).toBe(false);
+	});
+
+	test("the notices that stay are taken away while the question is open, and put back after", async () => {
+		const runner = setup();
+		// What the pull right before tells with a notice that stays.
+		app.pulled = { replacedSettings: [".obsidian/core-plugins.json"] };
+		app.answer = "cancel";
+
+		await runner.run("sync");
+
+		const staying = app.events.find((event) => event.startsWith("shown: ") && event.includes("core-plugins.json"));
+		expect(staying).toBeDefined();
+		const text = (staying as string).slice("shown: ".length);
+		const about = app.events.filter((event) => event === "dialog" || event.endsWith(text));
+		expect(about).toEqual([`shown: ${text}`, `hidden: ${text}`, "dialog", `shown: ${text}`]);
 	});
 
 	test("cancel: told as any push the user said no to, and nothing follows", async () => {

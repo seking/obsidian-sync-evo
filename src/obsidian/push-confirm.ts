@@ -13,7 +13,7 @@ import { type App, ButtonComponent, Modal } from "obsidian";
 import type { Translate } from "../core/i18n";
 import type { ConfirmPush, PushAnswer, PushConfirmRequest } from "../core/push";
 import { pushQuestion } from "../core/push-report";
-import { closeWhenAborted, type PullTarget, renderPathList } from "./pull-confirm";
+import { closeWhenAborted, keyboardOn, type PullTarget, renderPathList } from "./pull-confirm";
 
 /** Asks in a dialog. Closing it in any way but a button is "cancel". */
 export function confirmPushIn(app: App, t: Translate, target: PullTarget, signal?: AbortSignal): ConfirmPush {
@@ -72,9 +72,8 @@ class PushConfirmModal extends Modal {
 			.setButtonText(t("confirm.proceed"))
 			.setWarning()
 			.onClick(() => this.closeWith("proceed"));
-		// The safe answer is the one the keyboard is on.
 		const cancel = new ButtonComponent(buttons).setButtonText(t("confirm.cancel")).onClick(() => this.closeWith("cancel"));
-		cancel.buttonEl.focus();
+		keyboardOn(buttons, cancel.buttonEl);
 	}
 
 	override onClose(): void {

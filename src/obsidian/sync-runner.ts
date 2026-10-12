@@ -123,6 +123,9 @@ const PROGRESS_INTERVAL_MS = 200;
 // that takes longer is then seen to be running, and can be stopped.
 const AUTO_PROGRESS_DELAY_MS = 5000;
 
+/** How many of the notices that stay are kept track of, for taking them away while a question is asked. */
+const STAYING_NOTICES = 12;
+
 /**
  * The one place a sync is started from, whichever kind it is: one runs at
  * a time, and the command that stops it stops whichever is running.
@@ -205,6 +208,8 @@ export class SyncRunner {
 	 * does. They stay until dismissed, and would lie over that question.
 	 */
 	private questions: Notice[] = [];
+	/** The notices of this plugin that stay until they are tapped, with their text (`whileAsking`). */
+	private staying: { notice: Notice; text: string }[] = [];
 	/**
 	 * Whether the push of the running sync ended on the answer that the
 	 * vault is to get its files from the remote again
@@ -515,12 +520,7 @@ export class SyncRunner {
 					// question waits for a sync the user starts.
 					// (`automatic` below: the pull does not come here.)
 					if (auto !== null) return "later";
-					// The line of progress stays on top of everything, a dialog
-					// included: on a phone it covered the title of the question.
-					// It is taken away while the user answers and put back after.
-					this.progress?.hide();
-					this.progress = null;
-					const answer = await confirmPullIn(host.app, t, target, controller.signal)(request);
+					const answer = await this.whileAsking(() => confirmPullIn(host.app, t, target, controller.signal)(request));
 					// Not after a "no": nothing is updated then.
 					if (!this.stopped && answer !== "cancel") {
 						const line = this.stopping ? "pull.progress.stopping" : "pull.progress.applyingStart";
@@ -588,10 +588,7 @@ export class SyncRunner {
 				now: Date.now,
 				confirm: async (request) => {
 					if (auto !== null) return "later";
-					// As for a pull: the line of progress would cover the question.
-					this.progress?.hide();
-					this.progress = null;
-					const answer = await confirmPushIn(host.app, t, target, controller.signal)(request);
+					const answer = await this.whileAsking(() => confirmPushIn(host.app, t, target, controller.signal)(request));
 					if (!this.stopped && answer === "proceed") {
 						const line = this.stopping ? "push.progress.stopping" : "push.progress.sendingStart";
 						this.progress = new Notice(t(line), 0);
@@ -605,9 +602,7 @@ export class SyncRunner {
 					if (auto !== null) return "later";
 					// As above. No line comes back after it: what follows is
 					// the question about the deletions, or the end of the push.
-					this.progress?.hide();
-					this.progress = null;
-					return askEmptyVaultIn(host.app, t, target, controller.signal)(request);
+					return this.whileAsking(() => askEmptyVaultIn(host.app, t, target, controller.signal)(request));
 				},
 				onSectionAdded: (added) => {
 					sectionAdded = added;
@@ -1085,6 +1080,32 @@ export class SyncRunner {
 
 	private show(text: string, duration?: number): Notice | null {
 		if (this.stopped) return null;
-		return new Notice(text, duration);
+		const notice = new Notice(text, duration);
+		// Those that stay until they are tapped, for `whileAsking`. The
+		// oldest are let go of: by then they are long read, or long gone.
+		if (duration === 0) this.staying = [...this.staying, { notice, text }].slice(-STAYING_NOTICES);
+		return notice;
+	}
+
+	/**
+	 * Asks the user something in a dialog, with nothing of Sync Evo's on top
+	 * of it. The line of progress and the notices that stay cover a dialog:
+	 * on a phone its title, and in a narrow window the button that says no
+	 * (seen on Windows, 2026-10-12: only "proceed" was left to see). They
+	 * are taken away while the user answers. The notices are put back after,
+	 * unless the user had closed them; the line of progress is the caller's
+	 * to put back, with what goes on then.
+	 */
+	private async whileAsking<T>(ask: () => Promise<T>): Promise<T> {
+		this.progress?.hide();
+		this.progress = null;
+		const hidden = this.staying.filter(({ notice }) => (notice.containerEl as HTMLElement | undefined)?.isConnected !== false);
+		this.staying = [];
+		for (const { notice } of hidden) notice.hide();
+		try {
+			return await ask();
+		} finally {
+			for (const { text } of hidden) this.show(text, 0);
+		}
 	}
 }

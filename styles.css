@@ -59,6 +59,11 @@
 	font-weight: var(--font-normal);
 }
 
+/* The answer of a question that changes nothing. It is the first button of its row for the keyboard (`keyboardOn`), and is shown last: at the end of a row, and on top where a phone stacks the buttons from the bottom. */
+.modal-button-container > .sync-evo-safe-answer {
+	order: 1;
+}
+
 /* The repository in the settings: wide enough to show an owner/name. Where the description and the field share a row (a tablet, a desktop), the long description otherwise leaves the field a few letters wide. On a phone the field is already as wide as the screen, and this changes nothing. */
 .sync-evo-repository input[type="text"] {
 	min-width: min(22em, 60vw);

@@ -60,6 +60,22 @@ export function closeWhenAborted(modal: Modal, signal: AbortSignal | undefined):
 }
 
 /**
+ * Makes `safe` the answer the keyboard is on when the question opens: the
+ * one that changes nothing.
+ *
+ * Focusing it in `onOpen` is not enough. On a device with a keyboard,
+ * Obsidian moves the focus to the first button of a dialog right after
+ * `onOpen` (seen on Windows, 2026-10-12: Enter sent the deletions). So the
+ * button is also made the first one of the row, and shown where it was by
+ * its `order` (`styles.css`): after the others in a row, above them on a phone.
+ */
+export function keyboardOn(buttons: HTMLElement, safe: HTMLElement): void {
+	safe.addClass("sync-evo-safe-answer");
+	buttons.prepend(safe);
+	safe.focus();
+}
+
+/**
  * The dialog a pull stops with. Three questions: a first fetch into a vault
  * whose files differ from the remote's (yes or no), many files deleted on
  * the remote (yes or no), and a rewritten history, where the files to delete
@@ -134,9 +150,8 @@ class PullConfirmModal extends Modal {
 		if (losses?.rewritten === true) {
 			new ButtonComponent(buttons).setButtonText(t("confirm.keepLocal")).onClick(() => this.closeWith("keep-local"));
 		}
-		// The safe answer is the one the keyboard is on.
 		const cancel = new ButtonComponent(buttons).setButtonText(t("confirm.cancel")).onClick(() => this.closeWith("cancel"));
-		cancel.buttonEl.focus();
+		keyboardOn(buttons, cancel.buttonEl);
 	}
 
 	override onClose(): void {
