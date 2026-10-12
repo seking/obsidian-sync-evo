@@ -326,8 +326,8 @@ export class SyncEvoSettingTab extends PluginSettingTab {
 			.setDesc(t("settings.onConflict.desc"))
 			.addDropdown((dropdown) => {
 				dropdown
-					.addOption("copy", t("settings.onConflict.copy"))
 					.addOption("merge", t("settings.onConflict.merge"))
+					.addOption("copy", t("settings.onConflict.copy"))
 					.setValue(settings.onConflict)
 					.onChange((chosen) => {
 						const onConflict = conflictHandlingOf(chosen);

@@ -42,8 +42,12 @@ export interface DeviceSettings {
  */
 export type ConflictHandling = "merge" | "copy";
 
-/** A merge can spoil a text without anyone noticing, so it is the user's to switch on. */
-export const DEFAULT_ON_CONFLICT: ConflictHandling = "copy";
+/**
+ * A merge, also for a device that stored its settings before there was the
+ * choice. It can spoil a text without anyone noticing: what the file held
+ * before is kept (`MERGED_FOLDER`), and the user can switch to a copy.
+ */
+export const DEFAULT_ON_CONFLICT: ConflictHandling = "merge";
 
 /** What was stored as the handling of conflicts, or the default for anything that is neither of the two. */
 export function conflictHandlingOf(value: unknown): ConflictHandling {
