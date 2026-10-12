@@ -20,6 +20,8 @@ import { readNotices } from "../src/core/notices";
 import type { PullAnswer, PullConfirmRequest, PullDeps, PullResult } from "../src/core/pull";
 import { runPull } from "../src/core/pull";
 import {
+	type EmptyVaultAnswer,
+	type EmptyVaultRequest,
 	type PushAnswer,
 	type PushConfirmRequest,
 	type PushDeps,
@@ -167,6 +169,9 @@ interface Harness {
 	readonly pullAsked: PullConfirmRequest[];
 	readonly progress: PushProgress[];
 	answer: PushAnswer | (() => PushAnswer);
+	/** Every time a push asked about a vault without its files. */
+	readonly emptyAsked: EmptyVaultRequest[];
+	emptyAnswer: EmptyVaultAnswer;
 	pullAnswer: PullAnswer;
 	now(): number;
 	/** Each runs one minute later, so that files written before are no longer recent. */
@@ -188,6 +193,7 @@ function harness(options: { caseSensitive?: boolean } = {}): Harness {
 	const crash = new Crash();
 	const vault = new MemoryPullVault({ caseSensitive: options.caseSensitive ?? false, now });
 	const asked: PushConfirmRequest[] = [];
+	const emptyAsked: EmptyVaultRequest[] = [];
 	const pullAsked: PullConfirmRequest[] = [];
 	const progress: PushProgress[] = [];
 
@@ -219,6 +225,10 @@ function harness(options: { caseSensitive?: boolean } = {}): Harness {
 			asked.push(request);
 			return typeof h.answer === "function" ? h.answer() : h.answer;
 		},
+		askEmptyVault: async (request) => {
+			emptyAsked.push(request);
+			return h.emptyAnswer;
+		},
 		onProgress: (event) => progress.push(event),
 	});
 
@@ -231,6 +241,8 @@ function harness(options: { caseSensitive?: boolean } = {}): Harness {
 		pullAsked,
 		progress,
 		answer: "proceed",
+		emptyAsked,
+		emptyAnswer: "delete",
 		pullAnswer: "proceed",
 		now,
 		pull(overrides = {}) {
@@ -641,13 +653,239 @@ describe("the deletion guard", () => {
 
 	test("a hundred empty files deleted and one added still stop it", async () => {
 		const files = Object.fromEntries(Array.from({ length: 100 }, (_, i) => [`e${i}.md`, ""]));
-		const h = await synced(files);
+		// With a note that stays: the vault is not one without its files (`askEmptyVault`).
+		const h = await synced({ ...files, "kept.md": "K" });
 		for (const path of Object.keys(files)) h.vault.remove(path);
 		h.vault.put("one.md", "");
 		h.answer = "cancel";
 
 		expect((await h.push()).outcome).toBe("declined");
+		expect(h.emptyAsked).toEqual([]);
 		expect(h.asked[0]?.deletions?.length).toBe(99);
+	});
+});
+
+describe("a vault with none of the files that have a record", () => {
+	const files = { ".gitignore": "x/\n", ".obsidian/app.json": "{}", "a.md": "A", "notes/b.md": "B" };
+	/** The folder of the vault was deleted and made again: the app and Sync Evo have written their own files. */
+	async function recreated(all: Record<string, FileContent> = files): Promise<Harness> {
+		const h = await synced(all);
+		for (const path of Object.keys(all)) {
+			if (path !== ".gitignore" && !path.startsWith(".obsidian/")) h.vault.remove(path);
+		}
+		if (".obsidian/app.json" in all) h.vault.put(".obsidian/app.json", "{ }");
+		return h;
+	}
+	const untouched = async (h: Harness, before: string | null, all: Record<string, FileContent> = files): Promise<void> => {
+		expect(h.backend.revision).toBe(before);
+		expect(h.backend.pushes).toBe(0);
+		expect(await h.remote()).toEqual(all);
+		expect(await h.records()).toEqual(hashes(all as Record<string, string>));
+	};
+
+	test("two files gone, far below the threshold: the push stops and asks, with nothing else asked before", async () => {
+		const h = await recreated();
+		const before = h.backend.revision;
+		h.emptyAnswer = "cancel";
+
+		const result = await h.push();
+
+		expect(result).toMatchObject({ outcome: "declined", revision: null });
+		expect(result.refetch).toBeUndefined();
+		expect(h.emptyAsked).toEqual([{ missing: 2, deletions: 2 }]);
+		expect(h.asked).toEqual([]);
+		await untouched(h, before);
+		expect(await readPushFailure(h.store)).toBeNull();
+	});
+
+	test("past the threshold too, this question comes first", async () => {
+		const many = Object.fromEntries(Array.from({ length: 30 }, (_, i) => [`n/${String(i).padStart(2, "0")}.md`, `note ${i}`]));
+		const h = await recreated(many);
+		const before = h.backend.revision;
+		const order: string[] = [];
+
+		const result = await h.push({
+			askEmptyVault: async (request) => {
+				order.push(`empty vault ${request.missing}`);
+				return "cancel";
+			},
+			confirm: async () => {
+				order.push("deletions");
+				return "proceed";
+			},
+		});
+
+		expect(result.outcome).toBe("declined");
+		expect(order).toEqual(["empty vault 30"]);
+		await untouched(h, before, many);
+	});
+
+	test("fetch again: nothing is sent, and the result says that the first fetch is to follow", async () => {
+		const h = await recreated();
+		const before = h.backend.revision;
+		h.emptyAnswer = "refetch";
+
+		const result = await h.push();
+
+		expect(result).toMatchObject({ outcome: "declined", refetch: true, revision: null });
+		expect(h.asked).toEqual([]);
+		await untouched(h, before);
+		expect(await readPushFailure(h.store)).toBeNull();
+	});
+
+	test("delete on the remote too: the deletions are asked about however few, with what else the push sends", async () => {
+		const h = await recreated();
+		h.vault.put("new.md", "N");
+
+		const result = await h.push();
+
+		expect(result).toMatchObject({ outcome: "pushed", counts: { added: 1, modified: 1, deleted: 2 } });
+		expect(h.emptyAsked).toEqual([{ missing: 2, deletions: 2 }]);
+		expect(h.asked).toEqual([
+			{
+				firstPush: null,
+				remoteEmpty: false,
+				deletions: ["a.md", "notes/b.md"],
+				recordCount: 4,
+				alsoSent: { added: ["new.md"], modified: [".obsidian/app.json"] },
+			},
+		]);
+		expect(await h.remote()).toEqual({ ".gitignore": "x/\n", ".obsidian/app.json": "{ }", "new.md": "N" });
+		await expectNothingToPull(h);
+	});
+
+	test("delete on the remote too, and then a no to the deletions: nothing is sent", async () => {
+		const h = await recreated();
+		const before = h.backend.revision;
+		h.answer = "cancel";
+
+		const result = await h.push();
+
+		expect(result).toMatchObject({ outcome: "declined", revision: null });
+		expect(result.refetch).toBeUndefined();
+		expect(h.asked).toHaveLength(1);
+		await untouched(h, before);
+	});
+
+	test("before the first push, the one question that lists everything follows", async () => {
+		const h = await synced({ "a.md": "A" }, { firstPush: true });
+		h.vault.remove("a.md");
+		h.vault.put("new.md", "N");
+
+		expect((await h.push()).outcome).toBe("pushed");
+
+		expect(h.emptyAsked).toEqual([{ missing: 1, deletions: 1 }]);
+		expect(h.asked).toEqual([
+			{
+				firstPush: { added: ["new.md"], modified: [], deleted: ["a.md"] },
+				remoteEmpty: false,
+				deletions: ["a.md"],
+				recordCount: 1,
+			},
+		]);
+	});
+
+	test("no answer, as in a sync that started by itself: nothing is sent, and it is asked again", async () => {
+		const h = await recreated();
+		const before = h.backend.revision;
+		h.emptyAnswer = "later";
+
+		const result = await h.push();
+
+		expect(result).toMatchObject({ outcome: "waiting", waitingFor: "empty-vault", revision: null });
+		expect(h.asked).toEqual([]);
+		await untouched(h, before);
+		expect(await readPushFailure(h.store)).toBeNull();
+		expect(pushReport(translatorFor("en"), result, { sizeLimit: 50 * 1024 * 1024 }).summary).toBe(
+			"None of the files synced before is on this device, which needs your confirmation. Nothing was sent. Sync manually to be asked.",
+		);
+
+		expect((await h.push()).outcome).toBe("waiting");
+		expect(h.emptyAsked).toHaveLength(2);
+	});
+
+	test("the question that was closed because the push was stopped is a stop", async () => {
+		const h = await recreated();
+		const controller = new AbortController();
+
+		const result = await h.push({
+			signal: controller.signal,
+			askEmptyVault: async () => {
+				controller.abort();
+				return "cancel";
+			},
+		});
+
+		expect(result.outcome).toBe("cancelled");
+		expect(result.refetch).toBeUndefined();
+	});
+
+	test("some of the files gone: as ever, the threshold decides", async () => {
+		const h = await synced(files);
+		h.vault.remove("a.md");
+
+		expect(await h.push()).toMatchObject({ outcome: "pushed", counts: { deleted: 1 } });
+
+		expect(h.emptyAsked).toEqual([]);
+		expect(h.asked).toEqual([]);
+	});
+
+	test("a file a cloud drive has taken off the device is not gone", async () => {
+		const h = await synced(files);
+		h.vault.remove("a.md");
+		h.vault.remove("notes/b.md");
+		h.vault.put("notes/.b.md.icloud", "a placeholder");
+
+		expect(await h.push()).toMatchObject({ outcome: "pushed", counts: { deleted: 1 } });
+
+		expect(h.emptyAsked).toEqual([]);
+		expect(Object.keys(await h.remote()).sort()).toEqual([".gitignore", ".obsidian/app.json", "notes/b.md"]);
+	});
+
+	test("a vault whose records are of the configuration folder and the .gitignore alone is not asked", async () => {
+		const settings = { ".gitignore": "x/\n", ".obsidian/app.json": "{}", ".obsidian/hotkeys.json": "{}" };
+		const h = await synced(settings);
+		h.vault.remove(".obsidian/hotkeys.json");
+
+		expect(await h.push()).toMatchObject({ outcome: "pushed", counts: { deleted: 1 } });
+
+		expect(h.emptyAsked).toEqual([]);
+		expect(h.asked).toEqual([]);
+	});
+
+	test("the one note of a vault under a new name is no vault without files", async () => {
+		const h = await synced({ "a.md": "A" });
+		h.vault.remove("a.md");
+		h.vault.put("renamed.md", "A");
+
+		expect(await h.push()).toMatchObject({ outcome: "pushed", counts: { added: 1, deleted: 1 } });
+
+		expect(h.emptyAsked).toEqual([]);
+	});
+
+	test("a new empty note in a vault that was made again, with an empty note among the records: asked all the same", async () => {
+		const all = { ...files, "c.md": "C", "empty.md": "" };
+		const h = await recreated(all);
+		h.vault.put("Untitled.md", "");
+		const before = h.backend.revision;
+		h.emptyAnswer = "cancel";
+
+		const result = await h.push();
+
+		expect(result).toMatchObject({ outcome: "declined", revision: null });
+		// The empty note is taken for moved, and is not among the files that are gone.
+		expect(h.emptyAsked).toEqual([{ missing: 3, deletions: 4 }]);
+		expect(h.asked).toEqual([]);
+		await untouched(h, before, all);
+	});
+
+	test("a pull is not stopped by it: it leaves the vault as it is", async () => {
+		const h = await recreated();
+
+		expect((await h.pull()).outcome).toBe("completed");
+
+		expect(h.pullAsked).toEqual([]);
+		expect(h.vault.snapshot()).toEqual({ ".gitignore": "x/\n", ".obsidian/app.json": "{ }" });
 	});
 });
 
@@ -3883,7 +4121,7 @@ describe("a sync that started by itself", () => {
 			now: h.now,
 			confirm: async () => "later",
 		},
-		push: { store: h.store, backend, vault: h.vault, paths, deviceName: "iPhone", now: h.now, confirm: async () => "later" },
+		push: { store: h.store, backend, vault: h.vault, paths, deviceName: "iPhone", now: h.now, confirm: async () => "later", askEmptyVault: async () => "later" },
 	});
 
 	test("whose pull fails leaves no push to tell of when the app starts", async () => {

@@ -69,6 +69,7 @@ import type { StateStore } from "../core/state";
 import { runSync } from "../core/sync";
 import { runUntrackSync, type UntrackDeps, type UntrackStep, type UntrackSyncResult } from "../core/untrack";
 import { untrackedSome, untrackFailureText, untrackStopped, untrackSyncReport } from "../core/untrack-report";
+import { askEmptyVaultIn } from "./empty-vault-confirm";
 import { exclusionPathsOf } from "./exclusion-paths";
 import { graphViewPause } from "./graph-views";
 import { obsidianHttp } from "./http";
@@ -203,6 +204,13 @@ export class SyncRunner {
 	 * does. They stay until dismissed, and would lie over that question.
 	 */
 	private questions: Notice[] = [];
+	/**
+	 * Whether the push of the running sync ended on the answer that the
+	 * vault is to get its files from the remote again
+	 * (`PushRunResult.refetch`): the first fetch follows, once this sync
+	 * has ended.
+	 */
+	private refetchAsked = false;
 
 	constructor(host: SyncHost) {
 		this.host = host;
@@ -414,6 +422,8 @@ export class SyncRunner {
 		this.direction = mode === "push" ? "push" : "pull";
 		// What the push wrote to `.gitignore`, until its result has told it.
 		let sectionAdded: SectionAdded | null = null;
+		// Whether the first fetch follows this sync (`refetchAsked`).
+		let refetch = false;
 		if (auto === null) {
 			this.progress = new Notice(t(mode === "push" ? "push.progress.starting" : "pull.progress.starting"), 0);
 		} else {
@@ -564,6 +574,14 @@ export class SyncRunner {
 					}
 					return answer;
 				},
+				askEmptyVault: async (request) => {
+					if (auto !== null) return "later";
+					// As above. No line comes back after it: what follows is
+					// the question about the deletions, or the end of the push.
+					this.progress?.hide();
+					this.progress = null;
+					return askEmptyVaultIn(host.app, t, target, controller.signal)(request);
+				},
 				onSectionAdded: (added) => {
 					sectionAdded = added;
 				},
@@ -661,8 +679,14 @@ export class SyncRunner {
 			}
 			this.quiet = false;
 			this.parts = [];
-			// Not under a sync the user started that waits for this one.
-			if (!this.takingOver) this.wakeLock.release();
+			// Not for a sync that was stopped, or whose connection was
+			// changed: the answer was given to the remote from before.
+			refetch = this.refetchAsked && !this.stopped && !this.stopping && !this.connectionChanged;
+			this.refetchAsked = false;
+			// Not under a sync the user started that waits for this one. Nor
+			// when the first fetch follows: it could not ask for the screen
+			// again, this long after what the user did (`ScreenWakeLock.hold`).
+			if (!this.takingOver && !refetch) this.wakeLock.release();
 			this.gitignoreGate.endSync();
 			this.opening = false;
 			this.controller = null;
@@ -680,6 +704,16 @@ export class SyncRunner {
 			this.shownLimit = NO_FETCH_LIMIT;
 			// Last: whoever waited for the sync to end may start the next.
 			end();
+		}
+		if (!refetch) return;
+		// What the command for the first fetch does, with its question. Begun
+		// with nothing awaited since the sync ended, so that no other starts
+		// in between.
+		try {
+			await this.start("first-fetch", [], null);
+		} finally {
+			// Let go of by the first fetch, unless it never began.
+			this.wakeLock.release();
 		}
 	}
 
@@ -958,7 +992,10 @@ export class SyncRunner {
 		this.parts.push(pushAutoReport(this.host.t, result, options));
 		if (this.quiet) return;
 		const report = pushReport(this.host.t, result, options);
-		this.show(report.summary);
+		// Not told as a push the user said no to: the first fetch that was
+		// asked for comes next, and tells how it went.
+		if (result.refetch === true) this.refetchAsked = true;
+		else this.show(report.summary);
 		for (const detail of report.details) this.show(detail, 0);
 	}
 

@@ -292,6 +292,8 @@ export const en = baseCatalog({
 		"The first push from this device needs your confirmation. Nothing was sent. Sync manually to be asked.",
 	"auto.waiting.pushDeletions":
 		"Pushing would delete many files on the remote, which needs your confirmation. Nothing was sent. Sync manually to be asked.",
+	"auto.waiting.emptyVault":
+		"None of the files synced before is on this device, which needs your confirmation. Nothing was sent. Sync manually to be asked.",
 	"pull.progress.starting": "Pull: starting…",
 	"pull.progress.listing": "Pull: checking the remote…",
 	"pull.progress.scanning": "Pull: looking through the vault…",
@@ -599,6 +601,24 @@ export const en = baseCatalog({
 		one: "{count} file was deleted on this device. The push deletes it on the remote, and a pull then deletes it on your other devices.",
 		other: "{count} files were deleted on this device. The push deletes them on the remote, and a pull then deletes them on your other devices.",
 	},
+	"confirm.pushDelete.alsoSent": "The same push also sends the files below to the remote.",
+	// A push that finds none of the files it has a record of. Three answers,
+	// each with a line that says what it does.
+	"confirm.emptyVault.title": "No files in the vault",
+	// With one file, under a key of its own: a language without plural forms
+	// has other words for it too ("none of" one file reads oddly in Japanese).
+	"confirm.emptyVault.bodyOne":
+		"The {count} file that was synced before is not on this device. This happens when the vault was created again, or when its folder was deleted. The remote ({repository}, branch {branch}) still has it.",
+	"confirm.emptyVault.body":
+		"None of the {count} files that were synced before is on this device. This happens when the vault was created again, or when its folders were deleted. The remote ({repository}, branch {branch}) still has them.",
+	"confirm.emptyVault.refetch": "Fetch again from the remote",
+	"confirm.emptyVault.refetchNote": "The files of the remote are fetched to this device. Nothing is deleted on the remote.",
+	"confirm.emptyVault.delete": "Delete on the remote too",
+	"confirm.emptyVault.deleteNote": {
+		one: "{count} file is deleted on the remote too, and a pull then deletes it on your other devices.",
+		other: "{count} files are deleted on the remote too, and a pull then deletes them on your other devices.",
+	},
+	"confirm.emptyVault.cancelNote": "Nothing is sent and nothing is changed.",
 	"confirm.push.note": "If you cancel, nothing is sent and nothing is changed.",
 	"confirm.push.noteSection":
 		"If you cancel, nothing is sent. The lines added to .gitignore stay on this device, and the next push sends them.",

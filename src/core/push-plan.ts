@@ -22,6 +22,7 @@
 import type { RemoteEntry } from "./backend";
 import { isCopyInConflictFolder } from "./conflict-name";
 import { exceedsDeletionThreshold } from "./deletion-threshold";
+import { isInConfigDir } from "./exclusion";
 import { foldedKey, pathKey } from "./paths";
 import { type LocalEntry, type PlanInput, planSync, type SkippedPath } from "./plan";
 
@@ -235,6 +236,50 @@ export function holdsDeletions(beingEdited: readonly string[], known: (path: str
 /** Whether the push has to stop and ask before it deletes. Counted again by every push. */
 export function needsPushConfirmation(plan: PushPlan): boolean {
 	return exceedsDeletionThreshold(plan.countedDeletions.length, plan.recordCount);
+}
+
+/**
+ * The files with a record that are all gone from the vault, as the records
+ * spell them, when the push would delete on the remote for it; `null` in
+ * every other case. The push then stops and asks, however few they are
+ * (`PushDeps.askEmptyVault`): a vault folder that was deleted outside the
+ * app and made again at the same place keeps its settings and its sync
+ * state, and reads as a vault whose every file the user deleted. With five
+ * records or fewer, the threshold would let that through.
+ *
+ * Looked at are the records of files outside the configuration folder,
+ * but for the root `.gitignore`: a vault that was made again has both, made
+ * by the app and by Sync Evo. At least one such record, and no file at any
+ * of their paths:
+ *
+ * - A file a cloud drive has taken off the device is there, and so is
+ *   every other file the plan is told of without a hash (`LocalRead`).
+ * - A file under another case is there.
+ *
+ * A file the push takes for moved (`PushPlan.countedDeletions`) is not
+ * among the files that are gone: the one note of a vault that was renamed
+ * is no vault without files. It does not stand for the others, though: a
+ * new note with the content of one record, an empty one as the app makes
+ * it, is no sign that the rest was deleted by the user. To be asked of the
+ * plan before the conflict copies that were tidied are taken out of what it
+ * counts (`withoutTidiedCopies`): those are gone, and not moved.
+ *
+ * With some of the files gone and some there, this says nothing: that is
+ * what deleting notes looks like, and the threshold decides.
+ */
+export function missingRecordedFiles(plan: PushPlan, configDir: string): readonly string[] | null {
+	if (plan.deletes.length === 0) return null;
+	const inVault = new Set(plan.input.local.map((entry) => foldedKey(entry.path)));
+	const counted = new Set(plan.countedDeletions.map(pathKey));
+	const moved = new Set(plan.deletes.filter((entry) => !counted.has(pathKey(entry.remote.path))).map((entry) => entry.key));
+	const missing: string[] = [];
+	for (const record of plan.input.records) {
+		if (record.kind !== "file" || isInConfigDir(record.path, configDir) || foldedKey(record.path) === ".gitignore") continue;
+		if (inVault.has(foldedKey(record.path))) return null;
+		if (moved.has(pathKey(record.path))) continue;
+		missing.push(record.path);
+	}
+	return missing.length === 0 ? null : missing;
 }
 
 /**

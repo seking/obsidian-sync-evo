@@ -19,6 +19,7 @@ A copy is kept for 30 days from the end of the day in its name. After that a syn
 Sync Evo stops and asks before it goes on when
 
 - a pull or a push would delete many files (more than 50, or more than 5 that are also more than a tenth of all files),
+- a push finds none of the files it synced before in the vault, however few they are (a vault whose folder was deleted and created again looks like this): it can then fetch them again from the repository instead of deleting them there,
 - the first pull finds files in the vault that differ from the repository's,
 - a device pushes for the first time,
 - the history of the repository was rewritten (a force push).

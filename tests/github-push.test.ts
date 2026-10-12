@@ -1196,7 +1196,7 @@ describe("a pull and a push of a vault, against GitHub", () => {
 		vault.remove("old.md");
 		time += 60_000;
 		// Without the section: this is about what GitHub is sent, file by file.
-		const pushed = await runPush({ ...common, addSection: false, confirm: async () => "proceed" });
+		const pushed = await runPush({ ...common, addSection: false, confirm: async () => "proceed", askEmptyVault: async () => "delete" });
 
 		expect(pushed).toMatchObject({ outcome: "pushed", counts: { added: 2, modified: 2, deleted: 1 } });
 		const files = github.files();
@@ -1255,7 +1255,7 @@ describe("a push of a vault against GitHub, where it does not go as planned", ()
 			time += 60_000;
 			// Without the section: these are about the first commit of a
 			// repository, and the files that follow it.
-			return runPush({ ...common, addSection: false, confirm: async () => "proceed", ...overrides });
+			return runPush({ ...common, addSection: false, confirm: async () => "proceed", askEmptyVault: async () => "delete", ...overrides });
 		};
 		expect((await pull()).outcome).toBe("completed");
 		return { github, backend, store, vault, base, pull, push };
@@ -1410,6 +1410,7 @@ describe("the first commit of a repository without commits", () => {
 				asked.push(request);
 				return "proceed";
 			},
+			askEmptyVault: async () => "delete",
 		});
 
 		expect(pushed).toMatchObject({ outcome: "pushed", counts: { added: 3, modified: 0, deleted: 0 } });

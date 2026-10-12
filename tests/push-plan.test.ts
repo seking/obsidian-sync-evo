@@ -16,6 +16,7 @@ import { foldedKey } from "../src/core/paths";
 import type { LocalEntry, SyncRecord } from "../src/core/plan";
 import {
 	holdsDeletions,
+	missingRecordedFiles,
 	needsPushConfirmation,
 	type PushPlan,
 	planPush,
@@ -373,6 +374,82 @@ describe("what counts as a deletion", () => {
 		});
 		expect(made.deletes).toEqual([]);
 		expect(made.countedDeletions).toEqual([]);
+	});
+});
+
+describe("a vault with none of the files that have a record", () => {
+	const missing = (scenario: Scenario): readonly string[] | null => missingRecordedFiles(plan(scenario), ".obsidian");
+	const gone = (...paths: string[]): Record<string, null> => Object.fromEntries(paths.map((path) => [path, null]));
+
+	test("every file gone is told, however few they are", () => {
+		const synced = { "a.md": "A", "notes/b.md": "B" };
+		const made = plan({ synced, local: gone("a.md", "notes/b.md") });
+		expect(needsPushConfirmation(made)).toBe(false);
+		expect(missingRecordedFiles(made, ".obsidian")).toEqual(["a.md", "notes/b.md"]);
+	});
+
+	test("some gone and some there is what deleting notes looks like: nothing is told", () => {
+		expect(missing({ synced: { "a.md": "A", "b.md": "B", "c.md": "C" }, local: gone("a.md", "b.md") })).toBeNull();
+	});
+
+	test("the configuration folder and the root .gitignore do not count as files that are there", () => {
+		const synced = { ".gitignore": "x\n", ".obsidian/app.json": "{}", "a.md": "A", "n/.gitignore": "y\n" };
+		expect(missing({ synced, local: { ...gone("a.md", "n/.gitignore"), ".obsidian/app.json": "{ }" } })).toEqual([
+			"a.md",
+			"n/.gitignore",
+		]);
+		// A `.gitignore` further down is a file like any other.
+		expect(missing({ synced, local: gone("a.md") })).toBeNull();
+	});
+
+	test("a vault whose records are of those two alone has no file to be gone", () => {
+		const synced = { ".gitignore": "x\n", ".obsidian/app.json": "{}", ".obsidian/hotkeys.json": "{}" };
+		expect(missing({ synced, local: gone(".obsidian/hotkeys.json") })).toBeNull();
+		expect(missing({ synced, local: gone(".gitignore", ".obsidian/app.json", ".obsidian/hotkeys.json") })).toBeNull();
+	});
+
+	test("a file that is listed without a hash is there: one a cloud drive has taken off the device", () => {
+		const synced = { "a.md": "A", "big.md": "BIG" };
+		const made = planPush({
+			remote: Object.entries(synced).map(([path, content]) => ({ path, kind: "file", hash: blobHash(content), size: 1 })),
+			local: [{ path: "big.md", hash: "" }],
+			records: Object.entries(synced).map(([path, content]) => ({ path, kind: "file", hash: blobHash(content) })),
+			exclusion: createExclusion({ configDir: ".obsidian", pluginDir: ownFolder, gitignore: null }),
+			held: new Set(["big.md"]),
+		});
+		expect(changes(made)).toEqual(["D a.md"]);
+		expect(missingRecordedFiles(made, ".obsidian")).toBeNull();
+	});
+
+	test("a file under another case, or under another name, is there", () => {
+		expect(missing({ synced: { "a.md": "A" }, local: { ...gone("a.md"), "A.md": "A" } })).toBeNull();
+		expect(missing({ synced: { "a.md": "A" }, local: { ...gone("a.md"), "renamed.md": "A" } })).toBeNull();
+		// One new path stands for one file that is gone, and no more: the other is told.
+		expect(missing({ synced: { "a.md": "", "b.md": "" }, local: { ...gone("a.md", "b.md"), "c.md": "" } })).toEqual(["b.md"]);
+		expect(missing({ synced: { "a.md": "A" }, local: { ...gone("a.md"), "other.md": "O" } })).toEqual(["a.md"]);
+	});
+
+	test("a new file with the content of one record stands for that one alone: the others are told", () => {
+		// The vault was made again, and the user made a new note: empty, as one of the records is.
+		const synced = { ".gitignore": "x\n", ".obsidian/app.json": "{}", "a.md": "A", "b.md": "B", "c.md": "C", "empty.md": "" };
+		const local = { ...gone("a.md", "b.md", "c.md", "empty.md"), "Untitled.md": "" };
+		expect(missing({ synced, local })).toEqual(["a.md", "b.md", "c.md"]);
+	});
+
+	test("the conflict copies that were tidied are gone, and not moved: asked before they are passed over", () => {
+		const copy = "_conflicts/2026-08-01 n (iPhone).md";
+		const made = plan({ synced: { [copy]: "C", "a.md": "A" }, local: gone(copy, "a.md") });
+		expect(missingRecordedFiles(made, ".obsidian")).toEqual([copy, "a.md"]);
+	});
+
+	test("records of what is no file do not count, and nothing is told where the push deletes nothing", () => {
+		expect(missing({ synced: { link: "target", "a.md": "A" }, kinds: { link: "symlink" }, local: gone("a.md") })).toEqual([
+			"a.md",
+		]);
+		expect(missing({ synced: { link: "target" }, kinds: { link: "symlink" } })).toBeNull();
+		// The deletions wait (`withoutDeletions`): there is nothing to ask about.
+		const made = plan({ synced: { "a.md": "A" }, local: gone("a.md") });
+		expect(missingRecordedFiles(withoutDeletions(made), ".obsidian")).toBeNull();
 	});
 });
 

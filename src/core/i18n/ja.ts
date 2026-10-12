@@ -262,6 +262,8 @@ export const ja = completeTranslation(en, {
 		"このデバイスからの最初の送信には、確認が必要です。何も送信していません。手動で同期すると、確認が表示されます。",
 	"auto.waiting.pushDeletions":
 		"送信すると、保存先のファイルが大量に削除されるため、確認が必要です。何も送信していません。手動で同期すると、確認が表示されます。",
+	"auto.waiting.emptyVault":
+		"前に同期したファイルが、このデバイスに1つも無いため、確認が必要です。何も送信していません。手動で同期すると、確認が表示されます。",
 	"pull.progress.starting": "取り込み：始めています…",
 	"pull.progress.listing": "取り込み：保存先を確認中…",
 	"pull.progress.scanning": "取り込み：保管庫を確認中…",
@@ -490,6 +492,19 @@ export const ja = completeTranslation(en, {
 	"confirm.firstPush.deleted": "削除するファイル：{count} 件",
 	"confirm.pushDelete.body":
 		"このデバイスで削除したファイル {count} 件を、保存先からも削除します。ほかのデバイスでも、取り込むと削除されます。",
+	"confirm.pushDelete.alsoSent": "同じ送信で、下のファイルも保存先に送ります。",
+	"confirm.emptyVault.title": "保管庫にファイルがありません",
+	"confirm.emptyVault.bodyOne":
+		"前に同期したファイル {count} 件が、このデバイスにありません。保管庫を作り直した時や、フォルダを消した時に、こうなります。保存先（{repository} のブランチ {branch}）には、まだあります。",
+	"confirm.emptyVault.body":
+		"前に同期したファイル {count} 件が、このデバイスに1つもありません。保管庫を作り直した時や、フォルダを消した時に、こうなります。保存先（{repository} のブランチ {branch}）には、まだあります。",
+	"confirm.emptyVault.refetch": "保存先から取り込み直す",
+	"confirm.emptyVault.refetchNote":
+		"保存先のファイルを、このデバイスに取り込みます。保存先からは、何も消しません。",
+	"confirm.emptyVault.delete": "保存先からも削除する",
+	"confirm.emptyVault.deleteNote":
+		"{count} 件を、保存先からも削除します。ほかのデバイスでも、取り込むと削除されます。",
+	"confirm.emptyVault.cancelNote": "何も送信せず、何も変更しません。",
 	"confirm.push.note": "やめた場合は、何も送信せず、何も変更しません。",
 	"confirm.push.noteSection":
 		"やめた場合は、何も送信しません。.gitignore に足した行は、このデバイスに残り、次の送信で届きます。",

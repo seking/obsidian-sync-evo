@@ -38,7 +38,8 @@
 // 5. Asking the user: before the first push of a sync state, and when the
 //    plan deletes too much. One question, also when both are a reason. The
 //    conflict copies that were tidied are deleted without being counted
-//    (`discountTidied`).
+//    (`discountTidied`). Before that question, another one when every file
+//    with a record is gone from the vault (`askEmptyVault`).
 // 6. For a remote without commits, its first: the `.gitignore` alone
 //    (`start`). The rest is sent on top of it.
 // 7. Sending. Each file is read when it is sent, and recorded as it was
@@ -79,6 +80,7 @@ import { clearPushFailure, markPushFailure, readPushFailure, restorePushFailure 
 import {
 	type HeldRename,
 	holdsDeletions,
+	missingRecordedFiles,
 	needsPushConfirmation,
 	type PushPlan,
 	type PushRefusal,
@@ -146,9 +148,19 @@ export interface PushConfirmRequest {
 	readonly remoteEmpty: boolean;
 	/**
 	 * The files the push deletes on the remote that count toward the
-	 * threshold, when they are past it; `null` when they are not.
+	 * threshold, when they are past it; `null` when they are not. After the
+	 * question about a vault without its files was answered "delete"
+	 * (`AskEmptyVault`), every file the push deletes on the remote, sorted,
+	 * however few.
 	 */
 	readonly deletions: readonly string[] | null;
+	/**
+	 * Only after that answer, and without `firstPush`, which lists them
+	 * itself: what the same push adds and modifies on the remote. A vault
+	 * that was made again has a configuration folder with the app's default
+	 * files, which this push writes over the remote's.
+	 */
+	readonly alsoSent?: Pick<FirstPushFiles, "added" | "modified">;
 	/** The number of records before the push, of every kind. */
 	readonly recordCount: number;
 	/**
@@ -167,6 +179,29 @@ export interface PushConfirmRequest {
 export type PushAnswer = "proceed" | "cancel" | "later";
 
 export type ConfirmPush = (request: PushConfirmRequest) => Promise<PushAnswer>;
+
+/**
+ * What the user is shown when every file with a record is gone from the
+ * vault (`missingRecordedFiles`).
+ */
+export interface EmptyVaultRequest {
+	/** How many files with a record are gone: all of them, but for the configuration folder and the root `.gitignore`. */
+	readonly missing: number;
+	/** How many files the push would delete on the remote. */
+	readonly deletions: number;
+}
+
+/**
+ * - "refetch": the vault is one that lost its files, and gets them from the
+ *   remote again. This push sends nothing (`PushRunResult.refetch`).
+ * - "delete": the user deleted them. The question about the deletions
+ *   follows (`ConfirmPush`), however few they are.
+ * - "cancel": send none of it.
+ * - "later": no answer, as for `PushAnswer`.
+ */
+export type EmptyVaultAnswer = "refetch" | "delete" | "cancel" | "later";
+
+export type AskEmptyVault = (request: EmptyVaultRequest) => Promise<EmptyVaultAnswer>;
 
 export type PushPhase = "listing" | "scanning" | "hashing" | "sending" | "finishing";
 
@@ -189,6 +224,8 @@ export interface PushDeps {
 	/** Milliseconds since the epoch, on the clock the file times come from. */
 	readonly now: () => number;
 	readonly confirm: ConfirmPush;
+	/** Asked before `confirm`, when every file with a record is gone from the vault. */
+	readonly askEmptyVault: AskEmptyVault;
 	/**
 	 * Vault paths this push leaves alone on every side: what the pull right
 	 * before it put off (`PullResult.deferred`). Such a file is in the
@@ -262,11 +299,12 @@ export interface PushDeps {
 export type PushOutcome = "pushed" | "nothing-to-push" | "pull-first" | "declined" | "cancelled" | "waiting";
 
 /**
- * What a push that ended "waiting" has to ask: everything it sends, since
- * no push of this sync state has gone through yet, or else the deletions
- * that are past the threshold.
+ * What a push that ended "waiting" has to ask: what to do about a vault
+ * that has none of the files with a record, or else everything it sends,
+ * since no push of this sync state has gone through yet, or else the
+ * deletions that are past the threshold.
  */
-export type PushWaitReason = "first-push" | "deletions";
+export type PushWaitReason = "empty-vault" | "first-push" | "deletions";
 
 /**
  * - "no-base": this device has not pulled to the end yet, so what the vault
@@ -334,6 +372,13 @@ export interface PushRunResult {
 	readonly reason?: PullFirstReason;
 	/** Only for "waiting". */
 	readonly waitingFor?: PushWaitReason;
+	/**
+	 * Only for "declined": the user answered that the vault is to get its
+	 * files from the remote again (`EmptyVaultAnswer` "refetch"). Starting
+	 * that, which is the first fetch that discards the sync state, is the
+	 * caller's.
+	 */
+	readonly refetch?: true;
 	/** Only for "not-default-branch": the branch the first commit of the remote would go to. */
 	readonly defaultBranch?: string;
 	/** The commit that was made; `null` when none was. */
@@ -667,6 +712,8 @@ class PushRun {
 		// a note under a new name: the deletion of the old one waits with it.
 		const edited = [...local.beingEdited, ...(deps.holdQuietly ?? [])];
 		const sent = holdsDeletions(edited, (path) => known.has(pathKey(path))) ? withoutDeletions(planned) : planned;
+		// Asked of the plan while the copies that were tidied still count.
+		const missing = missingRecordedFiles(sent, deps.paths.configDir);
 		const plan = await this.discountTidied(sent, listing, local.entries);
 		this.plan = plan;
 		// Remembered only where the result that carries them is one the
@@ -692,14 +739,26 @@ class PushRun {
 		// about to be sent to the repository it names.
 		const firstDue =
 			(await store.getMeta(FIRST_PUSH_CONFIRMED_KEY)) !== true || (starting && !(await isFirstFetchConfirmed(store)));
-		const guardDue = needsPushConfirmation(plan);
+		// First, and alone: the vault may be one that was made again, and
+		// then nothing of what the other question lists is the user's doing.
+		if (missing !== null) {
+			const answer = await deps.askEmptyVault({ missing: missing.length, deletions: plan.deletes.length });
+			if (answer === "later") return this.result("waiting", { waitingFor: "empty-vault" });
+			if (answer === "refetch" && !this.aborted()) return this.result("declined", { refetch: true });
+			if (answer !== "delete") return this.result(this.aborted() ? "cancelled" : "declined");
+		}
+		// After "delete", the deletions are asked about however few they
+		// are, and all of them are listed: none goes unseen.
+		const guardDue = missing !== null || needsPushConfirmation(plan);
 		if (firstDue || guardDue) {
 			const added = firstDue ? this.sectionAdded : null;
+			const files = firstPushFiles(plan);
 			const answer = await deps.confirm({
-				firstPush: firstDue ? firstPushFiles(plan) : null,
+				firstPush: firstDue ? files : null,
 				remoteEmpty: starting,
-				deletions: guardDue ? plan.countedDeletions : null,
+				deletions: !guardDue ? null : missing === null ? plan.countedDeletions : files.deleted,
 				recordCount: plan.recordCount,
+				...(missing === null || firstDue ? {} : { alsoSent: { added: files.added, modified: files.modified } }),
 				...(added === null ? {} : { sectionAdded: added }),
 			});
 			// Shown to no one: the section is told by the result instead.

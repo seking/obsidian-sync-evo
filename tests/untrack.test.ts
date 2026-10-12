@@ -180,6 +180,7 @@ function harness(): Harness {
 			asked.push(request);
 			return h.answer;
 		},
+		askEmptyVault: async () => "delete",
 	});
 	const untrackDeps = (): UntrackDeps => ({ store: guarded(store, crash), backend, vault, paths, deviceName: "iPhone" });
 
@@ -891,6 +892,7 @@ describe("untracking after the sync it needs", () => {
 				deviceName: "iPhone",
 				now: () => Date.UTC(2026, 9, 10, 13, 0, 0),
 				confirm: async () => "proceed",
+				askEmptyVault: async () => "delete",
 				signal: controller.signal,
 			},
 			untrack: { store: again.store, backend: again.backend, vault: again.vault, paths, deviceName: "iPhone", signal: controller.signal },
@@ -1012,7 +1014,7 @@ describe("untracking after the sync it needs", () => {
 				confirm: async () => "proceed",
 				signal: controller.signal,
 			},
-			push: { store: h.store, backend: h.backend, vault: h.vault, paths, deviceName: "iPhone", now: at, confirm: async () => "proceed" },
+			push: { store: h.store, backend: h.backend, vault: h.vault, paths, deviceName: "iPhone", now: at, confirm: async () => "proceed", askEmptyVault: async () => "delete" },
 			untrack: { store: h.store, backend: h.backend, vault: h.vault, paths, deviceName: "iPhone" },
 			shown,
 			onStep: (step) => steps.push(step),
@@ -1054,6 +1056,7 @@ describe("untracking after the sync it needs", () => {
 				deviceName: "iPhone",
 				now: () => Date.UTC(2026, 9, 10, 13, 0, 0),
 				confirm: async () => "proceed",
+				askEmptyVault: async () => "delete",
 			},
 			untrack: { store: h.store, backend: h.backend, vault: h.vault, paths, deviceName: "iPhone" },
 			shown,

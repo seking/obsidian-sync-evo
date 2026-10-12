@@ -338,6 +338,7 @@ describe("a push that started by itself", () => {
 	});
 
 	test.each<[NonNullable<PushRunResult["waitingFor"]>, string]>([
+		["empty-vault", "None of the files synced before is on this device"],
 		["first-push", "The first push from this device needs your confirmation"],
 		["deletions", "Pushing would delete many files on the remote"],
 	])("a question about %s waits, and says that nothing was sent and how to be asked", (waitingFor, start) => {

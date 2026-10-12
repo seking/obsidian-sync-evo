@@ -34,6 +34,8 @@ import {
 	recoveredUntrackText,
 } from "./pull-report";
 import {
+	type EmptyVaultAnswer,
+	type EmptyVaultRequest,
 	type LeftOutReason,
 	type PushConfirmRequest,
 	type PushProgress,
@@ -125,10 +127,62 @@ export function pushQuestion(
 		if (firstPush === null) listed(text, deletions);
 		else parts.push({ text });
 	}
+	// Under the deletions, in the words of the first push. What is written
+	// over on the remote comes before what is new to it.
+	const also = request.alsoSent;
+	if (also !== undefined && also.added.length + also.modified.length > 0) {
+		parts.push({ text: t("confirm.pushDelete.alsoSent") });
+		if (also.modified.length > 0) listed(t("confirm.firstPush.modified", { count: also.modified.length }), also.modified);
+		if (also.added.length > 0) listed(t("confirm.firstPush.added", { count: also.added.length }), also.added);
+	}
 	const title = firstPush !== null ? t("confirm.firstPush.title") : t("confirm.delete.title");
 	// "Nothing is changed" would not be true of a file that was written.
 	const note = request.sectionAdded === undefined ? t("confirm.push.note") : t("confirm.push.noteSection");
 	return { title, parts, note };
+}
+
+/** One answer to the question about a vault without its files: the words on its button, and what it does. */
+export interface EmptyVaultChoice {
+	readonly answer: Exclude<EmptyVaultAnswer, "later">;
+	readonly label: string;
+	readonly text: string;
+}
+
+export interface EmptyVaultQuestion {
+	readonly title: string;
+	readonly body: string;
+	/** In the order they are shown: the one that loses nothing first, the "no" last. */
+	readonly choices: readonly EmptyVaultChoice[];
+}
+
+/**
+ * The words of the question a push stops with when every file with a record
+ * is gone from the vault: how many, that the remote still has them, and
+ * what each of the three answers does.
+ */
+export function emptyVaultQuestion(
+	t: Translate,
+	connection: Pick<Connection, "repository" | "branch">,
+	request: EmptyVaultRequest,
+): EmptyVaultQuestion {
+	const { repository, branch } = connection;
+	return {
+		title: t("confirm.emptyVault.title"),
+		body: t(request.missing === 1 ? "confirm.emptyVault.bodyOne" : "confirm.emptyVault.body", {
+			count: request.missing,
+			repository,
+			branch,
+		}),
+		choices: [
+			{ answer: "refetch", label: t("confirm.emptyVault.refetch"), text: t("confirm.emptyVault.refetchNote") },
+			{
+				answer: "delete",
+				label: t("confirm.emptyVault.delete"),
+				text: t("confirm.emptyVault.deleteNote", { count: request.deletions }),
+			},
+			{ answer: "cancel", label: t("confirm.cancel"), text: t("confirm.emptyVault.cancelNote") },
+		],
+	};
 }
 
 /**
@@ -219,6 +273,7 @@ export function pushFailureReminderText(t: Translate, failure: PushFailure): str
  * sync, like the pull's.
  */
 export function pushWaitingText(t: Translate, reason: PushWaitReason): string {
+	if (reason === "empty-vault") return t("auto.waiting.emptyVault");
 	return t(reason === "first-push" ? "auto.waiting.firstPush" : "auto.waiting.pushDeletions");
 }
 

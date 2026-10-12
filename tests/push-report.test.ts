@@ -19,6 +19,7 @@ import {
 	pushFailureReminderText,
 	pushFailureText,
 	pushProgressText,
+	emptyVaultQuestion,
 	pushQuestion,
 	pushReport,
 	sectionAddedText,
@@ -119,6 +120,70 @@ describe("the question a push stops with", () => {
 			],
 			note: "If you cancel, nothing is sent and nothing is changed.",
 		});
+	});
+
+	test("the deletions after the answer to delete on the remote too: what else the push sends is listed under them", () => {
+		const question = pushQuestion(t, target, {
+			firstPush: null,
+			deletions: ["a.md"],
+			remoteEmpty: false,
+			recordCount: 3,
+			alsoSent: { added: ["new.md"], modified: [".obsidian/app.json", ".obsidian/core-plugins.json"] },
+		});
+		expect(question.title).toBe("Confirm deletions");
+		expect(question.parts.slice(1)).toEqual([
+			{ text: "The same push also sends the files below to the remote." },
+			{ text: "2 files to modify:", paths: { shown: [".obsidian/app.json", ".obsidian/core-plugins.json"], more: 0 } },
+			{ text: "1 file to add:", paths: { shown: ["new.md"], more: 0 } },
+		]);
+		const bare = pushQuestion(t, target, { firstPush: null, deletions: ["a.md"], remoteEmpty: false, recordCount: 3, alsoSent: { added: [], modified: [] } });
+		expect(bare.parts).toHaveLength(1);
+	});
+
+	test("a vault without its files: how many, where they still are, and what each of the three answers does", () => {
+		expect(emptyVaultQuestion(t, target, { missing: 14, deletions: 15 })).toEqual({
+			title: "No files in the vault",
+			body: "None of the 14 files that were synced before is on this device. This happens when the vault was created again, or when its folders were deleted. The remote (octo/notes, branch main) still has them.",
+			choices: [
+				{
+					answer: "refetch",
+					label: "Fetch again from the remote",
+					text: "The files of the remote are fetched to this device. Nothing is deleted on the remote.",
+				},
+				{
+					answer: "delete",
+					label: "Delete on the remote too",
+					text: "15 files are deleted on the remote too, and a pull then deletes them on your other devices.",
+				},
+				{ answer: "cancel", label: "Cancel", text: "Nothing is sent and nothing is changed." },
+			],
+		});
+		expect(emptyVaultQuestion(ja, target, { missing: 14, deletions: 14 })).toEqual({
+			title: "保管庫にファイルがありません",
+			body: "前に同期したファイル 14 件が、このデバイスに1つもありません。保管庫を作り直した時や、フォルダを消した時に、こうなります。保存先（octo/notes のブランチ main）には、まだあります。",
+			choices: [
+				{
+					answer: "refetch",
+					label: "保存先から取り込み直す",
+					text: "保存先のファイルを、このデバイスに取り込みます。保存先からは、何も消しません。",
+				},
+				{
+					answer: "delete",
+					label: "保存先からも削除する",
+					text: "14 件を、保存先からも削除します。ほかのデバイスでも、取り込むと削除されます。",
+				},
+				{ answer: "cancel", label: "やめる", text: "何も送信せず、何も変更しません。" },
+			],
+		});
+	});
+
+	test("a vault without its one file: the words are of one file", () => {
+		expect(emptyVaultQuestion(t, target, { missing: 1, deletions: 1 }).body).toBe(
+			"The 1 file that was synced before is not on this device. This happens when the vault was created again, or when its folder was deleted. The remote (octo/notes, branch main) still has it.",
+		);
+		expect(emptyVaultQuestion(ja, target, { missing: 1, deletions: 1 }).body).toBe(
+			"前に同期したファイル 1 件が、このデバイスにありません。保管庫を作り直した時や、フォルダを消した時に、こうなります。保存先（octo/notes のブランチ main）には、まだあります。",
+		);
 	});
 
 	test("both at once: one question, and the deleted files are listed once", () => {
