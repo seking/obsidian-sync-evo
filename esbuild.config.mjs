@@ -26,6 +26,12 @@ const bundled = [
 	{
 		name: "node-diff3",
 		version: "3.2.1",
+		// Not the package of the registry: a fork with one change, a binary
+		// search in `LCS`, without which a long note with many equal lines
+		// takes seconds to merge. `from` is what package.json has in place of
+		// the version. Back to the registry once the change is in a release.
+		from: "github:seking/node-diff3#74eec91c177f38974aedd2522bf00e14bb102dc0",
+		note: "modified: https://github.com/seking/node-diff3/commit/8b787fe55d7979b37d7116aed2b2c91f31600c45",
 		// Three lines in its licence file. Each goes on a line of its own.
 		copyright: [
 			"Copyright (c) 2006, 2008 Tony Garnock-Jones <tonyg@lshift.net>",
@@ -36,7 +42,7 @@ const bundled = [
 ];
 
 const { dependencies = {} } = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8"));
-const listed = Object.fromEntries(bundled.map(({ name, version }) => [name, version]));
+const listed = Object.fromEntries(bundled.map(({ name, version, from }) => [name, from ?? version]));
 if (JSON.stringify(Object.entries(listed).sort()) !== JSON.stringify(Object.entries(dependencies).sort())) {
 	throw new Error("esbuild.config.mjs: the third-party notices do not match the dependencies of package.json.");
 }
@@ -44,7 +50,7 @@ if (JSON.stringify(Object.entries(listed).sort()) !== JSON.stringify(Object.entr
 const thirdParty = `/*
  * Third-party software bundled in this file
  *
-${bundled.map(({ name, version, copyright }) => ` * ${name} ${version} (MIT License)\n * ${copyright}`).join("\n *\n")}
+${bundled.map(({ name, version, note, copyright }) => ` * ${name} ${version}${note === undefined ? "" : `, ${note}`} (MIT License)\n * ${copyright}`).join("\n *\n")}
  *
  * The MIT License, under which each of the above is used:
  *

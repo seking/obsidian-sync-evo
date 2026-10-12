@@ -25,7 +25,7 @@
 	"dependencies": {
 		"fflate": "0.8.3",
 		"ignore": "7.0.12",
-		"node-diff3": "3.2.1"
+		"node-diff3": "github:seking/node-diff3#74eec91c177f38974aedd2522bf00e14bb102dc0"
 	},
 	"devDependencies": {
 		"@types/node": "25.9.9",
@@ -33,6 +33,7 @@
 		"eslint": "9.39.5",
 		"eslint-plugin-obsidianmd": "0.4.2",
 		"fake-indexeddb": "6.2.5",
+		"node-diff3-upstream": "npm:node-diff3@3.2.1",
 		"obsidian": "1.13.1",
 		"typescript": "7.0.2",
 		"vitest": "4.1.11"
