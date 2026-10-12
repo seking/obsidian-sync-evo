@@ -46,7 +46,7 @@ export const en = baseCatalog({
 	"settings.branch.empty": "Enter a branch. The previous branch is still in use.",
 	"settings.token.name": "Token",
 	"settings.token.desc":
-		"A fine-grained personal access token with Contents read and write on the repository. It is kept in Obsidian's Keychain, and is shared by all vaults on this device.",
+		"A fine-grained personal access token with Contents read and write on the repository. It is kept in Obsidian's Keychain, and not in a file of the vault. Whether the other vaults on this device can use it depends on the device.",
 	"settings.deviceName.name": "Device name",
 	"settings.deviceName.desc": "It appears in commit messages and in the names of files kept from a conflict.",
 	"settings.deviceName.empty": "Enter a name. The previous name is still in use.",

@@ -39,7 +39,7 @@ export const ja = completeTranslation(en, {
 	"settings.branch.empty": "ブランチを入力してください。前のブランチのままになっています。",
 	"settings.token.name": "トークン",
 	"settings.token.desc":
-		"このリポジトリの Contents の読み書きを許可した fine-grained personal access token です。Obsidian のキーチェーンに保存され、このデバイスの全保管庫で共有されます。",
+		"このリポジトリの Contents の読み書きを許可した fine-grained personal access token です。Obsidian のキーチェーンに保存され、保管庫のファイルには書かれません。ほかの保管庫から使えるかは、デバイスによります。",
 	"settings.deviceName.name": "デバイス名",
 	"settings.deviceName.desc": "コミットメッセージと、競合したときに残すファイルの名前に使われます。",
 	"settings.deviceName.empty": "名前を入力してください。前の名前のままになっています。",
