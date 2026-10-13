@@ -14,7 +14,7 @@
 // Where that place is (IndexedDB on a device, memory in tests) is decided
 // outside the core.
 
-import type { EntryKind, ListResult, RemoteEntry, RemoteListing } from "./backend";
+import type { EntryKind, ListResult, RemoteEntry, RemoteListing, SubmoduleSkip } from "./backend";
 import { originalPathOfConflictCopy } from "./conflict-name";
 import { pathKey } from "./paths";
 import type { SyncRecord } from "./plan";
@@ -366,7 +366,9 @@ export async function currentListing(
 ): Promise<RemoteListing> {
 	const stored = await store.getListing();
 	// Without a listing to fall back on, "unchanged" would be of no use.
-	const listed = await list(stored === null ? null : stored.revision);
+	// Nor is one that waits for a submodule: the remote is listed again
+	// though it has not moved.
+	const listed = await list(stored === null || awaitsSubmodule(stored) ? null : stored.revision);
 	if (!listed.changed) {
 		if (stored !== null) return stored;
 		throw new Error("The remote answered that nothing changed since a listing that was never taken.");
@@ -375,16 +377,56 @@ export async function currentListing(
 	return listed.listing;
 }
 
+/**
+ * Whether a listing may say less of a submodule than the remote would now,
+ * with its head where it was:
+ *
+ * - It says nothing of what is inside one (`RemoteEntry.contents` absent):
+ *   it was stored by a version that did not list submodules.
+ * - One was not listed for a reason that ends without the remote moving:
+ *   the token is given sight of the repository, or the commit is pushed
+ *   there.
+ */
+export function awaitsSubmodule(listing: RemoteListing): boolean {
+	return listing.entries.some((entry) => {
+		if (entry.kind !== "submodule") return false;
+		const { contents } = entry;
+		if (contents === undefined) return true;
+		return !contents.listed && (contents.reason === "no-access" || contents.reason === "no-commit");
+	});
+}
+
 const ENTRY_KINDS: readonly EntryKind[] = ["file", "symlink", "submodule"];
+
+const SUBMODULE_SKIPS: readonly SubmoduleSkip[] = ["not-supported", "no-access", "no-commit", "too-large", "nested"];
+
+function isContents(value: unknown): boolean {
+	if (typeof value !== "object" || value === null) return false;
+	const { listed, reason, repository } = value as Record<string, unknown>;
+	if (listed === true) return typeof repository === "string";
+	return (
+		listed === false &&
+		SUBMODULE_SKIPS.some((known) => known === reason) &&
+		(repository === undefined || typeof repository === "string")
+	);
+}
+
+function isSource(value: unknown): boolean {
+	if (typeof value !== "object" || value === null) return false;
+	const { submodule, repository, revision } = value as Record<string, unknown>;
+	return typeof submodule === "string" && typeof repository === "string" && typeof revision === "string";
+}
 
 function isRemoteEntry(value: unknown): value is RemoteEntry {
 	if (typeof value !== "object" || value === null) return false;
-	const { path, kind, hash, size } = value as Record<string, unknown>;
+	const { path, kind, hash, size, contents, source } = value as Record<string, unknown>;
 	return (
 		typeof path === "string" &&
 		ENTRY_KINDS.some((known) => known === kind) &&
 		typeof hash === "string" &&
-		(size === undefined || typeof size === "number")
+		(size === undefined || typeof size === "number") &&
+		(contents === undefined || (kind === "submodule" && isContents(contents))) &&
+		(source === undefined || (kind !== "submodule" && isSource(source)))
 	);
 }
 

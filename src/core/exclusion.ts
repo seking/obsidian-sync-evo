@@ -457,15 +457,23 @@ export function unsyncedSubmodules(
 		if (entry.kind !== "submodule") continue;
 		const key = pathKey(entry.path);
 		if (!isPathFromRoot(key)) continue;
-		// As `untrackableFiles` asks of one: a submodule is a folder to git on a Mac and one entry of the listing.
-		if (exclusion.matchesRule(key, "file") || exclusion.matchesRule(key, "folder")) continue;
-		let below = false;
-		for (let at = key.indexOf("/"); at !== -1 && !below; at = key.indexOf("/", at + 1)) {
-			below = exclusion.matchesRule(key.slice(0, at), "folder");
-		}
-		if (!below) found.push(entry.path);
+		if (!ruleMatchesFolder(exclusion, key)) found.push(entry.path);
 	}
 	return found.sort();
+}
+
+/**
+ * Whether a rule matches a submodule, itself or a folder above it. What is
+ * inside such a one is not synced: whoever left it out does not wait for
+ * it, and a submodule cannot be untracked here as files can.
+ */
+export function ruleMatchesFolder(exclusion: Pick<Exclusion, "matchesRule">, key: string): boolean {
+	// As `untrackableFiles` asks of one: a submodule is a folder to git on a Mac and one entry of the listing.
+	if (exclusion.matchesRule(key, "file") || exclusion.matchesRule(key, "folder")) return true;
+	for (let at = key.indexOf("/"); at !== -1; at = key.indexOf("/", at + 1)) {
+		if (exclusion.matchesRule(key.slice(0, at), "folder")) return true;
+	}
+	return false;
 }
 
 // Whether a key lies below one of the submodules of a listing.

@@ -14,16 +14,21 @@ import { en } from "../src/core/i18n/en";
 import { translatorFor } from "../src/core/i18n/index";
 import { createExclusion, defaultSectionLines } from "../src/core/exclusion";
 import { withSection } from "../src/core/gitignore-section";
+import type { RemoteEntry, SubmoduleSkip } from "../src/core/backend";
 import {
+	NOTICE_KINDS,
 	NOTICES_KEY,
 	type NoticeRef,
+	notSentNotices,
 	PUSH_NOTICE_KINDS,
 	readNotices,
 	reconcileNotices,
 	ruleNotices,
 	SHARED_NOTICE_KINDS,
+	submoduleNotices,
 	writeNotices,
 } from "../src/core/notices";
+import { planSync } from "../src/core/plan";
 import { MemoryStateStore } from "./support/memory-state-store";
 
 const ownFolder: NoticeRef = { kind: "own-folder-on-remote", path: ".obsidian/plugins/sync-evo" };
@@ -93,6 +98,183 @@ describe("the notices that follow from the rules", () => {
 		const stored: NoticeRef[] = [
 			{ kind: "nested-gitignore", path: "notes/.gitignore" },
 			{ kind: "fixed-exclusion-off", path: "*.icloud" },
+		];
+		await writeNotices(store, stored);
+		expect(await readNotices(store)).toEqual(stored);
+	});
+});
+
+describe("the notices of the submodules that are not listed", () => {
+	const paths = { configDir: ".obsidian", pluginDir: ".obsidian/plugins/sync-evo" };
+	const noRules = createExclusion({ ...paths, gitignore: null });
+	const hash = "c".repeat(40);
+	const submodule = (path: string, contents?: RemoteEntry["contents"]): RemoteEntry => ({
+		path,
+		kind: "submodule",
+		hash,
+		...(contents === undefined ? {} : { contents }),
+	});
+	const notListed = (path: string, reason: SubmoduleSkip, repository?: string): RemoteEntry =>
+		submodule(path, { listed: false, reason, ...(repository === undefined ? {} : { repository }) });
+
+	test("none for one whose inside is listed, nor for what is below it", () => {
+		const remote: RemoteEntry[] = [
+			{ path: "a.md", kind: "file", hash },
+			submodule("lib", { listed: true, repository: "octo/lib" }),
+			{ path: "lib/x.md", kind: "file", hash, source: { submodule: "lib", repository: "octo/lib", revision: hash } },
+		];
+		expect(submoduleNotices(noRules, remote)).toEqual([]);
+	});
+
+	test("none for a remote without a submodule", () => {
+		expect(submoduleNotices(noRules, [{ path: "a.md", kind: "file", hash }, { path: "link", kind: "symlink", hash }])).toEqual([]);
+	});
+
+	test("one the listing says nothing of the inside of cannot be fetched", () => {
+		expect(submoduleNotices(noRules, [submodule("lib")])).toEqual([{ kind: "submodule", path: "lib" }]);
+	});
+
+	test.each(["not-supported", "nested", "too-large"] as const)("one not listed for %s cannot be fetched, by its path alone", (reason) => {
+		// The repository is nothing the user has to look at, even where it is known.
+		expect(submoduleNotices(noRules, [notListed("vendor/lib", reason, "octo/lib")])).toEqual([
+			{ kind: "submodule", path: "vendor/lib" },
+		]);
+		expect(submoduleNotices(noRules, [notListed("vendor/lib", reason)])).toEqual([{ kind: "submodule", path: "vendor/lib" }]);
+	});
+
+	test("a repository out of sight and a commit that is not there are kinds of their own, with the repository after the path", () => {
+		const remote = [notListed("private", "no-access", "octo/private"), notListed("vendor/wip", "no-commit", "octo/wip")];
+		expect(submoduleNotices(noRules, remote)).toEqual([
+			{ kind: "submodule-no-access", path: "private (octo/private)" },
+			{ kind: "submodule-no-commit", path: "vendor/wip (octo/wip)" },
+		]);
+	});
+
+	test("without the repository, the path alone", () => {
+		expect(submoduleNotices(noRules, [notListed("private", "no-access"), notListed("wip", "no-commit")])).toEqual([
+			{ kind: "submodule-no-access", path: "private" },
+			{ kind: "submodule-no-commit", path: "wip" },
+		]);
+	});
+
+	test("each submodule by its own reason, in the order of the listing", () => {
+		const remote = [
+			notListed("wip", "no-commit", "octo/wip"),
+			submodule("lib", { listed: true, repository: "octo/lib" }),
+			notListed("lib/deep", "nested"),
+			notListed("elsewhere", "not-supported"),
+			notListed("private", "no-access", "octo/private"),
+		];
+		expect(submoduleNotices(noRules, remote)).toEqual([
+			{ kind: "submodule-no-commit", path: "wip (octo/wip)" },
+			{ kind: "submodule", path: "lib/deep" },
+			{ kind: "submodule", path: "elsewhere" },
+			{ kind: "submodule-no-access", path: "private (octo/private)" },
+		]);
+	});
+
+	test("none for one a rule matches, itself or a folder above it, whatever the reason", () => {
+		const exclusion = createExclusion({ ...paths, gitignore: "/private/\n/vendor/\nold\n" });
+		const remote = [
+			notListed("private", "no-access", "octo/private"),
+			notListed("vendor/wip", "no-commit", "octo/wip"),
+			notListed("old", "not-supported"),
+			submodule("vendor/plain"),
+			notListed("kept", "no-access", "octo/kept"),
+		];
+		expect(submoduleNotices(exclusion, remote)).toEqual([{ kind: "submodule-no-access", path: "kept (octo/kept)" }]);
+	});
+
+	test("a path that is no path is told of nothing", () => {
+		expect(submoduleNotices(noRules, [notListed("../out", "no-access", "octo/out"), submodule("a//b")])).toEqual([]);
+	});
+
+	test("the two kinds with a repository are found by a pull alone, like the one without", () => {
+		for (const kind of ["submodule", "submodule-no-access", "submodule-no-commit"] as const) {
+			expect(NOTICE_KINDS).toContain(kind);
+			expect(SHARED_NOTICE_KINDS).not.toContain(kind);
+			expect(PUSH_NOTICE_KINDS).not.toContain(kind);
+		}
+	});
+});
+
+describe("the notices of what was changed below a submodule and is not sent", () => {
+	const paths = { configDir: ".obsidian", pluginDir: ".obsidian/plugins/sync-evo" };
+	const hash = "c".repeat(40);
+	const other = "d".repeat(40);
+	const source = { submodule: "lib", repository: "octo/lib", revision: hash };
+	const none = { remote: [], local: [], records: [] };
+
+	test("one for each path skipped for being changed below a submodule, and none for any other reason", () => {
+		const skipped = [
+			{ ...none, key: "lib", reason: "submodule" },
+			{ ...none, key: "lib/a.md", reason: "in-submodule", local: [{ path: "lib/a.md", hash }] },
+			{ ...none, key: "closed/b.md", reason: "under-non-file", local: [{ path: "closed/b.md", hash }] },
+			{ ...none, key: "big.mov", reason: "too-large", local: [{ path: "big.mov", hash }] },
+			{ ...none, key: "lib/c.md", reason: "in-submodule", local: [{ path: "lib/c.md", hash }] },
+		];
+		expect(notSentNotices(skipped)).toEqual([
+			{ kind: "submodule-not-sent", path: "lib/a.md" },
+			{ kind: "submodule-not-sent", path: "lib/c.md" },
+		]);
+	});
+
+	test("none when nothing was skipped", () => {
+		expect(notSentNotices([])).toEqual([]);
+	});
+
+	test("named as the vault has the file, or as the remote has it when the vault deleted it, or as the record does", () => {
+		const remote: RemoteEntry = { path: "Lib/Remote.md", kind: "file", hash, source };
+		const record = { path: "Lib/Record.md", kind: "file" as const, hash };
+		const edited = { key: "lib/x.md", reason: "in-submodule", remote: [remote], local: [{ path: "Lib/Vault.md", hash: other }], records: [record] };
+		expect(notSentNotices([edited])).toEqual([{ kind: "submodule-not-sent", path: "Lib/Vault.md" }]);
+		expect(notSentNotices([{ ...edited, local: [] }])).toEqual([{ kind: "submodule-not-sent", path: "Lib/Remote.md" }]);
+		expect(notSentNotices([{ ...edited, local: [], remote: [] }])).toEqual([{ kind: "submodule-not-sent", path: "Lib/Record.md" }]);
+		expect(notSentNotices([{ ...edited, local: [], remote: [], records: [] }])).toEqual([
+			{ kind: "submodule-not-sent", path: "lib/x.md" },
+		]);
+	});
+
+	test("from a plan: the file edited, the file added, and the file deleted below a submodule", () => {
+		const plan = planSync({
+			exclusion: createExclusion({ ...paths, gitignore: null }),
+			remote: [
+				{ path: "lib", kind: "submodule", hash, contents: { listed: true, repository: "octo/lib" } },
+				{ path: "lib/edited.md", kind: "file", hash, source },
+				{ path: "lib/deleted.md", kind: "file", hash, source },
+				{ path: "lib/same.md", kind: "file", hash, source },
+				{ path: "lib/new-there.md", kind: "file", hash, source },
+			],
+			local: [
+				{ path: "lib/edited.md", hash: other },
+				{ path: "lib/added.md", hash: other },
+				{ path: "lib/same.md", hash },
+				{ path: "outside.md", hash },
+			],
+			records: [
+				{ path: "lib/edited.md", kind: "file", hash },
+				{ path: "lib/deleted.md", kind: "file", hash },
+				{ path: "lib/same.md", kind: "file", hash },
+			],
+		});
+		expect(notSentNotices(plan.skipped)).toEqual([
+			{ kind: "submodule-not-sent", path: "lib/added.md" },
+			{ kind: "submodule-not-sent", path: "lib/deleted.md" },
+			{ kind: "submodule-not-sent", path: "lib/edited.md" },
+		]);
+	});
+
+	test("worked out by a pull and by a push, and so no kind of a push alone", () => {
+		expect(SHARED_NOTICE_KINDS).toContain("submodule-not-sent");
+		expect(PUSH_NOTICE_KINDS).not.toContain("submodule-not-sent");
+	});
+
+	test("read back from the sync state like any other", async () => {
+		const store = new MemoryStateStore();
+		const stored: NoticeRef[] = [
+			{ kind: "submodule-no-access", path: "private (octo/private)" },
+			{ kind: "submodule-no-commit", path: "wip (octo/wip)" },
+			{ kind: "submodule-not-sent", path: "lib/a.md" },
 		];
 		await writeNotices(store, stored);
 		expect(await readNotices(store)).toEqual(stored);

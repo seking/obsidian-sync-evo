@@ -1374,7 +1374,8 @@ class Applier {
 	 *
 	 * Not when the history was rewritten (`ApplyEnv.protect`): the remote's
 	 * content may not have come from the record's then, and a merge would
-	 * take for the remote's changes what never were changes.
+	 * take for the remote's changes what never were changes. And not for a
+	 * file below a submodule.
 	 *
 	 * Any failure of the request is the same as a remote that does not hold
 	 * the content: a merge is an offer, and no reason to fail a pull.
@@ -1389,6 +1390,9 @@ class Applier {
 		const { backend } = this.env;
 		if (!this.env.merge || this.env.protect || backend.contentOf === undefined) return null;
 		if (remote.kind !== "file" || record === undefined || record.kind !== "file") return null;
+		// Not below a submodule: what a merge makes is neither side's, and
+		// could not be sent from there. The vault's side is kept as a copy.
+		if (remote.source !== undefined) return null;
 		if (record.hash === mine.hash || record.hash === remote.hash) return null;
 		if (!isMergedPath(path) || !areMergeable([mine.content, content])) return null;
 		try {

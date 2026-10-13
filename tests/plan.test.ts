@@ -500,6 +500,285 @@ describe("entries that are not regular files", () => {
 	});
 });
 
+describe("below a submodule whose inside the listing holds", () => {
+	const commit = "c".repeat(40);
+	const source = { submodule: "sub", repository: "octo/sub", revision: commit };
+	/** The submodule, with what is inside it listed. */
+	const sub: RemoteEntry = {
+		path: "sub",
+		kind: "submodule",
+		hash: commit,
+		contents: { listed: true, repository: "octo/sub" },
+	};
+	/** A file the listing holds below the submodule. */
+	const inside = (path: string, content: string): RemoteEntry => ({
+		path,
+		kind: "file",
+		hash: blobHash(content),
+		source,
+	});
+	const inVault = (path: string, content: string): LocalEntry => ({ path, hash: blobHash(content) });
+	const recorded = (path: string, content: string): SyncRecord => ({ path, kind: "file", hash: blobHash(content) });
+
+	test("the submodule itself is still not written, and is skipped as one", () => {
+		const plan = planOf({ remote: [sub], local: [], records: [] });
+		expect(plan.actions).toEqual([]);
+		expect(skips(plan)).toEqual(["submodule sub"]);
+	});
+
+	test("a file only on the remote is downloaded", () => {
+		const plan = planOf({ remote: [sub, inside("sub/a.md", "A"), inside("sub/docs/b.md", "B")], local: [], records: [] });
+		expect(summary(plan)).toEqual(["download sub/a.md", "download sub/docs/b.md"]);
+		expect(skips(plan)).toEqual(["submodule sub"]);
+	});
+
+	test("the entry to download is the one of the listing, with where it is read from", () => {
+		const entry = inside("sub/a.md", "A");
+		const plan = planOf({ remote: [sub, entry], local: [], records: [] });
+		expect(plan.actions).toEqual([{ type: "download", key: "sub/a.md", remote: entry }]);
+	});
+
+	test("the same content on both sides only needs a record", () => {
+		const plan = planOf({ remote: [sub, inside("sub/a.md", "A")], local: [inVault("sub/a.md", "A")], records: [] });
+		expect(summary(plan)).toEqual(["update-record sub/a.md"]);
+	});
+
+	test("nothing changed: nothing to do", () => {
+		const plan = planOf({
+			remote: [sub, inside("sub/a.md", "A")],
+			local: [inVault("sub/a.md", "A")],
+			records: [recorded("sub/a.md", "A")],
+		});
+		expect(plan.actions).toEqual([]);
+		expect(skips(plan)).toEqual(["submodule sub"]);
+	});
+
+	test("changed only on the remote: download", () => {
+		const plan = planOf({
+			remote: [sub, inside("sub/a.md", "A2")],
+			local: [inVault("sub/a.md", "A")],
+			records: [recorded("sub/a.md", "A")],
+		});
+		expect(summary(plan)).toEqual(["download sub/a.md"]);
+	});
+
+	test("edited only in the vault: not sent, and nothing else is done to it", () => {
+		const plan = planOf({
+			remote: [sub, inside("sub/a.md", "A")],
+			local: [inVault("sub/a.md", "mine")],
+			records: [recorded("sub/a.md", "A")],
+		});
+		expect(plan.actions).toEqual([]);
+		expect(skips(plan)).toEqual(["submodule sub", "in-submodule sub/a.md"]);
+		// All three sides go along, for whoever tells the user.
+		expect(plan.skipped[1]).toEqual({
+			key: "sub/a.md",
+			reason: "in-submodule",
+			remote: [inside("sub/a.md", "A")],
+			local: [inVault("sub/a.md", "mine")],
+			records: [recorded("sub/a.md", "A")],
+		});
+	});
+
+	test("a file only in the vault is not sent", () => {
+		const plan = planOf({ remote: [sub, inside("sub/a.md", "A")], local: [inVault("sub/new.md", "N")], records: [] });
+		expect(summary(plan)).toEqual(["download sub/a.md"]);
+		expect(skips(plan)).toEqual(["submodule sub", "in-submodule sub/new.md"]);
+	});
+
+	test("a file only in the vault is not sent though the submodule holds nothing", () => {
+		const plan = planOf({ remote: [sub], local: [inVault("sub/new.md", "N")], records: [] });
+		expect(plan.actions).toEqual([]);
+		expect(skips(plan)).toEqual(["submodule sub", "in-submodule sub/new.md"]);
+	});
+
+	test("a recorded file deleted in the vault is not deleted on the remote", () => {
+		const plan = planOf({ remote: [sub, inside("sub/a.md", "A")], local: [], records: [recorded("sub/a.md", "A")] });
+		expect(plan.actions).toEqual([]);
+		expect(skips(plan)).toEqual(["submodule sub", "in-submodule sub/a.md"]);
+	});
+
+	test("changed on both sides is a conflict: the vault's content is not written over", () => {
+		const plan = planOf({
+			remote: [sub, inside("sub/a.md", "theirs")],
+			local: [inVault("sub/a.md", "mine")],
+			records: [recorded("sub/a.md", "A")],
+		});
+		expect(summary(plan)).toEqual(["conflict sub/a.md"]);
+		expect(skips(plan)).toEqual(["submodule sub"]);
+	});
+
+	test("different content on both sides without a record is a conflict", () => {
+		const plan = planOf({ remote: [sub, inside("sub/a.md", "theirs")], local: [inVault("sub/a.md", "mine")], records: [] });
+		expect(summary(plan)).toEqual(["conflict sub/a.md"]);
+	});
+
+	test("deleted on the remote and unchanged in the vault: deleted in the vault", () => {
+		const plan = planOf({ remote: [sub], local: [inVault("sub/a.md", "A")], records: [recorded("sub/a.md", "A")] });
+		expect(summary(plan)).toEqual(["delete-local sub/a.md"]);
+	});
+
+	test("deleted on both sides: only the record goes", () => {
+		const plan = planOf({ remote: [sub], local: [], records: [recorded("sub/a.md", "A")] });
+		expect(summary(plan)).toEqual(["drop-record sub/a.md"]);
+	});
+
+	test("deleted on the remote but edited in the vault: the edit is kept, and not sent back", () => {
+		const plan = planOf({ remote: [sub], local: [inVault("sub/a.md", "mine")], records: [recorded("sub/a.md", "A")] });
+		expect(plan.actions).toEqual([]);
+		expect(skips(plan)).toEqual(["submodule sub", "in-submodule sub/a.md"]);
+	});
+
+	test("deleted in the vault but edited on the remote: the edit is fetched", () => {
+		const plan = planOf({ remote: [sub, inside("sub/a.md", "A2")], local: [], records: [recorded("sub/a.md", "A")] });
+		expect(summary(plan)).toEqual(["download sub/a.md"]);
+	});
+
+	test("the submodule gone from the remote: what was fetched below it is deleted in the vault", () => {
+		const plan = planOf({
+			remote: [],
+			local: [inVault("sub/a.md", "A"), inVault("sub/docs/b.md", "B")],
+			records: [recorded("sub/a.md", "A"), recorded("sub/docs/b.md", "B")],
+		});
+		expect(summary(plan)).toEqual(["delete-local sub/a.md", "delete-local sub/docs/b.md"]);
+		expect(plan.skipped).toEqual([]);
+	});
+
+	// Once the remote no longer holds the submodule, nothing says the paths were below one.
+	test("the submodule gone from the remote: what the vault alone changed below it is sent as files of the remote", () => {
+		const plan = planOf({
+			remote: [],
+			local: [inVault("sub/a.md", "mine"), inVault("sub/new.md", "N")],
+			records: [recorded("sub/a.md", "A")],
+		});
+		expect(summary(plan)).toEqual(["upload sub/a.md", "upload sub/new.md"]);
+	});
+
+	test("a submodule inside it stays closed, and the files beside it are still compared", () => {
+		const deep: RemoteEntry = {
+			path: "sub/deep",
+			kind: "submodule",
+			hash: commit,
+			contents: { listed: false, reason: "nested" },
+		};
+		const plan = planOf({
+			remote: [sub, deep, inside("sub/a.md", "A")],
+			local: [inVault("sub/deep/x.md", "X"), inVault("sub/new.md", "N")],
+			records: [],
+		});
+		expect(summary(plan)).toEqual(["download sub/a.md"]);
+		expect(skips(plan)).toEqual([
+			"submodule sub",
+			"submodule sub/deep",
+			"under-non-file sub/deep/x.md",
+			"in-submodule sub/new.md",
+		]);
+	});
+
+	test("a path whose name only begins like the submodule's is not below it", () => {
+		const plan = planOf({
+			remote: [sub],
+			local: [inVault("sub.md", "X"), inVault("subs/x.md", "X")],
+			records: [],
+		});
+		expect(summary(plan)).toEqual(["upload sub.md", "upload subs/x.md"]);
+	});
+
+	test("a file over the size limit below it is not fetched", () => {
+		const big: RemoteEntry = { ...inside("sub/big.bin", "B"), size: 11 };
+		const plan = planOf({ remote: [sub, big], local: [], records: [], sizeLimit: 10 });
+		expect(plan.actions).toEqual([]);
+		expect(skips(plan)).toEqual(["submodule sub", "too-large sub/big.bin"]);
+	});
+
+	test("a rule that matches a file below it leaves that file out like any other", () => {
+		const plan = planOf({
+			remote: [sub, inside("sub/a.md", "A")],
+			local: [inVault("sub/debug.log", "L")],
+			records: [],
+			exclusion: rules("*.log\n"),
+		});
+		expect(summary(plan)).toEqual(["download sub/a.md"]);
+		expect(skips(plan)).toEqual(["submodule sub", "excluded sub/debug.log"]);
+	});
+
+	describe("one whose inside is not synced stays closed", () => {
+		const sides = {
+			local: [inVault("sub/in-vault.md", "X"), inVault("sub/edited.md", "mine")],
+			records: [recorded("sub/edited.md", "A"), recorded("sub/gone.md", "G")],
+		};
+		const closed = [
+			"submodule sub",
+			"under-non-file sub/edited.md",
+			"under-non-file sub/gone.md",
+			"under-non-file sub/in-vault.md",
+		];
+
+		test("one the listing says nothing of the inside of", () => {
+			const plan = planOf({ remote: [{ path: "sub", kind: "submodule", hash: commit }], ...sides });
+			expect(plan.actions).toEqual([]);
+			expect(skips(plan)).toEqual(closed);
+		});
+
+		test.each(["not-supported", "no-access", "no-commit", "too-large", "nested"] as const)(
+			"one that was not listed (%s)",
+			(reason) => {
+				const entry: RemoteEntry = { path: "sub", kind: "submodule", hash: commit, contents: { listed: false, reason } };
+				const plan = planOf({ remote: [entry], ...sides });
+				expect(plan.actions).toEqual([]);
+				expect(skips(plan)).toEqual(closed);
+			},
+		);
+
+		test.each([
+			["the submodule as a folder", "/sub/\n"],
+			["the submodule by its name", "sub\n"],
+		])("one that a rule matches (%s), though the listing holds its inside", (_name, gitignore) => {
+			const plan = planOf({
+				remote: [sub, inside("sub/a.md", "A"), inside("sub/edited.md", "A")],
+				...sides,
+				exclusion: rules(gitignore),
+			});
+			expect(plan.actions).toEqual([]);
+			expect(skips(plan)).toEqual([
+				"submodule sub",
+				"under-non-file sub/a.md",
+				"under-non-file sub/edited.md",
+				"under-non-file sub/gone.md",
+				"under-non-file sub/in-vault.md",
+			]);
+		});
+
+		test("one below a folder that a rule matches", () => {
+			const lib: RemoteEntry = { ...sub, path: "vendor/lib" };
+			const file: RemoteEntry = { ...inside("vendor/lib/a.md", "A"), source: { ...source, submodule: "vendor/lib" } };
+			const plan = planOf({ remote: [lib, file], local: [], records: [], exclusion: rules("/vendor/\n") });
+			expect(plan.actions).toEqual([]);
+			expect(skips(plan)).toEqual(["submodule vendor/lib", "under-non-file vendor/lib/a.md"]);
+		});
+
+		test("a rule that a later one undoes leaves it open", () => {
+			const plan = planOf({
+				remote: [sub, inside("sub/a.md", "A")],
+				local: [],
+				records: [],
+				exclusion: rules("/sub/\n!/sub/\n"),
+			});
+			expect(summary(plan)).toEqual(["download sub/a.md"]);
+		});
+
+		test("a rule that matches another folder leaves it open", () => {
+			const plan = planOf({
+				remote: [sub, inside("sub/a.md", "A")],
+				local: [],
+				records: [],
+				exclusion: rules("/other/\n"),
+			});
+			expect(summary(plan)).toEqual(["download sub/a.md"]);
+		});
+	});
+});
+
 describe("the rules of .gitignore", () => {
 	const drafts = rules("/drafts/\n*.png\n");
 

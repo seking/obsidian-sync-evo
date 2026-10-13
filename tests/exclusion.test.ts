@@ -24,6 +24,7 @@ import {
 	type KnownPaths,
 	knownPaths,
 	nestedGitignores,
+	ruleMatchesFolder,
 	unsyncedSubmodules,
 	type PathType,
 	remoteFilesMatchingRules,
@@ -499,6 +500,69 @@ describe("the submodules whose content is not synced", () => {
 
 	test("a rule undone by a later one leaves it counted", () => {
 		expect(unsyncedSubmodules(exclusionFor("/knowledge/\n!/knowledge/\n"), [submodule("knowledge")])).toEqual(["knowledge"]);
+	});
+});
+
+describe("whether a rule matches a submodule", () => {
+	test("no rule, no match", () => {
+		expect(ruleMatchesFolder(exclusionFor(null), "knowledge")).toBe(false);
+		expect(ruleMatchesFolder(exclusionFor("*.log\n/drafts/\n"), "vendor/lib")).toBe(false);
+	});
+
+	test("a rule for a folder of that name matches it, and so does one for a file of that name", () => {
+		expect(ruleMatchesFolder(exclusionFor("/knowledge/\n"), "knowledge")).toBe(true);
+		expect(ruleMatchesFolder(exclusionFor("knowledge\n"), "knowledge")).toBe(true);
+		expect(ruleMatchesFolder(exclusionFor("/vendor/lib\n"), "vendor/lib")).toBe(true);
+		expect(ruleMatchesFolder(exclusionFor("lib/\n"), "vendor/lib")).toBe(true);
+	});
+
+	test("a rule for a folder above it matches it, however far above", () => {
+		expect(ruleMatchesFolder(exclusionFor("/vendor/\n"), "vendor/lib")).toBe(true);
+		expect(ruleMatchesFolder(exclusionFor("/vendor/\n"), "vendor/a/b/lib")).toBe(true);
+		expect(ruleMatchesFolder(exclusionFor("/vendor/a/\n"), "vendor/a/b/lib")).toBe(true);
+		expect(ruleMatchesFolder(exclusionFor("a/\n"), "vendor/a/b/lib")).toBe(true);
+	});
+
+	test("a rule for what is beside it, below it, or only begins like it does not", () => {
+		expect(ruleMatchesFolder(exclusionFor("/vendor/other/\n"), "vendor/lib")).toBe(false);
+		expect(ruleMatchesFolder(exclusionFor("/vendor/lib/docs/\n"), "vendor/lib")).toBe(false);
+		expect(ruleMatchesFolder(exclusionFor("/vend/\n/vendor/li/\n"), "vendor/lib")).toBe(false);
+		expect(ruleMatchesFolder(exclusionFor("/lib/\n"), "vendor/lib")).toBe(false);
+	});
+
+	test("a rule for the files inside it is not one for it", () => {
+		expect(ruleMatchesFolder(exclusionFor("/knowledge/*\n"), "knowledge")).toBe(false);
+		expect(ruleMatchesFolder(exclusionFor("*.md\n"), "knowledge")).toBe(false);
+	});
+
+	test("a rule undone by a later one does not match, and one put back does", () => {
+		expect(ruleMatchesFolder(exclusionFor("/knowledge/\n!/knowledge/\n"), "knowledge")).toBe(false);
+		expect(ruleMatchesFolder(exclusionFor("/knowledge/\n!/knowledge/\n/knowledge/\n"), "knowledge")).toBe(true);
+	});
+
+	test("a folder above that a rule matches is not taken back by a rule for the submodule: git never looks inside", () => {
+		expect(ruleMatchesFolder(exclusionFor("/vendor/\n!/vendor/lib/\n"), "vendor/lib")).toBe(true);
+	});
+
+	test("only the rules are asked, by the path as a file and as a folder and by each folder above", () => {
+		const asked: string[] = [];
+		const exclusion = {
+			matchesRule: (path: string, type: PathType): boolean => {
+				asked.push(`${type} ${path}`);
+				return false;
+			},
+		};
+		expect(ruleMatchesFolder(exclusion, "a/b/lib")).toBe(false);
+		expect(asked).toEqual(["file a/b/lib", "folder a/b/lib", "folder a", "folder a/b"]);
+	});
+
+	test("it is what the submodules that are told of are chosen by", () => {
+		const exclusion = exclusionFor("/vendor/\nold\n");
+		const entries = ["vendor/lib", "old", "kept", "notes/kept"].map((path) => ({ path, kind: "submodule" as const }));
+		expect(unsyncedSubmodules(exclusion, entries)).toEqual(
+			entries.map((entry) => entry.path).filter((path) => !ruleMatchesFolder(exclusion, path)).sort(),
+		);
+		expect(unsyncedSubmodules(exclusion, entries)).toEqual(["kept", "notes/kept"]);
 	});
 });
 

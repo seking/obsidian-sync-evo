@@ -15,8 +15,15 @@
 // it does. Once it no longer applies it is forgotten, so that it is shown
 // again if it ever comes back.
 
-import type { EntryKind } from "./backend";
-import { type Exclusion, type ExclusionPaths, fixedExclusionsOff, nestedGitignores } from "./exclusion";
+import type { EntryKind, RemoteEntry } from "./backend";
+import {
+	type Exclusion,
+	type ExclusionPaths,
+	fixedExclusionsOff,
+	nestedGitignores,
+	unsyncedSubmodules,
+} from "./exclusion";
+import type { SkippedPath } from "./plan";
 import type { StateStore } from "./state";
 
 /**
@@ -68,10 +75,22 @@ import type { StateStore } from "./state";
  *   `.gitignore` is not in effect (`fixedExclusionsOff`), so what it is
  *   there to leave out is synced. Its path is no path: it is the line, as
  *   the default section writes it.
- * - "submodule": the remote holds a submodule. What is inside one is not
- *   synced: its folder is not made on this device. The path is the
- *   submodule's. Not told for one a rule matches (`unsyncedSubmodules`).
- *   Found by a pull alone, from the listing.
+ * - "submodule": the remote holds a submodule whose inside cannot be read
+ *   at all: it points to another host, `.gitmodules` says nothing of it,
+ *   it is inside another submodule, or it holds too much to be listed.
+ *   What is on this device below it stays as it is. The path is the
+ *   submodule's. Not told for one a rule matches (`unsyncedSubmodules`),
+ *   like the two kinds that follow. Found by a pull alone, from the
+ *   listing.
+ * - "submodule-no-access": the repository a submodule points to is out of
+ *   sight of the credentials. The path is the submodule's with the
+ *   repository after it (`submoduleNotices`).
+ * - "submodule-no-commit": the repository a submodule points to does not
+ *   hold the commit it points to. The path is as for "submodule-no-access".
+ * - "submodule-not-sent": a file below a submodule was edited, added, or
+ *   deleted on this device. What is below a submodule is only read, so the
+ *   change is not sent and stays on this device alone. The path is the
+ *   file's. Told once for as long as that is so.
  *
  * A new kind is a new name here and a text in the catalog.
  */
@@ -92,6 +111,9 @@ export const NOTICE_KINDS = [
 	"nested-gitignore",
 	"fixed-exclusion-off",
 	"submodule",
+	"submodule-no-access",
+	"submodule-no-commit",
+	"submodule-not-sent",
 ] as const;
 
 export type NoticeKind = (typeof NOTICE_KINDS)[number];
@@ -109,7 +131,12 @@ export const PUSH_NOTICE_KINDS: readonly NoticeKind[] = ["local-path-collision",
  * the rules. Whichever runs works them out anew, so that a device that only
  * ever pulls is told, and one that only ever pushes.
  */
-export const SHARED_NOTICE_KINDS: readonly NoticeKind[] = ["too-large", "nested-gitignore", "fixed-exclusion-off"];
+export const SHARED_NOTICE_KINDS: readonly NoticeKind[] = [
+	"too-large",
+	"nested-gitignore",
+	"fixed-exclusion-off",
+	"submodule-not-sent",
+];
 
 export interface NoticeRef {
 	readonly kind: NoticeKind;
@@ -165,6 +192,47 @@ export function ruleNotices(
 		...nestedGitignores(exclusion, remote, local).map((path): NoticeRef => ({ kind: "nested-gitignore", path })),
 		...fixedExclusionsOff(exclusion, paths).map((line): NoticeRef => ({ kind: "fixed-exclusion-off", path: line })),
 	];
+}
+
+/**
+ * The notices of the submodules of a listing whose inside is not in it, each
+ * by the reason. Not for one a rule matches (`unsyncedSubmodules`). Where
+ * the repository is what the user has to look at, it follows the path.
+ */
+export function submoduleNotices(exclusion: Exclusion, remote: readonly RemoteEntry[]): NoticeRef[] {
+	const told = new Set(unsyncedSubmodules(exclusion, remote));
+	const notices: NoticeRef[] = [];
+	for (const entry of remote) {
+		if (entry.kind !== "submodule" || !told.has(entry.path)) continue;
+		const { contents } = entry;
+		if (contents?.listed === true) continue;
+		const reason = contents?.reason;
+		if (reason !== "no-access" && reason !== "no-commit") {
+			notices.push({ kind: "submodule", path: entry.path });
+			continue;
+		}
+		const path = contents?.repository === undefined ? entry.path : `${entry.path} (${contents.repository})`;
+		notices.push({ kind: reason === "no-access" ? "submodule-no-access" : "submodule-no-commit", path });
+	}
+	return notices;
+}
+
+/**
+ * The notices of what was changed below a submodule on this device and is
+ * not sent (`SkipReason` "in-submodule"), named as the vault has the file,
+ * or as the remote has it when the vault deleted it. Made the same way by a
+ * pull and by a push.
+ */
+export function notSentNotices(
+	skipped: readonly (Pick<SkippedPath, "key" | "remote" | "local" | "records"> & { readonly reason: string })[],
+): NoticeRef[] {
+	const notices: NoticeRef[] = [];
+	for (const skip of skipped) {
+		if (skip.reason !== "in-submodule") continue;
+		const path = skip.local[0]?.path ?? skip.remote[0]?.path ?? skip.records[0]?.path ?? skip.key;
+		notices.push({ kind: "submodule-not-sent", path });
+	}
+	return notices;
 }
 
 /** The key of the remembered notices among the other values (`getMeta`). */

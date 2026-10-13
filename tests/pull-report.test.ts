@@ -761,6 +761,10 @@ describe("what the user has to know", () => {
 					{ kind: "fixed-exclusion-off", path: "*.icloud" },
 					{ kind: "submodule", path: "knowledge" },
 					{ kind: "submodule", path: "vendor/lib" },
+					{ kind: "submodule-no-access", path: "private (octo/private)" },
+					{ kind: "submodule-no-commit", path: "wip (octo/wip)" },
+					{ kind: "submodule-not-sent", path: "knowledge/a.md" },
+					{ kind: "submodule-not-sent", path: "knowledge/sub/b.md" },
 				],
 				unwritable: [
 					{ path: "notes", reason: "blocked", inTheWay: ["notes/draft.md", "notes/sub/idea.md"], isNew: true },
@@ -776,7 +780,16 @@ describe("what the user has to know", () => {
 			"Some of the lines Sync Evo manages in .gitignore are not in effect: they were deleted, or a later line undoes them. What they left out is synced now (the trash, the layout of the workspace, files an operating system leaves behind). Only Sync Evo's own folder is still not synced by Sync Evo, but git on a computer commits it. Deleted lines can be restored in the settings of Sync Evo; where a later line that starts with ! undoes one, change that line:\n/.trash/\n*.icloud",
 		);
 		expect(report.details[15]).toBe(
-			"The remote has submodules. Sync Evo does not sync what is inside a submodule yet: its folder is not created on this device, and nothing in it is fetched or sent. Everything else is synced as usual:\nknowledge\nvendor/lib",
+			"What is inside these submodules cannot be fetched. Sync Evo fetches a submodule that points to a repository on GitHub and is listed in the .gitmodules of the remote. A submodule inside a submodule, and one with too many files to be listed, are not fetched. What this device has in those folders is left as it is. Everything else is synced as usual:\nknowledge\nvendor/lib",
+		);
+		expect(report.details[16]).toBe(
+			"The repository a submodule points to cannot be read. Check that the token has read access to the Contents of that repository. Once it has, the next sync fetches it. Until then, what this device has in that folder is left as it is. Everything else is synced as usual:\nprivate (octo/private)",
+		);
+		expect(report.details[17]).toBe(
+			"The repository a submodule points to does not have the commit the submodule points to. On a device with git, check that the changes inside the submodule were pushed. Once they are, the next sync fetches them. Until then, what this device has in that folder is left as it is. Everything else is synced as usual:\nwip (octo/wip)",
+		);
+		expect(report.details[18]).toBe(
+			"What is inside a submodule is only read. These files were changed, added or deleted on this device; that is not sent, and stays on this device alone. Make changes inside a submodule on a device with git:\nknowledge/a.md\nknowledge/sub/b.md",
 		);
 		expect(report.details[9]).toBe(
 			"Downloading all files at once did not work on this device, so Sync Evo no longer tries it here. When there are many files to fetch, they are now fetched one by one, which takes longer.",

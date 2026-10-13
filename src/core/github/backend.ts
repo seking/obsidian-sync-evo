@@ -18,6 +18,7 @@ import {
 	BackendError,
 	type BaseRelation,
 	type EntryKind,
+	type EntrySource,
 	type FetchedFile,
 	type ListResult,
 	type PushFile,
@@ -27,6 +28,7 @@ import {
 	type RemoteListing,
 	type StartRequest,
 	type StartResult,
+	type SubmoduleSkip,
 } from "../backend";
 import { type CommitChange, commitMessage, untrackMessage } from "../commit-message";
 import { fetchConcurrently } from "../concurrent-fetch";
@@ -34,7 +36,8 @@ import { gitBlobHash } from "../hash";
 import { isPathFromRoot } from "../paths";
 import { inlineText } from "../text";
 import { openZip } from "../zip";
-import type { FileMode, GitHubClient, GitTreeItem, TreeChange } from "./client";
+import type { FileMode, GitHubClient, GitTreeItem, RepositoryName, TreeChange } from "./client";
+import { parseGitmodules, repositoryName, repositoryOfName, repositoryOfUrl } from "./submodules";
 
 // Where it was before it moved to `text.ts`, for whoever names it from here.
 export { inlineText };
@@ -55,6 +58,8 @@ export type GitHubBackendClient = Pick<
 	| "branch"
 	| "defaultBranch"
 	| "createFile"
+	| "sees"
+	| "repository"
 >;
 
 export interface GitHubBackendOptions {
@@ -157,9 +162,52 @@ export function entryOfTreeItem(item: GitTreeItem): RemoteEntry | null {
 	return { path: item.path, kind, hash: item.sha, ...(item.size === undefined ? {} : { size: item.size }) };
 }
 
+function entriesOfTree(items: readonly GitTreeItem[]): RemoteEntry[] {
+	const entries: RemoteEntry[] = [];
+	for (const item of items) {
+		const entry = entryOfTreeItem(item);
+		if (entry !== null) entries.push(entry);
+	}
+	return entries;
+}
+
+/** Where git keeps what its submodules point to. Read at the root of the tree alone. */
+const GITMODULES = ".gitmodules";
+
+// The repository a source names. It was written by `withSubmodules`, but a
+// listing is also read back from where it was stored.
+function repositoryOf(source: EntrySource): RepositoryName {
+	const repository = repositoryOfName(source.repository);
+	if (repository === null) throw new BackendError("other", `fetch: not a repository: ${source.repository}`);
+	return repository;
+}
+
+// An archive of a folder's content, answered for under the paths below that folder.
+function belowFolder(archive: ArchiveContents, folder: string): ArchiveContents {
+	const prefix = `${folder}/`;
+	const inner = (path: string): string | null => (path.startsWith(prefix) ? path.slice(prefix.length) : null);
+	return {
+		byteLength: archive.byteLength,
+		sizeOf: (path) => {
+			const at = inner(path);
+			return at === null ? null : archive.sizeOf(at);
+		},
+		read: (path) => {
+			const at = inner(path);
+			if (at === null) throw new BackendError("other", `archive: not below ${folder}: ${path}`);
+			return archive.read(at);
+		},
+	};
+}
+
 export class GitHubBackend implements Backend {
 	private readonly client: GitHubBackendClient;
 	private readonly options: GitHubBackendOptions;
+	// What was read of submodules, for as long as this backend lives: the
+	// URLs a `.gitmodules` names, by the hash of the file, and what a commit
+	// of another repository holds, by repository and commit.
+	private readonly gitmodules = new Map<string, Map<string, string>>();
+	private readonly insides = new Map<string, readonly RemoteEntry[]>();
 
 	constructor(client: GitHubBackendClient, options: GitHubBackendOptions = {}) {
 		this.client = client;
@@ -184,12 +232,99 @@ export class GitHubBackend implements Backend {
 		if (head.sha === known) return { changed: false };
 
 		const commit = await this.client.getCommit(head.sha);
-		const entries: RemoteEntry[] = [];
-		for (const item of await this.client.getTree(commit.treeSha)) {
-			const entry = entryOfTreeItem(item);
-			if (entry !== null) entries.push(entry);
-		}
+		const entries = await this.withSubmodules(entriesOfTree(await this.client.getTree(commit.treeSha)));
 		return { changed: true, listing: { revision: head.sha, entries } };
+	}
+
+	/**
+	 * The entries of a tree of the repository, and with them what each of
+	 * its submodules holds: the tree of the commit the submodule points to,
+	 * in the repository `.gitmodules` of the same tree names for it, below
+	 * the path of the submodule. Each such entry says where it is read from
+	 * (`RemoteEntry.source`), and each submodule whether it was listed
+	 * (`RemoteEntry.contents`). Two requests for each submodule, and one for
+	 * `.gitmodules`; a tree without a submodule costs none.
+	 *
+	 * A submodule that cannot be listed is left as the one entry it is, with
+	 * the reason: one that points to another host or that `.gitmodules` says
+	 * nothing of, a repository the token does not see, a commit that
+	 * repository does not hold, a tree that is too large to be listed whole,
+	 * and a submodule inside a submodule. Every other failure fails the
+	 * listing: nothing is known of the submodule then, and a listing is
+	 * never partial.
+	 */
+	private async withSubmodules(entries: readonly RemoteEntry[]): Promise<RemoteEntry[]> {
+		if (!entries.some((entry) => entry.kind === "submodule")) return [...entries];
+		const urls = await this.gitmodulesOf(entries);
+		const listed: RemoteEntry[] = [];
+		for (const entry of entries) {
+			if (entry.kind !== "submodule") {
+				listed.push(entry);
+				continue;
+			}
+			const url = urls.get(entry.path);
+			const repository = url === undefined ? null : repositoryOfUrl(url, this.client.repository);
+			if (repository === null) {
+				listed.push({ ...entry, contents: { listed: false, reason: "not-supported" } });
+				continue;
+			}
+			const inside = await this.insideOf(repository, entry.hash);
+			const name = repositoryName(repository);
+			if (typeof inside === "string") {
+				listed.push({ ...entry, contents: { listed: false, reason: inside, repository: name } });
+				continue;
+			}
+			listed.push({ ...entry, contents: { listed: true, repository: name } });
+			const source: EntrySource = { submodule: entry.path, repository: name, revision: entry.hash };
+			for (const item of inside) {
+				const path = `${entry.path}/${item.path}`;
+				if (item.kind === "submodule") listed.push({ ...item, path, contents: { listed: false, reason: "nested" } });
+				else listed.push({ ...item, path, source });
+			}
+		}
+		return listed;
+	}
+
+	// What `.gitmodules` at the root of the tree says, read once for a
+	// content. Without the file, no submodule is said anything of.
+	private async gitmodulesOf(entries: readonly RemoteEntry[]): Promise<Map<string, string>> {
+		const file = entries.find((entry) => entry.path === GITMODULES && entry.kind === "file");
+		if (file === undefined) return new Map();
+		const known = this.gitmodules.get(file.hash);
+		if (known !== undefined) return known;
+		const content = await this.client.getBlob(file.hash, file.size);
+		const urls = parseGitmodules(new TextDecoder().decode(content));
+		this.gitmodules.set(file.hash, urls);
+		return urls;
+	}
+
+	// What a commit of another repository holds, with the paths it has
+	// there, or why it cannot be listed. Asked once for a commit: the tree
+	// of a commit never changes, and a push lists again right after a pull.
+	private async insideOf(
+		repository: RepositoryName,
+		commit: string,
+	): Promise<readonly RemoteEntry[] | SubmoduleSkip> {
+		const key = `${repositoryName(repository)}@${commit}`;
+		const known = this.insides.get(key);
+		if (known !== undefined) return known;
+		let inside: readonly RemoteEntry[];
+		try {
+			const { treeSha } = await this.client.getCommit(commit, repository);
+			inside = entriesOfTree(await this.client.getTree(treeSha, repository));
+		} catch (error) {
+			if (!(error instanceof BackendError)) throw error;
+			if (error.kind === "incomplete-listing") return "too-large";
+			if (error.kind === "forbidden") return "no-access";
+			// A repository without commits answers 409 to these calls.
+			if (error.kind === "other" && error.status === 409) return "no-commit";
+			if (error.kind !== "not-found") throw error;
+			// The same 404 for a commit that is not there and a repository
+			// that is out of sight. Asking for the repository tells them apart.
+			return (await this.client.sees(repository)) ? "no-commit" : "no-access";
+		}
+		this.insides.set(key, inside);
+		return inside;
 	}
 
 	/** Every failure to find out is thrown by the client; only GitHub's own "no" is "rewritten". */
@@ -204,6 +339,7 @@ export class GitHubBackend implements Backend {
 	 * download may take, and how many are fetched at once. A cancelled
 	 * client ends this with its "cancelled" failure. A submodule among the
 	 * entries fails the fetch when it is first asked for, with no request sent.
+	 * An entry below a submodule is asked of the repository it is read from.
 	 */
 	async *fetch(_revision: string | null, entries: readonly RemoteEntry[]): AsyncGenerator<FetchedFile, void, void> {
 		// Before anything is asked for: found on the way, the requests of the
@@ -213,8 +349,16 @@ export class GitHubBackend implements Backend {
 		if (submodule !== undefined) {
 			throw new BackendError("other", `fetch: a submodule has no content: ${submodule.path}`);
 		}
+		const others = new Map<string, RepositoryName>();
+		for (const entry of entries) {
+			if (entry.source !== undefined) others.set(entry.source.repository, repositoryOf(entry.source));
+		}
 		const { signal, maxConcurrentFetchBytes: maxBytes } = this.options;
-		yield* fetchConcurrently(entries, (entry) => this.client.getBlob(entry.hash, entry.size), {
+		const blobOf = (entry: RemoteEntry): Promise<Uint8Array> =>
+			entry.source === undefined
+				? this.client.getBlob(entry.hash, entry.size)
+				: this.client.getBlob(entry.hash, entry.size, others.get(entry.source.repository));
+		yield* fetchConcurrently(entries, blobOf, {
 			...(signal === undefined ? {} : { signal }),
 			...(maxBytes === undefined ? {} : { maxBytes }),
 		});
@@ -241,9 +385,15 @@ export class GitHubBackend implements Backend {
 	 * such a zip is below one folder named after the repository and the
 	 * commit, which is left out so that the paths are those of the tree.
 	 * Only the directory of the zip is read here.
+	 *
+	 * With a source, the zip of the commit the submodule points to, of the
+	 * repository it points to. Its paths are those of that repository; they
+	 * are answered for under the paths of the listing, below the submodule.
 	 */
-	async fetchArchive(revision: string): Promise<ArchiveContents> {
-		return openZip(new Uint8Array(await this.client.getZip(revision)), { stripTopFolder: true });
+	async fetchArchive(revision: string, source?: EntrySource): Promise<ArchiveContents> {
+		if (source === undefined) return openZip(new Uint8Array(await this.client.getZip(revision)), { stripTopFolder: true });
+		const zip = await this.client.getZip(source.revision, repositoryOf(source));
+		return belowFolder(openZip(new Uint8Array(zip), { stripTopFolder: true }), source.submodule);
 	}
 
 	/**
@@ -566,12 +716,9 @@ export class GitHubBackend implements Backend {
 	 */
 	private async listingOf(revision: string, treeSha: string): Promise<RemoteListing | null> {
 		try {
-			const entries: RemoteEntry[] = [];
-			for (const item of await this.client.getTree(treeSha)) {
-				const entry = entryOfTreeItem(item);
-				if (entry !== null) entries.push(entry);
-			}
-			return { revision, entries };
+			// With what the submodules hold, like any listing. A push changes
+			// none of them, so this is answered from what `list` has read.
+			return { revision, entries: await this.withSubmodules(entriesOfTree(await this.client.getTree(treeSha))) };
 		} catch {
 			return null;
 		}

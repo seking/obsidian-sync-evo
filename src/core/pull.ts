@@ -48,7 +48,7 @@ import {
 } from "./archive-fetch";
 import { BackendError, type RemoteEntry, type RemoteListing } from "./backend";
 import { tidyConflictCopies } from "./conflict-tidy";
-import { createExclusion, type Exclusion, unsyncedSubmodules } from "./exclusion";
+import { createExclusion, type Exclusion } from "./exclusion";
 import { GITIGNORE_WRITE_KEY, settleGitignoreWrite } from "./gitignore-file";
 import { firstFetchFiles, hasFirstFetchQuestion, isFirstFetchConfirmed, markFirstFetchConfirmed } from "./first-fetch";
 import { lightCheckLine, scanLightly } from "./light-scan";
@@ -56,10 +56,12 @@ import { type LocalRead, readLocal } from "./local-read";
 import {
 	type NoticeKind,
 	type NoticeRef,
+	notSentNotices,
 	PUSH_NOTICE_KINDS,
 	readNotices,
 	reconcileNotices,
 	ruleNotices,
+	submoduleNotices,
 	writeNotices,
 } from "./notices";
 import { foldedKey, pathKey } from "./paths";
@@ -1384,7 +1386,7 @@ class PullRun {
 				scan.paths.map((scanned) => scanned.path),
 			),
 		);
-		for (const path of unsyncedSubmodules(exclusion, listing.entries)) add("submodule", path);
+		current.push(...submoduleNotices(exclusion, listing.entries), ...notSentNotices(plan.skipped));
 		// Read from the sync state and not handed over by the fetching: the
 		// pull that made the device remember it can have been killed before
 		// it told anything, and the next one tells it then.

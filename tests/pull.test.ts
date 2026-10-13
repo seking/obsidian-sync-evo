@@ -51,6 +51,7 @@ import { blobHash, bytes, type FileContent, MemoryBackend } from "./support/memo
 import { MemoryIndex } from "./support/memory-index";
 import { MemoryPullVault, type VaultOp } from "./support/memory-pull-vault";
 import { MemoryStateStore } from "./support/memory-state-store";
+import { listSubmodules, type TestSubmodule } from "./support/submodule-listing";
 
 const paths = { configDir: ".obsidian", pluginDir: ".obsidian/plugins/sync-evo" };
 
@@ -72,6 +73,8 @@ const reportOptions = {
 class TestBackend extends MemoryBackend {
 	readonly symlinks = new Set<string>();
 	readonly submodules = new Set<string>();
+	/** The submodules of a remote that lists what is inside them (`listSubmodules`). */
+	readonly listed = new Map<string, TestSubmodule>();
 	emptied = false;
 	checkBaseFails = false;
 	checkedBase = 0;
@@ -84,7 +87,7 @@ class TestBackend extends MemoryBackend {
 			if (this.symlinks.has(entry.path)) return { ...entry, kind: "symlink" } as const;
 			return this.submodules.has(entry.path) ? ({ ...entry, kind: "submodule" } as const) : entry;
 		});
-		return { changed: true, listing: { revision: listed.listing.revision, entries } };
+		return { changed: true, listing: { revision: listed.listing.revision, entries: listSubmodules(entries, this.listed) } };
 	}
 
 	override async checkBase(base: string, head: string): Promise<BaseRelation> {
@@ -7368,5 +7371,170 @@ describe("conflict copies that have had their time", () => {
 		expect(result.conflicts).toEqual([{ path: "a.md", copyPath: copy, cause: "conflict" }]);
 		expect(result.tidiedCopies).toEqual([old]);
 		expect(h.vault.snapshot()).toEqual({ "a.md": "theirs", [copy]: "mine" });
+	});
+});
+
+describe("a submodule whose inside the remote lists", () => {
+	const POINTS_TO = { repository: "octo/knowledge", revision: "c".repeat(40) };
+
+	/** A vault in sync with a remote that has the submodule `knowledge` with `files` inside, and `a.md` beside it. */
+	async function withKnowledge(files: Record<string, string>): Promise<Harness> {
+		const h = harness();
+		h.backend.listed.set("knowledge", POINTS_TO);
+		h.backend.commit({ "a.md": "A", ...files });
+		expect((await h.pull()).outcome).toBe("completed");
+		h.vault.log.length = 0;
+		return h;
+	}
+
+	test("what is inside is written and recorded like any file, and nothing is told", async () => {
+		const h = harness();
+		h.backend.listed.set("knowledge", POINTS_TO);
+		const files = { "a.md": "A", "knowledge/n.md": "N", "knowledge/deep/m.md": "M" };
+		h.backend.commit(files);
+
+		const result = await h.pull();
+
+		expect(result).toMatchObject({ outcome: "completed", counts: { fetched: 3 }, notices: [] });
+		expect(h.vault.snapshot()).toEqual(files);
+		// The submodule itself has no record: the files below it have theirs.
+		expect(await h.records()).toEqual(hashes(files));
+	});
+
+	test("a device that was told the inside is not synced fetches it though the remote has not moved", async () => {
+		const h = harness();
+		h.backend.commit({ "a.md": "A", knowledge: "the commit it points to" });
+		h.backend.submodules.add("knowledge");
+		expect((await h.pull()).notices).toEqual([{ kind: "submodule", path: "knowledge" }]);
+
+		// The same head, listed by a version that lists what is inside.
+		h.backend.submodules.delete("knowledge");
+		h.backend.amend({ "knowledge/n.md": "N" });
+		h.backend.listed.set("knowledge", POINTS_TO);
+		const hidden = h.backend.list.bind(h.backend);
+		h.backend.list = async (known) => {
+			const listed = await hidden(known);
+			if (!listed.changed) return listed;
+			const entries = listed.listing.entries.filter((entry) => entry.path !== "knowledge" || entry.kind === "submodule");
+			return { changed: true, listing: { revision: listed.listing.revision, entries } };
+		};
+
+		const result = await h.pull();
+
+		expect(result).toMatchObject({ outcome: "completed", counts: { fetched: 1 }, notices: [] });
+		expect(h.vault.snapshot()).toEqual({ "a.md": "A", "knowledge/n.md": "N" });
+		expect(await readNotices(h.store)).toEqual([]);
+	});
+
+	test("files that are in the vault already are compared: the same is recorded, another is a conflict", async () => {
+		const h = harness();
+		h.backend.listed.set("knowledge", POINTS_TO);
+		h.backend.commit({ "knowledge/same.md": "S", "knowledge/other.md": "theirs" });
+		h.vault.put("knowledge/same.md", "S");
+		h.vault.put("knowledge/other.md", "mine");
+
+		const result = await h.pull();
+
+		expect(result.counts).toMatchObject({ fetched: 1, conflicts: 1 });
+		const copy = h.copyName("knowledge/other.md");
+		// The copy is outside the submodule, where a push can send it.
+		expect(copy.startsWith("_conflicts/")).toBe(true);
+		expect(h.vault.snapshot()).toEqual({ "knowledge/same.md": "S", "knowledge/other.md": "theirs", [copy]: "mine" });
+	});
+
+	test("the commit the remote points to moves: what changed inside is fetched, and what is gone is deleted", async () => {
+		const h = await withKnowledge({ "knowledge/n.md": "N", "knowledge/old.md": "O" });
+		h.backend.listed.set("knowledge", { ...POINTS_TO, revision: "d".repeat(40) });
+		h.backend.commit({ "knowledge/n.md": "N2", "knowledge/old.md": null, "knowledge/new.md": "W" });
+
+		const result = await h.pull();
+
+		expect(result.counts).toMatchObject({ fetched: 2, deleted: 1, conflicts: 0 });
+		expect(h.vault.snapshot()).toEqual({ "a.md": "A", "knowledge/n.md": "N2", "knowledge/new.md": "W" });
+	});
+
+	test("a file changed inside on this device is told once, and its record stays the remote's", async () => {
+		const h = await withKnowledge({ "knowledge/n.md": "N", "knowledge/gone.md": "G" });
+		h.vault.put("knowledge/n.md", "mine");
+		h.vault.put("knowledge/added.md", "new here");
+		h.vault.remove("knowledge/gone.md");
+
+		const told = [
+			{ kind: "submodule-not-sent", path: "knowledge/added.md" },
+			{ kind: "submodule-not-sent", path: "knowledge/gone.md" },
+			{ kind: "submodule-not-sent", path: "knowledge/n.md" },
+		];
+		expect((await h.pull()).notices).toEqual(told);
+		expect((await h.pull()).notices).toEqual([]);
+		expect(await readNotices(h.store)).toEqual(told);
+		// What was deleted here is not brought back, and nothing was written over.
+		expect(h.vault.snapshot()).toEqual({ "a.md": "A", "knowledge/n.md": "mine", "knowledge/added.md": "new here" });
+		expect(await h.records()).toEqual(hashes({ "a.md": "A", "knowledge/n.md": "N", "knowledge/gone.md": "G" }));
+	});
+
+	test("a file changed inside on this device and then on the remote is a conflict, and this device's is kept as a copy", async () => {
+		const h = await withKnowledge({ "knowledge/n.md": "N" });
+		h.vault.put("knowledge/n.md", "mine");
+		await h.pull();
+		h.backend.listed.set("knowledge", { ...POINTS_TO, revision: "d".repeat(40) });
+		h.backend.commit({ "knowledge/n.md": "theirs" });
+
+		const result = await h.pull({ mergeConflicts: true });
+
+		const copy = h.copyName("knowledge/n.md");
+		expect(result.conflicts).toEqual([{ path: "knowledge/n.md", copyPath: copy, cause: "conflict" }]);
+		// Not merged: what a merge makes could not be sent from inside a submodule.
+		expect(h.backend.contentRequests).toEqual([]);
+		expect(h.vault.snapshot()).toEqual({ "a.md": "A", "knowledge/n.md": "theirs", [copy]: "mine" });
+		expect(await readNotices(h.store)).toEqual([]);
+	});
+
+	test.each([
+		["no-commit", "submodule-no-commit", "knowledge (octo/knowledge)"],
+		["no-access", "submodule-no-access", "knowledge (octo/knowledge)"],
+		["not-supported", "submodule", "knowledge"],
+	] as const)("a commit that cannot be listed (%s): what is on this device stays, and it is told", async (skipped, kind, path) => {
+		const h = await withKnowledge({ "knowledge/n.md": "N" });
+		h.backend.listed.set("knowledge", { ...POINTS_TO, revision: "d".repeat(40), skipped });
+		h.backend.commit({ "a.md": "A2", "knowledge/n.md": "N2" });
+
+		const result = await h.pull();
+
+		expect(result).toMatchObject({ outcome: "completed", counts: { fetched: 1, deleted: 0 }, notices: [{ kind, path }] });
+		expect(h.vault.snapshot()).toEqual({ "a.md": "A2", "knowledge/n.md": "N" });
+		expect(await h.records()).toEqual(hashes({ "a.md": "A2", "knowledge/n.md": "N" }));
+
+		// Where it points to is in what the remote holds: a reason of that
+		// kind ends when the remote moves, and is not asked about before.
+		if (skipped === "not-supported") return;
+		// The others end without the remote moving, and are asked about each time.
+		h.backend.listed.set("knowledge", { ...POINTS_TO, revision: "d".repeat(40) });
+		expect(await h.pull()).toMatchObject({ outcome: "completed", counts: { fetched: 1 }, notices: [] });
+		expect(h.vault.snapshot()).toEqual({ "a.md": "A2", "knowledge/n.md": "N2" });
+		expect(await readNotices(h.store)).toEqual([]);
+	});
+
+	test("the remote no longer has the submodule: what was inside is deleted on this device", async () => {
+		const h = await withKnowledge({ "knowledge/n.md": "N", "knowledge/m.md": "M" });
+		h.vault.put("knowledge/m.md", "mine");
+		h.backend.listed.delete("knowledge");
+		h.backend.commit({ "knowledge/n.md": null, "knowledge/m.md": null });
+
+		const result = await h.pull();
+
+		expect(result.counts).toMatchObject({ deleted: 1 });
+		// What was edited here is kept, like any file the remote deleted.
+		expect(h.vault.snapshot()).toEqual({ "a.md": "A", "knowledge/m.md": "mine" });
+	});
+
+	test("a rule that matches the submodule: nothing inside is fetched, and nothing is told", async () => {
+		const h = harness();
+		h.backend.listed.set("knowledge", POINTS_TO);
+		h.backend.commit({ "a.md": "A", ".gitignore": "/knowledge/\n", "knowledge/n.md": "N" });
+
+		const result = await h.pull();
+
+		expect(result).toMatchObject({ outcome: "completed", notices: [] });
+		expect(h.vault.snapshot()).toEqual({ "a.md": "A", ".gitignore": "/knowledge/\n" });
 	});
 });

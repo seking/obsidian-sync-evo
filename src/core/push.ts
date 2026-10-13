@@ -57,6 +57,7 @@ import { lightCheckLine, scanLightly, type VaultIndex } from "./light-scan";
 import { readLocal, saved } from "./local-read";
 import {
 	type NoticeRef,
+	notSentNotices,
 	PUSH_NOTICE_KINDS,
 	readNotices,
 	reconcileNotices,
@@ -1147,6 +1148,7 @@ class PushRun {
 			const path = skip.remote[0]?.path ?? skip.local[0]?.path ?? skip.records[0]?.path ?? skip.key;
 			current.push({ kind: "too-large", path });
 		}
+		current.push(...notSentNotices(plan.skipped));
 		for (const refusal of plan.refused) {
 			if (refusal.reason === "case-collision") current.push({ kind: "local-path-collision", path: refusal.path });
 		}

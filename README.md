@@ -30,9 +30,18 @@ Sync Evo stops and asks before it goes on when
 
 What is synced is decided by the `.gitignore` at the root of the vault, so that Sync Evo and git on a computer leave out the same files. The settings screen writes that file for you.
 
+### Submodules
+
+What is inside a submodule is fetched into its folder, at the commit the repository of the vault points to, and fetched again when that commit moves. On the device it is an ordinary folder.
+
+- It is only read. A file you change, add or delete inside a submodule on the device is not sent: the change stays on that device, and Sync Evo tells you once which files. Make such changes on a device with git. When the same file later changes in the submodule, your version is kept as a copy in `_conflicts/`, and is not merged.
+- The submodule has to point to a repository on GitHub that the token can read, and be listed in the `.gitmodules` at the root of the repository of the vault. URLs of the forms `https://github.com/owner/name`, `git@github.com:owner/name` and `../name` are read.
+- When it cannot be fetched (the token cannot read that repository, the commit was not pushed there yet, it points to another host, or it is a submodule inside a submodule), what the device already has in its folder is left as it is, and Sync Evo tells you once why.
+- A submodule that a rule of `.gitignore` matches, such as one in an excluded folder, is not fetched.
+
 ## Not supported yet
 
-- **Submodules.** The folder of a submodule is not created on the device, and nothing in it is fetched or sent. Sync Evo tells you once when the repository has one.
+- **Changes inside a submodule.** What is inside a submodule is fetched, and only read: see "Submodules" below.
 - **Git LFS.** A pointer file is synced as it is, and the content it stands for is not fetched.
 - **Line ending conversion.** The `text` and `eol` settings of `.gitattributes` are not applied: every file is stored and written byte for byte as the repository holds it.
 - **Symbolic links.** They are not written to the device and are left as they are in the repository. The settings list them.
@@ -68,7 +77,7 @@ If you can choose, a vault under "On My iPhone" is the simpler setup.
 
 Sync Evo is not in the community plugin directory yet. Until it is, it can be installed with [BRAT](https://github.com/TfTHacker/obsidian42-brat) from `seking/obsidian-sync-evo`.
 
-1. On GitHub, create a [fine-grained personal access token](https://github.com/settings/personal-access-tokens) that has access to the repository of the vault only, with the repository permission **Contents: Read and write**. If the vault holds files under `.github/workflows/` that you change on the device, it also needs **Workflows: Read and write**.
+1. On GitHub, create a [fine-grained personal access token](https://github.com/settings/personal-access-tokens) that has access to the repository of the vault only, with the repository permission **Contents: Read and write**. If the vault has submodules, give the token access to their repositories too; **Contents: Read-only** is enough for those, but one token has one set of permissions for all its repositories. If the vault holds files under `.github/workflows/` that you change on the device, it also needs **Workflows: Read and write**.
 2. In Obsidian, open Settings → Sync Evo and fill in "Connection":
    - **Repository**: as `owner/name`, or its address pasted from the browser.
    - **Branch**: the branch to sync with. Sync Evo does not create it.
@@ -127,10 +136,10 @@ The settings and the record of what was synced are kept on the device, outside t
 
 ## Network use
 
-Sync Evo makes network requests only when you press "Test" in its settings, run one of its commands or press its button in the ribbon, or untrack files in its settings; and, when you have switched automatic sync on under "How it syncs", for the pulls and pushes it then starts by itself, which ask and send what a pull and a push do. All of them go to GitHub (`api.github.com`) and carry the token and the names of the repository and the branch. One kind of request, the download of a zip described below, is redirected by GitHub to another of its hosts (`codeload.github.com`).
+Sync Evo makes network requests only when you press "Test" in its settings, run one of its commands or press its button in the ribbon, or untrack files in its settings; and, when you have switched automatic sync on under "How it syncs", for the pulls and pushes it then starts by itself, which ask and send what a pull and a push do. All of them go to GitHub (`api.github.com`) and carry the token and the names of the repository and the branch, or of the repository a submodule points to. One kind of request, the download of a zip described below, is redirected by GitHub to another of its hosts (`codeload.github.com`).
 
 - **Connection test** asks for the branch you entered, and for the repository when the branch is not found, to tell you whether the token can reach them.
-- **Pull** asks for the branch (and, like the test, for the repository when the branch is not found), for the list of files in its latest commit, and for the content of each file that is new or changed. For a symbolic link, which is not written to the vault, it reads where the link points: one small request per link that is new or changed. When the branch has moved since the last pull, it also asks whether the new commit builds on the old one. When more than 1,000 files are new or changed (a first pull of a large repository, for one) and the zip is not expected to be too large for the device, it asks for the zip of that commit in one request instead of for each file (not on Android: see "Tested on"), and then only for the files the zip does not hold as they are listed. The zip is kept in memory and never saved. A pull sends nothing from the vault: no file, no file name, and no content.
+- **Pull** asks for the branch (and, like the test, for the repository when the branch is not found), for the list of files in its latest commit, and for the content of each file that is new or changed. For a symbolic link, which is not written to the vault, it reads where the link points: one small request per link that is new or changed. When the branch has moved since the last pull, it also asks whether the new commit builds on the old one. When more than 1,000 files are new or changed (a first pull of a large repository, for one) and the zip is not expected to be too large for the device, it asks for the zip of that commit in one request instead of for each file (not on Android: see "Tested on"), and then only for the files the zip does not hold as they are listed. The zip is kept in memory and never saved. When the repository has submodules, a pull reads its `.gitmodules` and asks the repository each submodule points to, on GitHub and with the same token, for the list of files of the commit the submodule points to, for the content of the files that are new or changed (or for the zip of that commit, as above), and, when the list cannot be had, whether the token sees that repository at all. A pull sends nothing from the vault: no file, no file name, and no content.
 - **Push** asks for the branch and the list of files as a pull does, then sends the content of each file that was added or changed in the vault, the paths of the files that were added, changed, or deleted, and a commit whose message holds the device name and those paths. It then moves the branch to that commit and asks for the list of files of the new commit. When it is not known whether an earlier push went through, it first asks whether the commit on the branch builds on the one this device last synced with. For a repository that has no commits yet, it asks for the repository to learn its default branch, and the `.gitignore` is sent first, as a commit of its own. Files that `.gitignore` excludes are not sent.
 - **Untracking** asks for the branch and the list of files as a pull does, then sends the paths of the files to remove from the repository, and a commit whose message holds the device name and those paths, and moves the branch to that commit. A pull runs before it, and a push when the rules are not in the repository yet.
 

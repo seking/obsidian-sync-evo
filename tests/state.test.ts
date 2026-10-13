@@ -11,9 +11,12 @@
 
 import { describe, expect, test } from "vitest";
 import { createExclusion } from "../src/core/exclusion";
+import type { ListResult, RemoteEntry, RemoteListing } from "../src/core/backend";
 import { planSync } from "../src/core/plan";
 import {
+	awaitsSubmodule,
 	copiedPathOf,
+	currentListing,
 	isListing,
 	isStatUpdateOf,
 	isUnchangedByStat,
@@ -220,6 +223,163 @@ describe("telling a stored listing from anything else", () => {
 		["has a size that is null", { ...entry, size: null }],
 	])("one entry that %s makes the whole listing none", (_name, bad) => {
 		expect(isListing({ revision: "r", entries: [entry, bad, entry] })).toBe(false);
+	});
+
+	const submodule = { path: "lib", kind: "submodule", hash: OTHER };
+	const source = { submodule: "lib", repository: "octo/lib", revision: OTHER };
+
+	test.each([
+		["a submodule whose inside is listed", { ...submodule, contents: { listed: true, repository: "octo/lib" } }],
+		["a submodule that was not listed", { ...submodule, contents: { listed: false, reason: "not-supported" } }],
+		["one not listed, with the repository", { ...submodule, contents: { listed: false, reason: "no-access", repository: "octo/lib" } }],
+		["a submodule nothing is said of", submodule],
+		["a file below a submodule", { ...entry, path: "lib/a.md", source }],
+		["a symlink below a submodule", { path: "lib/link", kind: "symlink", hash: HASH, source }],
+	])("a listing with %s is one", (_name, good) => {
+		expect(isListing({ revision: "r", entries: [entry, good] })).toBe(true);
+	});
+
+	test.each(["not-supported", "no-access", "no-commit", "too-large", "nested"])(
+		"%s is a reason a submodule was not listed",
+		(reason) => {
+			expect(isListing({ revision: "r", entries: [{ ...submodule, contents: { listed: false, reason } }] })).toBe(true);
+		},
+	);
+
+	test.each([
+		["on a file says what is inside it", { ...entry, contents: { listed: true, repository: "octo/lib" } }],
+		["on a symlink says what is inside it", { path: "l", kind: "symlink", hash: HASH, contents: { listed: false, reason: "nested" } }],
+		["is a submodule read from another place", { ...submodule, source }],
+		["is a submodule whose inside is null", { ...submodule, contents: null }],
+		["is a submodule whose inside is a string", { ...submodule, contents: "listed" }],
+		["is a submodule that does not say whether it is listed", { ...submodule, contents: { repository: "octo/lib" } }],
+		["is a submodule listed as a string", { ...submodule, contents: { listed: "true", repository: "octo/lib" } }],
+		["is a listed submodule without the repository", { ...submodule, contents: { listed: true } }],
+		["is a listed submodule whose repository is no string", { ...submodule, contents: { listed: true, repository: 1 } }],
+		["is a submodule not listed for no reason", { ...submodule, contents: { listed: false } }],
+		["is a submodule not listed for an unknown reason", { ...submodule, contents: { listed: false, reason: "from-a-newer-version" } }],
+		["is a submodule not listed whose repository is no string", { ...submodule, contents: { listed: false, reason: "no-access", repository: null } }],
+		["has a source that is null", { ...entry, source: null }],
+		["has a source that is a string", { ...entry, source: "octo/lib" }],
+		["has a source without the submodule", { ...entry, source: { repository: "octo/lib", revision: OTHER } }],
+		["has a source without the repository", { ...entry, source: { submodule: "lib", revision: OTHER } }],
+		["has a source without the commit", { ...entry, source: { submodule: "lib", repository: "octo/lib" } }],
+		["has a source whose commit is no string", { ...entry, source: { ...source, revision: 1 } }],
+	])("one entry that %s makes the whole listing none", (_name, bad) => {
+		expect(isListing({ revision: "r", entries: [entry, bad, entry] })).toBe(false);
+	});
+});
+
+describe("a listing that waits for a submodule", () => {
+	const file: RemoteEntry = { path: "a.md", kind: "file", hash: HASH, size: 3 };
+	const submodule: RemoteEntry = { path: "lib", kind: "submodule", hash: OTHER };
+	const listingOf = (...entries: RemoteEntry[]): RemoteListing => ({ revision: "r", entries });
+
+	test("not one without a submodule, nor one of a remote with nothing in it", () => {
+		expect(awaitsSubmodule(listingOf(file, { path: "l", kind: "symlink", hash: HASH }))).toBe(false);
+		expect(awaitsSubmodule({ revision: null, entries: [] })).toBe(false);
+	});
+
+	test("one that says nothing of what is inside a submodule: stored before submodules were listed", () => {
+		expect(awaitsSubmodule(listingOf(file, submodule))).toBe(true);
+	});
+
+	test("not one whose submodule is listed", () => {
+		const listed: RemoteEntry = { ...submodule, contents: { listed: true, repository: "octo/lib" } };
+		const below: RemoteEntry = { ...file, path: "lib/a.md", source: { submodule: "lib", repository: "octo/lib", revision: OTHER } };
+		expect(awaitsSubmodule(listingOf(file, listed, below))).toBe(false);
+	});
+
+	test.each(["no-access", "no-commit"] as const)("one whose submodule was not listed for %s, which ends without the remote moving", (reason) => {
+		expect(awaitsSubmodule(listingOf(file, { ...submodule, contents: { listed: false, reason, repository: "octo/lib" } }))).toBe(true);
+	});
+
+	test.each(["not-supported", "too-large", "nested"] as const)("not one whose submodule was not listed for %s, which only a new commit ends", (reason) => {
+		expect(awaitsSubmodule(listingOf(file, { ...submodule, contents: { listed: false, reason } }))).toBe(false);
+	});
+
+	test("one submodule that is waited for is enough", () => {
+		const listed: RemoteEntry = { ...submodule, contents: { listed: true, repository: "octo/lib" } };
+		const waiting: RemoteEntry = { path: "wip", kind: "submodule", hash: HASH, contents: { listed: false, reason: "no-commit", repository: "octo/wip" } };
+		expect(awaitsSubmodule(listingOf(listed, waiting))).toBe(true);
+	});
+});
+
+describe("the listing of the head of the remote", () => {
+	const file: RemoteEntry = { path: "a.md", kind: "file", hash: HASH, size: 3 };
+	const submodule: RemoteEntry = { path: "lib", kind: "submodule", hash: OTHER };
+	const listed: RemoteEntry = { ...submodule, contents: { listed: true, repository: "octo/lib" } };
+	const waiting: RemoteEntry = { ...submodule, contents: { listed: false, reason: "no-access", repository: "octo/lib" } };
+
+	/** A remote that answers with `answer`, and notes what it was asked with. */
+	function remoteThat(answer: ListResult): { asked: (string | null)[]; list: (known: string | null) => Promise<ListResult> } {
+		const asked: (string | null)[] = [];
+		return {
+			asked,
+			list: async (known) => {
+				asked.push(known);
+				return answer;
+			},
+		};
+	}
+
+	test("without a stored listing, the remote is asked for all of it, and the answer is stored", async () => {
+		const store = new MemoryStateStore();
+		const fresh: RemoteListing = { revision: "r1", entries: [file] };
+		const remote = remoteThat({ changed: true, listing: fresh });
+		expect(await currentListing(store, remote.list)).toEqual(fresh);
+		expect(remote.asked).toEqual([null]);
+		expect(await store.getListing()).toEqual(fresh);
+	});
+
+	test("with a stored listing, the remote is asked with its revision, and the stored one is used while it has not moved", async () => {
+		const store = new MemoryStateStore();
+		const stored: RemoteListing = { revision: "r1", entries: [file, listed] };
+		await store.putListing(stored);
+		const remote = remoteThat({ changed: false });
+		expect(await currentListing(store, remote.list)).toEqual(stored);
+		expect(remote.asked).toEqual(["r1"]);
+	});
+
+	test("a remote that moved gives the listing, which takes the place of the stored one", async () => {
+		const store = new MemoryStateStore();
+		await store.putListing({ revision: "r1", entries: [file] });
+		const fresh: RemoteListing = { revision: "r2", entries: [file, listed] };
+		const remote = remoteThat({ changed: true, listing: fresh });
+		expect(await currentListing(store, remote.list)).toEqual(fresh);
+		expect(remote.asked).toEqual(["r1"]);
+		expect(await store.getListing()).toEqual(fresh);
+	});
+
+	test.each([
+		["says nothing of what is inside a submodule", submodule],
+		["waits for a repository to come in sight", waiting],
+		["waits for a commit to be pushed", { ...submodule, contents: { listed: false, reason: "no-commit", repository: "octo/lib" } } as RemoteEntry],
+	])("a stored listing that %s is not asked with: the remote is listed again though it has not moved", async (_name, entry) => {
+		const store = new MemoryStateStore();
+		await store.putListing({ revision: "r1", entries: [file, entry] });
+		// The same revision, and the submodule is listed now.
+		const fresh: RemoteListing = { revision: "r1", entries: [file, listed] };
+		const remote = remoteThat({ changed: true, listing: fresh });
+		expect(await currentListing(store, remote.list)).toEqual(fresh);
+		expect(remote.asked).toEqual([null]);
+		expect(await store.getListing()).toEqual(fresh);
+	});
+
+	test.each(["not-supported", "too-large", "nested"] as const)(
+		"a stored listing whose submodule was not listed for %s is asked with as any other",
+		async (reason) => {
+			const store = new MemoryStateStore();
+			const stored: RemoteListing = { revision: "r1", entries: [file, { ...submodule, contents: { listed: false, reason } }] };
+			await store.putListing(stored);
+			const remote = remoteThat({ changed: false });
+			expect(await currentListing(store, remote.list)).toEqual(stored);
+			expect(remote.asked).toEqual(["r1"]);
+		},
+	);
+
+	test("an answer of nothing changed to a question that named no listing is refused", async () => {
+		await expect(currentListing(new MemoryStateStore(), remoteThat({ changed: false }).list)).rejects.toThrow();
 	});
 });
 

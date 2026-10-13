@@ -16,6 +16,7 @@ import {
 	ARCHIVE_DISABLED_KEY,
 	ARCHIVE_FILE_THRESHOLD,
 	ArchiveGate,
+	archiveContentSource,
 	chooseFetchMeans,
 	ARCHIVE_ENTRY_BYTES,
 	SHRINKING_EXTENSIONS,
@@ -24,9 +25,10 @@ import {
 	readArchiveCeiling,
 	MAX_ARCHIVE_ESTIMATE_BYTES,
 } from "../src/core/archive-fetch";
-import { BackendError, type RemoteEntry } from "../src/core/backend";
+import { type ArchiveContents, BackendError, type EntrySource, type RemoteEntry } from "../src/core/backend";
 import { FetchLimitWatch } from "../src/core/fetch-quota";
 import { type PullDeps, type PullProgress, type PullResult, runPull } from "../src/core/pull";
+import type { SourcedFile } from "../src/core/pull-io";
 import { readBaseRevision, type StateStore } from "../src/core/state";
 import { blobHash, bytes, type FileContent, MemoryBackend } from "./support/memory-backend";
 import { MemoryPullVault } from "./support/memory-pull-vault";
@@ -1452,5 +1454,274 @@ describe("an archive a stopped pull left on its way", () => {
 		expect(result.outcome).toBe("completed");
 		expect(h.perFile).toEqual([["notes/1001.md"]]);
 		expect(h.progress.some((event) => event.archive === "waiting")).toBe(false);
+	});
+});
+
+describe("the remote and its submodules, one place at a time", () => {
+	const REVISION = "a".repeat(40);
+	const lib: EntrySource = { submodule: "lib", repository: "octo/lib", revision: "c".repeat(40) };
+	const other: EntrySource = { submodule: "vendor/other", repository: "octo/other", revision: "d".repeat(40) };
+
+	/** A file whose content is its path, of the remote itself or below a submodule. */
+	function fileOf(path: string, source?: EntrySource): RemoteEntry {
+		return {
+			path,
+			kind: "file",
+			hash: blobHash(path),
+			size: bytes(path).length,
+			...(source === undefined ? {} : { source }),
+		};
+	}
+
+	/** `count` files below `folder`, each read from `source`. */
+	function filesOf(folder: string, count: number, source?: EntrySource): RemoteEntry[] {
+		return Array.from({ length: count }, (_, i) => fileOf(`${folder}/${String(i + 1).padStart(4, "0")}.md`, source));
+	}
+
+	/** The place an archive was asked of: the remote itself, or the submodule. */
+	const placeOf = (source: EntrySource | undefined): string => (source === undefined ? "remote" : source.submodule);
+
+	interface Setup {
+		readonly store: MemoryStateStore;
+		/** What happened, in order: each request for an archive, and each call for files one at a time with how many. */
+		readonly events: string[];
+		/** The arguments each request for an archive was made with. */
+		readonly requests: unknown[][];
+		readonly perFile: string[][];
+		readonly logs: string[];
+		/** Places whose archive fails. */
+		readonly failing: Set<string>;
+		fetch(entries: readonly RemoteEntry[]): Promise<SourcedFile[]>;
+	}
+
+	/** A source over a remote whose listing is `listing`, with an archive for each place. */
+	function setup(listing: readonly RemoteEntry[]): Setup {
+		const store = new MemoryStateStore();
+		const events: string[] = [];
+		const requests: unknown[][] = [];
+		const perFile: string[][] = [];
+		const logs: string[] = [];
+		const failing = new Set<string>();
+		const backend = {
+			hashContent: async (content: Uint8Array): Promise<string> => blobHash(content),
+			// By the arguments as they came, to see whether a source was given at all.
+			fetchArchive: async (...args: [string, EntrySource?]): Promise<ArchiveContents> => {
+				const [revision, source] = args;
+				requests.push(args);
+				events.push(`archive ${placeOf(source)} ${source === undefined ? revision : source.revision}`);
+				if (failing.has(placeOf(source))) throw new Error("zip: not a zip");
+				// What that place holds, and nothing of any other.
+				const held = new Set(
+					listing.filter((item) => item.source?.submodule === source?.submodule).map((item) => item.path),
+				);
+				return {
+					byteLength: 1,
+					sizeOf: (path) => (held.has(path) ? bytes(path).length : null),
+					read: (path) => bytes(path),
+				};
+			},
+		};
+		const source = archiveContentSource({
+			store,
+			backend,
+			listing: { revision: REVISION, entries: listing },
+			perFile: async function* (_revision, entries) {
+				perFile.push(entries.map((item) => item.path));
+				events.push(`one at a time ${entries.length}`);
+				for (const item of entries) yield { entry: item, content: bytes(item.path) };
+			},
+			log: (message) => logs.push(message),
+		});
+		return {
+			store,
+			events,
+			requests,
+			perFile,
+			logs,
+			failing,
+			async fetch(entries) {
+				const files: SourcedFile[] = [];
+				for await (const file of source(REVISION, entries)) files.push(file);
+				return files;
+			},
+		};
+	}
+
+	const pathsOf = (files: readonly SourcedFile[]): string[] => files.map((file) => file.entry.path);
+
+	test("many files below a submodule and a few of the remote: the archive of the submodule, and the few one at a time", async () => {
+		const own = filesOf("notes", 3);
+		const below = filesOf("lib", ARCHIVE_FILE_THRESHOLD + 1, lib);
+		const h = setup([...own, ...below]);
+		const files = await h.fetch([...below, ...own]);
+
+		// The remote itself first, though its files were asked for last.
+		expect(h.events).toEqual(["one at a time 3", `archive lib ${lib.revision}`]);
+		// With the revision of the listing, and the place the submodule points to.
+		expect(h.requests).toEqual([[REVISION, lib]]);
+		expect(h.perFile).toEqual([own.map((item) => item.path)]);
+		expect(pathsOf(files)).toEqual([...own, ...below].map((item) => item.path));
+		// Out of the archive, a file comes with its hash; one at a time, without.
+		expect(files.map((file) => file.hash !== undefined)).toEqual([...own.map(() => false), ...below.map(() => true)]);
+		expect(await h.store.getMeta(ARCHIVE_ATTEMPT_KEY)).toBeUndefined();
+	});
+
+	test("many files of the remote and a few below a submodule: the archive of the remote, asked without a source", async () => {
+		const own = filesOf("notes", ARCHIVE_FILE_THRESHOLD + 1);
+		const below = filesOf("lib", 3, lib);
+		const h = setup([...own, ...below]);
+		const files = await h.fetch([...below, ...own]);
+
+		expect(h.events).toEqual([`archive remote ${REVISION}`, "one at a time 3"]);
+		expect(h.requests).toEqual([[REVISION]]);
+		expect(h.perFile).toEqual([below.map((item) => item.path)]);
+		expect(pathsOf(files)).toEqual([...own, ...below].map((item) => item.path));
+	});
+
+	test("many of both: an archive for each, the remote's first, and the second asked for once the first is done with", async () => {
+		const own = filesOf("notes", ARCHIVE_FILE_THRESHOLD + 1);
+		const below = filesOf("lib", ARCHIVE_FILE_THRESHOLD + 1, lib);
+		const h = setup([...own, ...below]);
+		const seen: string[] = [];
+		// As the consumer sees it: every file of the remote, then the request for the second archive.
+		const source = archiveContentSource({
+			store: h.store,
+			backend: {
+				hashContent: async (content) => blobHash(content),
+				fetchArchive: async (_revision, from) => {
+					seen.push(`archive ${placeOf(from)}`);
+					return { byteLength: 1, sizeOf: (path) => bytes(path).length, read: (path) => bytes(path) };
+				},
+			},
+			listing: { revision: REVISION, entries: [...own, ...below] },
+			perFile: async function* () {
+				throw new Error("nothing is fetched one at a time");
+			},
+		});
+		for await (const file of source(REVISION, [...own, ...below])) seen.push(file.entry.source === undefined ? "own" : "below");
+		expect(seen.filter((what, index) => what !== seen[index - 1])).toEqual(["archive remote", "own", "archive lib", "below"]);
+	});
+
+	test("a few of both: no archive at all, and each place is asked for on its own", async () => {
+		const own = filesOf("notes", 2);
+		const below = filesOf("lib", 2, lib);
+		const h = setup([...own, ...below]);
+		const files = await h.fetch([below[0], own[0], below[1], own[1]] as RemoteEntry[]);
+		expect(h.requests).toEqual([]);
+		expect(h.perFile).toEqual([own.map((item) => item.path), below.map((item) => item.path)]);
+		expect(pathsOf(files)).toEqual([...own, ...below].map((item) => item.path));
+	});
+
+	test("nothing of the remote itself asked for: only the submodule is", async () => {
+		const below = filesOf("lib", 2, lib);
+		const h = setup([fileOf("a.md"), ...below]);
+		await h.fetch(below);
+		expect(h.events).toEqual(["one at a time 2"]);
+	});
+
+	test("nothing asked for: nothing is done", async () => {
+		const h = setup([fileOf("a.md"), ...filesOf("lib", 2, lib)]);
+		expect(await h.fetch([])).toEqual([]);
+		expect(h.events).toEqual([]);
+		expect(h.logs).toEqual([]);
+	});
+
+	test("two submodules are two places, each chosen by its own files, in the order met", async () => {
+		const many = filesOf("vendor/other", ARCHIVE_FILE_THRESHOLD + 1, other);
+		const few = filesOf("lib", 2, lib);
+		const h = setup([...few, ...many]);
+		const files = await h.fetch([...many, ...few]);
+		expect(h.events).toEqual([`archive vendor/other ${other.revision}`, "one at a time 2"]);
+		expect(h.requests).toEqual([[REVISION, other]]);
+		expect(pathsOf(files)).toEqual([...many, ...few].map((item) => item.path));
+	});
+
+	test("the files of a submodule are counted apart from the remote's: together over the threshold, neither is", async () => {
+		const own = filesOf("notes", 600);
+		const below = filesOf("lib", 600, lib);
+		const h = setup([...own, ...below]);
+		await h.fetch([...own, ...below]);
+		expect(h.events).toEqual(["one at a time 600", "one at a time 600"]);
+	});
+
+	test("the estimate of a submodule's archive counts only what the listing holds below it", async () => {
+		// Far over the limit, of the remote itself, and not asked for.
+		const huge: RemoteEntry = { ...fileOf("big/all.bin"), size: MAX_ARCHIVE_ESTIMATE_BYTES * 2 };
+		const below = filesOf("lib", ARCHIVE_FILE_THRESHOLD + 1, lib);
+		// Listed below the submodule and not asked for: it counts.
+		const kept = fileOf("lib/kept.png", lib);
+		const h = setup([huge, ...below, kept]);
+		await h.fetch(below);
+
+		expect(h.events).toEqual([`archive lib ${lib.revision}`]);
+		const estimate = estimateArchiveSize([...below, kept]);
+		expect(h.logs[0]).toBe(
+			`fetch: ${below.length} files to fetch of lib, archive estimated at ${estimate} bytes: archive`,
+		);
+	});
+
+	test("the estimate of the remote's archive leaves out what is below a submodule", async () => {
+		const own = filesOf("notes", ARCHIVE_FILE_THRESHOLD + 1);
+		const huge: RemoteEntry = { ...fileOf("lib/all.bin", lib), size: MAX_ARCHIVE_ESTIMATE_BYTES * 2 };
+		const h = setup([...own, huge]);
+		await h.fetch(own);
+
+		expect(h.events).toEqual([`archive remote ${REVISION}`]);
+		expect(h.logs[0]).toBe(
+			`fetch: ${own.length} files to fetch, archive estimated at ${estimateArchiveSize(own)} bytes: archive`,
+		);
+	});
+
+	test("a submodule whose archive is estimated over the limit is fetched one at a time, and the remote still by its archive", async () => {
+		const own = filesOf("notes", ARCHIVE_FILE_THRESHOLD + 1);
+		const below = filesOf("lib", ARCHIVE_FILE_THRESHOLD + 1, lib);
+		const huge: RemoteEntry = { ...fileOf("lib/all.bin", lib), size: MAX_ARCHIVE_ESTIMATE_BYTES * 2 };
+		const h = setup([...own, ...below, huge]);
+		await h.fetch([...own, ...below]);
+		expect(h.events).toEqual([`archive remote ${REVISION}`, `one at a time ${below.length}`]);
+	});
+
+	test("the estimate of one submodule leaves out what is below another", async () => {
+		const below = filesOf("lib", ARCHIVE_FILE_THRESHOLD + 1, lib);
+		const huge: RemoteEntry = { ...fileOf("vendor/other/all.bin", other), size: MAX_ARCHIVE_ESTIMATE_BYTES * 2 };
+		const h = setup([...below, huge]);
+		await h.fetch(below);
+		expect(h.events).toEqual([`archive lib ${lib.revision}`]);
+	});
+
+	test("an archive of a submodule that fails: its files are fetched one at a time, and the remote's were not touched by it", async () => {
+		const own = filesOf("notes", ARCHIVE_FILE_THRESHOLD + 1);
+		const below = filesOf("lib", ARCHIVE_FILE_THRESHOLD + 1, lib);
+		const h = setup([...own, ...below]);
+		h.failing.add("lib");
+		const files = await h.fetch([...own, ...below]);
+
+		expect(h.events).toEqual([`archive remote ${REVISION}`, `archive lib ${lib.revision}`, `one at a time ${below.length}`]);
+		expect(pathsOf(files)).toEqual([...own, ...below].map((item) => item.path));
+		// Not a failure that says anything of the device, and no mark is left.
+		expect(await isArchiveDisabled(h.store)).toBe(false);
+		expect(await h.store.getMeta(ARCHIVE_ATTEMPT_KEY)).toBeUndefined();
+	});
+
+	test("a file the archive of a submodule does not hold as the listing does is fetched one at a time, after the rest of that place", async () => {
+		const below = filesOf("lib", ARCHIVE_FILE_THRESHOLD + 1, lib);
+		// Another content than the archive gives for the path.
+		const changed: RemoteEntry = { ...(below[0] as RemoteEntry), hash: blobHash("another content") };
+		const asked = [changed, ...below.slice(1)];
+		const h = setup(asked);
+		const files = await h.fetch(asked);
+		expect(h.events).toEqual([`archive lib ${lib.revision}`, "one at a time 1"]);
+		expect(h.perFile).toEqual([[changed.path]]);
+		expect(pathsOf(files)).toEqual([...below.slice(1), changed].map((item) => item.path));
+	});
+
+	test("a device that remembers not to use the archive uses none, of the remote or of a submodule", async () => {
+		const own = filesOf("notes", ARCHIVE_FILE_THRESHOLD + 1);
+		const below = filesOf("lib", ARCHIVE_FILE_THRESHOLD + 1, lib);
+		const h = setup([...own, ...below]);
+		await h.store.setMeta(ARCHIVE_DISABLED_KEY, true);
+		await h.fetch([...own, ...below]);
+		expect(h.requests).toEqual([]);
+		expect(h.events).toEqual([`one at a time ${own.length}`, `one at a time ${below.length}`]);
 	});
 });

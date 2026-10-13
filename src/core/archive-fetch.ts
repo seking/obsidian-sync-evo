@@ -21,7 +21,14 @@
 // can be used is a matter of the device and not of the remote, which is why
 // none of this is in a backend.
 
-import { type ArchiveContents, type Backend, BackendError, type RemoteEntry, type RemoteListing } from "./backend";
+import {
+	type ArchiveContents,
+	type Backend,
+	BackendError,
+	type EntrySource,
+	type RemoteEntry,
+	type RemoteListing,
+} from "./backend";
 import { type ContentSource, SourcedStateError, type SourcedFile } from "./pull-io";
 import type { StateStore } from "./state";
 
@@ -330,22 +337,52 @@ export interface ArchiveSourceDeps {
  *
  * A failure of the sync state is not one of the fetching: it is thrown as a
  * `SourcedStateError`, and ends the pull.
+ *
+ * What a submodule holds is in an archive of its own, of the place it
+ * points to (`EntrySource`). So the entries asked for are taken one place
+ * at a time, the remote itself first, and all of the above is done for
+ * each: the means are chosen by the files asked of that place and by the
+ * estimate of its archive, and no two archives are held at once.
  */
 export function archiveContentSource(deps: ArchiveSourceDeps): ContentSource {
-	return (revision, entries) => fetchByMeans(deps, revision, entries);
+	return async function* (revision, entries) {
+		for (const [source, asked] of bySource(entries)) yield* fetchByMeans(deps, revision, asked, source);
+	};
+}
+
+// The entries by the place they are read from, the remote itself first and
+// then each submodule in the order met. `undefined` is the remote itself.
+function bySource(entries: readonly RemoteEntry[]): [EntrySource | undefined, RemoteEntry[]][] {
+	const groups = new Map<string, [EntrySource | undefined, RemoteEntry[]]>();
+	groups.set("", [undefined, []]);
+	for (const entry of entries) {
+		const key = entry.source === undefined ? "" : `${entry.source.submodule}\n${entry.source.revision}`;
+		const group = groups.get(key);
+		if (group === undefined) groups.set(key, [entry.source, [entry]]);
+		else group[1].push(entry);
+	}
+	return [...groups.values()].filter(([, asked]) => asked.length > 0);
+}
+
+// Whether an entry of the listing is in the archive of a place.
+function isOf(entry: RemoteEntry, source: EntrySource | undefined): boolean {
+	if (source === undefined) return entry.source === undefined;
+	return entry.source?.submodule === source.submodule && entry.source.revision === source.revision;
 }
 
 async function* fetchByMeans(
 	deps: ArchiveSourceDeps,
 	revision: string | null,
 	entries: readonly RemoteEntry[],
+	source: EntrySource | undefined,
 ): AsyncGenerator<SourcedFile, void, void> {
 	const { backend, signal } = deps;
 	const store = stateOf(deps.store);
 	const log = deps.log ?? ((): void => {});
+	const place = source === undefined ? "" : ` of ${source.submodule}`;
 
 	const allowed = deps.allowed ?? true;
-	const estimate = estimateArchiveSize(deps.listing.entries);
+	const estimate = estimateArchiveSize(deps.listing.entries.filter((entry) => isOf(entry, source)));
 	let left = await readAttempt(store);
 	const disabled = await isArchiveDisabled(store);
 	let ceiling = await readArchiveCeiling(store);
@@ -380,7 +417,7 @@ async function* fetchByMeans(
 		? ", archive not used on this platform"
 		: `${disabled ? ", archive not used on this device" : ""}` +
 			`${ceiling === null ? "" : `, not used from ${ceiling} bytes on`}`;
-	log(`fetch: ${entries.length} files to fetch, archive estimated at ${estimate} bytes${why}: ${means}`);
+	log(`fetch: ${entries.length} files to fetch${place}, archive estimated at ${estimate} bytes${why}: ${means}`);
 	if (revision === null || fetchArchive === undefined || means === "per-file") {
 		// A mark that is left stays for the next time the archive is chosen.
 		yield* deps.perFile(revision, entries);
@@ -423,7 +460,7 @@ async function* fetchByMeans(
 		} else {
 			deps.onDownload?.(left === null ? "downloading" : "retrying");
 			try {
-				const request = fetchArchive(revision);
+				const request = source === undefined ? fetchArchive(revision) : fetchArchive(revision, source);
 				deps.gate?.hold(request);
 				archive = await untilAborted(request, signal);
 			} catch (error) {

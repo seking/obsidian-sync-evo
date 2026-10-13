@@ -15,6 +15,41 @@
 
 export type EntryKind = "file" | "symlink" | "submodule";
 
+/**
+ * Why what is inside a submodule is not in a listing.
+ *
+ * - "not-supported": the place it points to is one this remote cannot read
+ *   (another host), or the remote does not say where it points to.
+ * - "no-access": the place is out of sight of the credentials, or not there.
+ * - "no-commit": the place is in sight and does not hold the commit the
+ *   submodule points to, as when it was not pushed there yet.
+ * - "too-large": what the commit holds could not be listed whole.
+ * - "nested": it is a submodule inside a submodule.
+ */
+export type SubmoduleSkip = "not-supported" | "no-access" | "no-commit" | "too-large" | "nested";
+
+/** What a listing says of a submodule beside the commit it points to. */
+export type SubmoduleContents =
+	/** Everything the commit holds is in the listing, below the path of the submodule (`RemoteEntry.source`). */
+	| { readonly listed: true; readonly repository: string }
+	/** Nothing below the path of the submodule is in the listing, which says nothing of what is there. */
+	| { readonly listed: false; readonly reason: SubmoduleSkip; readonly repository?: string };
+
+/**
+ * Where the content of an entry is when the remote itself does not hold it:
+ * the place a submodule points to. An entry that has one is read from
+ * there, and is never written: a push leaves what is below a submodule as
+ * it is.
+ */
+export interface EntrySource {
+	/** The path of the submodule the entry is below, as the remote spells it. */
+	readonly submodule: string;
+	/** The place, as the backend names it (`owner/name`). */
+	readonly repository: string;
+	/** The commit of that place the entry is of. */
+	readonly revision: string;
+}
+
 export interface RemoteEntry {
 	/** Path from the root, spelled exactly as the remote has it. */
 	readonly path: string;
@@ -26,6 +61,10 @@ export interface RemoteEntry {
 	readonly hash: string;
 	/** Size in bytes, when the listing provides it. */
 	readonly size?: number;
+	/** Of a submodule: whether what is inside it is in the listing. Absent on a remote that never lists it. */
+	readonly contents?: SubmoduleContents;
+	/** Of an entry below a submodule: where it is read from. */
+	readonly source?: EntrySource;
 }
 
 export interface RemoteListing {
@@ -290,8 +329,12 @@ export interface Backend {
 	 *
 	 * The revision is the one a listing was taken from, so that what is
 	 * fetched cannot be newer than what was listed.
+	 *
+	 * With `source`, what the place a submodule points to holds at the
+	 * commit of the source, under the paths the listing has for it: below
+	 * the path of the submodule.
 	 */
-	fetchArchive?(revision: string): Promise<ArchiveContents>;
+	fetchArchive?(revision: string, source?: EntrySource): Promise<ArchiveContents>;
 
 	/**
 	 * The content that has `hash`, whichever revision named it: what a file

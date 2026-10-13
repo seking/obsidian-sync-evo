@@ -14,7 +14,7 @@
 // no I/O and knows nothing about any particular backend.
 
 import type { EntryKind, RemoteEntry } from "./backend";
-import { type Exclusion, type HardExclusion, type KnownPaths, knownPaths } from "./exclusion";
+import { type Exclusion, type HardExclusion, type KnownPaths, knownPaths, ruleMatchesFolder } from "./exclusion";
 import { foldedKey, isPathFromRoot, pathKey } from "./paths";
 
 export interface LocalEntry {
@@ -101,8 +101,20 @@ export type SkipReason =
 	| "symlink"
 	/** The remote or a record holds the path as a submodule. */
 	| "submodule"
-	/** Below a path that the remote or a record holds as a symlink or a submodule. */
+	/**
+	 * Below a path that the remote or a record holds as a symlink, or as a
+	 * submodule whose inside is not synced: one the listing does not hold
+	 * the inside of (`RemoteEntry.contents`), or one a rule matches.
+	 */
 	| "under-non-file"
+	/**
+	 * Below a submodule whose inside is synced, and changed in the vault
+	 * alone: edited, added, or deleted there. What is below a submodule is
+	 * only ever read, so the change is not sent, and the record stays as
+	 * the remote has the path. Should the remote change it too, that is a
+	 * conflict, and the vault's content is not written over.
+	 */
+	| "in-submodule"
 	/**
 	 * A file larger than the limit, on the remote or in the vault. It is not
 	 * fetched, sent, or deleted, and its record stays as it is. The side
@@ -193,6 +205,17 @@ export function planSync(input: PlanInput): SyncPlan {
 			if (kind !== undefined && kind !== "file") nonFiles.set(key, kind);
 		}
 	}
+	// The submodules whose inside the listing holds, and that no rule
+	// matches: what is below one is compared like any file, and only what
+	// would change the remote is turned away. Every other key of `nonFiles`
+	// is closed: nothing below it is looked at.
+	const open = new Set<string>();
+	for (const [key, entries] of remote) {
+		const [entry] = entries;
+		if (entries.length !== 1 || entry === undefined || entry.kind !== "submodule") continue;
+		if (entry.contents?.listed === true && !ruleMatchesFolder(input.exclusion, key)) open.add(key);
+	}
+	const closed = new Set([...nonFiles.keys()].filter((key) => !open.has(key)));
 
 	const collided = new Set(caseCollisions(input.remote).map((collision) => collision.folded));
 	const sizeLimit = input.sizeLimit ?? DEFAULT_SIZE_LIMIT;
@@ -215,7 +238,7 @@ export function planSync(input: PlanInput): SyncPlan {
 			? "invalid-path"
 			: (input.exclusion.hardExclusionOf(key) ??
 				(input.held?.has(foldedKey(key)) === true ? "held" : undefined) ??
-				skipReason(key, [onRemote, onLocal, onRecords], collided, nonFiles) ??
+				skipReason(key, [onRemote, onLocal, onRecords], collided, nonFiles, closed) ??
 				(isTooLarge(onRemote, sizeLimit) || isTooLarge(onLocal, sizeLimit) ? "too-large" : undefined));
 		if (reason !== undefined) {
 			skipped.push({ key, reason, remote: onRemote, local: onLocal, records: onRecords });
@@ -229,6 +252,8 @@ export function planSync(input: PlanInput): SyncPlan {
 		const action = decided === undefined ? decided : applyRules(decided, input.exclusion, known);
 		if (action === "excluded") {
 			skipped.push({ key, reason: "excluded", remote: onRemote, local: onLocal, records: onRecords });
+		} else if (action !== undefined && isPushOnly(action) && isUnderAnyOf(key, open)) {
+			skipped.push({ key, reason: "in-submodule", remote: onRemote, local: onLocal, records: onRecords });
 		} else if (action !== undefined) {
 			actions.push(action);
 		}
@@ -254,13 +279,19 @@ function skipReason(
 	sides: readonly (readonly unknown[])[],
 	collided: ReadonlySet<string>,
 	nonFiles: ReadonlyMap<string, "symlink" | "submodule">,
+	closed: ReadonlySet<string>,
 ): SkipReason | undefined {
 	if (sides.some((entries) => entries.length > 1)) return "duplicate-path";
 	if (isAtOrUnderCollision(key, collided)) return "case-collision";
 	const kind = nonFiles.get(key);
 	if (kind !== undefined) return kind;
-	if (isUnderAnyOf(key, nonFiles)) return "under-non-file";
+	if (isUnderAnyOf(key, closed)) return "under-non-file";
 	return undefined;
+}
+
+// What a push does, and a pull leaves as it is.
+function isPushOnly(action: SyncAction): boolean {
+	return action.type === "upload" || action.type === "delete-remote";
 }
 
 function isTooLarge(entries: readonly { readonly size?: number }[], limit: number): boolean {
@@ -334,9 +365,10 @@ function isAtOrUnderCollision(key: string, collided: ReadonlySet<string>): boole
 	return collided.has(key.toLowerCase());
 }
 
-// A symlink or a submodule has no files of its own in the listing, so a path
-// below one on any side is a leftover or a mistake. Sending it would replace
-// the symlink or submodule with a folder.
+// A symlink has no files of its own in the listing, and neither has a
+// submodule whose inside is not listed, so a path below one on any side is a
+// leftover or a mistake. Sending it would replace the symlink or submodule
+// with a folder.
 function isUnderAnyOf(key: string, parents: { readonly size: number; has(key: string): boolean }): boolean {
 	if (parents.size === 0) return false;
 	for (let slash = key.indexOf("/"); slash !== -1; slash = key.indexOf("/", slash + 1)) {

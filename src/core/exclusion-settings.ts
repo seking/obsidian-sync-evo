@@ -397,6 +397,9 @@ export const SCREEN_NOTICE_KINDS: readonly NoticeKind[] = [
 	"own-folder-on-remote",
 	"git-at-root",
 	"submodule",
+	"submodule-no-access",
+	"submodule-no-commit",
+	"submodule-not-sent",
 ];
 
 /** Everything this part of the screen shows. */

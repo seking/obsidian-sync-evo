@@ -118,6 +118,13 @@ export interface GitHubClientOptions {
 	readonly log?: (message: string) => void;
 }
 
+/** A repository of GitHub, by the two parts of its name. */
+export type RepositoryName = Pick<GitHubClientOptions, "owner" | "repo">;
+
+function repositoryUrl(name: RepositoryName): string {
+	return `${API}/repos/${encodeURIComponent(name.owner)}/${encodeURIComponent(name.repo)}`;
+}
+
 /** Which head an answer was about: the branch, and the token it was asked with. */
 type HeadKey = Pick<GitHubClientOptions, "owner" | "repo" | "branch" | "token">;
 
@@ -288,7 +295,7 @@ export class GitHubClient {
 
 	constructor(options: GitHubClientOptions) {
 		this.options = options;
-		this.repoUrl = `${API}/repos/${encodeURIComponent(options.owner)}/${encodeURIComponent(options.repo)}`;
+		this.repoUrl = repositoryUrl(options);
 		// A branch name may contain slashes, which stay as path separators.
 		this.branchPath = options.branch.split("/").map(encodeURIComponent).join("/");
 	}
@@ -357,9 +364,9 @@ export class GitHubClient {
 		throw this.failure(what, response);
 	}
 
-	async getCommit(sha: string): Promise<GitCommit> {
+	async getCommit(sha: string, other?: RepositoryName): Promise<GitCommit> {
 		const what = "get commit";
-		const json = await this.json(what, this.get(`/git/commits/${this.sha(what, sha)}`), 200);
+		const json = await this.json(what, this.get(`/git/commits/${this.sha(what, sha)}`, undefined, other), 200);
 		const tree = isRecord(json.tree) ? json.tree.sha : undefined;
 		const parents = Array.isArray(json.parents)
 			? json.parents.map((parent: unknown) => (isRecord(parent) ? parent.sha : undefined))
@@ -375,9 +382,10 @@ export class GitHubClient {
 	 * when GitHub cut the answer short: syncing from part of a listing would
 	 * take the missing files for deleted ones.
 	 */
-	async getTree(sha: string): Promise<GitTreeItem[]> {
+	async getTree(sha: string, other?: RepositoryName): Promise<GitTreeItem[]> {
 		const what = "get tree";
-		const json = await this.json(what, this.get(`/git/trees/${this.sha(what, sha)}?recursive=1`), 200, this.zipTimeout);
+		const tree = this.get(`/git/trees/${this.sha(what, sha)}?recursive=1`, undefined, other);
+		const json = await this.json(what, tree, 200, this.zipTimeout);
 		if (json.truncated === true) {
 			throw new BackendError("incomplete-listing", `${what}: the tree is too large to be listed in one response`);
 		}
@@ -412,10 +420,10 @@ export class GitHubClient {
 	 * it sets how long the download may take, and it is handed to the HTTP
 	 * function as what to expect (`HttpRequest.expectedBytes`).
 	 */
-	async getBlob(sha: string, size = 0): Promise<Uint8Array> {
+	async getBlob(sha: string, size = 0, other?: RepositoryName): Promise<Uint8Array> {
 		const what = "get blob";
 		// The raw media type returns the bytes themselves instead of base64 in JSON.
-		const blob = this.get(`/git/blobs/${this.sha(what, sha)}`, "application/vnd.github.raw+json");
+		const blob = this.get(`/git/blobs/${this.sha(what, sha)}`, "application/vnd.github.raw+json", other);
 		const request: HttpRequest = size > 0 ? { ...blob, expectedBytes: size } : blob;
 		const response = await this.send(what, request, this.transferTimeout(size));
 		if (response.status !== 200) throw this.failure(what, response);
@@ -428,11 +436,30 @@ export class GitHubClient {
 	 * answers with a redirect to another host; following it is left to the
 	 * HTTP function, and a platform that does not follow it gets a failure.
 	 */
-	async getZip(commitSha: string): Promise<ArrayBuffer> {
+	async getZip(commitSha: string, other?: RepositoryName): Promise<ArrayBuffer> {
 		const what = "get zip";
-		const response = await this.send(what, this.get(`/zipball/${this.sha(what, commitSha)}`), this.zipTimeout);
+		const zip = this.get(`/zipball/${this.sha(what, commitSha)}`, undefined, other);
+		const response = await this.send(what, zip, this.zipTimeout);
 		if (response.status !== 200) throw this.failure(what, response);
 		return response.body;
+	}
+
+	/**
+	 * Whether the token sees another repository. GitHub answers 404 for one
+	 * that is not there and for one the token may not read alike; either is
+	 * a "no". Every other failure to find out is thrown.
+	 */
+	async sees(other: RepositoryName): Promise<boolean> {
+		const what = "check repository";
+		const response = await this.send(what, this.get("", undefined, other));
+		if (response.status === 200) return true;
+		if (response.status === 404 || response.status === 403) return false;
+		throw this.failure(what, response);
+	}
+
+	/** The repository this client is of. */
+	get repository(): RepositoryName {
+		return { owner: this.options.owner, repo: this.options.repo };
 	}
 
 	/** The configured branch. */
@@ -587,14 +614,15 @@ export class GitHubClient {
 		throw this.malformed(what);
 	}
 
-	private get(path: string, accept = "application/vnd.github+json"): HttpRequest {
+	// `other`: asked of another repository than the configured one, with the same token.
+	private get(path: string, accept = "application/vnd.github+json", other?: RepositoryName): HttpRequest {
 		// GitHub lets a response be reused for 60 seconds, and the desktop app
 		// does so: a pull right after a push from another device was answered
 		// with the old head, from the cache, without a request. Asking for the
 		// cache to be checked against the server each time costs nothing where
 		// the answer is unchanged.
 		return {
-			url: this.repoUrl + path,
+			url: (other === undefined ? this.repoUrl : repositoryUrl(other)) + path,
 			method: "GET",
 			headers: { ...this.headers(accept), "Cache-Control": "no-cache" },
 		};

@@ -43,6 +43,7 @@ import { blobHash, type FileContent, MemoryBackend } from "./support/memory-back
 import { MemoryIndex } from "./support/memory-index";
 import { MemoryPullVault, type VaultOp } from "./support/memory-pull-vault";
 import { MemoryStateStore } from "./support/memory-state-store";
+import { listSubmodules, type TestSubmodule } from "./support/submodule-listing";
 import { earlierCopyPath } from "./support/earlier-copy-name";
 
 const paths = { configDir: ".obsidian", pluginDir: ".obsidian/plugins/sync-evo" };
@@ -50,6 +51,8 @@ const paths = { configDir: ".obsidian", pluginDir: ".obsidian/plugins/sync-evo" 
 /** A remote a test can bend: symlinks and submodules, and a count of what it was asked. */
 class TestBackend extends MemoryBackend {
 	readonly kinds = new Map<string, EntryKind>();
+	/** The submodules of a remote that lists what is inside them (`listSubmodules`). */
+	readonly listed = new Map<string, TestSubmodule>();
 	/** How many times the whole remote was listed, and not just found unchanged. */
 	listings = 0;
 	pushes = 0;
@@ -76,7 +79,7 @@ class TestBackend extends MemoryBackend {
 		if (!listed.changed) return listed;
 		this.listings += 1;
 		const entries = listed.listing.entries.map((entry) => ({ ...entry, kind: this.kinds.get(entry.path) ?? entry.kind }));
-		return { changed: true, listing: { revision: listed.listing.revision, entries } };
+		return { changed: true, listing: { revision: listed.listing.revision, entries: listSubmodules(entries, this.listed) } };
 	}
 
 	override async push(request: Parameters<MemoryBackend["push"]>[0]): ReturnType<MemoryBackend["push"]> {
@@ -100,7 +103,7 @@ class TestBackend extends MemoryBackend {
 		const pushed = await super.push({ ...request, writes });
 		if (pushed.status !== "pushed" || pushed.listing === undefined) return pushed;
 		const entries = pushed.listing.entries.map((entry) => ({ ...entry, kind: this.kinds.get(entry.path) ?? entry.kind }));
-		return { ...pushed, listing: { revision: pushed.listing.revision, entries } };
+		return { ...pushed, listing: { revision: pushed.listing.revision, entries: listSubmodules(entries, this.listed) } };
 	}
 }
 
@@ -4604,5 +4607,36 @@ describe("a file that is being typed in, in a sync that started by itself", () =
 		expect((await h.push()).outcome).toBe("pushed");
 
 		expect(await h.remote()).toEqual({ "a.md": "typed and saved by the push" });
+	});
+});
+
+describe("a submodule whose inside the remote lists", () => {
+	test("what was changed inside it is not sent, is told once, and everything else is sent", async () => {
+		const h = harness();
+		h.backend.listed.set("knowledge", { repository: "octo/knowledge", revision: "c".repeat(40) });
+		h.backend.commit({ "a.md": "A", "knowledge/n.md": "N", "knowledge/gone.md": "G" });
+		expect((await h.pull()).outcome).toBe("completed");
+		h.vault.put("a.md", "A2");
+		h.vault.put("knowledge/n.md", "mine");
+		h.vault.put("knowledge/added.md", "new here");
+		h.vault.remove("knowledge/gone.md");
+
+		const first = await h.push();
+
+		expect(first).toMatchObject({
+			outcome: "pushed",
+			counts: { added: 0, modified: 1, deleted: 0 },
+			notices: [
+				{ kind: "submodule-not-sent", path: "knowledge/added.md" },
+				{ kind: "submodule-not-sent", path: "knowledge/gone.md" },
+				{ kind: "submodule-not-sent", path: "knowledge/n.md" },
+			],
+		});
+		expect(await h.remote()).toEqual({ "a.md": "A2", "knowledge/n.md": "N", "knowledge/gone.md": "G" });
+		expect(await h.records()).toEqual(hashes({ "a.md": "A2", "knowledge/n.md": "N", "knowledge/gone.md": "G" }));
+
+		expect(await h.push()).toMatchObject({ outcome: "nothing-to-push", notices: [] });
+		expect((await h.pull()).notices).toEqual([]);
+		expect(h.vault.text("knowledge/n.md")).toBe("mine");
 	});
 });

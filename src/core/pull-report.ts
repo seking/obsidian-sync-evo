@@ -593,6 +593,12 @@ function noticeText(
 			return [t("notice.fixedExclusionOff", { list: listText(t, paths, paths.length) })];
 		case "submodule":
 			return [t("notice.submodule", { list })];
+		case "submodule-no-access":
+			return [t("notice.submoduleNoAccess", { list })];
+		case "submodule-no-commit":
+			return [t("notice.submoduleNoCommit", { list })];
+		case "submodule-not-sent":
+			return [t("notice.submoduleNotSent", { list })];
 	}
 }
 
