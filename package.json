@@ -16,7 +16,7 @@
 	},
 	"scripts": {
 		"dev": "node esbuild.config.mjs",
-		"build": "tsc --noEmit && tsc --noEmit -p tests && node esbuild.config.mjs production",
+		"build": "tsc --noEmit && tsc --noEmit -p tests && eslint . && node esbuild.config.mjs production",
 		"test": "vitest run",
 		"lint": "eslint .",
 		"install:vault": "node scripts/install-to-vault.mjs",

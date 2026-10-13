@@ -152,7 +152,7 @@ Requires Node.js and npm.
 ```sh
 npm install
 npm run dev      # rebuild main.js on change
-npm run build    # type check, then production build of main.js
+npm run build    # type check and lint, then production build of main.js
 npm test         # unit tests
 ```
 
