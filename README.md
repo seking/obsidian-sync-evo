@@ -73,7 +73,7 @@ Sync Evo is not in the community plugin directory yet. Until it is, it can be in
    - **Repository**: as `owner/name`, or its address pasted from the browser.
    - **Branch**: the branch to sync with. Sync Evo does not create it.
    - **Token**: the secret that holds the token. It is kept in Obsidian's Keychain, and not in a file of the vault. On iPhone and Android, every vault on the device can link the same secret; on Windows and Mac, each vault has its own, and a vault that is removed from the list of vaults and opened again asks for the token again.
-   - **Device name**: it appears in commit messages and in the names of files kept from a conflict.
+   - **Device name**: it appears in commit messages and in the names of files kept as a separate copy of a conflict.
 3. Press **Test** under "Connection test". It tells you whether the token reaches the repository and the branch.
 4. Run **Sync** from the ribbon or the command palette. The first pull asks when files in the vault differ from the repository's, and the first push shows what it is about to send and asks.
 
@@ -92,11 +92,12 @@ The trash, the layout of the workspace, Sync Evo's own folder, and files an oper
 
 ### How it syncs
 
-All three are off until you switch them on, and are kept per device.
+These are kept per device. The three switches of automatic sync are off until you switch them on.
 
 - **Sync on startup**: syncs when Obsidian starts, and when you come back to it from another app, unless the last sync started less than 5 minutes ago.
 - **Sync at an interval**: syncs while Obsidian is in front, each time the interval (in minutes) has passed since the last sync started. After a sync that failed, the next one waits twice as long, up to an hour.
 - **Also send changes in automatic sync**: when off, automatic sync only pulls, and what you edit on the device is sent when you sync manually. When on, the interval is at least 5 minutes, since every push is a commit.
+- **On a conflict**: "Merge automatically", which is the default, or "Keep as a separate file". What each does is told under "What it does" above.
 
 ### Commands
 
