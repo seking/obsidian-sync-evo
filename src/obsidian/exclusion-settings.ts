@@ -145,6 +145,15 @@ class FolderSuggest extends AbstractInputSuggest<string> {
 	}
 }
 
+/** What scrolls the screen `el` is on: the nearest element above it that scrolls up and down. */
+function scrollerOf(el: HTMLElement): HTMLElement | null {
+	for (let above = el.parentElement; above !== null; above = above.parentElement) {
+		const { overflowY } = el.win.getComputedStyle(above);
+		if (overflowY === "auto" || overflowY === "scroll") return above;
+	}
+	return null;
+}
+
 export class ExclusionSettings {
 	private readonly app: App;
 	private readonly el: HTMLElement;
@@ -207,15 +216,24 @@ export class ExclusionSettings {
 	 * Reads the file and draws this part from it. What was drawn before
 	 * stays until the answer is there, so that a switch does not make the
 	 * screen jump.
+	 *
+	 * The screen is put back where it was scrolled to. Emptying takes the
+	 * groups away from the last one, and taking away the field or the button
+	 * that has the focus lays the screen out right then, with the groups
+	 * below it gone: a screen scrolled further down than that is moved up,
+	 * and stays there.
 	 */
 	async draw(): Promise<void> {
 		this.drawn += 1;
 		const drawn = this.drawn;
 		const load = await this.host.exclusionScreen();
 		if (drawn !== this.drawn) return;
+		const scroller = scrollerOf(this.el);
+		const scrolled = scroller?.scrollTop;
 		this.el.empty();
 		this.untrackButton = null;
 		this.render(load);
+		if (scroller !== null && scrolled !== undefined) scroller.scrollTop = scrolled;
 	}
 
 	private render(load: ExclusionLoad): void {
