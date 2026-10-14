@@ -268,7 +268,7 @@ export const en = baseCatalog({
 	"list.more": { one: "…and {count} more", other: "…and {count} more" },
 
 	// The commands.
-	"command.sync": "Sync (download, then upload)",
+	"command.sync": "Sync",
 	"command.pull": "Download changes from {remote}",
 	"command.push": "Upload changes to {remote}",
 	"command.firstFetch": "Start over (download everything from {remote} again)",

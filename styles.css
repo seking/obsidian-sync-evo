@@ -109,3 +109,22 @@
 	user-select: text;
 	-webkit-user-select: text;
 }
+
+/*
+ * The row of an excluded folder: the name, and the button that removes it
+ * beside it. On a phone the app puts the control of a setting under its name
+ * and as wide as the screen, which would make the cross a bar of its own.
+ */
+.is-phone .modal .setting-item.sync-evo-folder-row {
+	flex-direction: row;
+	align-items: center;
+}
+
+.is-phone .modal .setting-item.sync-evo-folder-row .setting-item-control {
+	flex: 0 0 auto;
+	width: auto;
+}
+
+.is-phone .modal .setting-item.sync-evo-folder-row .setting-item-control button {
+	width: auto;
+}

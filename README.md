@@ -112,7 +112,7 @@ These are kept per device. The three switches of automatic sync are off until yo
 
 | Command | What it does |
 | --- | --- |
-| Sync (download, then upload) | A download, and then an upload. |
+| Sync | A download, and then an upload. |
 | Download changes from GitHub | Only downloads from the repository. |
 | Upload changes to GitHub | Only uploads to the repository. A file the repository changed since this device last downloaded is not overwritten: it is left for the next download. A device has to download once before its first upload. |
 | Start over (download everything from GitHub again) | Compares the vault with the repository again, as a first download does. No file is deleted. |

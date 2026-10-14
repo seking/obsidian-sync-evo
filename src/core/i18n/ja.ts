@@ -236,7 +236,7 @@ export const ja = completeTranslation(en, {
 	"list.showRest": "残り {count} 件を表示",
 	"list.more": "…ほか {count} 件",
 
-	"command.sync": "同期する（ダウンロードしてからアップロード）",
+	"command.sync": "同期する",
 	"command.pull": "{remote} から変更をダウンロードする",
 	"command.push": "{remote} へ変更をアップロードする",
 	"command.firstFetch": "最初からやり直す（{remote} から全部ダウンロードし直す）",

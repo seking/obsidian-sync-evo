@@ -459,15 +459,16 @@ export class ExclusionSettings {
 				});
 		});
 		for (const folder of state.folders) {
-			// A cross, as other plugins have on a row of a list. The tooltip is
-			// also what a screen reader says of it.
-			new Setting(el).setName(folder).addExtraButton((button) => {
+			// A button with a cross, beside the name also on a phone (styles.css).
+			// The tooltip is also what a screen reader says of it.
+			const row = new Setting(el).setName(folder).addButton((button) => {
 				button
 					.setIcon("cross")
 					.setTooltip(t("settings.exclusion.folders.remove"))
 					.setDisabled(locked)
 					.onClick(() => void this.change(host.editExclusion({ kind: "remove-folder", folder })));
 			});
+			row.settingEl.addClass("sync-evo-folder-row");
 		}
 	}
 
