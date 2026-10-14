@@ -120,6 +120,20 @@
 	align-items: center;
 }
 
+/* A list of names: shorter rows than settings have, the name level with the button. */
+.setting-group .setting-item.sync-evo-folder-row {
+	padding-block: var(--size-4-2);
+}
+
+.setting-item.sync-evo-folder-row .setting-item-info {
+	align-self: center;
+}
+
+.setting-item.sync-evo-folder-row .setting-item-control button {
+	padding: var(--size-4-2);
+	height: auto;
+}
+
 .is-phone .modal .setting-item.sync-evo-folder-row .setting-item-control {
 	flex: 0 0 auto;
 	width: auto;
