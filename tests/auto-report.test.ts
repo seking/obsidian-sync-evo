@@ -234,7 +234,7 @@ describe("a pull that started by itself", () => {
 	test.each<[NonNullable<PullResult["waitingFor"]>, string]>([
 		["deletions", "Downloading would delete many files on this device"],
 		["rewritten", "The history of the repository was rewritten"],
-		["first-fetch", "The first download into this vault has not finished"],
+		["first-fetch", "The first download into this vault is not done yet"],
 	])("a wait for %s says under the heading that nothing was changed, and to sync manually", (waitingFor, start) => {
 		const report = pull({ outcome: "waiting", waitingFor });
 		expect(report).toMatchObject({ happened: [], cause: `pull:waiting:${waitingFor}`, end: "waiting" });
@@ -250,10 +250,10 @@ describe("a pull that started by itself", () => {
 	test("the wait for a first fetch is worded so that it is true with and without something to confirm", () => {
 		// Not begun at all, or begun and stopped, with a file that differs since.
 		expect(pull({ outcome: "waiting", waitingFor: "first-fetch" }).standing).toEqual([
-			`${HEADING}The first download into this vault has not finished. Nothing was changed. Sync manually to start it or carry on with it.`,
+			`${HEADING}The first download into this vault is not done yet. Nothing was changed. Sync manually to start it or carry on with it.`,
 		]);
 		const ja = pullAutoReport(translatorFor("ja"), pulled({ outcome: "waiting", waitingFor: "first-fetch" }), options);
-		expect(ja.standing[0]?.startsWith("自動同期：\nこの保管庫の最初のダウンロードが、まだ終わっていません。")).toBe(true);
+		expect(ja.standing[0]?.startsWith("自動同期：\nこの保管庫の最初のダウンロードが、まだ済んでいません。")).toBe(true);
 		expect(ja.standing[0]?.match(/自動同期/g)).toHaveLength(1);
 	});
 

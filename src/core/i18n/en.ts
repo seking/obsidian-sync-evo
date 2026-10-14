@@ -308,7 +308,7 @@ export const en = baseCatalog({
 	"auto.waiting.rewritten":
 		"The history of the repository was rewritten, so downloading needs your confirmation. Nothing was changed. Sync manually to be asked.",
 	"auto.waiting.firstFetch":
-		"The first download into this vault has not finished. Nothing was changed. Sync manually to start it or carry on with it.",
+		"The first download into this vault is not done yet. Nothing was changed. Sync manually to start it or carry on with it.",
 	"auto.waiting.firstPush":
 		"The first upload from this device needs your confirmation. Nothing was uploaded. Sync manually to be asked.",
 	"auto.waiting.pushDeletions":
@@ -447,7 +447,7 @@ export const en = baseCatalog({
 	"push.count.deleted": { one: "{count} file deleted", other: "{count} files deleted" },
 	"push.summary": "Upload finished: {details}.",
 	"push.nothing": "Nothing to upload. {remote} is up to date.",
-	"push.nothingSent": "Nothing was uploaded. Only files that cannot be uploaded now are left.",
+	"push.nothingSent": "Nothing was uploaded. Some files cannot be uploaded; the notices say why.",
 	"push.recovered":
 		"The previous upload had gone through: {details}. It is recorded on this device now.",
 	"push.recoveredUntrack": {
@@ -457,7 +457,7 @@ export const en = baseCatalog({
 	"push.pullFirst.noBase":
 		"Nothing was uploaded. This device has not finished its first download from {remote} yet. Download first, then upload.",
 	"push.pullFirst.remoteEmpty":
-		"Nothing was uploaded. The repository has no commits. This device has synced with this repository before, and the commits it had are gone. Download first to look at that.",
+		"Nothing was uploaded. This device has synced with this repository before, and the repository is empty now. Download first to look at that.",
 	"push.pullFirst.notDefaultBranch":
 		"Nothing was uploaded. The repository is empty. GitHub makes the first commit of an empty repository on its default branch, {branch}. Set the branch in the settings of Sync Evo to {branch}, or change the default branch of the repository on GitHub, then sync again.",
 	"push.pullFirst.gitignoreUnreadable":
@@ -465,7 +465,7 @@ export const en = baseCatalog({
 	"push.pullFirst.remoteMoved":
 		"Nothing was uploaded. Another device changed what is on {remote} after this upload began. Download first, then upload again.",
 	"push.pullFirst.gitignore":
-		"Nothing was uploaded. The .gitignore of this vault decides what is uploaded, and its content could not be relied on. If .gitignore is open, close it, then sync again.",
+		"Nothing was uploaded. The .gitignore of this vault decides what is uploaded, and its content could not be relied on. Sync again; if .gitignore is open in another app, close it first.",
 	"push.declined": "The upload was cancelled. Nothing was uploaded.",
 	"push.cancelled": "The upload was stopped. Nothing was uploaded.",
 	"push.connectionChanged": "The upload was stopped because the connection was changed. Nothing was uploaded.",
@@ -525,7 +525,7 @@ export const en = baseCatalog({
 	"untrack.confirm.mac":
 		"To keep the files where you use git on a computer, do not remove them here: run git rm --cached on that computer, and push from there. The next download then deletes these files from this device.",
 	"untrack.confirm.syncFirst":
-		"A download runs first. If the exclusions have not been uploaded yet, an upload runs too, and the other changes of this device go up with them.",
+		"A download runs first. If the exclusions have not been uploaded yet, an upload runs too, and the other changes of this device are uploaded with them.",
 	"untrack.confirm.missing": {
 		one: "{count} of these files is not on this device. If it is in the list, it is marked there. After it is removed, its content is only in the history on {remote}.",
 		other: "{count} of these files are not on this device. Those in the list are marked there. After they are removed, their content is only in the history on {remote}.",
@@ -559,11 +559,11 @@ export const en = baseCatalog({
 	},
 	"untrack.failed": "Removing from {remote} failed. {reason}",
 	"untrack.syncFirst.remoteEmpty":
-		"Nothing was removed from {remote}. The repository has no commits. Sync first, then try again in the settings of Sync Evo.",
+		"Nothing was removed from {remote}. The repository is empty now. Sync first, then try again in the settings of Sync Evo.",
 	"untrack.syncFirst.pullUnfinished":
 		"Nothing was removed from {remote}. This device has not downloaded everything yet. Sync until no file is left for later, then try again in the settings of Sync Evo.",
 	"untrack.syncFirst.gitignoreUnsettled":
-		"Nothing was removed from {remote}. The content of the .gitignore of this vault could not be relied on. If .gitignore is open, close it, sync, then try again in the settings of Sync Evo.",
+		"Nothing was removed from {remote}. The content of the .gitignore of this vault could not be relied on. Sync, then try again in the settings of Sync Evo; if .gitignore is open in another app, close it first.",
 	"untrack.syncFirst.gitignoreUnreadable":
 		"Nothing was removed from {remote}. The .gitignore of this vault cannot be read on this device. The settings of Sync Evo say why. Put that right, then try again.",
 	"untrack.syncFirst.noSection":
@@ -577,7 +577,7 @@ export const en = baseCatalog({
 	"untrack.skipped.pullCancelled":
 		"Nothing was removed from {remote}, because the download was stopped. The exclusions stay. You can remove the files later in the settings of Sync Evo.",
 	"untrack.skipped.pushNotDone":
-		"Nothing was removed from {remote}, because the exclusions could not be uploaded. They stay on this device. You can remove the files later in the settings of Sync Evo.",
+		"Nothing was removed from {remote}, because the upload did not go through. They stay on this device. You can remove the files later in the settings of Sync Evo.",
 
 	// Why there is no sync state to work with.
 	"state.waiting": "Preparing…",

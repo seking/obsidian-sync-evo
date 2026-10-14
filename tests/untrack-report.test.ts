@@ -109,7 +109,7 @@ describe("the question before untracking", () => {
 				text: "On your other devices, the next download deletes these files, except files that were changed on that device.",
 			},
 			{
-				text: "A download runs first. If the exclusions have not been uploaded yet, an upload runs too, and the other changes of this device go up with them.",
+				text: "A download runs first. If the exclusions have not been uploaded yet, an upload runs too, and the other changes of this device are uploaded with them.",
 			},
 			{
 				text: "To keep the files where you use git on a computer, do not remove them here: run git rm --cached on that computer, and push from there. The next download then deletes these files from this device.",
@@ -316,11 +316,11 @@ describe("how untracking after a sync ended", () => {
 			"Nothing was removed from GitHub, because the download was stopped. The exclusions stay. You can remove the files later in the settings of Sync Evo.",
 		);
 		expect(said("push-not-done")).toBe(
-			"Nothing was removed from GitHub, because the exclusions could not be uploaded. They stay on this device. You can remove the files later in the settings of Sync Evo.",
+			"Nothing was removed from GitHub, because the upload did not go through. They stay on this device. You can remove the files later in the settings of Sync Evo.",
 		);
 		expect(said("cancelled")).toBe("The removal was stopped. Nothing was removed from GitHub.");
 		expect(untrackSyncReport(ja, sync({ skipped: "push-not-done" })).summary).toBe(
-			"除外の設定をアップロードできなかったため、GitHub から削除していません。除外の設定は、このデバイスに残っています。後から、Sync Evo の設定画面で削除できます。",
+			"アップロードが済まなかったため、GitHub から削除していません。除外の設定は、このデバイスに残っています。後から、Sync Evo の設定画面で削除できます。",
 		);
 	});
 

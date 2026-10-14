@@ -828,7 +828,7 @@ describe("what the user has to know", () => {
 		expect(report.details).toEqual([
 			"下位のフォルダに .gitignore があります。Sync Evo は、これらを通常のファイルとして同期しますが、規則としては読みません。何を同期するかは、保管庫のルートの .gitignore だけで決まります。パソコンの git はこれらの規則も使うため、同じ保管庫でも効き方が違います。要る規則は、ルートの .gitignore に書いてください：\nnotes/.gitignore",
 			// Not cut off at five, like a list of paths: which lines are off is what there is to tell.
-			`ゴミ箱、画面の配置のファイル、OS が残すファイルなど、除外していた物が、今は同期されます。除外していた .gitignore の下の行（Sync Evo が管理する行）が、消されたか、後ろの行で打ち消されているためです。Sync Evo 自身のフォルダだけは、Sync Evo は同期しませんが、パソコンの git ではコミットされます。消した行は、Sync Evo の設定画面で元に戻せます。! で始まる行で打ち消している時は、その行を直してください：\n${off.join("\n")}`,
+			`ゴミ箱、画面の配置のファイル、OS が残すファイルなど、除外していた物が、今は同期されます。下に示す .gitignore の行（Sync Evo が管理する行）で除外していましたが、その行が消されたか、後ろの行で打ち消されています。Sync Evo 自身のフォルダだけは、Sync Evo は同期しませんが、パソコンの git ではコミットされます。消した行は、Sync Evo の設定画面で元に戻せます。! で始まる行で打ち消している時は、その行を直してください：\n${off.join("\n")}`,
 		]);
 	});
 

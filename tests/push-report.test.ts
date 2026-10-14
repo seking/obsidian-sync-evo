@@ -433,7 +433,7 @@ describe("how a push ended", () => {
 
 	test("nothing sent while files were left unsent is not called up to date", () => {
 		const report = pushReport(t, result({ outcome: "nothing-to-push", revision: null, held: ["a.md"] }), options);
-		expect(report.summary).toBe("Nothing was uploaded. Only files that cannot be uploaded now are left.");
+		expect(report.summary).toBe("Nothing was uploaded. Some files cannot be uploaded; the notices say why.");
 		expect(report.details).toEqual([
 			"1 file was not uploaded: a download has not finished with it, or it is open and could not be saved. Sync again:\na.md",
 		]);
@@ -444,7 +444,7 @@ describe("how a push ended", () => {
 			pushReport(t, result({ outcome: "pull-first", revision: null, ...(reason === undefined ? {} : { reason }) }), options)
 				.summary;
 		expect(summary("no-base")).toContain("has not finished its first download");
-		expect(summary("remote-empty")).toContain("The repository has no commits");
+		expect(summary("remote-empty")).toContain("the repository is empty now");
 		expect(summary("not-default-branch")).toContain("The repository is empty");
 		expect(summary("remote-moved")).toContain("Another device changed what is on GitHub after this upload began");
 		expect(summary("gitignore-unsettled")).toContain(".gitignore");
@@ -538,7 +538,7 @@ describe("how a push ended", () => {
 
 	test("the texts that say what to do about a .gitignore that could not be relied on, and about files left out", () => {
 		const gitignore = pushReport(t, result({ outcome: "pull-first", revision: null, reason: "gitignore-unsettled" }), options).summary;
-		expect(gitignore).toContain("If .gitignore is open, close it, then sync again.");
+		expect(gitignore).toContain("Sync again; if .gitignore is open in another app, close it first.");
 		const leftOut = pushReport(t, result({ leftOut: [{ path: "a.md", reason: "save-failed" }] }), options).details;
 		expect(leftOut).toEqual([
 			"1 file was left out: it changed or could not be read while the upload ran, or it is open and could not be saved. The next upload looks at it again:\na.md",
@@ -590,7 +590,7 @@ describe("how a push ended", () => {
 				}),
 				options,
 			);
-		expect(said(t).summary).toBe("Nothing was uploaded. Only files that cannot be uploaded now are left.");
+		expect(said(t).summary).toBe("Nothing was uploaded. Some files cannot be uploaded; the notices say why.");
 		expect(said(t).details).toEqual([
 			"1 new file was not uploaded: it is not on this device yet (a cloud drive keeps only a placeholder). Have the cloud drive keep it on this device, then sync again:\nnotes/new.md",
 			"1 file was left out: it changed or could not be read while the upload ran, or it is open and could not be saved. The next upload looks at it again:\nbad.md",
