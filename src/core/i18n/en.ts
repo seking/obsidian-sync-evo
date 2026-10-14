@@ -251,6 +251,9 @@ export const en = baseCatalog({
 	// The lines Sync Evo manages in .gitignore, added by a push without
 	// asking. In the question before a first push, and else in a message of
 	// its own.
+	"notice.localLink":
+		"This vault has links in it (symbolic links, or junctions). Sync Evo does not sync a link or what is in it, and leaves it as it is, on {remote} and on this device, where it points to. Everything else is synced as usual:\n{list}",
+
 	"section.added.intro":
 		"Sync Evo added the lines below to the top of the .gitignore of this vault. They are the lines Sync Evo manages, and say what is not synced:",
 	"section.added.created":

@@ -765,6 +765,7 @@ describe("what the user has to know", () => {
 					{ kind: "submodule-no-commit", path: "wip (octo/wip)" },
 					{ kind: "submodule-not-sent", path: "knowledge/a.md" },
 					{ kind: "submodule-not-sent", path: "knowledge/sub/b.md" },
+					{ kind: "local-link", path: "Projects" },
 				],
 				unwritable: [
 					{ path: "notes", reason: "blocked", inTheWay: ["notes/draft.md", "notes/sub/idea.md"], isNew: true },

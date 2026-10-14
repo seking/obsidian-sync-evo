@@ -730,6 +730,7 @@ class PushRun {
 			exclusion,
 			sizeLimit: this.sizeLimit,
 			held: this.held,
+			links: scan.links,
 		});
 		// A new file that is held back because it is being typed in may be
 		// a note under a new name: the deletion of the old one waits with it.
@@ -1142,6 +1143,7 @@ class PushRun {
 				scan.paths.map((scanned) => scanned.path),
 			),
 		);
+		for (const path of scan.links) current.push({ kind: "local-link", path });
 		for (const skip of plan.skipped) {
 			if (skip.reason !== "too-large") continue;
 			// Named as a pull names it, so that the two tell it once between them.

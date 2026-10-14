@@ -27,6 +27,20 @@ import type { SyncRecord } from "./plan";
  */
 export interface FolderLister {
 	list(folder: string): Promise<{ readonly files: readonly string[]; readonly folders: readonly string[] }>;
+	/**
+	 * The links of the vault (symbolic links, and junctions on Windows) that
+	 * are right in the folder, as paths from the vault root. Absent where
+	 * links cannot be told (a phone), and there `list` is all there is.
+	 */
+	linksIn?(folder: string): Promise<readonly string[]>;
+}
+
+/**
+ * Whether the path of the vault is a link (`FolderLister.linksIn`). Absent
+ * where links cannot be told.
+ */
+export interface LinkProbe {
+	isLink?(path: string): Promise<boolean>;
 }
 
 /**
@@ -68,6 +82,12 @@ export interface ScanResult {
 	readonly paths: readonly ScannedPath[];
 	/** Whether the vault root has a `.git`, as a folder or as a file. */
 	readonly rootHasGit: boolean;
+	/**
+	 * The links of the vault that the scan did not go into, as the disk
+	 * spells them, and not those a rule excludes. What is at and below
+	 * each is left out of `paths`, and out of the sync (`PlanInput.links`).
+	 */
+	readonly links: readonly string[];
 }
 
 const ROOT = "/";
@@ -95,6 +115,10 @@ export function placeholderTarget(path: string): string | null {
  * - what lies below a path that a record holds as a symlink. On a desktop a
  *   symlink to a folder looks like a folder, and its content belongs to the
  *   path it points to;
+ * - a link of the vault, to a folder or to a file, and what lies below it
+ *   (`FolderLister.linksIn`). Its target can be outside the vault, or
+ *   another path of it, or the folder it is in. It is returned in `links`,
+ *   unless a rule excludes it;
  * - a folder a rule matches that has nothing known below it, and a file a
  *   rule matches that is not known. (What "known" means for a copy kept
  *   from a conflict is the exclusion's to say, and so is the folder of the
@@ -125,6 +149,7 @@ export async function scanVault(input: ScanInput): Promise<ScanResult> {
 	}
 
 	const paths: ScannedPath[] = [];
+	const links: string[] = [];
 	let rootHasGit = false;
 
 	const pending: string[] = [ROOT];
@@ -132,9 +157,18 @@ export async function scanVault(input: ScanInput): Promise<ScanResult> {
 		const listed = await lister.list(folder);
 		const files = listed.files.map(fromRoot);
 		const there = new Set(files.map(foldedKey));
+		const linked = new Set((lister.linksIn === undefined ? [] : await lister.linksIn(folder)).map((path) => foldedKey(fromRoot(path))));
+		// Told unless a rule excludes it, as a file or as a folder: which of
+		// the two the listing took it for depends on what it points to.
+		const isLink = (path: string, kind: "file" | "folder"): boolean => {
+			if (!linked.has(foldedKey(path))) return false;
+			if (!exclusion.excludes(path, kind, known)) links.push(path);
+			return true;
+		};
 
 		for (const path of files) {
 			if (folder === ROOT && foldedKey(path) === ".git") rootHasGit = true;
+			if (isLink(path, "file")) continue;
 			const evicted = placeholderTarget(path);
 			if (evicted !== null && !there.has(foldedKey(evicted)) && !exclusion.excludes(evicted, "file", known)) {
 				paths.push({ path: evicted, key: pathKey(evicted), state: "placeholder" });
@@ -147,13 +181,14 @@ export async function scanVault(input: ScanInput): Promise<ScanResult> {
 			const path = fromRoot(returned);
 			const folded = foldedKey(path);
 			if (folder === ROOT && folded === ".git") rootHasGit = true;
+			if (isLink(path, "folder")) continue;
 			if (exclusion.excludes(path, "folder", known)) continue;
 			if (symlinks.has(folded)) continue;
 			pending.push(path);
 		}
 	}
 
-	return { paths, rootHasGit };
+	return { paths, rootHasGit, links };
 }
 
 // A lister may put the root in front of what it returns (`/a.md`, `./a.md`).

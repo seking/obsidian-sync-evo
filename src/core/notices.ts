@@ -91,6 +91,10 @@ import type { StateStore } from "./state";
  *   deleted on this device. What is below a submodule is only read, so the
  *   change is not sent and stays on this device alone. The path is the
  *   file's. Told once for as long as that is so.
+ * - "local-link": a link of the vault (a symbolic link, or a junction on
+ *   Windows), which is not synced, nor what lies below it
+ *   (`ScanResult.links`). The path is the link's. Found on a desktop
+ *   alone, by a scan or a light check.
  *
  * A new kind is a new name here and a text in the catalog.
  */
@@ -114,6 +118,7 @@ export const NOTICE_KINDS = [
 	"submodule-no-access",
 	"submodule-no-commit",
 	"submodule-not-sent",
+	"local-link",
 ] as const;
 
 export type NoticeKind = (typeof NOTICE_KINDS)[number];
@@ -136,6 +141,7 @@ export const SHARED_NOTICE_KINDS: readonly NoticeKind[] = [
 	"nested-gitignore",
 	"fixed-exclusion-off",
 	"submodule-not-sent",
+	"local-link",
 ];
 
 export interface NoticeRef {

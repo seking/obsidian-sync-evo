@@ -44,7 +44,7 @@ What is inside a submodule is downloaded into its folder, at the commit the repo
 - **Changes inside a submodule.** What is inside a submodule is downloaded, and only read: see "Submodules" below.
 - **Git LFS.** A pointer file is synced as it is, and the content it stands for is not downloaded.
 - **Line ending conversion.** The `text` and `eol` settings of `.gitattributes` are not applied: every file is stored and written byte for byte as the repository holds it.
-- **Symbolic links.** They are not written to the device and are left as they are in the repository. The settings list them.
+- **Symbolic links.** A link in the repository is not written to the device, and is left as it is in the repository. The settings list them. On a desktop, a link in the vault (or a junction, on Windows) is not synced, and neither is anything behind it: nothing is uploaded from it, and a download writes and deletes nothing there, also when the link points outside the vault. The first sync that finds one says so.
 - **Other services** than GitHub.
 
 Also:
@@ -52,7 +52,6 @@ Also:
 - A file over 38 MB is not synced.
 - A repository with more than 100,000 files, or one whose listing is over 7 MB, cannot be synced.
 - `.gitignore` files in subfolders are synced as ordinary files and are not read as rules. Only the one at the root counts.
-- On a desktop, a symbolic link in the vault (or a junction, on Windows) is listed as if it were a folder, so the files behind it are treated as files of the vault: they are uploaded, and a download can write and delete them there, also when the link points outside the vault (seen on Windows; on Mac the link is listed the same way). Do not keep such a link in a vault that Sync Evo syncs.
 - On Android, a rename made on another device that changes only upper and lower case (`tools/` to `Tools/`) is not applied. The download skips the path and says so, and the upload holds the file back. Nothing is lost, but the path stays unsynced, and the two notices come back on every sync.
 
 ## Before you use it

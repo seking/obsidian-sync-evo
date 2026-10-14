@@ -50,6 +50,13 @@ export class MemoryPullVault implements PullVault {
 	before: ((op: VaultOp, path: string) => void | Promise<void>) | undefined;
 	/** Renames are accepted and not made: the call resolves and the vault is as it was. */
 	ignoreRenames = false;
+	/**
+	 * The paths that are links of the vault, as on a desktop
+	 * (`LinkProbe`). What lies below one is held like any file: it stands
+	 * for the content of the place it points to. `null`, as on a phone,
+	 * where links cannot be told.
+	 */
+	links: Set<string> | null = null;
 
 	private readonly files = new Map<string, StoredFile>();
 	private readonly folders = new Set<string>();
@@ -130,6 +137,14 @@ export class MemoryPullVault implements PullVault {
 
 	// -----------------------------------------------------------------------
 	// PullVault
+
+	readonly linksIn = async (folder: string): Promise<readonly string[]> => {
+		const actual = folder === "/" ? "" : this.resolve(folder);
+		return [...(this.links ?? [])].filter((link) => this.fold(parentOf(link)) === this.fold(actual)).map((link) => this.resolve(link));
+	};
+
+	readonly isLink = async (path: string): Promise<boolean> =>
+		[...(this.links ?? [])].some((link) => this.fold(link) === this.fold(path));
 
 	async list(folder: string): Promise<{ files: string[]; folders: string[] }> {
 		await this.before?.("list", folder);

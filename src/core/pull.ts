@@ -1101,6 +1101,7 @@ class PullRun {
 			exclusion,
 			sizeLimit: this.sizeLimit,
 			...(this.held.size === 0 ? {} : { held: this.held }),
+			links: scan.links,
 		});
 		return { scan, local, plan, exclusion };
 	}
@@ -1375,6 +1376,7 @@ class PullRun {
 		// What it does find is told. Forgetting is left to a pull that scans.
 		if (deps.index !== undefined) current.push(...remembered);
 		if (scan.rootHasGit) add("git-at-root", ".git");
+		for (const path of scan.links) add("local-link", path);
 		// By the rules this pull went by, which are the ones the root
 		// `.gitignore` has once it is done (`gitignoreAfter`). A `.gitignore`
 		// this pull fetches into a subfolder is in the listing already.

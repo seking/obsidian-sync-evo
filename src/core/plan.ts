@@ -99,6 +99,13 @@ export type SkipReason =
 	 * this entry.
 	 */
 	| "symlink"
+	/**
+	 * The path is a link of the vault (`ScanResult.links`), or lies below
+	 * one: its content is that of another place, in the vault or outside it.
+	 * Nothing is sent from it, written to it, or deleted, on either side,
+	 * and the records stay as they are.
+	 */
+	| "local-link"
 	/** The remote or a record holds the path as a submodule. */
 	| "submodule"
 	/**
@@ -174,6 +181,8 @@ export interface PlanInput {
 	 * empty.
 	 */
 	readonly held?: ReadonlySet<string>;
+	/** The links of the vault the scan found (`ScanResult.links`). */
+	readonly links?: readonly string[];
 }
 
 /**
@@ -218,6 +227,7 @@ export function planSync(input: PlanInput): SyncPlan {
 	const closed = new Set([...nonFiles.keys()].filter((key) => !open.has(key)));
 
 	const collided = new Set(caseCollisions(input.remote).map((collision) => collision.folded));
+	const links = new Set((input.links ?? []).map(foldedKey));
 	const sizeLimit = input.sizeLimit ?? DEFAULT_SIZE_LIMIT;
 
 	const known = knownPaths(input.remote, input.records);
@@ -238,6 +248,7 @@ export function planSync(input: PlanInput): SyncPlan {
 			? "invalid-path"
 			: (input.exclusion.hardExclusionOf(key) ??
 				(input.held?.has(foldedKey(key)) === true ? "held" : undefined) ??
+				(isAtOrUnderLink(key, links) ? "local-link" : undefined) ??
 				skipReason(key, [onRemote, onLocal, onRecords], collided, nonFiles, closed) ??
 				(isTooLarge(onRemote, sizeLimit) || isTooLarge(onLocal, sizeLimit) ? "too-large" : undefined));
 		if (reason !== undefined) {
@@ -363,6 +374,15 @@ function isAtOrUnderCollision(key: string, collided: ReadonlySet<string>): boole
 		if (collided.has(key.slice(0, slash).toLowerCase())) return true;
 	}
 	return collided.has(key.toLowerCase());
+}
+
+// Without regard to case, like the disk the links are on.
+function isAtOrUnderLink(key: string, links: ReadonlySet<string>): boolean {
+	if (links.size === 0) return false;
+	for (let slash = key.indexOf("/"); slash !== -1; slash = key.indexOf("/", slash + 1)) {
+		if (links.has(foldedKey(key.slice(0, slash)))) return true;
+	}
+	return links.has(foldedKey(key));
 }
 
 // A symlink has no files of its own in the listing, and neither has a

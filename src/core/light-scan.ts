@@ -52,8 +52,11 @@ export interface VaultIndex {
 
 export interface LightScanInput {
 	readonly index: VaultIndex;
-	/** The disk, for the few paths the index says nothing of. */
-	readonly vault: Pick<PullVault, "stat">;
+	/**
+	 * The disk, for the few paths the index says nothing of, and for which
+	 * folders are links.
+	 */
+	readonly vault: Pick<PullVault, "stat" | "isLink">;
 	/** The same three the scan is given (`ScanInput`). */
 	readonly exclusion: Exclusion;
 	readonly remote: readonly RemoteEntry[];
@@ -79,7 +82,10 @@ export interface LightScanResult extends ScanResult {
  * by the same rules, asked of the same exclusion: an excluded file, a file
  * below an excluded folder, and what lies below a path a record holds as a
  * symlink (on a desktop the index lists the content of the folder it
- * points to).
+ * points to), and what lies below a link of the vault (`LinkProbe`). Every
+ * folder the index holds a file in is asked whether it is a link, once;
+ * a file the index holds is not, since the app leaves a link to a file out
+ * of its index (seen on a Mac).
  *
  * From the disk: every path that is known, on the remote or in a record,
  * and that the index does not list. That is every known path with a `.`
@@ -92,7 +98,9 @@ export interface LightScanResult extends ScanResult {
  * that did not see it would write over it uncompared.
  *
  * A path the disk has nothing at is left out, like a file the scan does
- * not find. What that means is the sync decision's to say.
+ * not find. So is a path that is a link, or below one: the app leaves out
+ * of its index what lies below a link to a folder of the vault itself, and
+ * a link to a file, but the disk answers for them. What that means is the sync decision's to say.
  *
  * Such a path is listed as the record spells it, or the remote: the disk
  * is asked whether something is there, and not how it is spelled. A change
@@ -113,23 +121,32 @@ export async function scanLightly(input: LightScanInput): Promise<LightScanResul
 		if (record.kind === "symlink") symlinks.add(foldedKey(record.path));
 	}
 
+	// The links of the vault, as the scan tells them (`ScanResult.links`).
+	const links: string[] = [];
+	const isLink = async (path: string, kind: "file" | "folder"): Promise<boolean> => {
+		if (vault.isLink === undefined || !(await vault.isLink(path))) return false;
+		if (!exclusion.excludes(path, kind, known)) links.push(path);
+		return true;
+	};
+
 	// Whether the scan would not have entered a folder: itself or one above
-	// it is excluded, or is a symlink. Asked once per folder.
-	const skipped = new Map<string, boolean>();
-	const folderSkipped = (folder: string): boolean => {
+	// it is excluded, is a symlink, or is a link. Asked once per folder.
+	const skipped = new Map<string, Promise<boolean>>();
+	const folderSkipped = (folder: string): Promise<boolean> => {
 		const before = skipped.get(folder);
 		if (before !== undefined) return before;
-		const slash = folder.lastIndexOf("/");
-		const skip =
-			(slash !== -1 && folderSkipped(folder.slice(0, slash))) ||
-			exclusion.excludes(folder, "folder", known) ||
-			symlinks.has(foldedKey(folder));
+		const skip = (async () => {
+			const slash = folder.lastIndexOf("/");
+			if (slash !== -1 && (await folderSkipped(folder.slice(0, slash)))) return true;
+			if (exclusion.excludes(folder, "folder", known) || symlinks.has(foldedKey(folder))) return true;
+			return isLink(folder, "folder");
+		})();
 		skipped.set(folder, skip);
 		return skip;
 	};
-	const leftOut = (path: string): boolean => {
+	const leftOut = async (path: string): Promise<boolean> => {
 		const slash = path.lastIndexOf("/");
-		return (slash !== -1 && folderSkipped(path.slice(0, slash))) || exclusion.excludes(path, "file", known);
+		return (slash !== -1 && (await folderSkipped(path.slice(0, slash)))) || exclusion.excludes(path, "file", known);
 	};
 
 	const paths: ScannedPath[] = [];
@@ -141,7 +158,7 @@ export async function scanLightly(input: LightScanInput): Promise<LightScanResul
 		const path = fromRoot(file.path);
 		if (!isPathFromRoot(path)) continue;
 		listed.add(foldedKey(path));
-		if (leftOut(path)) continue;
+		if (await leftOut(path)) continue;
 		const key = pathKey(path);
 		paths.push({ path, key, state: "present" });
 		indexed.set(key, { mtime: file.mtime, size: file.size });
@@ -154,16 +171,17 @@ export async function scanLightly(input: LightScanInput): Promise<LightScanResul
 		// A path that is none is the sync decision's to turn away.
 		if (!isPathFromRoot(pathKey(path)) || listed.has(folded)) continue;
 		listed.add(folded);
-		if (leftOut(path)) continue;
+		if (await leftOut(path)) continue;
 		asked += 1;
 		const key = pathKey(path);
 		const spellings = [...new Set([path, path.normalize("NFD"), key])];
-		let found: ScannedPath | "folder" | null = null;
+		let found: ScannedPath | "folder" | "link" | null = null;
 		for (const spelled of spellings) {
 			const stat = await vault.stat(spelled);
 			if (stat === null) continue;
 			// A folder at the path is no file there, as for the scan.
-			found = stat.type === "file" ? { path: spelled, key, state: "present" } : "folder";
+			if (await isLink(spelled, stat.type)) found = "link";
+			else found = stat.type === "file" ? { path: spelled, key, state: "present" } : "folder";
 			break;
 		}
 		for (const spelled of found === null ? spellings : []) {
@@ -172,10 +190,10 @@ export async function scanLightly(input: LightScanInput): Promise<LightScanResul
 			found = { path: spelled, key, state: "placeholder" };
 			break;
 		}
-		if (found !== null && found !== "folder") paths.push(found);
+		if (found !== null && found !== "folder" && found !== "link") paths.push(found);
 	}
 
-	return { paths, rootHasGit: (await vault.stat(".git")) !== null, indexed, asked };
+	return { paths, rootHasGit: (await vault.stat(".git")) !== null, links, indexed, asked };
 }
 
 /** What iCloud Drive leaves in the place of the file at `path` (`placeholderTarget` reads it back). */

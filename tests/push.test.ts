@@ -4640,3 +4640,48 @@ describe("a submodule whose inside the remote lists", () => {
 		expect(h.vault.text("knowledge/n.md")).toBe("mine");
 	});
 });
+
+describe("links of the vault", () => {
+	test("what lies below a link is not sent, and what was synced through it is not deleted", async () => {
+		const h = await synced({ "a.md": "A", "Projects/p.md": "P" });
+		h.vault.links = new Set(["Projects", "Ext"]);
+		h.vault.putAll({ "a.md": "A2", "Projects/p.md": "P2", "Projects/new.md": "N", "Ext/x.md": "X" });
+
+		const result = await h.push();
+
+		expect(result.outcome).toBe("pushed");
+		expect(await h.remote()).toEqual({ "a.md": "A2", "Projects/p.md": "P" });
+		expect(h.emptyAsked).toEqual([]);
+		expect(await readNotices(h.store)).toEqual(
+			expect.arrayContaining([
+				{ kind: "local-link", path: "Projects" },
+				{ kind: "local-link", path: "Ext" },
+			]),
+		);
+	});
+
+	test("a vault whose synced files are all below a link is not taken for an empty one", async () => {
+		const h = await synced({ "Projects/p.md": "P", "Projects/q.md": "Q" });
+		h.vault.links = new Set(["Projects"]);
+		h.vault.put("b.md", "B");
+
+		const result = await h.push();
+
+		expect(result.outcome).toBe("pushed");
+		expect(h.emptyAsked).toEqual([]);
+		expect(await h.remote()).toEqual({ "Projects/p.md": "P", "Projects/q.md": "Q", "b.md": "B" });
+	});
+
+	test("a link that is taken away is a folder that is gone, and is deleted like one", async () => {
+		const h = await synced({ "a.md": "A", "Projects/p.md": "P" });
+		h.vault.links = new Set(["Projects"]);
+		await h.push();
+		h.vault.links = null;
+		h.vault.remove("Projects/p.md");
+
+		const result = await h.push();
+
+		expect(result.outcome).toBe("pushed");
+		expect(await h.remote()).toEqual({ "a.md": "A" });
+	});
+});

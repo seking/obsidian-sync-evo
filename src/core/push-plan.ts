@@ -272,9 +272,12 @@ export function missingRecordedFiles(plan: PushPlan, configDir: string): readonl
 	const inVault = new Set(plan.input.local.map((entry) => foldedKey(entry.path)));
 	const counted = new Set(plan.countedDeletions.map(pathKey));
 	const moved = new Set(plan.deletes.filter((entry) => !counted.has(pathKey(entry.remote.path))).map((entry) => entry.key));
+	// Not in the vault's scan, and not missing: a link of the vault stands there.
+	const linked = new Set(plan.skipped.filter((skip) => skip.reason === "local-link").map((skip) => skip.key));
 	const missing: string[] = [];
 	for (const record of plan.input.records) {
 		if (record.kind !== "file" || isInConfigDir(record.path, configDir) || foldedKey(record.path) === ".gitignore") continue;
+		if (linked.has(pathKey(record.path))) continue;
 		if (inVault.has(foldedKey(record.path))) return null;
 		if (moved.has(pathKey(record.path))) continue;
 		missing.push(record.path);

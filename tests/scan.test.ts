@@ -88,7 +88,7 @@ describe("what the scan finds", () => {
 
 	test("an empty vault has nothing, and only the root is listed", async () => {
 		const vault = new MemoryVault([]);
-		expect(await scan(vault)).toEqual({ paths: [], rootHasGit: false });
+		expect(await scan(vault)).toEqual({ paths: [], rootHasGit: false, links: [] });
 		expect(vault.listed).toEqual(["/"]);
 	});
 
@@ -418,5 +418,56 @@ describe("the placeholder a cloud drive leaves for a file it took off the device
 		});
 		expect(result.paths.every((entry) => entry.state === "present")).toBe(true);
 		expect(found(result)).toEqual(["notes/.a.icloud.md", "notes/.hidden", "notes/x.icloud"]);
+	});
+});
+
+describe("links of the vault", () => {
+	/** A vault on a desktop, where these paths are links. */
+	class LinkedVault extends MemoryVault {
+		constructor(
+			files: readonly string[],
+			private readonly linkPaths: readonly string[],
+		) {
+			super(files);
+		}
+		async linksIn(folder: string): Promise<readonly string[]> {
+			const inside = folder === "/" ? "" : `${folder}/`;
+			return this.linkPaths.filter((link) => link.startsWith(inside) && !link.slice(inside.length).includes("/"));
+		}
+	}
+
+	test("a link to a folder is not gone into, a link to a file is not listed, and both are told", async () => {
+		const vault = new LinkedVault(["a.md", "Ext/x.md", "notes/b.md", "notes/linked.md", "notes/Loop/notes/b.md"], ["Ext", "notes/linked.md", "notes/Loop"]);
+		const result = await scan(vault);
+		expect(found(result)).toEqual(["a.md", "notes/b.md"]);
+		expect([...result.links].sort()).toEqual(["Ext", "notes/Loop", "notes/linked.md"]);
+		expect(vault.listed).not.toContain("Ext");
+		expect(vault.listed).not.toContain("notes/Loop");
+	});
+
+	test("a link a rule excludes is not told", async () => {
+		const result = await scan(new LinkedVault(["a.md", "Ext/x.md"], ["Ext"]), { gitignore: "Ext/\n" });
+		expect(found(result)).toEqual(["a.md"]);
+		expect(result.links).toEqual([]);
+	});
+
+	test("the plan leaves a link, and what is below it, alone on every side, whatever the case", () => {
+		const hash = blobHash("x");
+		const plan = planSync({
+			remote: [
+				{ path: "projects/p.md", kind: "file", hash: blobHash("remote") },
+				{ path: "Projects/new.md", kind: "file", hash },
+			],
+			local: [{ path: "b.md", hash }],
+			records: [{ path: "Projects/p.md", kind: "file", hash }],
+			exclusion: rules(null),
+			links: ["Projects"],
+		});
+		expect(plan.actions.map((action) => [action.type, action.key])).toEqual([["upload", "b.md"]]);
+		expect(plan.skipped.map((skip) => [skip.key, skip.reason])).toEqual([
+			["Projects/new.md", "local-link"],
+			["Projects/p.md", "local-link"],
+			["projects/p.md", "local-link"],
+		]);
 	});
 });

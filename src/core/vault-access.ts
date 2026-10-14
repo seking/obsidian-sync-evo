@@ -79,6 +79,13 @@ export interface VaultPorts<Handle> {
 	trashLocal(path: string): Promise<void>;
 	/** For good. */
 	remove(path: string): Promise<void>;
+	/**
+	 * The links right in the folder, and whether a path is one
+	 * (`FolderLister.linksIn`, `LinkProbe`). Absent where links cannot be
+	 * told.
+	 */
+	readonly linksIn?: (folder: string) => Promise<readonly string[]>;
+	readonly isLink?: (path: string) => Promise<boolean>;
 
 	// The index: looked up by the exact spelling.
 	indexed(path: string): IndexedItem<Handle> | null;
@@ -103,9 +110,16 @@ const ROOT = "/";
 
 export class RoutedVault<Handle> implements PullVault {
 	private readonly ports: VaultPorts<Handle>;
+	readonly linksIn?: (folder: string) => Promise<readonly string[]>;
+	readonly isLink?: (path: string) => Promise<boolean>;
 
 	constructor(ports: VaultPorts<Handle>) {
 		this.ports = ports;
+		const { linksIn, isLink } = ports;
+		if (linksIn !== undefined) {
+			this.linksIn = async (folder) => (await linksIn(folder)).map(fromRoot);
+		}
+		if (isLink !== undefined) this.isLink = isLink;
 	}
 
 	// -----------------------------------------------------------------------

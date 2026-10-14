@@ -7538,3 +7538,50 @@ describe("a submodule whose inside the remote lists", () => {
 		expect(h.vault.snapshot()).toEqual({ "a.md": "A", ".gitignore": "/knowledge/\n" });
 	});
 });
+
+describe("links of the vault", () => {
+	test("what lies below a link is not written, deleted, or forgotten, and the link is told once", async () => {
+		const h = await synced({ "a.md": "A", "Projects/p.md": "P", "Projects/q.md": "Q" });
+		// The folder became a link, after a version that followed it.
+		h.vault.links = new Set(["Projects"]);
+		h.backend.commit({ "a.md": "A2", "Projects/p.md": null, "Projects/q.md": "Q2", "Projects/new.md": "N" });
+
+		const first = await h.pull();
+
+		expect(first.outcome).toBe("completed");
+		expect(h.vault.snapshot()).toEqual({ "a.md": "A2", "Projects/p.md": "P", "Projects/q.md": "Q" });
+		expect(h.vault.trashed).toEqual([]);
+		// The records stay as they were: a later sync deletes nothing for them.
+		expect(await h.records()).toMatchObject(hashes({ "Projects/p.md": "P", "Projects/q.md": "Q" }));
+		expect(await readNotices(h.store)).toContainEqual({ kind: "local-link", path: "Projects" });
+		expect(pullReport(translatorFor("en"), first, reportOptions).details.join("\n")).toContain(
+			"This vault has links in it (symbolic links, or junctions).",
+		);
+
+		const second = await h.pull();
+		expect(pullReport(translatorFor("en"), second, reportOptions).details.join("\n")).not.toContain("links");
+	});
+
+	test("a link to a file, and a link a rule excludes, are left alone, and only the first is told", async () => {
+		const h = await synced({ ".gitignore": "Ext/\n", "a.md": "A" });
+		h.vault.putAll({ "note.md": "outside", "Ext/x.md": "X" });
+		h.vault.links = new Set(["note.md", "Ext"]);
+		h.backend.commit({ "note.md": "remote" });
+
+		const result = await h.pull();
+
+		expect(result.outcome).toBe("completed");
+		expect(h.vault.text("note.md")).toBe("outside");
+		expect(h.copies()).toEqual([]);
+		const notices = await readNotices(h.store);
+		expect(notices).toContainEqual({ kind: "local-link", path: "note.md" });
+		expect(notices.filter((notice) => notice.kind === "local-link")).toHaveLength(1);
+	});
+
+	test("on a phone, where links cannot be told, nothing changes", async () => {
+		const h = await synced({ "Projects/p.md": "P" });
+		h.backend.commit({ "Projects/p.md": "P2" });
+		await h.pull();
+		expect(h.vault.text("Projects/p.md")).toBe("P2");
+	});
+});

@@ -497,3 +497,23 @@ describe("the line a light check logs", () => {
 		);
 	});
 });
+
+describe("links of the vault", () => {
+	test("what the index holds below a link is left out, and so is a known path that is a link", async () => {
+		const s = setup({ "a.md": "A", "Ext/x.md": "X", "Ext/deep/y.md": "Y", ".hidden.md": "H" });
+		s.vault.links = new Set(["Ext", ".hidden.md"]);
+		const result = await light(s, { recorded: [".hidden.md"] });
+		expect(result.paths.map((entry) => entry.path).sort()).toEqual(["a.md"]);
+		expect([...result.links].sort()).toEqual([".hidden.md", "Ext"]);
+	});
+
+	test("a known path below a link the index leaves out is not asked into", async () => {
+		const s = setup({ "a.md": "A", "Inner/p.md": "P" });
+		s.vault.links = new Set(["Inner"]);
+		// The app leaves out of its index what is below a link to a folder of the vault.
+		const index = { indexedFiles: () => s.index.indexedFiles().filter((file) => !file.path.startsWith("Inner/")) };
+		const result = await scanLightly({ index, vault: s.vault, ...sides({ recorded: ["Inner/p.md"] }) });
+		expect(result.paths.map((entry) => entry.path)).toEqual(["a.md"]);
+		expect(result.links).toEqual(["Inner"]);
+	});
+});

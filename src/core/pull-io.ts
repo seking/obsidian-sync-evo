@@ -22,7 +22,7 @@ import type { VaultIndex } from "./light-scan";
 import type { NoticeRef } from "./notices";
 import type { PullLosses } from "./pull-plan";
 import type { PushCounts } from "./push-pending";
-import type { FolderLister } from "./scan";
+import type { FolderLister, LinkProbe } from "./scan";
 import type { FileStat, StateSeed, StateStore } from "./state";
 
 /**
@@ -58,7 +58,7 @@ export interface VaultStat extends FileStat {
  *
  * Nothing here may rewrite links in other files.
  */
-export interface PullVault extends FolderLister {
+export interface PullVault extends FolderLister, LinkProbe {
 	/**
 	 * What is at the path, or `null` for nothing. Asked of the file system:
 	 * where the cases are not told apart it answers for any spelling, so the

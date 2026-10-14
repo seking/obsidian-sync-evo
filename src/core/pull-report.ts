@@ -599,6 +599,8 @@ function noticeText(
 			return [t("notice.submoduleNoCommit", { list })];
 		case "submodule-not-sent":
 			return [t("notice.submoduleNotSent", { list })];
+		case "local-link":
+			return [t("notice.localLink", { list })];
 	}
 }
 

@@ -226,6 +226,9 @@ export const ja = completeTranslation(en, {
 	"notice.submoduleNotSent":
 		"サブモジュールの中は、読むだけです。このデバイスで変えた、足した、または消した次のファイルはアップロードされず、その変更はこのデバイスにだけ残ります。サブモジュールの中の変更は、パソコンの git で行ってください：\n{list}",
 
+	"notice.localLink":
+		"保管庫の中に、リンク（シンボリックリンク、ジャンクション）があります。Sync Evo は、リンクとその中を同期しません。{remote} でも、このデバイス（リンクの先）でも、そのままにします。ほかは通常どおり同期します：\n{list}",
+
 	"section.added.intro":
 		"この保管庫の .gitignore の先頭に、下の行を足しました。Sync Evo が管理する行で、同期しない物を決めます：",
 	"section.added.created":
