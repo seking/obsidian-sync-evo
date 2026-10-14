@@ -400,6 +400,7 @@ export const SCREEN_NOTICE_KINDS: readonly NoticeKind[] = [
 	"submodule-no-access",
 	"submodule-no-commit",
 	"submodule-not-sent",
+	"local-link",
 ];
 
 /** Everything this part of the screen shows. */

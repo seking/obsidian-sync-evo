@@ -697,12 +697,14 @@ describe("reading everything the screen shows", () => {
 			{ kind: "git-at-root", path: ".git" },
 			{ kind: "own-folder-on-remote", path: ".obsidian/plugins/sync-evo" },
 			{ kind: "submodule", path: "knowledge" },
+			{ kind: "local-link", path: "Projects" },
 		]);
 		expect((await readExclusionScreen(deps, { settle: true })).notices).toEqual([
 			{ kind: "nested-gitignore", path: "notes/.gitignore" },
 			{ kind: "git-at-root", path: ".git" },
 			{ kind: "own-folder-on-remote", path: ".obsidian/plugins/sync-evo" },
 			{ kind: "submodule", path: "knowledge" },
+			{ kind: "local-link", path: "Projects" },
 		]);
 	});
 
