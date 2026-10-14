@@ -32,6 +32,14 @@ export const en = baseCatalog({
 	"vaultConfig.corePluginSettings": "Core plugin settings",
 	"vaultConfig.communityPluginList": "Active community plugin list",
 	"vaultConfig.communityPlugins": "Installed community plugins",
+	"vaultConfig.main.desc": "Sync editor settings, files & links settings, and the like.",
+	"vaultConfig.appearance.desc": "Sync appearance settings like dark mode, the active theme, and enabled snippets.",
+	"vaultConfig.themesAndSnippets.desc": "Sync downloaded themes and snippets. Whether they are enabled depends on the setting above.",
+	"vaultConfig.hotkeys.desc": "Sync custom hotkeys.",
+	"vaultConfig.corePluginList.desc": "Sync which core plugins are enabled.",
+	"vaultConfig.corePluginSettings.desc": "Sync core plugin settings.",
+	"vaultConfig.communityPluginList.desc": "Sync which community plugins are enabled.",
+	"vaultConfig.communityPlugins.desc": "Sync installed community plugins (.js, .css, and manifest.json files) and their settings.",
 
 	// The settings screen.
 	"settings.connection.heading": "Connection",
@@ -141,7 +149,7 @@ export const en = baseCatalog({
 	"settings.exclusion.folders.remove": "Remove from excluded list",
 	"settings.exclusion.folders.invalid":
 		"This is not the path of a folder from the root of the vault, so nothing was added.",
-	"settings.exclusion.config.name": "Vault configuration",
+	"settings.exclusion.config.name": "Vault configuration sync",
 	"settings.exclusion.config.desc":
 		"Which parts of the configuration folder are synced. A change that is downloaded may only take effect after Obsidian is reloaded.",
 	"settings.exclusion.config.summary": "{count} of {total} synced",

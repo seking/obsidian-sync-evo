@@ -26,6 +26,14 @@ export const ja = completeTranslation(en, {
 	"vaultConfig.corePluginSettings": "コアプラグイン設定",
 	"vaultConfig.communityPluginList": "アクティブなコミュニティプラグインのリスト",
 	"vaultConfig.communityPlugins": "インストールされているコミュニティプラグイン",
+	"vaultConfig.main.desc": "エディタ設定、ファイルとリンクの設定などを同期します。",
+	"vaultConfig.appearance.desc": "ダークモード、アクティブなテーマ、有効化されているスニペットなどの外観の設定を同期します。",
+	"vaultConfig.themesAndSnippets.desc": "ダウンロードされたテーマとスニペットを同期します。有効化されているかどうかは、上の外観設定に従います。",
+	"vaultConfig.hotkeys.desc": "カスタムホットキーを同期します。",
+	"vaultConfig.corePluginList.desc": "有効化されているコアプラグインを同期します。",
+	"vaultConfig.corePluginSettings.desc": "コアプラグインの設定を同期します。",
+	"vaultConfig.communityPluginList.desc": "有効化されているコミュニティプラグインを同期します。",
+	"vaultConfig.communityPlugins.desc": "インストールされているコミュニティプラグイン（.js、.css、manifest.json のファイル）と、その設定を同期します。",
 
 	"settings.connection.heading": "接続",
 	"settings.repository.name": "リポジトリ",
@@ -122,7 +130,7 @@ export const ja = completeTranslation(en, {
 	"settings.exclusion.folders.add": "追加",
 	"settings.exclusion.folders.remove": "除外リストから削除",
 	"settings.exclusion.folders.invalid": "保管庫のルートからのフォルダのパスになっていないため、足していません。",
-	"settings.exclusion.config.name": "保管庫の設定",
+	"settings.exclusion.config.name": "保管庫の設定を同期",
 	"settings.exclusion.config.desc":
 		"設定フォルダのどの項目を同期するかを選びます。ダウンロードした変更は、Obsidian を再読み込みした後に効くことがあります。",
 	"settings.exclusion.config.summary": "{total} 項目のうち {count} 項目を同期",

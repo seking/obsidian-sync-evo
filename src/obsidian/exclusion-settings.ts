@@ -114,6 +114,18 @@ const CONFIG_NAMES = {
 	"community-plugins": "vaultConfig.communityPlugins",
 } as const satisfies Record<ConfigItem, MessageKey>;
 
+// What each part holds, in the words of the same switches of Obsidian Sync.
+const CONFIG_DESCS = {
+	"main-settings": "vaultConfig.main.desc",
+	appearance: "vaultConfig.appearance.desc",
+	"themes-and-snippets": "vaultConfig.themesAndSnippets.desc",
+	hotkeys: "vaultConfig.hotkeys.desc",
+	"core-plugin-list": "vaultConfig.corePluginList.desc",
+	"core-plugin-settings": "vaultConfig.corePluginSettings.desc",
+	"community-plugin-list": "vaultConfig.communityPluginList.desc",
+	"community-plugins": "vaultConfig.communityPlugins.desc",
+} as const satisfies Record<ConfigItem, MessageKey>;
+
 // What the user has to know before switching these two on.
 const CONFIG_WARNINGS = {
 	"community-plugin-list": "settings.exclusion.communityPluginList.warning",
@@ -488,6 +500,7 @@ export class ExclusionSettings {
 		}).listEl;
 		for (const item of SHOWN_CONFIG_ITEMS) {
 			const setting = new Setting(el).setName(t(CONFIG_NAMES[item]));
+			setting.descEl.createDiv({ text: t(CONFIG_DESCS[item]) });
 			if (item === "community-plugin-list" || item === "community-plugins") {
 				note(setting).setText(t(CONFIG_WARNINGS[item]));
 			}

@@ -92,7 +92,7 @@ The settings under "What is synced" are written into the `.gitignore` at the roo
 
 - **File types**: images, audio, videos, PDFs, and all other types. Notes, canvases and bases are always synced.
 - **Excluded folders**: folders that are not synced, as paths from the root of the vault.
-- **Vault configuration**: which parts of the configuration folder (`.obsidian/`) are synced, under the names Obsidian Sync uses for them.
+- **Vault configuration sync**: which parts of the configuration folder (`.obsidian/`) are synced, under the names Obsidian Sync uses for them.
 - **Write rules directly (.gitignore)**: the whole file, for rules of your own. Write them outside the lines Sync Evo manages.
 
 Excluding something deletes nothing. A file the repository already holds stays synced until it is removed from GitHub: "Excluded files still on GitHub" lists those files and can remove them, which removes them from the repository and leaves them on the device.
