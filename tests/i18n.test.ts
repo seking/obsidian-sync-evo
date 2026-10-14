@@ -85,6 +85,22 @@ describe("looking up a message", () => {
 	});
 });
 
+describe("the name of what the vault syncs with", () => {
+	const named = baseCatalog({ gone: "{count} files were deleted on {remote}.", plain: "{remote} is up to date." });
+
+	test("is put where a message has {remote}, without the caller passing it", () => {
+		const t = createTranslator(named);
+		expect(t("plain")).toBe("GitHub is up to date.");
+		expect(t("gone", { count: 3 })).toBe("3 files were deleted on GitHub.");
+	});
+
+	test("is the service the translator was made for, in a translation as in the base", () => {
+		const t = createTranslator(named, { plain: "{remote} は最新です。" }, "ja", "Google Drive");
+		expect(t("plain")).toBe("Google Drive は最新です。");
+		expect(t("gone", { count: 3 })).toBe("3 files were deleted on Google Drive.");
+	});
+});
+
 describe("falling back to the base", () => {
 	test("a missing, empty, or blank message is shown in English", () => {
 		const blanks: { [key: string]: Message } = { title: "", moved: "   ", files: { other: "" } };

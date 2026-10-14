@@ -9,20 +9,23 @@
  * Source: https://github.com/seking/obsidian-sync-evo
  */
 
-import type { Catalog, Message, ParamsOf } from "./catalog";
+import { REMOTE, type Catalog, type GivenOf, type Message } from "./catalog";
 
 /** The language of the base catalog, which decides its plural forms. */
 export const BASE_LANGUAGE = "en";
 
+/** The service every vault syncs with, while there is only one. */
+export const DEFAULT_REMOTE = "GitHub";
+
 type Values<M> = {
-	readonly [Name in ParamsOf<M>]: Name extends "count"
+	readonly [Name in GivenOf<M>]: Name extends "count"
 		? M extends string
 			? string | number
 			: number
 		: string | number;
 };
 
-type Args<M> = [ParamsOf<M>] extends [never] ? [] : [values: Values<M>];
+type Args<M> = [GivenOf<M>] extends [never] ? [] : [values: Values<M>];
 
 /**
  * Returns the text for a key. The values are required exactly when the base
@@ -40,12 +43,14 @@ function own(catalog: { readonly [key: string]: Message | undefined }, key: stri
 /**
  * Builds the lookup for one language. A message the translation lacks, or
  * has only as blank text, is taken from the base, so that neither an empty
- * label nor a key name is ever shown.
+ * label nor a key name is ever shown. `remote` is the name of the service
+ * the vault syncs with, which is put wherever a message has `{remote}`.
  */
 export function createTranslator<const Base extends Catalog>(
 	base: Base,
 	translation: { readonly [K in keyof Base]?: Message } = {},
 	language: string = BASE_LANGUAGE,
+	remote: string = DEFAULT_REMOTE,
 ): Translator<Base> {
 	const rules = new Map<string, Intl.PluralRules>();
 	const formOf = (lang: string, count: number): Intl.LDMLPluralRule => {
@@ -78,6 +83,7 @@ export function createTranslator<const Base extends Catalog>(
 			textOf(own(base, key), BASE_LANGUAGE, count) ??
 			"";
 		return text.replace(/\{([^{}]+)\}/g, (whole: string, name: string) => {
+			if (name === REMOTE) return remote;
 			const value = Object.prototype.hasOwnProperty.call(values, name) ? values[name] : undefined;
 			return value === undefined ? whole : String(value);
 		});

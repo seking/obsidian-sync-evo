@@ -115,7 +115,7 @@ describe("a pull that started by itself", () => {
 		expect(report.happened).toEqual(pullReport(t, pulled(result), options).details.map((text) => HEADING + text));
 		expect(report.happened).toHaveLength(9);
 		// The copies that were tidied are told also by a sync nobody started.
-		expect(report.happened.some((text) => text.includes("1 conflict copy in _conflicts/ was made 30 days ago"))).toBe(true);
+		expect(report.happened.some((text) => text.includes("1 conflict file in _conflicts/ was made 30 days ago"))).toBe(true);
 		expect(report).toMatchObject({ standing: [], cause: null, end: "success" });
 	});
 
@@ -140,7 +140,7 @@ describe("a pull that started by itself", () => {
 
 		expect(one).toMatchObject({ happened: [], cause: "pull:incomplete:error:unreachable,fetch-failed", end: "failure" });
 		expect(one.standing).toEqual([
-			`${HEADING}1 file could not be pulled and is left for the next sync. Could not reach GitHub. Check the network connection and try again.`,
+			`${HEADING}1 file could not be downloaded and is left for the next sync. Could not reach GitHub. Check the network connection and try again.`,
 		]);
 		expect(three.cause).toBe(one.cause);
 	});
@@ -232,9 +232,9 @@ describe("a pull that started by itself", () => {
 	});
 
 	test.each<[NonNullable<PullResult["waitingFor"]>, string]>([
-		["deletions", "Pulling would delete many files on this device"],
-		["rewritten", "The history of the remote was rewritten"],
-		["first-fetch", "The first fetch into this vault is not finished"],
+		["deletions", "Downloading would delete many files on this device"],
+		["rewritten", "The history of the repository was rewritten"],
+		["first-fetch", "The first download into this vault is not finished"],
 	])("a wait for %s says under the heading that nothing was changed, and to sync manually", (waitingFor, start) => {
 		const report = pull({ outcome: "waiting", waitingFor });
 		expect(report).toMatchObject({ happened: [], cause: `pull:waiting:${waitingFor}`, end: "waiting" });
@@ -250,10 +250,10 @@ describe("a pull that started by itself", () => {
 	test("the wait for a first fetch is worded so that it is true with and without something to confirm", () => {
 		// Not begun at all, or begun and stopped, with a file that differs since.
 		expect(pull({ outcome: "waiting", waitingFor: "first-fetch" }).standing).toEqual([
-			`${HEADING}The first fetch into this vault is not finished. It is not started without you, and not continued while files in the vault differ from the remote's. Nothing was changed. Sync manually to start or continue it.`,
+			`${HEADING}The first download into this vault is not finished. It is not started without you, and not continued while files in the vault differ from those on GitHub. Nothing was changed. Sync manually to start or continue it.`,
 		]);
 		const ja = pullAutoReport(translatorFor("ja"), pulled({ outcome: "waiting", waitingFor: "first-fetch" }), options);
-		expect(ja.standing[0]?.startsWith("自動同期：\nこの保管庫の初回取得が終わっていません。")).toBe(true);
+		expect(ja.standing[0]?.startsWith("自動同期：\nこの保管庫の最初のダウンロードが終わっていません。")).toBe(true);
 		expect(ja.standing[0]?.match(/自動同期/g)).toHaveLength(1);
 	});
 
@@ -353,14 +353,14 @@ describe("a push that started by itself", () => {
 
 	test.each<[NonNullable<PushRunResult["waitingFor"]>, string]>([
 		["empty-vault", "None of the files synced before is on this device"],
-		["first-push", "The first push from this device needs your confirmation"],
-		["deletions", "Pushing would delete many files on the remote"],
+		["first-push", "The first upload from this device needs your confirmation"],
+		["deletions", "Uploading would delete many files on GitHub"],
 	])("a question about %s waits, and says that nothing was sent and how to be asked", (waitingFor, start) => {
 		const report = push({ outcome: "waiting", waitingFor, revision: null });
 		expect(report).toMatchObject({ happened: [], cause: `push:waiting:${waitingFor}`, end: "waiting" });
 		expect(report.standing).toHaveLength(1);
 		expect(report.standing[0]?.startsWith(HEADING + start)).toBe(true);
-		expect(report.standing[0]).toContain("Nothing was sent. Sync manually to be asked.");
+		expect(report.standing[0]).toContain("Nothing was uploaded. Sync manually to be asked.");
 		expect(report.standing[0]?.match(/utomatic sync/g)).toHaveLength(1);
 		// The one text that is taken down when the user starts a sync.
 		expect(report.questions).toEqual(report.standing);
@@ -378,7 +378,7 @@ describe("a sync that ended by throwing", () => {
 		const report = failureAutoReport(t, offline, text);
 		expect(report).toEqual({
 			happened: [],
-			standing: [`${HEADING}The pull failed. Could not reach GitHub. Check the network connection and try again.`],
+			standing: [`${HEADING}The download failed. Could not reach GitHub. Check the network connection and try again.`],
 			questions: [],
 			cause: "error:unreachable",
 			end: "failure",

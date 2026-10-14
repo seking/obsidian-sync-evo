@@ -459,9 +459,12 @@ export class ExclusionSettings {
 				});
 		});
 		for (const folder of state.folders) {
-			new Setting(el).setName(folder).addButton((button) => {
+			// A cross, as other plugins have on a row of a list. The tooltip is
+			// also what a screen reader says of it.
+			new Setting(el).setName(folder).addExtraButton((button) => {
 				button
-					.setButtonText(t("settings.exclusion.folders.remove"))
+					.setIcon("cross")
+					.setTooltip(t("settings.exclusion.folders.remove"))
 					.setDisabled(locked)
 					.onClick(() => void this.change(host.editExclusion({ kind: "remove-folder", folder })));
 			});

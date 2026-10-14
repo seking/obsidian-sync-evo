@@ -35,6 +35,16 @@ type Names<Text> = Text extends `${string}{${infer Name}}${infer Rest}`
  */
 export type ParamsOf<M> = M extends string ? Names<M> : "count" | Names<M[keyof M]>;
 
+/**
+ * The placeholder that stands for what the vault syncs with, by the name of
+ * the service ("GitHub"). The lookup fills it in by itself, so a caller does
+ * not pass it.
+ */
+export const REMOTE = "remote";
+
+/** The placeholders a caller has to give the values of. */
+export type GivenOf<M> = Exclude<ParamsOf<M>, typeof REMOTE>;
+
 /** The placeholders of the text shown for most numbers: the message itself, or its `other` form. */
 type Shown<M> = M extends string ? Names<M> : M extends { readonly other: infer Other } ? Names<Other> : never;
 

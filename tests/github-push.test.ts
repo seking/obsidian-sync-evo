@@ -1279,7 +1279,7 @@ describe("a push of a vault against GitHub, where it does not go as planned", ()
 		expect(pushed).toMatchObject({ outcome: "pushed", counts: { added: 2, modified: 1 }, storedOtherwise: ["a.md", "b.md"] });
 		expect(logged).toEqual(["push: GitHub stored other content than was sent: a.md, b.md"]);
 		expect(pushReport(t, pushed, { sizeLimit: 50 * 1024 * 1024 }).details).toEqual([
-			"GitHub stored 2 files with other content than this device sent. The next pull replaces the files on this device with GitHub's versions:\na.md\nb.md",
+			"GitHub stored 2 files with other content than this device uploaded. The next download replaces the files on this device with GitHub's versions:\na.md\nb.md",
 		]);
 
 		// The listing is the tree of the commit, not what was sent.

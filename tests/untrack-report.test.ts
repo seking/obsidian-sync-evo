@@ -95,35 +95,35 @@ const pushed: PushRunResult = {
 describe("the question before untracking", () => {
 	test("the files, what becomes of them here and elsewhere, the sync that comes first, and the two buttons", () => {
 		const question = untrackQuestion(t, request());
-		expect(question.title).toBe("Untrack files");
-		expect(question.proceed).toBe("Untrack");
+		expect(question.title).toBe("Remove files from GitHub");
+		expect(question.proceed).toBe("Remove from GitHub");
 		expect(question.cancel).toBe("Not now");
 		expect(question.shown).toEqual(["drafts/a.md", "drafts/b.md"]);
 		expect(question.parts).toEqual([
 			{
-				text: "2 files on the remote match a rule of .gitignore. Untracking removes them from the remote, and they are no longer synced:",
+				text: "2 excluded files are on GitHub. Removing them from GitHub stops syncing them:",
 				paths: { shown: ["drafts/a.md", "drafts/b.md"], more: 0 },
 			},
 			{ text: "The files on this device are not deleted. They stay as they are." },
 			{
-				text: "On your other devices, the next pull deletes these files, except files that were changed on that device.",
+				text: "On your other devices, the next download deletes these files, except files that were changed on that device.",
 			},
 			{
-				text: "A pull runs first. If the rules are not on the remote yet, a push follows, and it also sends the other changes of this device.",
+				text: "A download runs first. If the exclusions have not been uploaded yet, an upload follows, and it also uploads the other changes of this device.",
 			},
 			{
-				text: "To keep the files on a computer that uses git, do not untrack them here: run git rm --cached on that computer, and push from there. The next pull then deletes these files from this device.",
+				text: "To keep the files where you use git on a computer, do not remove them here: run git rm --cached on that computer, and push from there. The next download then deletes these files from this device.",
 			},
 		]);
 		expect(question.note).toBe(
-			'If you choose "Not now", the rules stay, and these files stay synced. You can untrack them later in the settings of Sync Evo.',
+			'If you choose "Not now", the exclusions stay, and these files stay synced. You can remove them later in the settings of Sync Evo.',
 		);
 	});
 
 	test("one file", () => {
 		const question = untrackQuestion(t, request({ files: [plain("drafts/a.md")] }));
 		expect(question.parts[0]?.text).toBe(
-			"1 file on the remote matches a rule of .gitignore. Untracking removes it from the remote, and it is no longer synced:",
+			"1 excluded file is on GitHub. Removing it from GitHub stops syncing it:",
 		);
 	});
 
@@ -145,10 +145,10 @@ describe("the question before untracking", () => {
 		expect(question.shown).toEqual(files.map((file) => file.path));
 		// After what becomes of the files on this device and on the others.
 		expect(question.parts[3]).toEqual({
-			text: "2 of these files are not on this device. Those in the list are marked there. After untracking, their content is only in the history of the remote.",
+			text: "2 of these files are not on this device. Those in the list are marked there. After they are removed, their content is only in the history on GitHub.",
 		});
 		expect(untrackQuestion(t, request({ missing: ["drafts/a.md"] })).parts[3]?.text).toBe(
-			"1 of these files is not on this device. If it is in the list, it is marked there. After untracking, its content is only in the history of the remote.",
+			"1 of these files is not on this device. If it is in the list, it is marked there. After it is removed, its content is only in the history on GitHub.",
 		);
 	});
 
@@ -162,7 +162,7 @@ describe("the question before untracking", () => {
 		const question = untrackQuestion(t, request({ submodules: ["knowledge", "lib"] }));
 		expect(question.parts).toHaveLength(6);
 		expect(question.parts[3]).toEqual({
-			text: "2 submodules match a rule as well. They are not untracked here. Untrack them with git on a Mac or another computer:",
+			text: "2 submodules are excluded as well. They are not removed here. Remove them with git on a computer:",
 			paths: { shown: ["knowledge", "lib"], more: 0 },
 		});
 		expect(question.shown).toEqual(["drafts/a.md", "drafts/b.md"]);
@@ -183,10 +183,10 @@ describe("the question before untracking", () => {
 			const question = untrackQuestion(t, request({ files: files(count), recordCount }));
 			return question.parts.length === 6 ? question.parts[0]?.text : undefined;
 		};
-		expect(warning(51, 10_000)).toBe("This removes 51 files from the remote at once. Check the list before you go on.");
+		expect(warning(51, 10_000)).toBe("This removes 51 files from GitHub at once. Check the list before you go on.");
 		expect(warning(50, 10_000)).toBeUndefined();
 		// More than five, and more than a tenth of everything.
-		expect(warning(6, 59)).toBe("This removes 6 files from the remote at once. Check the list before you go on.");
+		expect(warning(6, 59)).toBe("This removes 6 files from GitHub at once. Check the list before you go on.");
 		expect(warning(6, 60)).toBeUndefined();
 		expect(warning(5, 10)).toBeUndefined();
 	});
@@ -194,21 +194,21 @@ describe("the question before untracking", () => {
 	test("in Japanese", () => {
 		const files: UntrackableFile[] = [{ path: "drafts/link", symlink: true, ownFolder: false }, plain("drafts/a.md")];
 		const question = untrackQuestion(ja, request({ files, missing: ["drafts/link"], submodules: ["knowledge"] }));
-		expect(question.title).toBe("追跡を外す確認");
-		expect(question.proceed).toBe("追跡を外す");
-		expect(question.cancel).toBe("今は外さない");
+		expect(question.title).toBe("GitHub から削除する確認");
+		expect(question.proceed).toBe("GitHub から削除");
+		expect(question.cancel).toBe("今は削除しない");
 		expect(question.parts.map((part) => part.text)).toEqual([
-			"保存先に、.gitignore の規則に当たるファイルが 2 件あります。追跡を外すと、保存先から削除し、同期しなくなります：",
+			"GitHub に、除外しているファイルが 2 件あります。GitHub から削除すると、同期しなくなります：",
 			"このデバイスのファイルは削除しません。そのまま残ります。",
-			"ほかのデバイスでは、次の取り込みで削除されます。そのデバイスで変更していたファイルは残ります。",
-			"このうち 1 件は、このデバイスにありません。一覧に出した物には、印を付けています。追跡を外すと、中身は保存先の履歴にだけ残ります。",
-			"規則に当たるサブモジュールも 1 件あります。ここでは追跡を外しません。Mac などの git で外してください：",
-			"先に取り込みを行います。規則がまだ保存先に届いていなければ、送信も行い、このデバイスのほかの変更も送ります。",
-			"git を使うパソコンにファイルを残したい時は、ここでは外さず、そのパソコンで git rm --cached をして push してください。その時は、このデバイスのファイルが、次の取り込みで削除されます。",
+			"ほかのデバイスでは、次のダウンロードで削除されます。そのデバイスで変更していたファイルは残ります。",
+			"このうち 1 件は、このデバイスにありません。一覧に出した物には、印を付けています。GitHub から削除すると、中身は GitHub の履歴にだけ残ります。",
+			"除外しているサブモジュールも 1 件あります。ここでは削除しません。パソコンの git で行ってください：",
+			"先にダウンロードを行います。除外の設定がまだアップロードされていなければ、アップロードも行い、このデバイスのほかの変更もアップロードします。",
+			"パソコンの git の側にファイルを残したい時は、ここでは削除せず、そのパソコンで git rm --cached をして push してください。その時は、このデバイスのファイルが、次のダウンロードで削除されます。",
 		]);
 		expect(question.parts[0]?.paths?.shown).toEqual(["drafts/link（シンボリックリンク、このデバイスに無い）", "drafts/a.md"]);
 		expect(question.note).toBe(
-			"「今は外さない」を選ぶと、規則は残り、これらのファイルは同期を続けます。後から、Sync Evo の設定画面で外せます。",
+			"「今は削除しない」を選ぶと、除外の設定は残り、これらのファイルは同期を続けます。後から、Sync Evo の設定画面で削除できます。",
 		);
 	});
 });
@@ -216,14 +216,14 @@ describe("the question before untracking", () => {
 describe("how untracking ended", () => {
 	test("untracked: the count, and that the files on this device are as they were", () => {
 		expect(untrackReport(t, ended())).toEqual({
-			summary: "Untracked 2 files: they were removed from the remote. The files on this device are as they were.",
+			summary: "Removed 2 files from GitHub. The files on this device are as they were.",
 			details: [],
 		});
 		expect(untrackReport(t, ended({ untracked: ["a.md"] })).summary).toBe(
-			"Untracked 1 file: it was removed from the remote. The file on this device is as it was.",
+			"Removed 1 file from GitHub. The file on this device is as it was.",
 		);
 		expect(untrackReport(ja, ended()).summary).toBe(
-			"追跡を外しました：2 件。保存先から削除しました。このデバイスのファイルは、そのままです。",
+			"GitHub から 2 件を削除しました。このデバイスのファイルは、そのままです。",
 		);
 	});
 
@@ -231,12 +231,12 @@ describe("how untracking ended", () => {
 		const said = (outcome: UntrackRunResult["outcome"]): string =>
 			untrackReport(t, ended({ outcome, revision: null, untracked: [] })).summary;
 		expect(said("nothing-to-untrack")).toBe(
-			"There was nothing to untrack: none of the listed files is still on the remote and matched by a rule. Nothing was changed.",
+			"There was nothing to remove from GitHub: none of the listed files is still there and excluded. Nothing was changed.",
 		);
 		expect(said("remote-moved")).toBe(
-			"Nothing was untracked. The remote was changed from another device meanwhile. Untrack again in the settings of Sync Evo.",
+			"Nothing was removed from GitHub. Another device changed what is there meanwhile. Try again in the settings of Sync Evo.",
 		);
-		expect(said("cancelled")).toBe("Untracking was stopped. Nothing was removed from the remote.");
+		expect(said("cancelled")).toBe("The removal was stopped. Nothing was removed from GitHub.");
 	});
 
 	test("each reason a sync has to come first has a text of its own, in both languages", () => {
@@ -259,33 +259,33 @@ describe("how untracking ended", () => {
 		const said = (reason: UntrackRefusal): string =>
 			untrackReport(t, ended({ outcome: "sync-first", reason, revision: null, untracked: [] })).summary;
 		expect(said("gitignore-not-sent")).toBe(
-			"Nothing was untracked. The .gitignore of this device is not the one the remote holds, so the rules are not on the remote yet. Sync until .gitignore has been sent, then untrack again in the settings of Sync Evo.",
+			"Nothing was removed from GitHub. The .gitignore of this device has not been uploaded yet. Sync, then try again in the settings of Sync Evo.",
 		);
 		expect(said("no-section")).toContain("has no lines managed by Sync Evo");
-		for (const reason of reasons) expect(said(reason).startsWith("Nothing was untracked.")).toBe(true);
+		for (const reason of reasons) expect(said(reason).startsWith("Nothing was removed from GitHub.")).toBe(true);
 	});
 
 	test("an earlier push or untracking it found to have gone through is a message of its own", () => {
 		const push = untrackReport(t, ended({ recovered: { added: 1, modified: 0, deleted: 0 } }));
-		expect(push.details).toEqual(["The previous push had reached the remote: 1 file added. It is recorded on this device now."]);
+		expect(push.details).toEqual(["The previous upload had gone through: 1 file added. It is recorded on this device now."]);
 		const untracking = untrackReport(t, ended({ outcome: "nothing-to-untrack", untracked: [], recoveredUntrack: 2 }));
 		expect(untracking.details).toEqual([
-			"An earlier untracking had reached the remote: 2 files untracked. It is recorded on this device now. The files on this device are as they were.",
+			"An earlier removal from GitHub had gone through: 2 files removed. It is recorded on this device now. The files on this device are as they were.",
 		]);
 	});
 
 	test("a failure, with its reason; a stop is told as a stop", () => {
 		expect(untrackFailureText(t, settings, new BackendError("unreachable", "timed out"))).toBe(
-			"Untracking failed. Could not reach GitHub. Check the network connection and try again.",
+			"Removing from GitHub failed. Could not reach GitHub. Check the network connection and try again.",
 		);
 		expect(untrackFailureText(ja, settings, new BackendError("not-as-listed", "x"))).toBe(
-			"追跡を外せませんでした。何も送信していません。保存先の中身が、このデバイスが持っている保存先の一覧と違っていました。次の同期で、一覧を取り直します。もう一度同期してください。",
+			"GitHub から削除できませんでした。GitHub の中身が、このデバイスが持っている一覧と違っていたため、GitHub では何も変更していません。次の同期で、一覧を取り直します。もう一度同期してください。",
 		);
 		expect(untrackFailureText(t, settings, new BackendError("cancelled", "x"))).toBe(
-			"Untracking was stopped. Nothing was removed from the remote.",
+			"The removal was stopped. Nothing was removed from GitHub.",
 		);
 		expect(untrackFailureText(t, settings, new BackendError("cancelled", "x"), true)).toBe(
-			"Untracking was stopped because the connection was changed. Nothing was removed from the remote.",
+			"The removal was stopped because the connection was changed. Nothing was removed from GitHub.",
 		);
 		// A failure is told as that, whatever became of the connection.
 		expect(untrackFailureText(t, settings, new BackendError("not-as-listed", "x"), true)).toBe(
@@ -310,23 +310,23 @@ describe("how untracking after a sync ended", () => {
 			return report.summary;
 		};
 		expect(said("pull-declined")).toBe(
-			"Nothing was untracked, because the pull was cancelled. The rules stay. You can untrack later in the settings of Sync Evo.",
+			"Nothing was removed from GitHub, because the download was cancelled. The exclusions stay. You can remove the files later in the settings of Sync Evo.",
 		);
 		expect(said("pull-cancelled")).toBe(
-			"Nothing was untracked, because the pull was stopped. The rules stay. You can untrack later in the settings of Sync Evo.",
+			"Nothing was removed from GitHub, because the download was stopped. The exclusions stay. You can remove the files later in the settings of Sync Evo.",
 		);
 		expect(said("push-not-done")).toBe(
-			"Nothing was untracked, because the push that sends .gitignore to the remote did not go through. The rules stay. You can untrack later in the settings of Sync Evo.",
+			"Nothing was removed from GitHub, because the upload of .gitignore did not go through. The exclusions stay. You can remove the files later in the settings of Sync Evo.",
 		);
-		expect(said("cancelled")).toBe("Untracking was stopped. Nothing was removed from the remote.");
+		expect(said("cancelled")).toBe("The removal was stopped. Nothing was removed from GitHub.");
 		expect(untrackSyncReport(ja, sync({ skipped: "push-not-done" })).summary).toBe(
-			".gitignore を保存先に届ける送信が済まなかったため、追跡を外していません。規則は残っています。後から、Sync Evo の設定画面で追跡を外せます。",
+			".gitignore のアップロードが済まなかったため、GitHub から削除していません。除外の設定は残っています。後から、Sync Evo の設定画面で削除できます。",
 		);
 	});
 
 	test("stopped because the connection was changed: that, in whichever step it was stopped", () => {
 		const options = { connectionChanged: true };
-		const en = "Untracking was stopped because the connection was changed. Nothing was removed from the remote.";
+		const en = "The removal was stopped because the connection was changed. Nothing was removed from GitHub.";
 		// A question that was open is closed as a "no" by the change.
 		for (const skipped of ["cancelled", "pull-cancelled", "pull-declined", "push-not-done"] as const) {
 			expect(untrackSyncReport(t, sync({ skipped }), options), skipped).toEqual({ summary: en, details: [] });
@@ -334,7 +334,7 @@ describe("how untracking after a sync ended", () => {
 		const stopped = ended({ outcome: "cancelled", untracked: [], revision: null });
 		expect(untrackSyncReport(t, sync({ untrack: stopped }), options).summary).toBe(en);
 		expect(untrackSyncReport(ja, sync({ untrack: stopped }), options).summary).toBe(
-			"接続先が変わったため、追跡を外す操作を中止しました。保存先からは、何も削除していません。",
+			"接続先が変わったため、GitHub からの削除を中止しました。何も削除していません。",
 		);
 		// What was untracked before the change is told as that.
 		expect(untrackSyncReport(t, sync({ untrack: ended() }), options)).toEqual(untrackReport(t, ended()));
@@ -344,15 +344,15 @@ describe("how untracking after a sync ended", () => {
 describe("an untracking that a later sync found to have gone through", () => {
 	test("is told by a pull and by a push as files untracked, not as files deleted", () => {
 		const text =
-			"An earlier untracking had reached the remote: 3 files untracked. It is recorded on this device now. The files on this device are as they were.";
+			"An earlier removal from GitHub had gone through: 3 files removed. It is recorded on this device now. The files on this device are as they were.";
 		const options = { sizeLimit: 50 * 1024 * 1024 };
 		expect(pullReport(t, { ...pulled, recoveredUntrack: 3 }, { settings, ...options }).details).toEqual([text]);
 		expect(pushReport(t, { ...pushed, recoveredUntrack: 3 }, options).details).toEqual([text]);
 		expect(pushReport(t, { ...pushed, recoveredUntrack: 1 }, options).details).toEqual([
-			"An earlier untracking had reached the remote: 1 file untracked. It is recorded on this device now. The file on this device is as it was.",
+			"An earlier removal from GitHub had gone through: 1 file removed. It is recorded on this device now. The file on this device is as it was.",
 		]);
 		expect(pullReport(ja, { ...pulled, recoveredUntrack: 3 }, { settings, ...options }).details).toEqual([
-			"前に行った追跡を外す操作は、保存先に届いていました（3 件）。このデバイスに記録しました。このデバイスのファイルは、そのままです。",
+			"前に行った GitHub からの削除は、できていました（3 件）。このデバイスに記録しました。このデバイスのファイルは、そのままです。",
 		]);
 	});
 });
@@ -370,7 +370,7 @@ describe("what the question is drawn from", () => {
 		// Nothing was written for it.
 		expect(vault.text("drafts/a.md")).toBe("A");
 		expect(untrackQuestion(t, asked).parts.map((part) => part.text)).toContain(
-			"2 of these files are not on this device. Those in the list are marked there. After untracking, their content is only in the history of the remote.",
+			"2 of these files are not on this device. Those in the list are marked there. After they are removed, their content is only in the history on GitHub.",
 		);
 	});
 
@@ -390,13 +390,13 @@ describe("what the question is drawn from", () => {
 describe("the submodules a rule matches", () => {
 	test("one line for the screen, and with the paths for a message", () => {
 		expect(untrackSubmodulesText(t, ["knowledge"])).toBe(
-			"1 submodule on the remote matches a rule of .gitignore. Sync Evo does not untrack submodules. Untrack it with git on a Mac or another computer.",
+			"1 excluded submodule is on GitHub. Sync Evo does not remove submodules. Remove it with git on a computer.",
 		);
 		expect(untrackSubmodulesText(t, ["a", "b"], true)).toBe(
-			"2 submodules on the remote match a rule of .gitignore. Sync Evo does not untrack submodules. Untrack them with git on a Mac or another computer.\na\nb",
+			"2 excluded submodules are on GitHub. Sync Evo does not remove submodules. Remove them with git on a computer.\na\nb",
 		);
 		expect(untrackSubmodulesText(ja, ["a", "b"])).toBe(
-			"保存先に、.gitignore の規則に当たるサブモジュールが 2 件あります。Sync Evo では、サブモジュールの追跡を外せません。Mac などの git で外してください。",
+			"GitHub に、除外しているサブモジュールが 2 件あります。Sync Evo では、サブモジュールを削除できません。パソコンの git で行ってください。",
 		);
 	});
 });
@@ -438,8 +438,8 @@ describe("whether anything was untracked", () => {
 
 describe("where untracking is pointed to", () => {
 	test.each([
-		["en", "untrack its files in the settings of Sync Evo"],
-		["ja", "Sync Evo の設定画面で追跡を外します"],
+		["en", 'use "Remove from GitHub" in the settings of Sync Evo'],
+		["ja", "Sync Evo の設定画面で「GitHub から削除」を行います"],
 	])("in %s, the notice about Sync Evo's own folder on the remote says where it can be taken out", (language, words) => {
 		const [text] = noticeTexts(translatorFor(language), [{ kind: "own-folder-on-remote", path: ".obsidian/plugins/sync-evo" }], 1);
 		expect(text).toContain(words);

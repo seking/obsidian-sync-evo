@@ -94,7 +94,7 @@ vi.mock("../src/core/pull", async (importOriginal) => {
 const { SyncRunner } = await import("../src/obsidian/sync-runner");
 
 const HEADING = "Automatic sync:\n";
-const OFFLINE = "The pull failed. Could not reach GitHub. Check the network connection and try again.";
+const OFFLINE = "The download failed. Could not reach GitHub. Check the network connection and try again.";
 
 /** The screen wake lock of the page: how often it was asked for, and how many of those are still held. */
 function wakeLock() {
@@ -433,7 +433,7 @@ describe("a sync the user starts while one that started by itself runs", () => {
 
 		expect(app.requests).toBe(1);
 		expect(app.notices).toEqual([
-			"The pull was stopped because the connection was changed. The next pull starts with the new connection.",
+			"The download was stopped because the connection was changed. The next download starts with the new connection.",
 		]);
 		expect(lock.held).toBe(0);
 		expect(runner.running).toBe(false);
@@ -467,7 +467,7 @@ describe("a sync the user starts while one that started by itself runs", () => {
 		await Promise.all([automatic, manual]);
 
 		expect(app.requests).toBe(1);
-		expect(app.notices).toEqual(["The pull was stopped. The next pull continues from there."]);
+		expect(app.notices).toEqual(["The download was stopped. The next download continues from there."]);
 		expect(lock.held).toBe(0);
 	});
 
@@ -498,7 +498,7 @@ describe("where the user types", () => {
 
 		expect(editing.asked).toBeGreaterThan(0);
 		// It got as far as the question before the first push, which it leaves.
-		expect(app.notices).toEqual([expect.stringContaining("The first push from this device needs your confirmation.")]);
+		expect(app.notices).toEqual([expect.stringContaining("The first upload from this device needs your confirmation.")]);
 	});
 
 	test.each(["sync", "pull", "push"] as const)("is not asked by a %s the user starts", async (mode) => {
@@ -528,7 +528,7 @@ describe("where the user types", () => {
 
 describe("what a sync that started by itself left on the screen", () => {
 	const sending = { autoSync: { ...DEFAULT_AUTO_SYNC, atInterval: true, sendsChanges: true } };
-	const QUESTION = "The first push from this device needs your confirmation.";
+	const QUESTION = "The first upload from this device needs your confirmation.";
 	const automatic = (texts: string[]): string[] => texts.filter((text) => text.startsWith(HEADING));
 
 	test("a question that waits is taken down when the user starts a sync, and stays remembered as told", async () => {
@@ -576,7 +576,7 @@ describe("a sync that started by itself and was stopped", () => {
 		runner.requestStop();
 		await automatic;
 
-		expect(app.notices).toEqual(["The pull was stopped. The next pull continues from there."]);
+		expect(app.notices).toEqual(["The download was stopped. The next download continues from there."]);
 		expect(await store.getMeta(AUTO_SYNC_KEY)).toEqual(started);
 		expect(await readAutoSyncMemory(store)).toMatchObject({ failures: 0, told: null });
 	});
@@ -697,7 +697,7 @@ describe("the end of a sync", () => {
 			expect(app.notices).toEqual([]);
 			await vi.advanceTimersByTimeAsync(200);
 			expect(app.notices).toHaveLength(1);
-			expect(app.notices[0]).toContain("Pull");
+			expect(app.notices[0]).toContain("Download");
 			held.fail();
 			await vi.advanceTimersByTimeAsync(0);
 			await automatic;

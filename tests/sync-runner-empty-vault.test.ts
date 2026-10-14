@@ -215,7 +215,7 @@ describe("a push that finds none of the files it has a record of", () => {
 		expect(app.ran).toEqual(["push", "first fetch"]);
 		expect(app.lit).toEqual([true, true]);
 		expect(app.held).toBe(false);
-		expect(app.notices).not.toContain("The push was cancelled. Nothing was sent.");
+		expect(app.notices).not.toContain("The upload was cancelled. Nothing was uploaded.");
 		expect(runner.running).toBe(false);
 	});
 
@@ -263,7 +263,7 @@ describe("a push that finds none of the files it has a record of", () => {
 
 		expect(app.ran).toEqual(["push"]);
 		expect(app.dialogs).toEqual([{ missing: 2, deletions: 2 }]);
-		expect(app.notices).toContain("The push was cancelled. Nothing was sent.");
+		expect(app.notices).toContain("The upload was cancelled. Nothing was uploaded.");
 		expect(app.held).toBe(false);
 	});
 
@@ -288,7 +288,7 @@ describe("a push that finds none of the files it has a record of", () => {
 		expect(app.answered).toEqual(["later", "later"]);
 		expect(app.ran).toEqual(["pull", "push", "pull", "push"]);
 		expect(app.notices).toEqual([
-			"Automatic sync:\nNone of the files synced before is on this device, which needs your confirmation. Nothing was sent. Sync manually to be asked.",
+			"Automatic sync:\nNone of the files synced before is on this device, which needs your confirmation. Nothing was uploaded. Sync manually to be asked.",
 		]);
 	});
 });

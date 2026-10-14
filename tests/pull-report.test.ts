@@ -83,40 +83,40 @@ describe("lists", () => {
 describe("pullProgressText", () => {
 	test("a phase with a count shows it", () => {
 		expect(pullProgressText(t, { phase: "applying", done: 3, total: 10, closedViews: false })).toBe(
-			"Pull: updating files (3/10)…",
+			"Download: updating files (3/10)…",
 		);
 		expect(pullProgressText(t, { phase: "hashing", done: 3, total: 10, closedViews: false })).toBe(
-			"Pull: comparing files (3/10)…",
+			"Download: comparing files (3/10)…",
 		);
 	});
 
 	test("a phase whose count is not known shows none", () => {
 		expect(pullProgressText(t, { phase: "applying", done: 0, total: 0, closedViews: false })).toBe(
-			"Pull: updating files…",
+			"Download: updating files…",
 		);
 		expect(pullProgressText(t, { phase: "listing", done: 0, total: 0, closedViews: false })).toBe(
-			"Pull: checking the remote…",
+			"Download: checking GitHub…",
 		);
 	});
 
 	test("while everything is downloaded at once, that is told in place of a count", () => {
 		const downloading = { phase: "applying", done: 2, total: 6655, closedViews: false, archive: "downloading" } as const;
-		expect(pullProgressText(t, downloading)).toBe("Pull: downloading all files at once…");
+		expect(pullProgressText(t, downloading)).toBe("Download: getting all files at once…");
 		const waiting = { ...downloading, archive: "waiting" } as const;
-		expect(pullProgressText(t, waiting)).toBe("Pull: waiting for the download of the stopped pull to end…");
-		expect(pullProgressText(ja, waiting)).toBe("取り込み：中止した取り込みの取得が終わるのを待っています…");
-		expect(pullProgressText(ja, downloading)).toBe("取り込み：全ファイルをまとめて取得中…");
+		expect(pullProgressText(t, waiting)).toBe("Download: waiting for the stopped download to end…");
+		expect(pullProgressText(ja, waiting)).toBe("ダウンロード：中止したダウンロードが止まるのを待っています…");
+		expect(pullProgressText(ja, downloading)).toBe("ダウンロード：全ファイルをまとめて転送中…");
 	});
 
 	test("a download that is tried again tells to keep the app in front", () => {
 		const retrying = { phase: "applying", done: 0, total: 6655, closedViews: false, archive: "retrying" } as const;
 		expect(pullProgressText(t, retrying).split("\n")).toEqual([
-			"Pull: downloading all files at once…",
+			"Download: getting all files at once…",
 			"The last download did not finish. Keep Obsidian in front and wait until this one is done.",
 		]);
 		expect(pullProgressText(ja, retrying).split("\n")).toEqual([
-			"取り込み：全ファイルをまとめて取得中…",
-			"前回は、取得が終わりませんでした。終わるまで、Obsidian を前に出したまま待ってください。",
+			"ダウンロード：全ファイルをまとめて転送中…",
+			"前回は、ダウンロードが終わりませんでした。終わるまで、Obsidian を前に出したまま待ってください。",
 		]);
 	});
 
@@ -125,16 +125,16 @@ describe("pullProgressText", () => {
 		expect(pullProgressText(t, retrying).split("\n")).toHaveLength(2);
 		// The same pull, with the download behind it.
 		const { archive: _over, ...counting } = retrying;
-		expect(pullProgressText(t, counting)).toBe("Pull: updating files (0/6655)…");
-		expect(pullProgressText(t, { ...counting, done: 12 })).toBe("Pull: updating files (12/6655)…");
-		expect(pullProgressText(ja, { ...counting, done: 12 })).toBe("取り込み：ファイルを更新中（12/6655）…");
+		expect(pullProgressText(t, counting)).toBe("Download: updating files (0/6655)…");
+		expect(pullProgressText(t, { ...counting, done: 12 })).toBe("Download: updating files (12/6655)…");
+		expect(pullProgressText(ja, { ...counting, done: 12 })).toBe("ダウンロード：ファイルを更新中（12/6655）…");
 	});
 
 	test("closed graph views are told for as long as they are closed", () => {
 		const text = pullProgressText(t, { phase: "applying", done: 3, total: 10, closedViews: true });
 		expect(text.split("\n")).toEqual([
-			"Pull: updating files (3/10)…",
-			"Graph views are closed while the files are written. They reopen when the pull ends.",
+			"Download: updating files (3/10)…",
+			"Graph views are closed while the files are written. They reopen when the download ends.",
 		]);
 	});
 
@@ -145,11 +145,11 @@ describe("pullProgressText", () => {
 	test("a wait for the request limit is told with the time it ends", () => {
 		const text = pullProgressText(t, applying, { waitingUntil: at(14, 5), quota: null });
 		expect(text.split("\n")).toEqual([
-			"Pull: updating files (3/10)…",
-			"GitHub's request limit was reached. The pull continues at 14:05. You can close the app: the next sync continues from where it stopped.",
+			"Download: updating files (3/10)…",
+			"GitHub's request limit was reached. The download continues at 14:05. You can close the app: the next sync continues from where it stopped.",
 		]);
 		expect(pullProgressText(ja, applying, { waitingUntil: at(14, 5), quota: null }).split("\n")[1]).toBe(
-			"GitHub のリクエスト数の上限に達しました。14:05 に続きを取り込みます。アプリを閉じても、次の同期で続きから進みます。",
+			"GitHub のリクエスト数の上限に達しました。14:05 に続きをダウンロードします。アプリを閉じても、次の同期で続きから進みます。",
 		);
 	});
 
@@ -161,14 +161,14 @@ describe("pullProgressText", () => {
 	test("a fetch that does not fit in the quota is told with what fits and when the rest continues", () => {
 		const quota = { fetchable: 4990, resumesAt: at(8, 30) };
 		expect(pullProgressText(t, applying, { waitingUntil: null, quota }).split("\n")).toEqual([
-			"Pull: updating files (3/10)…",
-			"About 4990 files can be fetched before GitHub's request limit is reached. The rest continues after 08:30.",
+			"Download: updating files (3/10)…",
+			"About 4990 files can be downloaded before GitHub's request limit is reached. The rest continues after 08:30.",
 		]);
 		expect(pullProgressText(ja, applying, { waitingUntil: null, quota }).split("\n")[1]).toBe(
-			"GitHub のリクエスト数の上限までに取得できるのは、約 4990 件です。残りは 08:30 以降に取り込みます。",
+			"GitHub のリクエスト数の上限までにダウンロードできるのは、約 4990 件です。残りは 08:30 以降にダウンロードします。",
 		);
 		expect(pullProgressText(t, applying, { waitingUntil: null, quota: { ...quota, fetchable: 1 } })).toContain(
-			"About 1 file can be fetched",
+			"About 1 file can be downloaded",
 		);
 	});
 
@@ -185,7 +185,7 @@ describe("pullProgressText", () => {
 			{ phase: "listing", done: 0, total: 0, closedViews: true },
 			{ waitingUntil: at(14, 5), quota: null },
 		);
-		expect(text.split("\n").map((line) => line.slice(0, 12))).toEqual(["Pull: checki", "GitHub's req", "Graph views "]);
+		expect(text.split("\n").map((line) => line.slice(0, 12))).toEqual(["Download: ch", "GitHub's req", "Graph views "]);
 	});
 
 	test("clockTime is the time of day on the device, to the minute", () => {
@@ -200,67 +200,67 @@ describe("the summary", () => {
 		const counts = { fetched: 6655, deleted: 0, renamed: 0, conflicts: 0 };
 		const report = pullReport(t, result({ counts, refetched: 12 }), options);
 		expect(report.summary.split("\n")).toEqual([
-			"Pull finished: 6655 files fetched.",
-			"12 files were missing from the download of all files, or differed from GitHub's listing there. They were fetched one by one.",
+			"Download finished: 6655 files updated.",
+			"12 files were missing from the download of all files, or differed from GitHub's listing there. They were downloaded one by one.",
 		]);
 		expect(report.details).toEqual([]);
 		expect(pullReport(t, result({ counts, refetched: 1 }), options).summary.split("\n")[1]).toBe(
-			"1 file was missing from the download of all files, or differed from GitHub's listing there. It was fetched on its own.",
+			"1 file was missing from the download of all files, or differed from GitHub's listing there. It was downloaded on its own.",
 		);
 		expect(pullReport(ja, result({ counts, refetched: 12 }), options).summary.split("\n")[1]).toBe(
-			"12 件のファイルは、まとめて取得した中に無いか、中身が GitHub の一覧と合わなかったため、1件ずつ取得しました。",
+			"12 件のファイルは、まとめてダウンロードした中に無いか、中身が GitHub の一覧と合わなかったため、1件ずつダウンロードしました。",
 		);
-		expect(pullReport(t, result({ counts }), options).summary).toBe("Pull finished: 6655 files fetched.");
+		expect(pullReport(t, result({ counts }), options).summary).toBe("Download finished: 6655 files updated.");
 	});
 
 	test("nothing changed", () => {
 		expect(pullReport(t, result(), options)).toEqual({
-			summary: "Nothing to pull. This device is up to date.",
+			summary: "Nothing to download. This device is up to date.",
 			details: [],
 		});
 	});
 
 	test("only what happened is counted, each in its own number", () => {
 		const report = pullReport(t, result({ counts: { fetched: 1, deleted: 2, renamed: 0, conflicts: 0 } }), options);
-		expect(report.summary).toBe("Pull finished: 1 file fetched, 2 files deleted.");
+		expect(report.summary).toBe("Download finished: 1 file updated, 2 files deleted.");
 	});
 
 	test("all four counts", () => {
 		const counts = { fetched: 12, deleted: 1, renamed: 3, conflicts: 1 };
 		expect(pullReport(t, result({ counts }), options).summary).toBe(
-			"Pull finished: 12 files fetched, 1 file deleted, 3 files renamed, 1 conflict.",
+			"Download finished: 12 files updated, 1 file deleted, 3 files renamed, 1 conflict.",
 		);
 		expect(pullReport(ja, result({ counts }), options).summary).toBe(
-			"取り込みが終わりました：取得 12 件、削除 1 件、名前の変更 3 件、競合 1 件",
+			"ダウンロードが終わりました：更新 12 件、削除 1 件、名前の変更 3 件、競合 1 件",
 		);
 	});
 
 	test("an empty remote", () => {
 		const report = pullReport(t, result({ outcome: "remote-empty", revision: null, remoteEmpty: true }), options);
-		expect(report.summary).toBe("The remote is empty: it has no commits yet. There is nothing to pull.");
+		expect(report.summary).toBe("The repository is empty: it has no commits yet. There is nothing to download.");
 	});
 
 	test("declined", () => {
 		expect(pullReport(t, result({ outcome: "declined" }), options).summary).toBe(
-			"The pull was cancelled. Nothing was changed.",
+			"The download was cancelled. Nothing was changed.",
 		);
 	});
 
 	test("cancelled: what was done before is counted on a second line", () => {
 		expect(pullReport(t, result({ outcome: "cancelled" }), options).summary).toBe(
-			"The pull was stopped. The next pull continues from there.",
+			"The download was stopped. The next download continues from there.",
 		);
 		const counts = { fetched: 5, deleted: 1, renamed: 0, conflicts: 0 };
 		expect(pullReport(t, result({ outcome: "cancelled", counts }), options).summary).toBe(
-			"The pull was stopped. The next pull continues from there.\nDone before it stopped: 5 files fetched, 1 file deleted.",
+			"The download was stopped. The next download continues from there.\nDone before it stopped: 5 files updated, 1 file deleted.",
 		);
 		expect(pullReport(ja, result({ outcome: "cancelled", counts }), options).summary).toBe(
-			"取り込みを中止しました。次の取り込みで、続きから進みます。\n中止するまでに済んだ分：取得 5 件、削除 1 件",
+			"ダウンロードを中止しました。次のダウンロードで、続きから進みます。\n中止するまでに済んだ分：更新 5 件、削除 1 件",
 		);
 		// Nothing goes on from a pull that a change of the connection stopped.
 		const changed = { ...options, connectionChanged: true };
 		expect(pullReport(t, result({ outcome: "cancelled", counts }), changed).summary).toBe(
-			"The pull was stopped because the connection was changed. The next pull starts with the new connection.",
+			"The download was stopped because the connection was changed. The next download starts with the new connection.",
 		);
 	});
 
@@ -270,14 +270,14 @@ describe("the summary", () => {
 			// Nothing in it says that this pull fetched the file: one that
 			// was declined or stopped did not.
 			expect(report.details).toEqual([
-				"An earlier pull stopped while it was writing 1 file. What was left of it was moved to .trash/ in this vault. A pull fetches the content of the remote. If you had edited the file since, you can get your edit back from there:\nnotes/a.md",
+				"An earlier download stopped while it was writing 1 file. What was left of it was moved to .trash/ in this vault. The content from GitHub is downloaded again. If you had edited the file since, you can get your edit back from there:\nnotes/a.md",
 			]);
 		}
 		expect(pullReport(t, result({ halfWritten: ["a.md", "b.md"] }), options).details).toEqual([
-			"An earlier pull stopped while it was writing 2 files. What was left of them was moved to .trash/ in this vault. A pull fetches the content of the remote. If you had edited them since, you can get your edits back from there:\na.md\nb.md",
+			"An earlier download stopped while it was writing 2 files. What was left of them was moved to .trash/ in this vault. The content from GitHub is downloaded again. If you had edited them since, you can get your edits back from there:\na.md\nb.md",
 		]);
 		expect(pullReport(ja, result({ halfWritten: ["a.md", "b.md"] }), options).details).toEqual([
-			"前の取り込みが、2 件のファイルを書いている途中で止まっていました。残っていた内容は、この保管庫の .trash/ へ移しました。保存先の内容は、取り込みで取得します。その後に編集していた時は、そこから戻せます：\na.md\nb.md",
+			"前のダウンロードが、2 件のファイルを書いている途中で止まっていました。残っていた内容は、この保管庫の .trash/ へ移しました。GitHub の内容を、ダウンロードし直します。その後に編集していた時は、そこから戻せます：\na.md\nb.md",
 		]);
 	});
 
@@ -288,28 +288,28 @@ describe("the summary", () => {
 			expect(details).toHaveLength(2);
 			expect(details[0]).toContain("while it was writing 2 files");
 			expect(details[1]).toBe(
-				"An earlier pull stopped while it was writing the merged content of 1 file. A pull fetches the content of the remote, without the changes of this device. What the file held on this device before the merge is in .trash/.sync-evo-merged/ in this vault:\nnotes/a.md (before: .trash/.sync-evo-merged/2026-10-13 a.md)",
+				"An earlier download stopped while it was writing the merged content of 1 file. The content from GitHub is downloaded again, without the changes of this device. What the file held on this device before the merge is in .trash/.sync-evo-merged/ in this vault:\nnotes/a.md (before: .trash/.sync-evo-merged/2026-10-13 a.md)",
 			);
 		}
 		const two = [...moved.halfMerged, { path: "b.md", keptAt: ".trash/.sync-evo-merged/2026-10-13 b.md" }];
 		expect(pullReport(t, result({ ...moved, halfMerged: two }), options).details[1]).toBe(
-			"An earlier pull stopped while it was writing the merged content of 2 files. A pull fetches the content of the remote, without the changes of this device. What the files held on this device before the merge is in .trash/.sync-evo-merged/ in this vault:\nnotes/a.md (before: .trash/.sync-evo-merged/2026-10-13 a.md)\nb.md (before: .trash/.sync-evo-merged/2026-10-13 b.md)",
+			"An earlier download stopped while it was writing the merged content of 2 files. The content from GitHub is downloaded again, without the changes of this device. What the files held on this device before the merge is in .trash/.sync-evo-merged/ in this vault:\nnotes/a.md (before: .trash/.sync-evo-merged/2026-10-13 a.md)\nb.md (before: .trash/.sync-evo-merged/2026-10-13 b.md)",
 		);
 		expect(pullReport(ja, result(moved), options).details[1]).toBe(
-			"前の取り込みが、統合した内容を 1 件のファイルに書いている途中で止まっていました。取り込みで取得するのは保存先の内容で、このデバイスの変更は入りません。統合する前のこのデバイスの内容は、この保管庫の .trash/.sync-evo-merged/ にあります：\nnotes/a.md（前の内容：.trash/.sync-evo-merged/2026-10-13 a.md）",
+			"前のダウンロードが、統合した内容を 1 件のファイルに書いている途中で止まっていました。ダウンロードし直すのは GitHub の内容で、このデバイスの変更は入りません。統合する前のこのデバイスの内容は、この保管庫の .trash/.sync-evo-merged/ にあります：\nnotes/a.md（前の内容：.trash/.sync-evo-merged/2026-10-13 a.md）",
 		);
 	});
 
 	test("conflict copies that were tidied are counted, with how one is kept, and not listed", () => {
 		const copies = ["_conflicts/2026-09-01 a (iPhone).md", "_conflicts/2026-09-02 b (Mac).md"];
 		expect(pullReport(t, result({ tidiedCopies: copies.slice(0, 1) }), options).details).toEqual([
-			"1 conflict copy in _conflicts/ was made 30 days ago or more, and was moved to .trash/ in this vault. To keep a copy, move it out of _conflicts/ or rename it.",
+			"1 conflict file in _conflicts/ was made 30 days ago or more, and was moved to .trash/ in this vault. To keep a conflict file, move it out of _conflicts/ or rename it.",
 		]);
 		expect(pullReport(t, result({ outcome: "incomplete", tidiedCopies: copies }), options).details).toEqual([
-			"2 conflict copies in _conflicts/ were made 30 days ago or more, and were moved to .trash/ in this vault. To keep a copy, move it out of _conflicts/ or rename it.",
+			"2 conflict files in _conflicts/ were made 30 days ago or more, and were moved to .trash/ in this vault. To keep a conflict file, move it out of _conflicts/ or rename it.",
 		]);
 		expect(pullReport(ja, result({ tidiedCopies: copies }), options).details).toEqual([
-			"作ってから30日たった競合の別名 2 件を、_conflicts/ からこの保管庫の .trash/ へ移しました。残したい別名は、_conflicts/ の外へ移すか、名前を変えてください。",
+			"作ってから30日たった競合ファイル 2 件を、_conflicts/ からこの保管庫の .trash/ へ移しました。残したい競合ファイルは、_conflicts/ の外へ移すか、名前を変えてください。",
 		]);
 		expect(pullReport(t, result({ tidiedCopies: [] }), options).details).toEqual([]);
 	});
@@ -318,43 +318,43 @@ describe("the summary", () => {
 		const copy = "_conflicts/2026-10-03 a (iPhone).md";
 		for (const outcome of ["completed", "cancelled", "declined", "incomplete"] as const) {
 			expect(pullReport(t, result({ outcome, halfCopies: [copy] }), options).details).toEqual([
-				`1 conflict copy that an earlier pull left unfinished was moved to .trash/ in this vault. A complete copy is made again. If you had edited the copy, your edit is there:\n${copy}`,
+				`1 conflict file that an earlier download left unfinished was moved to .trash/ in this vault. A complete one is made again. If you had edited it, your edit is there:\n${copy}`,
 			]);
 		}
 		expect(pullReport(t, result({ halfCopies: [copy, "b.md"] }), options).details).toEqual([
-			`2 conflict copies that an earlier pull left unfinished were moved to .trash/ in this vault. Complete copies are made again. If you had edited the copies, your edits are there:\n${copy}\nb.md`,
+			`2 conflict files that an earlier download left unfinished were moved to .trash/ in this vault. Complete ones are made again. If you had edited them, your edits are there:\n${copy}\nb.md`,
 		]);
 		expect(pullReport(ja, result({ halfCopies: [copy] }), options).details).toEqual([
-			`前の取り込みが作りかけていた競合の別名 1 件を、この保管庫の .trash/ へ移しました。別名は作り直します。別名を編集していた時は、編集した内容がそこにあります：\n${copy}`,
+			`前のダウンロードが作りかけていた競合ファイル 1 件を、この保管庫の .trash/ へ移しました。競合ファイルは作り直します。競合ファイルを編集していた時は、編集した内容がそこにあります：\n${copy}`,
 		]);
 		// Each list under its own text, the files first.
 		const both = pullReport(t, result({ halfWritten: ["a.md"], halfCopies: [copy] }), options).details;
 		expect(both).toHaveLength(2);
 		expect(both[0]).toContain("while it was writing 1 file");
-		expect(both[1]).toContain("1 conflict copy");
+		expect(both[1]).toContain("1 conflict file");
 	});
 
 	test("declined after a resuming pull moved files to the trash: not called unchanged", () => {
 		const copy = "_conflicts/2026-10-03 a (iPhone).md";
 		for (const moved of [{ halfWritten: ["a.md"] }, { halfCopies: [copy] }]) {
 			expect(pullReport(t, result({ outcome: "declined", ...moved }), options).summary).toBe(
-				"The pull was cancelled. Only the files listed below were moved to .trash/ in this vault. Nothing else was changed.",
+				"The download was cancelled. Only the files listed below were moved to .trash/ in this vault. Nothing else was changed.",
 			);
 			expect(pullReport(ja, result({ outcome: "declined", ...moved }), options).summary).toBe(
-				"取り込みをやめました。下に示すファイルだけを、この保管庫の .trash/ へ移しました。ほかは何も変更していません。",
+				"ダウンロードをやめました。下に示すファイルだけを、この保管庫の .trash/ へ移しました。ほかは何も変更していません。",
 			);
 		}
 		expect(pullReport(t, result({ outcome: "declined" }), options).summary).toBe(
-			"The pull was cancelled. Nothing was changed.",
+			"The download was cancelled. Nothing was changed.",
 		);
 	});
 
 	test("a pull that kept files which differ from the remote is not called up to date", () => {
-		expect(pullReport(t, result({ keptLocal: ["a.md"] }), options).summary).toBe("Pull finished.");
-		expect(pullReport(ja, result({ keptLocal: ["a.md"] }), options).summary).toBe("取り込みが終わりました。");
+		expect(pullReport(t, result({ keptLocal: ["a.md"] }), options).summary).toBe("Download finished.");
+		expect(pullReport(ja, result({ keptLocal: ["a.md"] }), options).summary).toBe("ダウンロードが終わりました。");
 		const counts = { fetched: 1, deleted: 0, renamed: 0, conflicts: 0 };
 		expect(pullReport(t, result({ keptLocal: ["a.md"], counts }), options).summary).toBe(
-			"Pull finished: 1 file fetched.",
+			"Download finished: 1 file updated.",
 		);
 	});
 
@@ -364,7 +364,7 @@ describe("the summary", () => {
 			result({ outcome: "incomplete", deferred: [{ path: "a.md", reason: "changed-during-pull" }] }),
 			options,
 		);
-		expect(report).toEqual({ summary: "Pull finished.", details: [] });
+		expect(report).toEqual({ summary: "Download finished.", details: [] });
 	});
 });
 
@@ -401,19 +401,19 @@ describe("files left for the next sync", () => {
 			}),
 			options,
 		);
-		expect(report.summary).toBe("Pull finished: 2 files fetched.");
+		expect(report.summary).toBe("Download finished: 2 files updated.");
 		expect(report.details).toEqual([
-			"3 files could not be pulled and are left for the next sync. Could not reach GitHub. Check the network connection and try again.",
+			"3 files could not be downloaded and are left for the next sync. Could not reach GitHub. Check the network connection and try again.",
 		]);
 	});
 
 	test("a half-written file that could not be moved away", () => {
 		const deferred = [{ path: "a.md", reason: "trash-failed" }] as const;
 		expect(pullReport(t, result({ outcome: "incomplete", deferred }), options).details).toEqual([
-			"1 file could not be pulled and is left for the next sync. A file on this device could not be moved to .trash/ in this vault.",
+			"1 file could not be downloaded and is left for the next sync. A file on this device could not be moved to .trash/ in this vault.",
 		]);
 		expect(pullReport(ja, result({ outcome: "incomplete", deferred }), options).details).toEqual([
-			"1 件のファイルを取り込めませんでした。次の同期で、もう一度試します。このデバイスのファイルを、この保管庫の .trash/ へ移せませんでした。",
+			"1 件のファイルをダウンロードできませんでした。次の同期で、もう一度試します。このデバイスのファイルを、この保管庫の .trash/ へ移せませんでした。",
 		]);
 	});
 
@@ -424,7 +424,7 @@ describe("files left for the next sync", () => {
 			options,
 		);
 		expect(report.details).toEqual([
-			"Some files could not be pulled and are left for the next sync. GitHub's request limit has been reached. Try again later.",
+			"Some files could not be downloaded and are left for the next sync. GitHub's request limit has been reached. Try again later.",
 		]);
 	});
 
@@ -435,7 +435,7 @@ describe("files left for the next sync", () => {
 			options,
 		);
 		expect(report.details).toEqual([
-			"1 file could not be pulled and is left for the next sync. The content GitHub sent did not match its own listing.",
+			"1 file could not be downloaded and is left for the next sync. The content GitHub sent did not match its own listing.",
 		]);
 	});
 
@@ -462,7 +462,7 @@ describe("files left for the next sync", () => {
 	test("a file a cloud drive has not downloaded is told as that, with its path", () => {
 		const one = result({ outcome: "incomplete", deferred: [{ path: "notes/big.md", reason: "not-downloaded" }] });
 		expect(pullReport(t, one, options).details).toEqual([
-			"1 file is not downloaded to this device (a cloud drive keeps only a placeholder). Download it, then sync again:\nnotes/big.md",
+			"1 file is not on this device yet (a cloud drive keeps only a placeholder). Have the cloud drive keep it on this device, then sync again:\nnotes/big.md",
 		]);
 		const two = result({
 			outcome: "incomplete",
@@ -472,10 +472,10 @@ describe("files left for the next sync", () => {
 			],
 		});
 		expect(pullReport(t, two, options).details).toEqual([
-			"2 files are not downloaded to this device (a cloud drive keeps only a placeholder). Download them, then sync again:\na.md\nb.md",
+			"2 files are not on this device yet (a cloud drive keeps only a placeholder). Have the cloud drive keep them on this device, then sync again:\na.md\nb.md",
 		]);
 		expect(pullReport(ja, two, options).details).toEqual([
-			"2 件のファイルが、このデバイスにダウンロードされていません（クラウドドライブが仮のファイルだけを置いています）。ダウンロードしてから、もう一度同期してください：\na.md\nb.md",
+			"2 件のファイルの中身が、このデバイスにありません（クラウドドライブが仮のファイルだけを置いています）。クラウドドライブのアプリでこのデバイスに保存してから、もう一度同期してください：\na.md\nb.md",
 		]);
 	});
 
@@ -503,9 +503,9 @@ describe("files left for the next sync", () => {
 		);
 		expect(report.details).toHaveLength(3);
 		expect(report.details[0]).toBe(
-			"1 file could not be pulled and is left for the next sync. The content GitHub sent did not match its own listing.",
+			"1 file could not be downloaded and is left for the next sync. The content GitHub sent did not match its own listing.",
 		);
-		expect(report.details[1]).toContain("not downloaded to this device");
+		expect(report.details[1]).toContain("not on this device yet");
 		expect(report.details[1]).toContain("big.md");
 		expect(report.details[2]).toContain("could not be read");
 		expect(report.details[2]).toContain("bad.md");
@@ -526,10 +526,10 @@ describe("files left for the next sync", () => {
 		expect(details[0]).toContain("big.md");
 		expect(details[1]).toContain("bad.md");
 		expect(details[2]).toBe(
-			"2 other files were not pulled either: they wait for a file that is left for the next sync. A later sync pulls them.",
+			"2 other files were not downloaded either: they wait for a file that is left for the next sync. A later sync downloads them.",
 		);
 		expect(pullReport(ja, waiting, options).details[2]).toBe(
-			"ほかに 2 件のファイルも、取り込んでいません。次の同期に残したファイルを待っています。後の同期で、取り込みます。",
+			"ほかに 2 件のファイルも、ダウンロードしていません。次の同期に残したファイルを待っています。後の同期で、ダウンロードします。",
 		);
 
 		// Counted by the text for what failed otherwise, and not a second time.
@@ -540,7 +540,7 @@ describe("files left for the next sync", () => {
 		const both = pullReport(t, failed, options).details;
 		expect(both).toHaveLength(3);
 		expect(both[0]).toBe(
-			"3 files could not be pulled and are left for the next sync. The content GitHub sent did not match its own listing.",
+			"3 files could not be downloaded and are left for the next sync. The content GitHub sent did not match its own listing.",
 		);
 	});
 
@@ -557,7 +557,7 @@ describe("files left for the next sync", () => {
 			}),
 			options,
 		);
-		expect(report.summary).toBe("The pull was cancelled. Nothing was changed.");
+		expect(report.summary).toBe("The download was cancelled. Nothing was changed.");
 		expect(report.details).toEqual([]);
 	});
 
@@ -571,7 +571,7 @@ describe("files left for the next sync", () => {
 			}),
 			options,
 		);
-		expect(report).toEqual({ summary: "The pull was stopped. The next pull continues from there.", details: [] });
+		expect(report).toEqual({ summary: "The download was stopped. The next download continues from there.", details: [] });
 	});
 });
 
@@ -592,11 +592,11 @@ describe("what the user has to know", () => {
 		);
 		expect(report.details).toEqual([
 			[
-				"The content of 4 files on this device was kept under another name:",
-				"_conflicts/2026-10-03 a (Mac).md (a conflict: a.md now has the content of the remote)",
-				"_conflicts/2026-10-03 link (Mac) (link is a symbolic link on the remote now, which is not written to this device)",
-				"_conflicts/2026-10-03 dir (Mac) (dir is a folder on the remote now)",
-				"_conflicts/2026-10-03 Notes (Mac).md (the remote renamed another file to Notes.md)",
+				"The content of 4 files on this device was kept as conflict files:",
+				"_conflicts/2026-10-03 a (Mac).md (a conflict: a.md now has the content from GitHub)",
+				"_conflicts/2026-10-03 link (Mac) (link is a symbolic link on GitHub now, which is not written to this device)",
+				"_conflicts/2026-10-03 dir (Mac) (dir is a folder on GitHub now)",
+				"_conflicts/2026-10-03 Notes (Mac).md (another file was renamed to Notes.md on GitHub)",
 			].join("\n"),
 		]);
 	});
@@ -622,22 +622,22 @@ describe("what the user has to know", () => {
 			],
 		});
 		expect(pullReport(t, merged, options)).toEqual({
-			summary: "Pull finished: 2 files merged.",
+			summary: "Download finished: 2 files merged.",
 			details: [
-				"2 files were changed both on this device and on the remote, and now hold the changes of both. What they held on this device before is in .trash/.sync-evo-merged/ in this vault:\nnotes/a.md (before: .trash/.sync-evo-merged/2026-10-13 a.md)\nb.md (before: .trash/.sync-evo-merged/2026-10-13 b (1).md)",
+				"2 files were changed both on this device and on GitHub, and now hold the changes of both. What they held on this device before is in .trash/.sync-evo-merged/ in this vault:\nnotes/a.md (before: .trash/.sync-evo-merged/2026-10-13 a.md)\nb.md (before: .trash/.sync-evo-merged/2026-10-13 b (1).md)",
 			],
 		});
 		expect(pullReport(ja, merged, options)).toEqual({
-			summary: "取り込みが終わりました：統合 2 件",
+			summary: "ダウンロードが終わりました：統合 2 件",
 			details: [
-				"このデバイスと保存先の両方で変更していたファイル 2 件を、両方の変更を入れた内容にしました。統合する前のこのデバイスの内容は、この保管庫の .trash/.sync-evo-merged/ にあります：\nnotes/a.md（前の内容：.trash/.sync-evo-merged/2026-10-13 a.md）\nb.md（前の内容：.trash/.sync-evo-merged/2026-10-13 b (1).md）",
+				"このデバイスと GitHub の両方で変更していたファイル 2 件を、両方の変更を入れた内容にしました。統合する前のこのデバイスの内容は、この保管庫の .trash/.sync-evo-merged/ にあります：\nnotes/a.md（前の内容：.trash/.sync-evo-merged/2026-10-13 a.md）\nb.md（前の内容：.trash/.sync-evo-merged/2026-10-13 b (1).md）",
 			],
 		});
 		const one = result({ merged: [{ path: "a.md", keptAt: ".trash/.sync-evo-merged/2026-10-13 a.md" }] });
 		expect(pullReport(t, one, options)).toEqual({
-			summary: "Pull finished: 1 file merged.",
+			summary: "Download finished: 1 file merged.",
 			details: [
-				"1 file was changed both on this device and on the remote, and now holds the changes of both. What it held on this device before is in .trash/.sync-evo-merged/ in this vault:\na.md (before: .trash/.sync-evo-merged/2026-10-13 a.md)",
+				"1 file was changed both on this device and on GitHub, and now holds the changes of both. What it held on this device before is in .trash/.sync-evo-merged/ in this vault:\na.md (before: .trash/.sync-evo-merged/2026-10-13 a.md)",
 			],
 		});
 
@@ -648,10 +648,10 @@ describe("what the user has to know", () => {
 			merged: [{ path: "a.md", keptAt: ".trash/.sync-evo-merged/2026-10-13 a.md" }],
 		});
 		const report = pullReport(ja, both, options);
-		expect(report.summary).toBe("取り込みが終わりました：取得 2 件、競合 1 件、統合 1 件");
+		expect(report.summary).toBe("ダウンロードが終わりました：更新 2 件、競合 1 件、統合 1 件");
 		expect(report.details.map((detail) => detail.split("\n")[0])).toEqual([
-			"このデバイスのファイル 1 件の内容を、別名で残しました：",
-			"このデバイスと保存先の両方で変更していたファイル 1 件を、両方の変更を入れた内容にしました。統合する前のこのデバイスの内容は、この保管庫の .trash/.sync-evo-merged/ にあります：",
+			"このデバイスのファイル 1 件の内容を、競合ファイルとして残しました：",
+			"このデバイスと GitHub の両方で変更していたファイル 1 件を、両方の変更を入れた内容にしました。統合する前のこのデバイスの内容は、この保管庫の .trash/.sync-evo-merged/ にあります：",
 		]);
 	});
 
@@ -661,19 +661,19 @@ describe("what the user has to know", () => {
 			replacedSettings: [".obsidian/app.json", ".obsidian/appearance.json"],
 		});
 		expect(pullReport(t, replaced, options)).toEqual({
-			summary: "Pull finished: 3 files fetched.",
+			summary: "Download finished: 3 files updated.",
 			details: [
-				"2 files in the configuration folder now have the content of the remote. What they held on this device before is in .trash/ in this vault:\n.obsidian/app.json\n.obsidian/appearance.json",
+				"2 files in the configuration folder now have the content from GitHub. What they held on this device before is in .trash/ in this vault:\n.obsidian/app.json\n.obsidian/appearance.json",
 			],
 		});
 		expect(pullReport(ja, replaced, options)).toEqual({
-			summary: "取り込みが終わりました：取得 3 件",
+			summary: "ダウンロードが終わりました：更新 3 件",
 			details: [
-				"設定フォルダのファイル 2 件を、保存先の内容にしました。このデバイスの前の内容は、この保管庫の .trash/ にあります：\n.obsidian/app.json\n.obsidian/appearance.json",
+				"設定フォルダのファイル 2 件を、GitHub の内容にしました。このデバイスの前の内容は、この保管庫の .trash/ にあります：\n.obsidian/app.json\n.obsidian/appearance.json",
 			],
 		});
 		expect(pullReport(t, result({ replacedSettings: [".obsidian/app.json"] }), options).details).toEqual([
-			"1 file in the configuration folder now has the content of the remote. What it held on this device before is in .trash/ in this vault:\n.obsidian/app.json",
+			"1 file in the configuration folder now has the content from GitHub. What it held on this device before is in .trash/ in this vault:\n.obsidian/app.json",
 		]);
 		// Many are counted in full and listed in part.
 		const many = Array.from({ length: 7 }, (_, index) => `.obsidian/f${index}.json`);
@@ -688,32 +688,32 @@ describe("what the user has to know", () => {
 			replacedSettings: [".obsidian/app.json"],
 		});
 		const report = pullReport(ja, both, options);
-		expect(report.summary).toBe("取り込みが終わりました：取得 2 件、競合 1 件");
+		expect(report.summary).toBe("ダウンロードが終わりました：更新 2 件、競合 1 件");
 		expect(report.details.map((detail) => detail.split("\n")[0])).toEqual([
-			"このデバイスのファイル 1 件の内容を、別名で残しました：",
-			"設定フォルダのファイル 1 件を、保存先の内容にしました。このデバイスの前の内容は、この保管庫の .trash/ にあります：",
+			"このデバイスのファイル 1 件の内容を、競合ファイルとして残しました：",
+			"設定フォルダのファイル 1 件を、GitHub の内容にしました。このデバイスの前の内容は、この保管庫の .trash/ にあります：",
 		]);
 	});
 
 	test("files moved to .trash/ to protect them", () => {
 		const report = pullReport(t, result({ trashed: ["a.md"] }), options);
 		expect(report.details).toEqual([
-			"1 file was moved to .trash/ in this vault by the pull, so that its content is not lost. You can get it back from there:\na.md",
+			"1 file was moved to .trash/ in this vault by the download, so that its content is not lost. You can get it back from there:\na.md",
 		]);
 	});
 
 	test("files the user chose to keep are listed, in part when they are many", () => {
 		expect(pullReport(t, result({ keptLocal: ["c.md"] }), options).details).toEqual([
-			"1 file was left as it is on this device, as you chose. It differs from the remote:\nc.md",
+			"1 file was left as it is on this device, as you chose. It differs from what is on GitHub:\nc.md",
 		]);
 		expect(pullReport(ja, result({ keptLocal: ["c.md", "a.md"] }), options).details).toEqual([
-			"選んだとおり、このデバイスのファイル 2 件をそのまま残しました。保存先の内容とは異なります：\nc.md\na.md",
+			"選んだとおり、このデバイスのファイル 2 件をそのまま残しました。GitHub の内容とは異なります：\nc.md\na.md",
 		]);
 
 		const kept = Array.from({ length: 8 }, (_, i) => `kept/${i}.md`);
 		const [text = ""] = pullReport(t, result({ keptLocal: kept }), options).details;
 		expect(text.split("\n")).toEqual([
-			"8 files were left as they are on this device, as you chose. They differ from the remote:",
+			"8 files were left as they are on this device, as you chose. They differ from what is on GitHub:",
 			...kept.slice(0, 5),
 			"…and 3 more",
 		]);
@@ -722,11 +722,11 @@ describe("what the user has to know", () => {
 	test("the kept files that a rule keeps from being sent back are listed apart", () => {
 		const kept = result({ keptLocal: ["a.md", "drafts/c.md"], keptUnsent: ["drafts/c.md"] });
 		expect(pullReport(t, kept, options).details).toEqual([
-			"2 files were left as they are on this device, as you chose. They differ from the remote:\na.md\ndrafts/c.md",
-			"1 of the files you chose to keep on this device is not sent back to the remote, because a rule in .gitignore excludes it. It stays on this device only:\ndrafts/c.md",
+			"2 files were left as they are on this device, as you chose. They differ from what is on GitHub:\na.md\ndrafts/c.md",
+			"1 of the files you chose to keep on this device is not uploaded back to GitHub, because it is excluded. It stays on this device only:\ndrafts/c.md",
 		]);
 		expect(pullReport(ja, kept, options).details[1]).toBe(
-			"選んだとおりに残したファイルのうち 1 件は、.gitignore の規則に当たるため、保存先へは送信しません。このデバイスにだけ残ります：\ndrafts/c.md",
+			"選んだとおりに残したファイルのうち 1 件は、除外しているため、GitHub へはアップロードしません。このデバイスにだけ残ります：\ndrafts/c.md",
 		);
 	});
 
@@ -780,35 +780,35 @@ describe("what the user has to know", () => {
 			"Some of the lines Sync Evo manages in .gitignore are not in effect: they were deleted, or a later line undoes them. What they left out is synced now (the trash, the layout of the workspace, files an operating system leaves behind). Only Sync Evo's own folder is still not synced by Sync Evo, but git on a computer commits it. Deleted lines can be restored in the settings of Sync Evo; where a later line that starts with ! undoes one, change that line:\n/.trash/\n*.icloud",
 		);
 		expect(report.details[15]).toBe(
-			"What is inside these submodules cannot be fetched. Sync Evo fetches a submodule that points to a repository on GitHub and is listed in the .gitmodules of the remote. A submodule inside a submodule, and one with too many files to be listed, are not fetched. What this device has in those folders is left as it is. Everything else is synced as usual:\nknowledge\nvendor/lib",
+			"What is inside these submodules cannot be downloaded. Sync Evo downloads a submodule that points to a repository on GitHub and is listed in the .gitmodules of the repository. A submodule inside a submodule, and one with too many files to be listed, are not downloaded. What this device has in those folders is left as it is. Everything else is synced as usual:\nknowledge\nvendor/lib",
 		);
 		expect(report.details[16]).toBe(
-			"The repository a submodule points to cannot be read. Check that the token has read access to the Contents of that repository. Once it has, the next sync fetches it. Until then, what this device has in that folder is left as it is. Everything else is synced as usual:\nprivate (octo/private)",
+			"The repository a submodule points to cannot be read. Check that the token has read access to the Contents of that repository. Once it has, the next sync downloads it. Until then, what this device has in that folder is left as it is. Everything else is synced as usual:\nprivate (octo/private)",
 		);
 		expect(report.details[17]).toBe(
-			"The repository a submodule points to does not have the commit the submodule points to. On a device with git, check that the changes inside the submodule were pushed. Once they are, the next sync fetches them. Until then, what this device has in that folder is left as it is. Everything else is synced as usual:\nwip (octo/wip)",
+			"The repository a submodule points to does not have the commit the submodule points to. With git on a computer, check that the changes inside the submodule were pushed. Once they are, the next sync downloads them. Until then, what this device has in that folder is left as it is. Everything else is synced as usual:\nwip (octo/wip)",
 		);
 		expect(report.details[18]).toBe(
-			"What is inside a submodule is only read. These files were changed, added or deleted on this device; that is not sent, and stays on this device alone. Make changes inside a submodule on a device with git:\nknowledge/a.md\nknowledge/sub/b.md",
+			"What is inside a submodule is only read. These files were changed, added or deleted on this device; that is not uploaded, and stays on this device alone. Make changes inside a submodule with git on a computer:\nknowledge/a.md\nknowledge/sub/b.md",
 		);
 		expect(report.details[9]).toBe(
-			"Downloading all files at once did not work on this device, so Sync Evo no longer tries it here. When there are many files to fetch, they are now fetched one by one, which takes longer.",
+			"Downloading all files at once did not work on this device, so Sync Evo no longer tries it here. When there are many files to download, they are now downloaded one by one, which takes longer.",
 		);
 		expect(report.details[10]).toBe(
-			"Downloading all files at once did not work on this device. From now on Sync Evo does not try it here when the download is expected to be about 140 MB or more. Many files are then fetched one by one, which takes longer.",
+			"Downloading all files at once did not work on this device. From now on Sync Evo does not try it here when the download is expected to be about 140 MB or more. Many files are then downloaded one by one, which takes longer.",
 		);
 		expect(report.details[0]).toContain(".obsidian/plugins/sync-evo");
 		expect(report.details[1]).toContain(".git");
 		expect(report.details[2]?.endsWith("\na.md\nA.md")).toBe(true);
 		expect(report.details[3]).toBe(
-			"Files over 50 MB are not synced. They are skipped and left as they are:\nbig.mov",
+			"Files over 50 MB are not synced. They are skipped and left as they are, on GitHub and on this device:\nbig.mov",
 		);
 		expect(report.details[4]?.endsWith("\nimg.png")).toBe(true);
 		expect(report.details[5]?.endsWith("\na//b")).toBe(true);
 		expect(report.details[6]).toContain(".obsidian/community-plugins.json");
 		expect(report.details[7]?.endsWith("\na:b.md")).toBe(true);
 		expect(report.details[8]).toBe(
-			"The file notes of the remote could not be written: files that are only on this device are in its place. Move or rename them, and the next pull writes it:\nnotes/draft.md\nnotes/sub/idea.md",
+			"The file notes on GitHub could not be written: files that are only on this device are in its place. Move or rename them, and the next download writes it:\nnotes/draft.md\nnotes/sub/idea.md",
 		);
 	});
 
@@ -825,16 +825,16 @@ describe("what the user has to know", () => {
 			options,
 		);
 		expect(report.details).toEqual([
-			"下位のフォルダに .gitignore があります。Sync Evo は、これらを通常のファイルとして同期しますが、規則としては読みません。何を同期するかは、保管庫のルートの .gitignore だけで決まります。Mac などの git はこれらの規則も使うため、同じ保管庫でも効き方が違います。要る規則は、ルートの .gitignore に書いてください：\nnotes/.gitignore",
+			"下位のフォルダに .gitignore があります。Sync Evo は、これらを通常のファイルとして同期しますが、規則としては読みません。何を同期するかは、保管庫のルートの .gitignore だけで決まります。パソコンの git はこれらの規則も使うため、同じ保管庫でも効き方が違います。要る規則は、ルートの .gitignore に書いてください：\nnotes/.gitignore",
 			// Not cut off at five, like a list of paths: which lines are off is what there is to tell.
-			`Sync Evo が管理する .gitignore の行のうち、次の行が効いていません。行が消されたか、後ろの行で打ち消されています。これらの行で除いていた物（ゴミ箱、画面の配置のファイル、OS が残すファイル）も、同期されます。Sync Evo 自身のフォルダだけは、Sync Evo は同期しませんが、Mac などの git ではコミットされます。消した行は、Sync Evo の設定画面で元に戻せます。! で始まる行で打ち消している時は、その行を直してください：\n${off.join("\n")}`,
+			`Sync Evo が管理する .gitignore の行のうち、次の行が効いていません。行が消されたか、後ろの行で打ち消されています。これらの行で除いていた物（ゴミ箱、画面の配置のファイル、OS が残すファイル）も、同期されます。Sync Evo 自身のフォルダだけは、Sync Evo は同期しませんが、パソコンの git ではコミットされます。消した行は、Sync Evo の設定画面で元に戻せます。! で始まる行で打ち消している時は、その行を直してください：\n${off.join("\n")}`,
 		]);
 	});
 
 	test("a device that no longer downloads all files at once from some size on is told the size", () => {
 		const limited = (bytes: number) => pullReport(ja, result({ notices: [{ kind: "archive-limited", path: String(bytes) }] }), options).details;
 		expect(limited(133_537_570)).toEqual([
-			"このデバイスでは、全ファイルをまとめて取得できませんでした。今後このデバイスでは、まとめた大きさの見込みが約 127MB 以上のときは、まとめて取得しません。ファイルが多いときも1件ずつ取得するため、時間が長くかかります。",
+			"このデバイスでは、全ファイルをまとめてダウンロードできませんでした。今後このデバイスでは、まとめた大きさの見込みが約 127MB 以上のときは、まとめてダウンロードしません。ファイルが多いときも1件ずつダウンロードするため、時間が長くかかります。",
 		]);
 		expect(limited(147_371)[0]).toContain("約 0.1MB 以上");
 		// Never "0.0": a ceiling that small is as good as none, and is said as the smallest size there is a text for.
@@ -845,9 +845,9 @@ describe("what the user has to know", () => {
 	test("a device that stopped downloading all files at once is told so, apart from the summary", () => {
 		const given = result({ notices: [{ kind: "archive-given-up", path: "" }] });
 		expect(pullReport(ja, given, options)).toEqual({
-			summary: "取り込むものはありません。このデバイスは最新です。",
+			summary: "ダウンロードするものはありません。このデバイスは最新です。",
 			details: [
-				"このデバイスでは、全ファイルをまとめて取得できませんでした。今後このデバイスでは、まとめて取得しません。ファイルが多いときも1件ずつ取得するため、時間が長くかかります。",
+				"このデバイスでは、全ファイルをまとめてダウンロードできませんでした。今後このデバイスでは、まとめてダウンロードしません。ファイルが多いときも1件ずつダウンロードするため、時間が長くかかります。",
 			],
 		});
 		expect(pullReport(t, given, options).details).toHaveLength(1);
@@ -925,7 +925,7 @@ describe("a pull that could not be carried out", () => {
 	];
 	test.each(cases)("%s", (kind, expected) => {
 		const text = pullFailureText(t, settings, new BackendError(kind, "boom"));
-		expect(text.startsWith("The pull failed. ")).toBe(true);
+		expect(text.startsWith("The download failed. ")).toBe(true);
 		expect(text).toContain(expected);
 	});
 
@@ -937,15 +937,15 @@ describe("a pull that could not be carried out", () => {
 
 	test("cancelled is not a failure", () => {
 		expect(pullFailureText(t, settings, new BackendError("cancelled", "x"))).toBe(
-			"The pull was stopped. The next pull continues from there.",
+			"The download was stopped. The next download continues from there.",
 		);
 	});
 
 	test("anything else that was thrown shows its message", () => {
 		expect(pullFailureText(t, settings, new Error("no such folder: notes"))).toBe(
-			"The pull failed. Details: no such folder: notes",
+			"The download failed. Details: no such folder: notes",
 		);
-		expect(pullFailureText(t, settings, "odd")).toBe("The pull failed. Details: odd");
+		expect(pullFailureText(t, settings, "odd")).toBe("The download failed. Details: odd");
 	});
 });
 
@@ -971,23 +971,23 @@ describe("the question before a first fetch", () => {
 			discardsState: false,
 		});
 		expect(question).toEqual({
-			title: "Confirm the first fetch",
+			title: "Confirm the first download",
 			parts: [
-				{ text: "This is the first pull from octo/notes, branch main, and this vault already has files." },
+				{ text: "This is the first download from octo/notes, branch main, and this vault already has files." },
 				{
-					text: "1 file has other content than the remote. It gets the content of the remote, and the content on this device is kept in the folder _conflicts/ under another name:",
+					text: "1 file has other content than on GitHub. It gets the content from GitHub, and the content on this device is kept in the folder _conflicts/ as a conflict file:",
 					paths: { shown: ["a.md"], more: 0 },
 				},
 				{
-					text: "2 files are only on this device. They stay on this device as they are. The next push sends them to the remote, except files that are excluded; before it sends, it shows the list of the files to send and asks once more:",
+					text: "2 files are only on this device. They stay on this device as they are. The next upload includes them, except files that are excluded; before anything is uploaded, the list of the files is shown and you are asked once more:",
 					paths: { shown: ["mine.md", "notes/too.md"], more: 0 },
 				},
 				{
-					text: "1 file is at a path that is a symbolic link on the remote. It is not compared and stays as it is:",
+					text: "1 file is at a path that is a symbolic link on GitHub. It is not compared and stays as it is:",
 					paths: { shown: ["link"], more: 0 },
 				},
 			],
-			note: "If you cancel, nothing is pulled and nothing is changed.",
+			note: "If you cancel, nothing is downloaded and nothing is changed.",
 		});
 	});
 
@@ -1001,15 +1001,15 @@ describe("the question before a first fetch", () => {
 		const question = firstFetchQuestion(t, target, { files, discardsState: false });
 		expect(question.parts.slice(1)).toEqual([
 			{
-				text: "1 file has other content than the remote. It gets the content of the remote, and the content on this device is kept in the folder _conflicts/ under another name:",
+				text: "1 file has other content than on GitHub. It gets the content from GitHub, and the content on this device is kept in the folder _conflicts/ as a conflict file:",
 				paths: { shown: ["a.md"], more: 0 },
 			},
 			{
-				text: "2 files in the configuration folder have other content than the remote. They get the content of the remote, and the content on this device is moved to .trash/ in this vault:",
+				text: "2 files in the configuration folder have other content than on GitHub. They get the content from GitHub, and the content on this device is moved to .trash/ in this vault:",
 				paths: { shown: [".obsidian/app.json", ".obsidian/appearance.json"], more: 0 },
 			},
 			{
-				text: "1 file is only on this device. It stays on this device as it is. The next push sends it to the remote, unless it is excluded; before it sends, it shows the list of the files to send and asks once more:",
+				text: "1 file is only on this device. It stays on this device as it is. The next upload includes it, unless it is excluded; before anything is uploaded, the list of the files is shown and you are asked once more:",
 				paths: { shown: ["mine.md"], more: 0 },
 			},
 		]);
@@ -1018,20 +1018,20 @@ describe("the question before a first fetch", () => {
 			discardsState: false,
 		});
 		expect(one.parts[1]?.text).toBe(
-			"1 file in the configuration folder has other content than the remote. It gets the content of the remote, and the content on this device is moved to .trash/ in this vault:",
+			"1 file in the configuration folder has other content than on GitHub. It gets the content from GitHub, and the content on this device is moved to .trash/ in this vault:",
 		);
 
 		expect(firstFetchQuestion(ja, target, { files, discardsState: false }).parts.slice(1)).toEqual([
 			{
-				text: "保存先と中身が違うファイル：1 件。保存先の内容に書き換えます。このデバイスの内容は、_conflicts/ フォルダに別名で残します。",
+				text: "GitHub と中身が違うファイル：1 件。GitHub の内容に書き換えます。このデバイスの内容は、_conflicts/ フォルダに競合ファイルとして残します。",
 				paths: { shown: ["a.md"], more: 0 },
 			},
 			{
-				text: "保存先と中身が違う設定フォルダのファイル：2 件。保存先の内容に書き換えます。このデバイスの内容は、この保管庫の .trash/ へ移します。",
+				text: "GitHub と中身が違う設定フォルダのファイル：2 件。GitHub の内容に書き換えます。このデバイスの内容は、この保管庫の .trash/ へ移します。",
 				paths: { shown: [".obsidian/app.json", ".obsidian/appearance.json"], more: 0 },
 			},
 			{
-				text: "このデバイスにだけあるファイル：1 件。このデバイスに、そのまま残します。次の送信（push）で、保存先に送ります。送信の前に、送るファイルの一覧を示して、もう一度確認を求めます。除外するファイルは、送りません。",
+				text: "このデバイスにだけあるファイル：1 件。このデバイスに、そのまま残します。次のアップロードに入ります。アップロードの前に、ファイルの一覧を示して、もう一度確認を求めます。除外しているファイルは、アップロードしません。",
 				paths: { shown: ["mine.md"], more: 0 },
 			},
 		]);
@@ -1067,19 +1067,19 @@ describe("the question before a first fetch", () => {
 			files: { ...none, different: ["a.md"] },
 			discardsState: true,
 		});
-		expect(question.title).toBe("Discard the sync state and start over");
+		expect(question.title).toBe("Start over");
 		expect(question.parts[0]?.text).toBe(
-			"This discards the sync state of this device and builds it again by pulling from octo/notes, branch main. The sync state is only Sync Evo's own record of what has been synced: no file is deleted, on this device or on the remote.",
+			"This compares this device with GitHub (octo/notes, branch main) again. No file is deleted, on this device or on GitHub.",
 		);
 		expect(question.parts[1]?.paths?.shown).toEqual(["a.md"]);
-		expect(question.note).toBe("If you cancel, the sync state is kept and nothing is changed.");
+		expect(question.note).toBe("If you cancel, nothing is changed.");
 	});
 
 	test("when the sync state is discarded and no file is counted, it says so", () => {
 		const question = firstFetchQuestion(t, target, { files: none, discardsState: true });
 		expect(question.parts.map((part) => part.text)).toEqual([
 			expect.stringContaining("octo/notes, branch main"),
-			"No file on this device has other content than the remote, and none is only on this device.",
+			"No file on this device has other content than on GitHub, and none is only on this device.",
 		]);
 	});
 
@@ -1088,11 +1088,11 @@ describe("the question before a first fetch", () => {
 			files: { localOnly: ["mine.md"], different: ["a.md"], differentSettings: [], atSymlinks: [] },
 			discardsState: false,
 		});
-		expect(question.title).toBe("初回取得の確認");
+		expect(question.title).toBe("最初のダウンロードの確認");
 		expect(question.parts.map((part) => part.text)).toEqual([
-			"octo/notes のブランチ main から、この保管庫に初めて取り込みます。この保管庫には、すでにファイルがあります。",
-			"保存先と中身が違うファイル：1 件。保存先の内容に書き換えます。このデバイスの内容は、_conflicts/ フォルダに別名で残します。",
-			"このデバイスにだけあるファイル：1 件。このデバイスに、そのまま残します。次の送信（push）で、保存先に送ります。送信の前に、送るファイルの一覧を示して、もう一度確認を求めます。除外するファイルは、送りません。",
+			"octo/notes のブランチ main から、この保管庫に初めてダウンロードします。この保管庫には、すでにファイルがあります。",
+			"GitHub と中身が違うファイル：1 件。GitHub の内容に書き換えます。このデバイスの内容は、_conflicts/ フォルダに競合ファイルとして残します。",
+			"このデバイスにだけあるファイル：1 件。このデバイスに、そのまま残します。次のアップロードに入ります。アップロードの前に、ファイルの一覧を示して、もう一度確認を求めます。除外しているファイルは、アップロードしません。",
 		]);
 	});
 });
@@ -1106,25 +1106,25 @@ describe("the question before starting over, in Japanese", () => {
 			discardsState: true,
 		});
 		expect(question).toEqual({
-			title: "同期の状態を捨ててやり直す",
+			title: "最初からやり直す",
 			parts: [
 				{
-					text: "このデバイスの同期の状態を捨てて、octo/notes のブランチ main から取り込み直して作り直します。同期の状態は、何を同期したかを Sync Evo が覚えておくための記録です。ファイルは、このデバイスでも保存先でも削除しません。",
+					text: "GitHub（octo/notes のブランチ main）と比べ直します。ファイルは、このデバイスでも GitHub でも削除しません。",
 				},
 				{
-					text: "保存先と中身が違うファイル：1 件。保存先の内容に書き換えます。このデバイスの内容は、_conflicts/ フォルダに別名で残します。",
+					text: "GitHub と中身が違うファイル：1 件。GitHub の内容に書き換えます。このデバイスの内容は、_conflicts/ フォルダに競合ファイルとして残します。",
 					paths: { shown: ["a.md"], more: 0 },
 				},
 				{
-					text: "このデバイスにだけあるファイル：1 件。このデバイスに、そのまま残します。次の送信（push）で、保存先に送ります。送信の前に、送るファイルの一覧を示して、もう一度確認を求めます。除外するファイルは、送りません。",
+					text: "このデバイスにだけあるファイル：1 件。このデバイスに、そのまま残します。次のアップロードに入ります。アップロードの前に、ファイルの一覧を示して、もう一度確認を求めます。除外しているファイルは、アップロードしません。",
 					paths: { shown: ["mine.md"], more: 0 },
 				},
 				{
-					text: "保存先でシンボリックリンクになっているパスにあるファイル：1 件。比べずに、そのまま残します。",
+					text: "GitHub でシンボリックリンクになっているパスにあるファイル：1 件。比べずに、そのまま残します。",
 					paths: { shown: ["link"], more: 0 },
 				},
 			],
-			note: "やめた場合は、同期の状態を捨てず、何も変更しません。",
+			note: "やめた場合は、何も変更しません。",
 		});
 	});
 
@@ -1135,14 +1135,14 @@ describe("the question before starting over, in Japanese", () => {
 		});
 		expect(question.parts.map((part) => part.text)).toEqual([
 			expect.stringContaining("octo/notes のブランチ main"),
-			"保存先と中身が違うファイルも、このデバイスにだけあるファイルも、ありません。",
+			"GitHub と中身が違うファイルも、このデバイスにだけあるファイルも、ありません。",
 		]);
 	});
 });
 
 describe("a pull stopped by a change of the connection", () => {
 	test("says why, in place of the text for a pull that goes on later", () => {
-		const stopped = "The pull was stopped because the connection was changed. The next pull starts with the new connection.";
+		const stopped = "The download was stopped because the connection was changed. The next download starts with the new connection.";
 		expect(pullReport(t, result({ outcome: "cancelled" }), { ...options, connectionChanged: true }).summary).toBe(
 			stopped,
 		);
@@ -1151,7 +1151,7 @@ describe("a pull stopped by a change of the connection", () => {
 
 	test("a pull that ended otherwise is reported as it ended", () => {
 		expect(pullReport(t, result(), { ...options, connectionChanged: true }).summary).toBe(
-			"Nothing to pull. This device is up to date.",
+			"Nothing to download. This device is up to date.",
 		);
 		expect(pullFailureText(t, settings, new BackendError("unauthorized", "x"), true)).toBe(
 			pullFailureText(t, settings, new BackendError("unauthorized", "x")),

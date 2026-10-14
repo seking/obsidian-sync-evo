@@ -1,48 +1,48 @@
 # Sync Evo
 
-Sync Evo is a plugin for [Obsidian](https://obsidian.md) that syncs a vault with a GitHub repository. It is made for large vaults and for phones: it needs no git on the device, talks to GitHub's API directly, and can pick up a first fetch of thousands of files where it was interrupted.
+Sync Evo is a plugin for [Obsidian](https://obsidian.md) that syncs a vault with a GitHub repository. It is made for large vaults and for phones: it needs no git on the device, talks to GitHub's API directly, and can pick up a first download of thousands of files where it was interrupted.
 
 It is free, with all of its features. There is no account to create and no server of the developer's.
 
 ## What it does
 
-- **Pull** brings the vault in line with the repository: it fetches the files that are new or changed there, and deletes the ones that were deleted there.
-- **Push** sends what was added, changed, and deleted in the vault as one commit.
-- **Sync** does both, a pull and then a push. It is also the button in the ribbon.
+- **Download** brings the vault in line with the repository: it gets the files that are new or changed there, and deletes the ones that were deleted there.
+- **Upload** sends what was added, changed, and deleted in the vault as one commit.
+- **Sync** does both, a download and then an upload. It is also the button in the ribbon.
 
-Nothing runs on its own unless you switch it on: a sync happens when you press the button or run a command. Under "How it syncs" in the settings, Sync Evo can also sync when Obsidian starts or comes back from another app, and at an interval while it is in front. Such a sync only pulls, unless you let it send changes too; it says nothing when it went well, and never answers one of the questions below for you: it changes nothing then, and tells you once to sync manually. It does not start the first fetch of a vault either; that one you start yourself. A note you are typing in is left as it is by an automatic sync, and is updated or sent by a later one, once you have stopped typing for 20 seconds. A sync you start while an automatic one is running takes its place.
+Nothing runs on its own unless you switch it on: a sync happens when you press the button or run a command. Under "How it syncs" in the settings, Sync Evo can also sync when Obsidian starts or comes back from another app, and at an interval while it is in front. Such a sync only downloads, unless you let it upload changes too; it says nothing when it went well, and never answers one of the questions below for you: it changes nothing then, and tells you once to sync manually. It does not start the first download of a vault either; that one you start yourself. A note you are typing in is left as it is by an automatic sync, and is updated or sent by a later one, once you have stopped typing for 20 seconds. A sync you start while an automatic one is running takes its place.
 
 A file that was changed both in the vault and in the repository is not overwritten. It gets the changes of both sides, line by line, under its own name, and the notice of the sync names it. What the file held on the device before that is kept in `.trash/.sync-evo-merged/` in the vault, as `<date> <name>.<extension>`: for `notes/a.md` that is `.trash/.sync-evo-merged/2026-10-13 a.md`, and a second one on the same day is `2026-10-13 a (1).md`. It is not synced, Obsidian does not show it, and Sync Evo never deletes it: delete the folder when you no longer need what is in it.
 
 To read that copy or to put it back, use the file manager of the device, and move the copy into a folder of the vault that Obsidian shows. In Finder on a Mac, `⌘⇧.` shows the folders whose names start with a dot. In the file manager of Android, "Show hidden files" in the menu does. The Files app of an iPhone or iPad does not list them, but its search finds the copy by the name of the note: hold the result and choose "Move".
 
-A file that does not merge that way is kept twice instead: when both sides changed the same lines, when it is no text, a `.canvas` or a `.base`, and always on a device where "On a conflict", under "How it syncs" in the settings, is set to keep a separate file. The repository's version takes the name, and the vault's version is kept as a copy in the folder `_conflicts/` at the root of the vault, as `<date> <name> (<device>).<extension>`: the copy of `notes/a.md` is `_conflicts/2026-10-12 a (iPhone).md`, and a second copy of the same note on the same day is `_conflicts/2026-10-12 a (iPhone) (1).md`. The notice of the sync names both files. A copy is synced like any other file, whatever `.gitignore` says. A file in the configuration folder gets no such copy: the vault's version goes to `.trash/` in the vault.
+A file that does not merge that way is kept twice instead: when both sides changed the same lines, when it is no text, a `.canvas` or a `.base`, and always on a device where "On a conflict", under "How it syncs" in the settings, is set to create a conflict file. The repository's version takes the name, and the vault's version is kept as a conflict file in the folder `_conflicts/` at the root of the vault, as `<date> <name> (<device>).<extension>`: the conflict file of `notes/a.md` is `_conflicts/2026-10-12 a (iPhone).md`, and a second one of the same note on the same day is `_conflicts/2026-10-12 a (iPhone) (1).md`. The notice of the sync names both files. A conflict file is synced like any other file, whatever `.gitignore` says. A file in the configuration folder gets none: the vault's version goes to `.trash/` in the vault.
 
-A copy is kept for 30 days from the end of the day in its name. After that a sync moves it to `.trash/` in the vault, and tells how many it moved; the next push deletes the copy in the repository, and the other devices then remove it as they remove any deleted file. To keep a copy, move it out of `_conflicts/` or rename it. Up to 0.2.0 a copy was made beside its file, as `<name>.conflict-from-<device>-<date>-<time>.<extension>`. Copies of that form stay where they are, are synced as before, and are never moved to `.trash/`.
+A conflict file is kept for 30 days from the end of the day in its name. After that a sync moves it to `.trash/` in the vault, and tells how many it moved; the next upload deletes it in the repository, and the other devices then remove it as they remove any deleted file. To keep a conflict file, move it out of `_conflicts/` or rename it. Up to 0.2.0 a conflict file was made beside its file, as `<name>.conflict-from-<device>-<date>-<time>.<extension>`. Conflict files of that form stay where they are, are synced as before, and are never moved to `.trash/`.
 
 Sync Evo stops and asks before it goes on when
 
-- a pull or a push would delete many files (more than 50, or more than 5 that are also more than a tenth of all files),
-- a push finds none of the files it synced before in the vault, however few they are (a vault whose folder was deleted and created again looks like this): it can then fetch them again from the repository instead of deleting them there,
-- the first pull finds files in the vault that differ from the repository's,
-- a device pushes for the first time,
-- the history of the repository was rewritten (a force push).
+- a download or an upload would delete many files (more than 50, or more than 5 that are also more than a tenth of all files),
+- an upload finds none of the files it synced before in the vault, however few they are (a vault whose folder was deleted and created again looks like this): it can then download them again from the repository instead of deleting them there,
+- the first download finds files in the vault that differ from the repository's,
+- a device uploads for the first time,
+- the history of the repository was rewritten (a force upload).
 
 What is synced is decided by the `.gitignore` at the root of the vault, so that Sync Evo and git on a computer leave out the same files. The settings screen writes that file for you.
 
 ### Submodules
 
-What is inside a submodule is fetched into its folder, at the commit the repository of the vault points to, and fetched again when that commit moves. On the device it is an ordinary folder.
+What is inside a submodule is downloaded into its folder, at the commit the repository of the vault points to, and downloaded again when that commit moves. On the device it is an ordinary folder.
 
-- It is only read. A file you change, add or delete inside a submodule on the device is not sent: the change stays on that device, and Sync Evo tells you once which files. Make such changes on a device with git. When the same file later changes in the submodule, your version is kept as a copy in `_conflicts/`, and is not merged.
+- It is only read. A file you change, add or delete inside a submodule on the device is not uploaded: the change stays on that device, and Sync Evo tells you once which files. Make such changes with git on a computer. When the same file later changes in the submodule, your version is kept as a conflict file in `_conflicts/`, and is not merged.
 - The submodule has to point to a repository on GitHub that the token can read, and be listed in the `.gitmodules` at the root of the repository of the vault. URLs of the forms `https://github.com/owner/name`, `git@github.com:owner/name` and `../name` are read.
-- When it cannot be fetched (the token cannot read that repository, the commit was not pushed there yet, it points to another host, or it is a submodule inside a submodule), what the device already has in its folder is left as it is, and Sync Evo tells you once why.
-- A submodule that a rule of `.gitignore` matches, such as one in an excluded folder, is not fetched.
+- When it cannot be downloaded (the token cannot read that repository, the commit was not pushed there yet, it points to another host, or it is a submodule inside a submodule), what the device already has in its folder is left as it is, and Sync Evo tells you once why.
+- A submodule that is excluded, such as one in an excluded folder, is not downloaded.
 
 ## Not supported yet
 
-- **Changes inside a submodule.** What is inside a submodule is fetched, and only read: see "Submodules" below.
-- **Git LFS.** A pointer file is synced as it is, and the content it stands for is not fetched.
+- **Changes inside a submodule.** What is inside a submodule is downloaded, and only read: see "Submodules" below.
+- **Git LFS.** A pointer file is synced as it is, and the content it stands for is not downloaded.
 - **Line ending conversion.** The `text` and `eol` settings of `.gitattributes` are not applied: every file is stored and written byte for byte as the repository holds it.
 - **Symbolic links.** They are not written to the device and are left as they are in the repository. The settings list them.
 - **Other services** than GitHub.
@@ -52,14 +52,14 @@ Also:
 - A file over 38 MB is not synced.
 - A repository with more than 100,000 files, or one whose listing is over 7 MB, cannot be synced.
 - `.gitignore` files in subfolders are synced as ordinary files and are not read as rules. Only the one at the root counts.
-- On a desktop, a symbolic link in the vault (or a junction, on Windows) is listed as if it were a folder, so the files behind it are treated as files of the vault: they are sent, and a pull can write and delete them there, also when the link points outside the vault (seen on Windows; on Mac the link is listed the same way). Do not keep such a link in a vault that Sync Evo syncs.
-- On Android, a rename made on another device that changes only upper and lower case (`tools/` to `Tools/`) is not applied. The pull skips the path and says so, and the push holds the file back. Nothing is lost, but the path stays unsynced, and the two notices come back on every sync.
+- On a desktop, a symbolic link in the vault (or a junction, on Windows) is listed as if it were a folder, so the files behind it are treated as files of the vault: they are uploaded, and a download can write and delete them there, also when the link points outside the vault (seen on Windows; on Mac the link is listed the same way). Do not keep such a link in a vault that Sync Evo syncs.
+- On Android, a rename made on another device that changes only upper and lower case (`tools/` to `Tools/`) is not applied. The download skips the path and says so, and the upload holds the file back. Nothing is lost, but the path stays unsynced, and the two notices come back on every sync.
 
 ## Before you use it
 
 **A vault in iCloud Drive works, but support is experimental.** It was checked on one iPhone, on Wi-Fi, with a small vault. Before you rely on it:
 
-- The first sync (and a sync after the sync state was reset) reads every file. Files that iCloud has taken off the device are downloaded for that read, so it needs the space and the connection for the whole vault. As long as even one file cannot be downloaded, that sync does not finish, and nothing is sent.
+- The first sync (and a sync after "Start over") reads every file. Files that iCloud has taken off the device are brought back by iCloud for that read, so it needs the space and the connection for the whole vault. As long as even one file cannot be brought back, that sync does not finish, and nothing is uploaded.
 - When GitHub can be reached and iCloud cannot (iCloud Drive switched off for mobile data, for example), a file that is off the device cannot be read. Sync Evo leaves it alone, says so in the result of the sync, and tries again the next time.
 - When iCloud finds two versions of a file, it may keep both and name one `<name> 2.md`. Sync Evo sends that as a new file.
 - Do not make the iCloud vault a git working tree on the Mac. With the vault in iCloud, the Mac and the iPhone share one folder: what Sync Evo sends from the iPhone, git on the Mac does not know of, and its next pull stops. If Sync Evo on the iPhone tells you that the vault has a `.git`, this is what happened.
@@ -82,9 +82,9 @@ Sync Evo is not in the community plugin directory yet. Until it is, it can be in
    - **Repository**: as `owner/name`, or its address pasted from the browser.
    - **Branch**: the branch to sync with. Sync Evo does not create it.
    - **Token**: the secret that holds the token. It is kept in Obsidian's Keychain, and not in a file of the vault. On iPhone and Android, every vault on the device can link the same secret; on Windows and Mac, each vault has its own, and a vault that is removed from the list of vaults and opened again asks for the token again.
-   - **Device name**: it appears in commit messages and in the names of files kept as a separate copy of a conflict.
+   - **Device name**: it appears in commit messages and in the names of conflict files.
 3. Press **Test** under "Connection test". It tells you whether the token reaches the repository and the branch.
-4. Run **Sync** from the ribbon or the command palette. The first pull asks when files in the vault differ from the repository's, and the first push shows what it is about to send and asks.
+4. Run **Sync** from the ribbon or the command palette. The first download asks when files in the vault differ from the repository's, and the first upload shows what it is about to upload and asks.
 
 ### What is synced
 
@@ -95,7 +95,7 @@ The settings under "What is synced" are written into the `.gitignore` at the roo
 - **Vault configuration**: which parts of the configuration folder (`.obsidian/`) are synced, under the names Obsidian Sync uses for them.
 - **Write rules directly (.gitignore)**: the whole file, for rules of your own. Write them outside the lines Sync Evo manages.
 
-Excluding something deletes nothing. A file the repository already holds stays synced until it is untracked: "Files that match a rule" lists those files and can untrack them, which removes them from the repository and leaves them on the device.
+Excluding something deletes nothing. A file the repository already holds stays synced until it is removed from GitHub: "Excluded files still on GitHub" lists those files and can remove them, which removes them from the repository and leaves them on the device.
 
 The trash, the layout of the workspace, Sync Evo's own folder, and files an operating system leaves behind are left out by default.
 
@@ -105,26 +105,26 @@ These are kept per device. The three switches of automatic sync are off until yo
 
 - **Sync on startup**: syncs when Obsidian starts, and when you come back to it from another app, unless the last sync started less than 5 minutes ago.
 - **Sync at an interval**: syncs while Obsidian is in front, each time the interval (in minutes) has passed since the last sync started. After a sync that failed, the next one waits twice as long, up to an hour.
-- **Also send changes in automatic sync**: when off, automatic sync only pulls, and what you edit on the device is sent when you sync manually. When on, the interval is at least 5 minutes, since every push is a commit.
-- **On a conflict**: "Merge automatically", which is the default, or "Keep as a separate file". What each does is told under "What it does" above.
+- **Also upload changes in automatic sync**: when off, automatic sync only downloads, and what you edit on the device is uploaded when you sync manually. When on, the interval is at least 5 minutes, since every upload is a commit.
+- **On a conflict**: "Automatically merge", which is the default, or "Create conflict file". What each does is told under "What it does" above.
 
 ### Commands
 
 | Command | What it does |
 | --- | --- |
-| Sync (pull, then push) | A pull, and then a push. |
-| Pull | Only fetches from the repository. |
-| Push | Only sends to the repository. A file the repository changed since this device last pulled is not overwritten: it is left for the next pull. A device has to pull once before its first push. |
-| First fetch (discard the sync state and start over) | Discards Sync Evo's record of what was synced and builds it again from the repository. No file is deleted. |
-| Stop the sync | Stops a running sync. A stopped pull continues from where it was; a stopped push does not change the branch, and what it had already uploaded is in no commit. |
+| Sync (download, then upload) | A download, and then an upload. |
+| Download changes from GitHub | Only downloads from the repository. |
+| Upload changes to GitHub | Only uploads to the repository. A file the repository changed since this device last downloaded is not overwritten: it is left for the next download. A device has to download once before its first upload. |
+| Start over (download everything from GitHub again) | Compares the vault with the repository again, as a first download does. No file is deleted. |
+| Stop the sync | Stops a running sync. A stopped download continues from where it was; a stopped upload does not change the branch, and what it had already uploaded is in no commit. |
 
-A push makes one commit, with the message `Sync Evo: <device name> (<n> added, <n> modified, <n> deleted)` and the changed paths below it.
+A upload makes one commit, with the message `Sync Evo: <device name> (<n> added, <n> modified, <n> deleted)` and the changed paths below it.
 
 ## Tested on
 
 iPhone (iOS) and Mac (macOS). The basic sync was also tried on one Android phone (a Pixel 6a), one iPad, and one Windows 11 PC. It has not been tried on Linux.
 
-On Android, files are always fetched one at a time: the zip of the whole commit is not used there, because Obsidian's request function runs out of memory on a large response. So the first fetch of a vault of more than about 5,000 files runs into GitHub's hourly request limit: a sync started by hand waits for the limit to lift and takes over an hour, and a sync that started by itself stops there and a later one goes on. Files of 2 MB and more are downloaded with the WebView's `fetch`, which does not go through the part that runs out of memory.
+On Android, files are always downloaded one at a time: the zip of the whole commit is not used there, because Obsidian's request function runs out of memory on a large response. So the first download of a vault of more than about 5,000 files runs into GitHub's hourly request limit: a sync started by hand waits for the limit to lift and takes over an hour, and a sync that started by itself stops there and a later one goes on. Files of 2 MB and more are downloaded with the WebView's `fetch`, which does not go through the part that runs out of memory.
 
 ## Bugs and requests
 
@@ -136,12 +136,12 @@ The settings and the record of what was synced are kept on the device, outside t
 
 ## Network use
 
-Sync Evo makes network requests only when you press "Test" in its settings, run one of its commands or press its button in the ribbon, or untrack files in its settings; and, when you have switched automatic sync on under "How it syncs", for the pulls and pushes it then starts by itself, which ask and send what a pull and a push do. All of them go to GitHub (`api.github.com`) and carry the token and the names of the repository and the branch, or of the repository a submodule points to. One kind of request, the download of a zip described below, is redirected by GitHub to another of its hosts (`codeload.github.com`).
+Sync Evo makes network requests only when you press "Test" in its settings, run one of its commands or press its button in the ribbon, or remove files from GitHub in its settings; and, when you have switched automatic sync on under "How it syncs", for the downloads and uploads it then starts by itself, which ask and send what a download and an upload do. All of them go to GitHub (`api.github.com`) and carry the token and the names of the repository and the branch, or of the repository a submodule points to. One kind of request, the download of a zip described below, is redirected by GitHub to another of its hosts (`codeload.github.com`).
 
 - **Connection test** asks for the branch you entered, and for the repository when the branch is not found, to tell you whether the token can reach them.
-- **Pull** asks for the branch (and, like the test, for the repository when the branch is not found), for the list of files in its latest commit, and for the content of each file that is new or changed. For a symbolic link, which is not written to the vault, it reads where the link points: one small request per link that is new or changed. When the branch has moved since the last pull, it also asks whether the new commit builds on the old one. When more than 1,000 files are new or changed (a first pull of a large repository, for one) and the zip is not expected to be too large for the device, it asks for the zip of that commit in one request instead of for each file (not on Android: see "Tested on"), and then only for the files the zip does not hold as they are listed. The zip is kept in memory and never saved. When the repository has submodules, a pull reads its `.gitmodules` and asks the repository each submodule points to, on GitHub and with the same token, for the list of files of the commit the submodule points to, for the content of the files that are new or changed (or for the zip of that commit, as above), and, when the list cannot be had, whether the token sees that repository at all. A pull sends nothing from the vault: no file, no file name, and no content.
-- **Push** asks for the branch and the list of files as a pull does, then sends the content of each file that was added or changed in the vault, the paths of the files that were added, changed, or deleted, and a commit whose message holds the device name and those paths. It then moves the branch to that commit and asks for the list of files of the new commit. When it is not known whether an earlier push went through, it first asks whether the commit on the branch builds on the one this device last synced with. For a repository that has no commits yet, it asks for the repository to learn its default branch, and the `.gitignore` is sent first, as a commit of its own. Files that `.gitignore` excludes are not sent.
-- **Untracking** asks for the branch and the list of files as a pull does, then sends the paths of the files to remove from the repository, and a commit whose message holds the device name and those paths, and moves the branch to that commit. A pull runs before it, and a push when the rules are not in the repository yet.
+- **Download** asks for the branch (and, like the test, for the repository when the branch is not found), for the list of files in its latest commit, and for the content of each file that is new or changed. For a symbolic link, which is not written to the vault, it reads where the link points: one small request per link that is new or changed. When the branch has moved since the last download, it also asks whether the new commit builds on the old one. When more than 1,000 files are new or changed (a first download of a large repository, for one) and the zip is not expected to be too large for the device, it asks for the zip of that commit in one request instead of for each file (not on Android: see "Tested on"), and then only for the files the zip does not hold as they are listed. The zip is kept in memory and never saved. When the repository has submodules, a download reads its `.gitmodules` and asks the repository each submodule points to, on GitHub and with the same token, for the list of files of the commit the submodule points to, for the content of the files that are new or changed (or for the zip of that commit, as above), and, when the list cannot be had, whether the token sees that repository at all. A download sends nothing from the vault: no file, no file name, and no content.
+- **Upload** asks for the branch and the list of files as a download does, then sends the content of each file that was added or changed in the vault, the paths of the files that were added, changed, or deleted, and a commit whose message holds the device name and those paths. It then moves the branch to that commit and asks for the list of files of the new commit. When it is not known whether an earlier upload went through, it first asks whether the commit on the branch builds on the one this device last synced with. For a repository that has no commits yet, it asks for the repository to learn its default branch, and the `.gitignore` is sent first, as a commit of its own. Files that `.gitignore` excludes are not sent.
+- **Removing files from GitHub** asks for the branch and the list of files as a download does, then sends the paths of the files to remove from the repository, and a commit whose message holds the device name and those paths, and moves the branch to that commit. A download runs before it, and an upload when the exclusions are not in the repository yet.
 
 Nothing is sent anywhere else. Sync Evo collects no usage data and contacts no server of its developer.
 
@@ -158,7 +158,7 @@ npm test         # unit tests
 
 ### Source layout
 
-`src/core/` holds the parts that do not depend on where they run: the interface a remote implements, and the decision of what to fetch, send, and delete. Code there must not import `obsidian` (a types-only package that the tests cannot load) or any Node API (the mobile app has none); a test checks this. Code that touches the Obsidian API stays outside `src/core/` and is kept thin.
+`src/core/` holds the parts that do not depend on where they run: the interface a remote implements, and the decision of what to download, upload, and delete. Code there must not import `obsidian` (a types-only package that the tests cannot load) or any Node API (the mobile app has none); a test checks this. Code that touches the Obsidian API stays outside `src/core/` and is kept thin.
 
 The in-memory remote used by the tests is in `tests/support/`.
 
