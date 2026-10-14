@@ -237,7 +237,7 @@ describe("the summary", () => {
 
 	test("an empty remote", () => {
 		const report = pullReport(t, result({ outcome: "remote-empty", revision: null, remoteEmpty: true }), options);
-		expect(report.summary).toBe("The repository is empty: it has no commits yet. There is nothing to download.");
+		expect(report.summary).toBe("The repository is empty. There is nothing to download.");
 	});
 
 	test("declined", () => {
@@ -526,10 +526,10 @@ describe("files left for the next sync", () => {
 		expect(details[0]).toContain("big.md");
 		expect(details[1]).toContain("bad.md");
 		expect(details[2]).toBe(
-			"2 other files were not downloaded either: they wait for a file that is left for the next sync. A later sync downloads them.",
+			"2 other files were not downloaded either, since they come after the files above. Once those are seen to, the next sync downloads them.",
 		);
 		expect(pullReport(ja, waiting, options).details[2]).toBe(
-			"ほかに 2 件のファイルも、ダウンロードしていません。次の同期に残したファイルを待っています。後の同期で、ダウンロードします。",
+			"ほかに 2 件のファイルも、上のファイルの後に回したため、ダウンロードしていません。上のファイルが片付くと、次の同期でダウンロードします。",
 		);
 
 		// Counted by the text for what failed otherwise, and not a second time.
@@ -777,7 +777,7 @@ describe("what the user has to know", () => {
 			"There are .gitignore files in subfolders. Sync Evo syncs them as ordinary files and does not read them as rules: only the .gitignore at the root of the vault decides what is synced. Git on a computer does apply them, so the same vault is treated differently there. Put the rules you need into the .gitignore at the root:\nnotes/.gitignore\nsrc/lib/.gitignore",
 		);
 		expect(report.details[14]).toBe(
-			"Some of the lines Sync Evo manages in .gitignore are not in effect: they were deleted, or a later line undoes them. What they left out is synced now (the trash, the layout of the workspace, files an operating system leaves behind). Only Sync Evo's own folder is still not synced by Sync Evo, but git on a computer commits it. Deleted lines can be restored in the settings of Sync Evo; where a later line that starts with ! undoes one, change that line:\n/.trash/\n*.icloud",
+			"What was excluded is synced now (the trash, the layout of the workspace, files an operating system leaves behind, and so on): the lines of .gitignore below, which Sync Evo manages, were deleted, or a later line undoes them. Only Sync Evo's own folder is still not synced by Sync Evo, but git on a computer commits it. Deleted lines can be restored in the settings of Sync Evo; where a later line that starts with ! undoes one, change that line:\n/.trash/\n*.icloud",
 		);
 		expect(report.details[15]).toBe(
 			"What is inside these submodules cannot be downloaded. Sync Evo downloads a submodule that points to a repository on GitHub and is listed in the .gitmodules of the repository. A submodule inside a submodule, and one with too many files to be listed, are not downloaded. What this device has in those folders is left as it is. Everything else is synced as usual:\nknowledge\nvendor/lib",
@@ -827,7 +827,7 @@ describe("what the user has to know", () => {
 		expect(report.details).toEqual([
 			"下位のフォルダに .gitignore があります。Sync Evo は、これらを通常のファイルとして同期しますが、規則としては読みません。何を同期するかは、保管庫のルートの .gitignore だけで決まります。パソコンの git はこれらの規則も使うため、同じ保管庫でも効き方が違います。要る規則は、ルートの .gitignore に書いてください：\nnotes/.gitignore",
 			// Not cut off at five, like a list of paths: which lines are off is what there is to tell.
-			`Sync Evo が管理する .gitignore の行のうち、次の行が効いていません。行が消されたか、後ろの行で打ち消されています。これらの行で除いていた物（ゴミ箱、画面の配置のファイル、OS が残すファイル）も、同期されます。Sync Evo 自身のフォルダだけは、Sync Evo は同期しませんが、パソコンの git ではコミットされます。消した行は、Sync Evo の設定画面で元に戻せます。! で始まる行で打ち消している時は、その行を直してください：\n${off.join("\n")}`,
+			`ゴミ箱、画面の配置のファイル、OS が残すファイルなど、除外していた物が、今は同期されます。除外していた .gitignore の下の行（Sync Evo が管理する行）が、消されたか、後ろの行で打ち消されているためです。Sync Evo 自身のフォルダだけは、Sync Evo は同期しませんが、パソコンの git ではコミットされます。消した行は、Sync Evo の設定画面で元に戻せます。! で始まる行で打ち消している時は、その行を直してください：\n${off.join("\n")}`,
 		]);
 	});
 

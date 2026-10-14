@@ -102,7 +102,7 @@ export const en = baseCatalog({
 	// write the lines Sync Evo manages in .gitignore, and the file itself.
 	"settings.exclusion.heading": "What is synced",
 	"settings.exclusion.desc":
-		"These settings are written into the .gitignore at the root of this vault, and apply alike to all your devices and to git on a computer. Excluding something deletes nothing. What is already on {remote} stays synced until it is removed from {remote}.",
+		"Choose what is not synced. It applies alike to all your devices. Excluding something deletes nothing. What is already on {remote} stays synced until it is removed from {remote}. These settings are written into the .gitignore at the root of this vault, so git on a computer follows them too.",
 	"settings.exclusion.tracked": {
 		one: "{count} excluded file is still on {remote}, as of the last sync.",
 		other: "{count} excluded files are still on {remote}, as of the last sync.",
@@ -133,7 +133,7 @@ export const en = baseCatalog({
 		"The two lines that mark the lines Sync Evo manages in .gitignore (they start with \"# >>> Sync Evo\" and \"# <<< Sync Evo\") do not form one pair: one is missing, one is there twice, or they are in the wrong order. The switches are hidden until that is put right. Correct the file under \"Write rules directly (.gitignore)\": keep one of each, the first above the second. Or delete every line that starts with either of the two, and the next sync adds the managed lines again.",
 	"settings.exclusion.noSection.name": "Lines managed by Sync Evo",
 	"settings.exclusion.noSection.desc":
-		"The .gitignore of this vault has no lines managed by Sync Evo yet, so there is nothing to switch. Until it has, Sync Evo applies the default lines as if they were there, on every device. Git on a computer does not, since the lines are not in the file. The next sync that uploads changes adds them as well.",
+		"The .gitignore of this vault has no lines managed by Sync Evo yet. Add them with the button below. Until then, Sync Evo on every device excludes what the default lines would, but git on a computer does not. The next sync that uploads changes adds them as well.",
 	"settings.exclusion.noSection.button": "Add the lines Sync Evo manages",
 	"settings.exclusion.noSection.syncFirst":
 		"This device has not downloaded anything from {remote} yet, so the lines are not added here: a .gitignore on {remote} would then be in conflict with this one. Sync first. The sync adds the lines.",
@@ -159,7 +159,7 @@ export const en = baseCatalog({
 		"The data.json of your other plugins is synced as well (it can hold tokens and other credentials). Plugin code that comes from your other devices runs on this device. Turn it on only with devices and a repository you trust.",
 	"settings.exclusion.fixedOff.name": "Exclusions that are not in effect",
 	"settings.exclusion.fixedOff.desc":
-		"The lines below are there to keep the trash, the layout of the workspace, Sync Evo's own folder, and files an operating system leaves behind out of the sync. They are not in effect: the line was deleted, or a later line that starts with ! undoes it. What they left out is synced now. Only Sync Evo's own folder is still not synced by Sync Evo, but git on a computer commits it.",
+		"What the lines below excluded (the trash, the layout of the workspace, files an operating system leaves behind, and so on) is synced now. The line was deleted, or a later line that starts with ! undoes it. Only Sync Evo's own folder is still not synced by Sync Evo, but git on a computer commits it.",
 	"settings.exclusion.fixedOff.restore": "Restore",
 	"settings.exclusion.fixedOff.restoreNote":
 		"Restoring puts the deleted lines back among the lines Sync Evo manages. A line that a later line starting with ! undoes stays listed here after that: change that later line under \"Write rules directly (.gitignore)\".",
@@ -190,7 +190,7 @@ export const en = baseCatalog({
 
 	// The result of testing the connection.
 	"check.connected": "Connected to {repository}, branch {branch}.",
-	"check.empty": "Connected to {repository}. The repository is empty: it has no commits yet.",
+	"check.empty": "Connected to {repository}. The repository is empty.",
 	"check.unauthorized":
 		"GitHub did not accept the token. It is wrong, or it was revoked or has expired. Create a new token and save it under the selected secret.",
 	"check.forbidden":
@@ -238,7 +238,7 @@ export const en = baseCatalog({
 	"notice.nestedGitignore":
 		"There are .gitignore files in subfolders. Sync Evo syncs them as ordinary files and does not read them as rules: only the .gitignore at the root of the vault decides what is synced. Git on a computer does apply them, so the same vault is treated differently there. Put the rules you need into the .gitignore at the root:\n{list}",
 	"notice.fixedExclusionOff":
-		"Some of the lines Sync Evo manages in .gitignore are not in effect: they were deleted, or a later line undoes them. What they left out is synced now (the trash, the layout of the workspace, files an operating system leaves behind). Only Sync Evo's own folder is still not synced by Sync Evo, but git on a computer commits it. Deleted lines can be restored in the settings of Sync Evo; where a later line that starts with ! undoes one, change that line:\n{list}",
+		"What was excluded is synced now (the trash, the layout of the workspace, files an operating system leaves behind, and so on): the lines of .gitignore below, which Sync Evo manages, were deleted, or a later line undoes them. Only Sync Evo's own folder is still not synced by Sync Evo, but git on a computer commits it. Deleted lines can be restored in the settings of Sync Evo; where a later line that starts with ! undoes one, change that line:\n{list}",
 	"notice.submodule":
 		"What is inside these submodules cannot be downloaded. Sync Evo downloads a submodule that points to a repository on GitHub and is listed in the .gitmodules of the repository. A submodule inside a submodule, and one with too many files to be listed, are not downloaded. What this device has in those folders is left as it is. Everything else is synced as usual:\n{list}",
 	"notice.submoduleNoAccess":
@@ -260,7 +260,7 @@ export const en = baseCatalog({
 	"section.added.sent": "This upload included the change.",
 	"section.added.unsent": "The change has not been uploaded yet. The next sync uploads it.",
 	"section.added.unknown":
-		"Whether this upload included the change is not known. If it did not, the next sync uploads it.",
+		"This upload may not have included the change. The next sync checks, and uploads it if it is still needed.",
 	"section.added.howTo":
 		"You can change these lines in the settings of Sync Evo. If you do not want them, delete the lines in between and keep the first and the last line (the two that start with #): if those two are deleted as well, the next sync adds the lines again.",
 	"section.added.tracked": {
@@ -305,7 +305,7 @@ export const en = baseCatalog({
 	"auto.waiting.rewritten":
 		"The history of the repository was rewritten, so downloading needs your confirmation. Nothing was changed. Sync manually to be asked.",
 	"auto.waiting.firstFetch":
-		"The first download into this vault is not finished. It is not started without you, and not continued while files in the vault differ from those on {remote}. Nothing was changed. Sync manually to start or continue it.",
+		"The first download into this vault has not finished. Nothing was changed. Sync manually to start it or carry on with it.",
 	"auto.waiting.firstPush":
 		"The first upload from this device needs your confirmation. Nothing was uploaded. Sync manually to be asked.",
 	"auto.waiting.pushDeletions":
@@ -346,7 +346,7 @@ export const en = baseCatalog({
 	},
 	"pull.done": "Download finished.",
 	"pull.upToDate": "Nothing to download. This device is up to date.",
-	"pull.remoteEmpty": "The repository is empty: it has no commits yet. There is nothing to download.",
+	"pull.remoteEmpty": "The repository is empty. There is nothing to download.",
 	"pull.declined": "The download was cancelled. Nothing was changed.",
 	"pull.declinedAfterTrash":
 		"The download was cancelled. Only the files listed below were moved to .trash/ in this vault. Nothing else was changed.",
@@ -374,8 +374,8 @@ export const en = baseCatalog({
 		other: "{count} files on this device could not be read and were left as they are. Check them, then sync again:\n{list}",
 	},
 	"pull.waitingForUnread": {
-		one: "{count} other file was not downloaded either: it waits for a file that is left for the next sync. A later sync downloads it.",
-		other: "{count} other files were not downloaded either: they wait for a file that is left for the next sync. A later sync downloads them.",
+		one: "{count} other file was not downloaded either, since it comes after the files above. Once those are seen to, the next sync downloads it.",
+		other: "{count} other files were not downloaded either, since they come after the files above. Once those are seen to, the next sync downloads them.",
 	},
 	"pull.conflicts": {
 		one: "The content of {count} file on this device was kept as a conflict file:\n{list}",
@@ -444,7 +444,7 @@ export const en = baseCatalog({
 	"push.count.deleted": { one: "{count} file deleted", other: "{count} files deleted" },
 	"push.summary": "Upload finished: {details}.",
 	"push.nothing": "Nothing to upload. {remote} is up to date.",
-	"push.nothingSent": "Nothing was uploaded.",
+	"push.nothingSent": "Nothing was uploaded. Only files that cannot be uploaded now are left.",
 	"push.recovered":
 		"The previous upload had gone through: {details}. It is recorded on this device now.",
 	"push.recoveredUntrack": {
@@ -456,13 +456,13 @@ export const en = baseCatalog({
 	"push.pullFirst.remoteEmpty":
 		"Nothing was uploaded. The repository has no commits. This device has synced with this repository before, and the commits it had are gone. Download first to look at that.",
 	"push.pullFirst.notDefaultBranch":
-		"Nothing was uploaded. The repository is empty: it has no commits yet. GitHub makes the first commit of an empty repository on its default branch, {branch}. Set the branch in the settings of Sync Evo to {branch}, or change the default branch of the repository on GitHub, then sync again.",
+		"Nothing was uploaded. The repository is empty. GitHub makes the first commit of an empty repository on its default branch, {branch}. Set the branch in the settings of Sync Evo to {branch}, or change the default branch of the repository on GitHub, then sync again.",
 	"push.pullFirst.gitignoreUnreadable":
 		"Nothing was uploaded. The .gitignore of this vault decides what is uploaded, and it cannot be read on this device: a cloud drive keeps only a placeholder of it, there is a folder named .gitignore, or its name differs in upper and lower case (.GITIGNORE, say). Put that right, then upload again.",
 	"push.pullFirst.remoteMoved":
 		"Nothing was uploaded. Another device changed what is on {remote} after this upload began. Download first, then upload again.",
 	"push.pullFirst.gitignore":
-		"Nothing was uploaded. The .gitignore of this vault decides what is uploaded, and it could not be relied on: an editor could not save it, or an earlier download stopped while writing it. If .gitignore is open in an editor, save or close it, then upload again. Otherwise download first, then upload.",
+		"Nothing was uploaded. The .gitignore of this vault decides what is uploaded, and its content could not be relied on. If .gitignore is open, close it, then sync again.",
 	"push.declined": "The upload was cancelled. Nothing was uploaded.",
 	"push.cancelled": "The upload was stopped. Nothing was uploaded.",
 	"push.connectionChanged": "The upload was stopped because the connection was changed. Nothing was uploaded.",
@@ -472,14 +472,14 @@ export const en = baseCatalog({
 	"push.error.workflows":
 		"GitHub refused the upload because it changes files under .github/workflows/. For that, the token also needs the Workflows read and write permission.",
 	"push.error.notAsListed":
-		"What is on {remote} is not what this device had listed for it, so nothing was changed there. The next sync lists it again. Sync again.",
+		"Nothing was changed on {remote}: what is there is not what this device knew of it. Sync again.",
 	"push.storedOtherwise": {
 		one: "GitHub stored {count} file with other content than this device uploaded. The next download replaces the file on this device with GitHub's version:\n{list}",
 		other: "GitHub stored {count} files with other content than this device uploaded. The next download replaces the files on this device with GitHub's versions:\n{list}",
 	},
 	"push.held": {
-		one: "{count} file was not uploaded: a download has not finished with it, or an editor could not save it. Sync again:\n{list}",
-		other: "{count} files were not uploaded: a download has not finished with them, or an editor could not save them. Sync again:\n{list}",
+		one: "{count} file was not uploaded: a download has not finished with it, or it is open and could not be saved. Sync again:\n{list}",
+		other: "{count} files were not uploaded: a download has not finished with them, or they are open and could not be saved. Sync again:\n{list}",
 	},
 	"push.remoteInTheWay": {
 		one: "{count} file was not uploaded: there is a file or a folder in its place on {remote} that this device has not downloaded yet. Download first, then upload again:\n{list}",
@@ -502,8 +502,8 @@ export const en = baseCatalog({
 		other: "{count} files were not uploaded: adding or changing a file under .github/workflows/ needs the Workflows read and write permission on the token. Give the token that permission and the next sync uploads them. Otherwise, put these files back as they were and change them with git on a computer. If one is a conflict file that an earlier version of Sync Evo left there, with .conflict-from- in its name, check its content and then delete it:\n{list}",
 	},
 	"push.leftOut": {
-		one: "{count} file was left out: it changed or could not be read while the upload ran, or an editor could not save it. The next upload looks at it again:\n{list}",
-		other: "{count} files were left out: they changed or could not be read while the upload ran, or an editor could not save them. The next upload looks at them again:\n{list}",
+		one: "{count} file was left out: it changed or could not be read while the upload ran, or it is open and could not be saved. The next upload looks at it again:\n{list}",
+		other: "{count} files were left out: they changed or could not be read while the upload ran, or they are open and could not be saved. The next upload looks at them again:\n{list}",
 	},
 
 	// Untracking: the question before it, and how it ended.
@@ -522,7 +522,7 @@ export const en = baseCatalog({
 	"untrack.confirm.mac":
 		"To keep the files where you use git on a computer, do not remove them here: run git rm --cached on that computer, and push from there. The next download then deletes these files from this device.",
 	"untrack.confirm.syncFirst":
-		"A download runs first. If the exclusions have not been uploaded yet, an upload follows, and it also uploads the other changes of this device.",
+		"A download runs first. If the exclusions have not been uploaded yet, an upload runs too, and the other changes of this device go up with them.",
 	"untrack.confirm.missing": {
 		one: "{count} of these files is not on this device. If it is in the list, it is marked there. After it is removed, its content is only in the history on {remote}.",
 		other: "{count} of these files are not on this device. Those in the list are marked there. After they are removed, their content is only in the history on {remote}.",
@@ -560,7 +560,7 @@ export const en = baseCatalog({
 	"untrack.syncFirst.pullUnfinished":
 		"Nothing was removed from {remote}. This device has not downloaded everything yet. Sync until no file is left for later, then try again in the settings of Sync Evo.",
 	"untrack.syncFirst.gitignoreUnsettled":
-		"Nothing was removed from {remote}. The .gitignore of this vault could not be relied on: an editor could not save it, or an earlier write to it did not finish. Save or close it, sync, then try again in the settings of Sync Evo.",
+		"Nothing was removed from {remote}. The content of the .gitignore of this vault could not be relied on. If .gitignore is open, close it, sync, then try again in the settings of Sync Evo.",
 	"untrack.syncFirst.gitignoreUnreadable":
 		"Nothing was removed from {remote}. The .gitignore of this vault cannot be read on this device. The settings of Sync Evo say why. Put that right, then try again.",
 	"untrack.syncFirst.noSection":
@@ -568,13 +568,13 @@ export const en = baseCatalog({
 	"untrack.syncFirst.sectionBroken":
 		"Nothing was removed from {remote}. The two lines that mark the lines Sync Evo manages in .gitignore do not form one pair. Correct the file in the settings of Sync Evo and sync, then try again.",
 	"untrack.syncFirst.gitignoreNotSent":
-		"Nothing was removed from {remote}. The .gitignore of this device has not been uploaded yet. Sync, then try again in the settings of Sync Evo.",
+		"Nothing was removed from {remote}. The exclusions have not been uploaded yet. Sync, then try again in the settings of Sync Evo.",
 	"untrack.skipped.pullDeclined":
 		"Nothing was removed from {remote}, because the download was cancelled. The exclusions stay. You can remove the files later in the settings of Sync Evo.",
 	"untrack.skipped.pullCancelled":
 		"Nothing was removed from {remote}, because the download was stopped. The exclusions stay. You can remove the files later in the settings of Sync Evo.",
 	"untrack.skipped.pushNotDone":
-		"Nothing was removed from {remote}, because the upload of .gitignore did not go through. The exclusions stay. You can remove the files later in the settings of Sync Evo.",
+		"Nothing was removed from {remote}, because the exclusions could not be uploaded. They stay on this device. You can remove the files later in the settings of Sync Evo.",
 
 	// Why there is no sync state to work with.
 	"state.waiting": "Preparing…",
@@ -621,9 +621,9 @@ export const en = baseCatalog({
 	"confirm.firstPush.body":
 		"This is the first upload from this device to {repository}, branch {branch}. It changes what is on {remote} as listed below. Once an upload has gone through, later uploads do not show this list.",
 	"confirm.firstPush.remoteEmpty":
-		"The repository is empty: it has no commits yet. A first commit with the .gitignore alone is made, and the rest is uploaded after it. If this vault has no .gitignore, an empty one is created.",
+		"The repository is empty. If this vault has no .gitignore, an empty one is created and uploaded.",
 	"confirm.firstPush.remoteEmptyWithGitignore":
-		"The repository is empty: it has no commits yet. A first commit with the .gitignore alone is made, and the rest is uploaded after it.",
+		"The repository is empty.",
 	"confirm.firstPush.added": { one: "{count} file to add:", other: "{count} files to add:" },
 	"confirm.firstPush.modified": { one: "{count} file to modify:", other: "{count} files to modify:" },
 	"confirm.firstPush.deleted": { one: "{count} file to delete:", other: "{count} files to delete:" },

@@ -109,7 +109,7 @@ describe("the question before untracking", () => {
 				text: "On your other devices, the next download deletes these files, except files that were changed on that device.",
 			},
 			{
-				text: "A download runs first. If the exclusions have not been uploaded yet, an upload follows, and it also uploads the other changes of this device.",
+				text: "A download runs first. If the exclusions have not been uploaded yet, an upload runs too, and the other changes of this device go up with them.",
 			},
 			{
 				text: "To keep the files where you use git on a computer, do not remove them here: run git rm --cached on that computer, and push from there. The next download then deletes these files from this device.",
@@ -203,7 +203,7 @@ describe("the question before untracking", () => {
 			"ほかのデバイスでは、次のダウンロードで削除されます。そのデバイスで変更していたファイルは残ります。",
 			"このうち 1 件は、このデバイスにありません。一覧に出した物には、印を付けています。GitHub から削除すると、中身は GitHub の履歴にだけ残ります。",
 			"除外しているサブモジュールも 1 件あります。ここでは削除しません。パソコンの git で行ってください：",
-			"先にダウンロードを行います。除外の設定がまだアップロードされていなければ、アップロードも行い、このデバイスのほかの変更もアップロードします。",
+			"先にダウンロードします。除外の設定をまだアップロードしていない時は、アップロードもするので、このデバイスのほかの変更も一緒にアップロードされます。",
 			"パソコンの git の側にファイルを残したい時は、ここでは削除せず、そのパソコンで git rm --cached をして push してください。その時は、このデバイスのファイルが、次のダウンロードで削除されます。",
 		]);
 		expect(question.parts[0]?.paths?.shown).toEqual(["drafts/link（シンボリックリンク、このデバイスに無い）", "drafts/a.md"]);
@@ -259,7 +259,7 @@ describe("how untracking ended", () => {
 		const said = (reason: UntrackRefusal): string =>
 			untrackReport(t, ended({ outcome: "sync-first", reason, revision: null, untracked: [] })).summary;
 		expect(said("gitignore-not-sent")).toBe(
-			"Nothing was removed from GitHub. The .gitignore of this device has not been uploaded yet. Sync, then try again in the settings of Sync Evo.",
+			"Nothing was removed from GitHub. The exclusions have not been uploaded yet. Sync, then try again in the settings of Sync Evo.",
 		);
 		expect(said("no-section")).toContain("has no lines managed by Sync Evo");
 		for (const reason of reasons) expect(said(reason).startsWith("Nothing was removed from GitHub.")).toBe(true);
@@ -279,7 +279,7 @@ describe("how untracking ended", () => {
 			"Removing from GitHub failed. Could not reach GitHub. Check the network connection and try again.",
 		);
 		expect(untrackFailureText(ja, settings, new BackendError("not-as-listed", "x"))).toBe(
-			"GitHub から削除できませんでした。GitHub の中身が、このデバイスが持っている一覧と違っていたため、GitHub では何も変更していません。次の同期で、一覧を取り直します。もう一度同期してください。",
+			"GitHub から削除できませんでした。GitHub では何も変更していません。GitHub の中身が、このデバイスが知っている内容と違っていました。もう一度同期してください。",
 		);
 		expect(untrackFailureText(t, settings, new BackendError("cancelled", "x"))).toBe(
 			"The removal was stopped. Nothing was removed from GitHub.",
@@ -316,11 +316,11 @@ describe("how untracking after a sync ended", () => {
 			"Nothing was removed from GitHub, because the download was stopped. The exclusions stay. You can remove the files later in the settings of Sync Evo.",
 		);
 		expect(said("push-not-done")).toBe(
-			"Nothing was removed from GitHub, because the upload of .gitignore did not go through. The exclusions stay. You can remove the files later in the settings of Sync Evo.",
+			"Nothing was removed from GitHub, because the exclusions could not be uploaded. They stay on this device. You can remove the files later in the settings of Sync Evo.",
 		);
 		expect(said("cancelled")).toBe("The removal was stopped. Nothing was removed from GitHub.");
 		expect(untrackSyncReport(ja, sync({ skipped: "push-not-done" })).summary).toBe(
-			".gitignore のアップロードが済まなかったため、GitHub から削除していません。除外の設定は残っています。後から、Sync Evo の設定画面で削除できます。",
+			"除外の設定をアップロードできなかったため、GitHub から削除していません。除外の設定は、このデバイスに残っています。後から、Sync Evo の設定画面で削除できます。",
 		);
 	});
 

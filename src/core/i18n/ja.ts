@@ -89,7 +89,7 @@ export const ja = completeTranslation(en, {
 
 	"settings.exclusion.heading": "同期する物",
 	"settings.exclusion.desc":
-		"ここの設定は、保管庫のルートの .gitignore に書かれ、全デバイスと、パソコンの git に同じに効きます。除外しても、何も削除しません。すでに {remote} にある物は、{remote} から削除するまで同期を続けます。",
+		"同期しない物を選びます。全デバイスに同じに効きます。除外しても、何も削除しません。すでに {remote} にある物は、{remote} から削除するまで同期を続けます。ここの設定は保管庫のルートの .gitignore に書かれるので、パソコンの git にも効きます。",
 	"settings.exclusion.tracked": "除外しているファイルが、{remote} に {count} 件残っています（最後の同期の時点）。",
 	"settings.exclusion.untrack.name": "除外していて、{remote} に残っているファイル",
 	"settings.exclusion.untrack.desc": "{remote} から削除すると、同期しなくなります。このデバイスのファイルは残ります。",
@@ -115,7 +115,7 @@ export const ja = completeTranslation(en, {
 		".gitignore の、Sync Evo が管理する行を囲む2つの印の行（「# >>> Sync Evo」と「# <<< Sync Evo」で始まる行）が、1組になっていません。片方が無いか、同じ物が2つあるか、順番が逆です。直るまで、切り替えは出しません。「規則を直接書く（.gitignore）」の欄で直してください。それぞれ1行ずつにし、「# >>>」の行を上にします。この2種類の印の行を全部消すと、次の同期で Sync Evo が管理する行を足し直します。",
 	"settings.exclusion.noSection.name": "Sync Evo が管理する行",
 	"settings.exclusion.noSection.desc":
-		"この保管庫の .gitignore には、Sync Evo が管理する行がまだ無いため、切り替える物がありません。それまでは、どのデバイスの Sync Evo も、初期設定の行があるものとして扱います。行が .gitignore に無いので、パソコンの git には効きません。変更をアップロードする次の同期でも、行を足します。",
+		"この保管庫の .gitignore には、Sync Evo が管理する行がまだありません。下のボタンで足せます。足すまでは、どのデバイスの Sync Evo も初期設定のとおりに除外しますが、パソコンの git には効きません。変更をアップロードする次の同期でも、行を足します。",
 	"settings.exclusion.noSection.button": "Sync Evo が管理する行を足す",
 	"settings.exclusion.noSection.syncFirst":
 		"このデバイスは、まだ {remote} からダウンロードしていないため、ここでは行を足しません。{remote} に .gitignore があると、競合になるためです。先に同期してください。同期の時に足されます。",
@@ -140,7 +140,7 @@ export const ja = completeTranslation(en, {
 		"ほかのプラグインの data.json も同期されます（トークンなどが入っていることがあります）。ほかのデバイスから来たプラグインのコードが、このデバイスで動きます。信頼できるデバイスとリポジトリでだけ、入にしてください。",
 	"settings.exclusion.fixedOff.name": "効いていない除外",
 	"settings.exclusion.fixedOff.desc":
-		"下の行は、ゴミ箱、画面の配置のファイル、Sync Evo 自身のフォルダ、OS が残すファイルを同期から除くための行です。行が消されたか、後ろの ! で始まる行で打ち消されていて、今は効いていません。除いていた物も、同期されます。Sync Evo 自身のフォルダだけは、Sync Evo は同期しませんが、パソコンの git ではコミットされます。",
+		"下の行で除外していた物（ゴミ箱、画面の配置のファイル、OS が残すファイルなど）が、今は同期されます。行が消されたか、後ろの ! で始まる行で打ち消されているためです。Sync Evo 自身のフォルダだけは、Sync Evo は同期しませんが、パソコンの git ではコミットされます。",
 	"settings.exclusion.fixedOff.restore": "元に戻す",
 	"settings.exclusion.fixedOff.restoreNote":
 		"元に戻すと、消された行を、Sync Evo が管理する行に足し直します。後ろの ! で始まる行で打ち消されている行は、戻した後もここに残ります。その時は、「規則を直接書く（.gitignore）」の欄で、打ち消している行を直してください。",
@@ -169,7 +169,7 @@ export const ja = completeTranslation(en, {
 	"settings.exclusion.write.failed": ".gitignore を変更していません：{detail}",
 
 	"check.connected": "{repository} のブランチ {branch} に接続できました。",
-	"check.empty": "{repository} に接続できました。リポジトリは空で、コミットがまだありません。",
+	"check.empty": "{repository} に接続できました。リポジトリは空です。",
 	"check.unauthorized":
 		"GitHub がトークンを受け付けませんでした。トークンが間違っているか、取り消されたか、期限が切れています。新しいトークンを作り、選択中のシークレットに保存してください。",
 	"check.forbidden":
@@ -216,7 +216,7 @@ export const ja = completeTranslation(en, {
 	"notice.nestedGitignore":
 		"下位のフォルダに .gitignore があります。Sync Evo は、これらを通常のファイルとして同期しますが、規則としては読みません。何を同期するかは、保管庫のルートの .gitignore だけで決まります。パソコンの git はこれらの規則も使うため、同じ保管庫でも効き方が違います。要る規則は、ルートの .gitignore に書いてください：\n{list}",
 	"notice.fixedExclusionOff":
-		"Sync Evo が管理する .gitignore の行のうち、次の行が効いていません。行が消されたか、後ろの行で打ち消されています。これらの行で除いていた物（ゴミ箱、画面の配置のファイル、OS が残すファイル）も、同期されます。Sync Evo 自身のフォルダだけは、Sync Evo は同期しませんが、パソコンの git ではコミットされます。消した行は、Sync Evo の設定画面で元に戻せます。! で始まる行で打ち消している時は、その行を直してください：\n{list}",
+		"ゴミ箱、画面の配置のファイル、OS が残すファイルなど、除外していた物が、今は同期されます。除外していた .gitignore の下の行（Sync Evo が管理する行）が、消されたか、後ろの行で打ち消されているためです。Sync Evo 自身のフォルダだけは、Sync Evo は同期しませんが、パソコンの git ではコミットされます。消した行は、Sync Evo の設定画面で元に戻せます。! で始まる行で打ち消している時は、その行を直してください：\n{list}",
 	"notice.submodule":
 		"次のサブモジュールの中身は、ダウンロードできません。ダウンロードできるのは、GitHub のリポジトリを指し、リポジトリの .gitmodules に載っているサブモジュールです。サブモジュールの中のサブモジュールと、ファイルが多すぎて一覧を取れない物は、ダウンロードできません。このデバイスにあるそのフォルダの中身は、そのままにします。ほかは通常どおり同期します：\n{list}",
 	"notice.submoduleNoAccess":
@@ -234,7 +234,7 @@ export const ja = completeTranslation(en, {
 	"section.added.sends": "この変更は、今回のアップロードに入ります。",
 	"section.added.sent": "この変更は、今回アップロードしました。",
 	"section.added.unsent": "この変更は、まだアップロードしていません。次の同期でアップロードします。",
-	"section.added.unknown": "この変更を今回アップロードできたかは、分かりません。できていなければ、次の同期でアップロードします。",
+	"section.added.unknown": "この変更は、今回アップロードできなかったかもしれません。次の同期で確かめて、まだならアップロードします。",
 	"section.added.howTo":
 		"これらの行は、Sync Evo の設定画面で変えられます。要らない時は、最初と最後の行（# で始まる2行）だけを残して、間の行を消してください。その2行も消すと、次の同期でまた足します。",
 	"section.added.tracked": "これらの行で除外しているファイルが、{remote} に {count} 件あります。これらは同期を続けます：",
@@ -266,7 +266,7 @@ export const ja = completeTranslation(en, {
 		"ダウンロードすると、このデバイスのファイルが大量に削除されるため、確認が必要です。何も変更していません。手動で同期すると、確認が表示されます。",
 	"auto.waiting.rewritten": "リポジトリの履歴が書き換えられているため、ダウンロードする前に確認が必要です。何も変更していません。手動で同期すると、確認が表示されます。",
 	"auto.waiting.firstFetch":
-		"この保管庫の最初のダウンロードが終わっていません。最初のダウンロードは、自動では始めません。保管庫に {remote} と違うファイルがある間は、続きも自動では行いません。何も変更していません。手動で同期すると、最初のダウンロードが始まるか、続きから進みます。",
+		"この保管庫の最初のダウンロードが、まだ終わっていません。何も変更していません。手動で同期すると、最初のダウンロードを始めるか、続きから進めます。",
 	"auto.waiting.firstPush":
 		"このデバイスからの最初のアップロードには、確認が必要です。何もアップロードしていません。手動で同期すると、確認が表示されます。",
 	"auto.waiting.pushDeletions":
@@ -297,7 +297,7 @@ export const ja = completeTranslation(en, {
 	"pull.refetched": "{count} 件のファイルは、まとめてダウンロードした中に無いか、中身が GitHub の一覧と合わなかったため、1件ずつダウンロードしました。",
 	"pull.done": "ダウンロードが終わりました。",
 	"pull.upToDate": "ダウンロードするものはありません。このデバイスは最新です。",
-	"pull.remoteEmpty": "リポジトリは空で、コミットがまだありません。ダウンロードするものはありません。",
+	"pull.remoteEmpty": "リポジトリは空です。ダウンロードするものはありません。",
 	"pull.declined": "ダウンロードをやめました。何も変更していません。",
 	"pull.declinedAfterTrash":
 		"ダウンロードをやめました。下に示すファイルだけを、この保管庫の .trash/ へ移しました。ほかは何も変更していません。",
@@ -318,7 +318,7 @@ export const ja = completeTranslation(en, {
 	"pull.unreadable":
 		"このデバイスのファイル {count} 件を読めませんでした。そのままにしてあります。ファイルを確かめてから、もう一度同期してください：\n{list}",
 	"pull.waitingForUnread":
-		"ほかに {count} 件のファイルも、ダウンロードしていません。次の同期に残したファイルを待っています。後の同期で、ダウンロードします。",
+		"ほかに {count} 件のファイルも、上のファイルの後に回したため、ダウンロードしていません。上のファイルが片付くと、次の同期でダウンロードします。",
 	"pull.conflicts": "このデバイスのファイル {count} 件の内容を、競合ファイルとして残しました：\n{list}",
 	"pull.conflict.conflict": "{copy}（競合。{path} は {remote} の内容になりました）",
 	"pull.conflict.becameSymlink":
@@ -361,7 +361,7 @@ export const ja = completeTranslation(en, {
 	"push.count.deleted": "削除 {count} 件",
 	"push.summary": "アップロードが終わりました：{details}",
 	"push.nothing": "アップロードするものはありません。{remote} は最新です。",
-	"push.nothingSent": "何もアップロードしていません。",
+	"push.nothingSent": "何もアップロードしていません。今はアップロードできないファイルだけが残っています。",
 	"push.recovered": "前回のアップロードは、できていました：{details}。このデバイスに記録しました。",
 	"push.recoveredUntrack": "前に行った {remote} からの削除は、できていました（{count} 件）。このデバイスに記録しました。このデバイスのファイルは、そのままです。",
 	"push.pullFirst.noBase":
@@ -369,13 +369,13 @@ export const ja = completeTranslation(en, {
 	"push.pullFirst.remoteEmpty":
 		"何もアップロードしていません。リポジトリにコミットがありません。このデバイスは、前にこのリポジトリと同期しています。リポジトリのコミットが無くなったので、先にダウンロードを実行して確かめてください。",
 	"push.pullFirst.notDefaultBranch":
-		"何もアップロードしていません。リポジトリは空で、コミットがまだありません。GitHub は、空のリポジトリの最初のコミットを、既定のブランチ {branch} に作ります。Sync Evo の設定のブランチを {branch} にするか、GitHub でリポジトリの既定のブランチを変えてから、もう一度同期してください。",
+		"何もアップロードしていません。リポジトリは空です。GitHub は、空のリポジトリの最初のコミットを、既定のブランチ {branch} に作ります。Sync Evo の設定のブランチを {branch} にするか、GitHub でリポジトリの既定のブランチを変えてから、もう一度同期してください。",
 	"push.pullFirst.gitignoreUnreadable":
 		"何もアップロードしていません。何をアップロードするかは、この保管庫の .gitignore で決まりますが、このデバイスで読めません。クラウドドライブが仮のファイルだけを置いているか、.gitignore という名前のフォルダがあるか、大文字と小文字だけが違う名前（.GITIGNORE など）になっています。直してから、もう一度アップロードしてください。",
 	"push.pullFirst.remoteMoved":
 		"何もアップロードしていません。このアップロードを始めた後に、{remote} がほかのデバイスから変更されました。先にダウンロードを行ってから、もう一度アップロードしてください。",
 	"push.pullFirst.gitignore":
-		"何もアップロードしていません。何をアップロードするかは、この保管庫の .gitignore で決まりますが、その内容を確かめられませんでした。エディタが .gitignore を保存できなかったか、前のダウンロードが書いている途中で止まりました。.gitignore をエディタで開いている時は、保存するか閉じてから、もう一度アップロードしてください。開いていない時は、先にダウンロードを行ってから、アップロードしてください。",
+		"何もアップロードしていません。何をアップロードするかを決める .gitignore の中身を、確かめられませんでした。.gitignore を開いている時は閉じてから、もう一度同期してください。",
 	"push.declined": "アップロードをやめました。何もアップロードしていません。",
 	"push.cancelled": "アップロードを中止しました。何もアップロードしていません。",
 	"push.connectionChanged": "接続先が変わったため、アップロードを中止しました。何もアップロードしていません。",
@@ -385,11 +385,11 @@ export const ja = completeTranslation(en, {
 	"push.error.workflows":
 		"GitHub がアップロードを拒否しました。.github/workflows/ の下のファイルを変更するには、トークンに Workflows の読み取りと書き込みの権限も必要です。",
 	"push.error.notAsListed":
-		"{remote} の中身が、このデバイスが持っている一覧と違っていたため、{remote} では何も変更していません。次の同期で、一覧を取り直します。もう一度同期してください。",
+		"{remote} では何も変更していません。{remote} の中身が、このデバイスが知っている内容と違っていました。もう一度同期してください。",
 	"push.storedOtherwise":
 		"GitHub が、このデバイスがアップロードした内容と違う内容で保存したファイル：{count} 件。次のダウンロードで、このデバイスのファイルを GitHub の内容に置き換えます：\n{list}",
 	"push.held":
-		"{count} 件のファイルを、アップロードしていません。ダウンロードが済んでいないか、エディタが保存できませんでした。もう一度同期してください：\n{list}",
+		"{count} 件のファイルを、アップロードしていません。ダウンロードが済んでいないか、開いているファイルを保存できませんでした。もう一度同期してください：\n{list}",
 	"push.remoteInTheWay":
 		"{count} 件のファイルを、アップロードしていません。その場所に、このデバイスがまだダウンロードしていないファイルかフォルダが、{remote} にあります。先にダウンロードを行ってから、もう一度アップロードしてください：\n{list}",
 	"push.notDownloaded":
@@ -401,7 +401,7 @@ export const ja = completeTranslation(en, {
 	"push.refusedWorkflows":
 		"{count} 件のファイルを、アップロードしていません。.github/workflows/ の下のファイルを足すか変えるには、トークンに Workflows の読み取りと書き込みの権限が要ります。トークンに権限を足すと、次の同期でアップロードします。足さない時は、このファイルを元の内容に戻して、変更はパソコンの git で行ってください。前の版の Sync Evo が残した競合ファイル（名前に .conflict-from- が入る物）なら、中身を確かめてから削除してください：\n{list}",
 	"push.leftOut":
-		"{count} 件のファイルを、アップロードしていません。アップロードの途中で変わったか、読めなかったか、エディタが保存できませんでした。次のアップロードで、もう一度確かめます：\n{list}",
+		"{count} 件のファイルを、アップロードしていません。アップロードの途中で変わったか、読めなかったか、開いているファイルを保存できませんでした。次のアップロードで、もう一度確かめます：\n{list}",
 
 	"untrack.confirm.title": "{remote} から削除する確認",
 	"untrack.confirm.proceed": "{remote} から削除",
@@ -413,7 +413,7 @@ export const ja = completeTranslation(en, {
 		"ほかのデバイスでは、次のダウンロードで削除されます。そのデバイスで変更していたファイルは残ります。",
 	"untrack.confirm.mac":
 		"パソコンの git の側にファイルを残したい時は、ここでは削除せず、そのパソコンで git rm --cached をして push してください。その時は、このデバイスのファイルが、次のダウンロードで削除されます。",
-	"untrack.confirm.syncFirst": "先にダウンロードを行います。除外の設定がまだアップロードされていなければ、アップロードも行い、このデバイスのほかの変更もアップロードします。",
+	"untrack.confirm.syncFirst": "先にダウンロードします。除外の設定をまだアップロードしていない時は、アップロードもするので、このデバイスのほかの変更も一緒にアップロードされます。",
 	"untrack.confirm.missing":
 		"このうち {count} 件は、このデバイスにありません。一覧に出した物には、印を付けています。{remote} から削除すると、中身は {remote} の履歴にだけ残ります。",
 	"untrack.confirm.submodules": "除外しているサブモジュールも {count} 件あります。ここでは削除しません。パソコンの git で行ってください：",
@@ -436,7 +436,7 @@ export const ja = completeTranslation(en, {
 	"untrack.syncFirst.pullUnfinished":
 		"{remote} から削除していません。このデバイスは、{remote} からのダウンロードをまだ終えていません。次の同期に残るファイルが無くなるまで同期してから、Sync Evo の設定画面で、もう一度行ってください。",
 	"untrack.syncFirst.gitignoreUnsettled":
-		"{remote} から削除していません。この保管庫の .gitignore の内容を確かめられませんでした。エディタが .gitignore を保存できなかったか、前の書き込みが終わっていません。保存するか閉じてから同期し、Sync Evo の設定画面で、もう一度行ってください。",
+		"{remote} から削除していません。この保管庫の .gitignore の中身を、確かめられませんでした。.gitignore を開いている時は閉じてから同期し、Sync Evo の設定画面で、もう一度行ってください。",
 	"untrack.syncFirst.gitignoreUnreadable":
 		"{remote} から削除していません。この保管庫の .gitignore を、このデバイスで読めません。理由は、Sync Evo の設定画面に出ます。直してから、もう一度行ってください。",
 	"untrack.syncFirst.noSection":
@@ -444,11 +444,11 @@ export const ja = completeTranslation(en, {
 	"untrack.syncFirst.sectionBroken":
 		"{remote} から削除していません。.gitignore の、Sync Evo が管理する行を囲む2つの印の行が、1組になっていません。Sync Evo の設定画面で直して同期してから、もう一度行ってください。",
 	"untrack.syncFirst.gitignoreNotSent":
-		"{remote} から削除していません。このデバイスの .gitignore が、まだアップロードされていません。同期してから、Sync Evo の設定画面で、もう一度行ってください。",
+		"{remote} から削除していません。除外の設定を、まだアップロードしていません。同期してから、Sync Evo の設定画面で、もう一度行ってください。",
 	"untrack.skipped.pullDeclined": "ダウンロードをやめたため、{remote} から削除していません。除外の設定は残っています。後から、Sync Evo の設定画面で削除できます。",
 	"untrack.skipped.pullCancelled": "ダウンロードを中止したため、{remote} から削除していません。除外の設定は残っています。後から、Sync Evo の設定画面で削除できます。",
 	"untrack.skipped.pushNotDone":
-		".gitignore のアップロードが済まなかったため、{remote} から削除していません。除外の設定は残っています。後から、Sync Evo の設定画面で削除できます。",
+		"除外の設定をアップロードできなかったため、{remote} から削除していません。除外の設定は、このデバイスに残っています。後から、Sync Evo の設定画面で削除できます。",
 
 	"state.waiting": "準備中…",
 	"state.newerVersion": "この保管庫は、新しいバージョンの Sync Evo で同期されています。同期するには、プラグインを更新してください。何も変更していません。",
@@ -478,8 +478,8 @@ export const ja = completeTranslation(en, {
 	"confirm.firstPush.body":
 		"このデバイスから {repository} のブランチ {branch} へ、初めてアップロードします。{remote} を、下のとおりに変更します。アップロードが1回済むと、次からのアップロードでは、この一覧を出しません。",
 	"confirm.firstPush.remoteEmpty":
-		"リポジトリは空で、コミットがまだありません。最初に .gitignore だけのコミットを作り、続けて残りをアップロードします。この保管庫に .gitignore が無い時は、空の .gitignore を作ります。",
-	"confirm.firstPush.remoteEmptyWithGitignore": "リポジトリは空で、コミットがまだありません。最初に .gitignore だけのコミットを作り、続けて残りをアップロードします。",
+		"リポジトリは空です。この保管庫に .gitignore が無い時は、空の .gitignore を作ってアップロードします。",
+	"confirm.firstPush.remoteEmptyWithGitignore": "リポジトリは空です。",
 	"confirm.firstPush.added": "追加するファイル：{count} 件",
 	"confirm.firstPush.modified": "変更するファイル：{count} 件",
 	"confirm.firstPush.deleted": "削除するファイル：{count} 件",

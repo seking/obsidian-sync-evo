@@ -227,7 +227,7 @@ describe("the question before the first push to a remote without commits", () =>
 		const texts = pushQuestion(t, target, request).parts.map((part) => part.text);
 		expect(texts[0]).toContain("octo/notes");
 		expect(texts[1]).toBe(
-			"The repository is empty: it has no commits yet. A first commit with the .gitignore alone is made, and the rest is uploaded after it. If this vault has no .gitignore, an empty one is created.",
+			"The repository is empty. If this vault has no .gitignore, an empty one is created and uploaded.",
 		);
 		expect(texts[2]).toBe("2 files to add:");
 		expect(pushQuestion(ja, target, request).parts[1]?.text).toContain("リポジトリは空で");
@@ -290,7 +290,7 @@ describe("the section a push added to .gitignore", () => {
 	test("a .gitignore that was made says so, and nothing about the rest of the file; no empty one is promised for an empty remote", () => {
 		const question = pushQuestion(t, target, { ...request, remoteEmpty: true, sectionAdded: { ...added, created: true } });
 		expect(question.parts.slice(1, 5).map((part) => part.text)).toEqual([
-			"The repository is empty: it has no commits yet. A first commit with the .gitignore alone is made, and the rest is uploaded after it.",
+			"The repository is empty.",
 			"This vault had no .gitignore, so Sync Evo created one with the lines below. They are the lines Sync Evo manages, and say what is not synced:",
 			"This upload includes the change.",
 			howTo,
@@ -366,12 +366,12 @@ describe("the section a push added to .gitignore", () => {
 				"Sync Evo added the lines below to the top of the .gitignore of this vault. They are the lines Sync Evo manages, and say what is not synced:",
 				...lines,
 				outside,
-				"Whether this upload included the change is not known. If it did not, the next sync uploads it.",
+				"This upload may not have included the change. The next sync checks, and uploads it if it is still needed.",
 				howTo,
 			].join("\n"),
 		);
 		expect(sectionAddedText(ja, added, "unknown")).toContain(
-			"この変更を今回アップロードできたかは、分かりません。できていなければ、次の同期でアップロードします。",
+			"この変更は、今回アップロードできなかったかもしれません。次の同期で確かめて、まだならアップロードします。",
 		);
 	});
 
@@ -433,9 +433,9 @@ describe("how a push ended", () => {
 
 	test("nothing sent while files were left unsent is not called up to date", () => {
 		const report = pushReport(t, result({ outcome: "nothing-to-push", revision: null, held: ["a.md"] }), options);
-		expect(report.summary).toBe("Nothing was uploaded.");
+		expect(report.summary).toBe("Nothing was uploaded. Only files that cannot be uploaded now are left.");
 		expect(report.details).toEqual([
-			"1 file was not uploaded: a download has not finished with it, or an editor could not save it. Sync again:\na.md",
+			"1 file was not uploaded: a download has not finished with it, or it is open and could not be saved. Sync again:\na.md",
 		]);
 	});
 
@@ -538,10 +538,10 @@ describe("how a push ended", () => {
 
 	test("the texts that say what to do about a .gitignore that could not be relied on, and about files left out", () => {
 		const gitignore = pushReport(t, result({ outcome: "pull-first", revision: null, reason: "gitignore-unsettled" }), options).summary;
-		expect(gitignore).toContain("If .gitignore is open in an editor, save or close it, then upload again.");
+		expect(gitignore).toContain("If .gitignore is open, close it, then sync again.");
 		const leftOut = pushReport(t, result({ leftOut: [{ path: "a.md", reason: "save-failed" }] }), options).details;
 		expect(leftOut).toEqual([
-			"1 file was left out: it changed or could not be read while the upload ran, or an editor could not save it. The next upload looks at it again:\na.md",
+			"1 file was left out: it changed or could not be read while the upload ran, or it is open and could not be saved. The next upload looks at it again:\na.md",
 		]);
 		expect(pushReport(ja, result({ outcome: "pull-first", revision: null, reason: "remote-moved" }), options).summary).toBe(
 			"何もアップロードしていません。このアップロードを始めた後に、GitHub がほかのデバイスから変更されました。先にダウンロードを行ってから、もう一度アップロードしてください。",
@@ -566,7 +566,7 @@ describe("how a push ended", () => {
 			"1 file was not uploaded: it grew past 50 MB while the upload ran. Files over 50 MB are not synced:\ngrown.mov",
 			"1 file was not uploaded: GitHub refused it as too large. Make this file smaller or move it out of the vault. A file that is not on GitHub yet is also left alone once it is excluded. If it is a conflict file, check its content and then delete it:\nbig.mov",
 			"1 file was not uploaded: adding or changing a file under .github/workflows/ needs the Workflows read and write permission on the token. Give the token that permission and the next sync uploads it. Otherwise, put this file back as it was and change it with git on a computer. If it is a conflict file that an earlier version of Sync Evo left there, with .conflict-from- in its name, check its content and then delete it:\n.github/workflows/ci.yml",
-			"1 file was left out: it changed or could not be read while the upload ran, or an editor could not save it. The next upload looks at it again:\na.md",
+			"1 file was left out: it changed or could not be read while the upload ran, or it is open and could not be saved. The next upload looks at it again:\na.md",
 		]);
 		expect(said(ja)[2]).toBe(
 			"1 件のファイルを、アップロードしていません。.github/workflows/ の下のファイルを足すか変えるには、トークンに Workflows の読み取りと書き込みの権限が要ります。トークンに権限を足すと、次の同期でアップロードします。足さない時は、このファイルを元の内容に戻して、変更はパソコンの git で行ってください。前の版の Sync Evo が残した競合ファイル（名前に .conflict-from- が入る物）なら、中身を確かめてから削除してください：\n.github/workflows/ci.yml",
@@ -590,10 +590,10 @@ describe("how a push ended", () => {
 				}),
 				options,
 			);
-		expect(said(t).summary).toBe("Nothing was uploaded.");
+		expect(said(t).summary).toBe("Nothing was uploaded. Only files that cannot be uploaded now are left.");
 		expect(said(t).details).toEqual([
 			"1 new file was not uploaded: it is not on this device yet (a cloud drive keeps only a placeholder). Have the cloud drive keep it on this device, then sync again:\nnotes/new.md",
-			"1 file was left out: it changed or could not be read while the upload ran, or an editor could not save it. The next upload looks at it again:\nbad.md",
+			"1 file was left out: it changed or could not be read while the upload ran, or it is open and could not be saved. The next upload looks at it again:\nbad.md",
 		]);
 		expect(said(ja).details[0]).toBe(
 			"1 件の新しいファイルを、アップロードしていません。中身がこのデバイスに無いためです（クラウドドライブが仮のファイルだけを置いています）。クラウドドライブのアプリでこのデバイスに保存してから、もう一度同期してください：\nnotes/new.md",
@@ -624,10 +624,10 @@ describe("a push that could not be carried out", () => {
 
 	test("a remote that was not as it was listed: nothing was sent, and the next sync lists it again", () => {
 		expect(pushFailureText(t, settings, new BackendError("not-as-listed", "boom"))).toBe(
-			"The upload failed. What is on GitHub is not what this device had listed for it, so nothing was changed there. The next sync lists it again. Sync again.",
+			"The upload failed. Nothing was changed on GitHub: what is there is not what this device knew of it. Sync again.",
 		);
 		expect(pushFailureText(ja, settings, new BackendError("not-as-listed", "boom"))).toBe(
-			"アップロードに失敗しました。GitHub の中身が、このデバイスが持っている一覧と違っていたため、GitHub では何も変更していません。次の同期で、一覧を取り直します。もう一度同期してください。",
+			"アップロードに失敗しました。GitHub では何も変更していません。GitHub の中身が、このデバイスが知っている内容と違っていました。もう一度同期してください。",
 		);
 	});
 
