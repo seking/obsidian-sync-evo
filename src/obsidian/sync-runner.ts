@@ -85,7 +85,7 @@ import { pullVaultOf } from "./pull-vault";
 import { confirmPushIn } from "./push-confirm";
 import type { SyncState } from "./sync-state";
 import { vaultIndexOf } from "./vault-index";
-import { folderStatsOf } from "./folder-stats";
+import { folderStatsOf, folderStatsProbeOf } from "./folder-stats";
 import { ScreenWakeLock } from "./wake-lock";
 import { windowSleep } from "./window-sleep";
 
@@ -575,7 +575,9 @@ export class SyncRunner {
 			this.limitWatch = limitWatch;
 			const fetchContents = limitWatch.watch((revision, entries) => backend.fetch(revision, entries));
 			// For a check that walks the vault, on Android (`folder-stats.ts`).
-			const listedStats = folderStatsOf(host.app);
+			// On iOS the listing is compared with the disk and not used yet.
+			const probe = folderStatsProbeOf(host.app, log);
+			const listedStats = folderStatsOf(host.app) ?? probe?.stats;
 			const pullDeps: PullDeps = {
 				store: opened.store,
 				backend,
@@ -742,6 +744,7 @@ export class SyncRunner {
 			} else {
 				this.report(await runPull(pullDeps), settings);
 			}
+			probe?.finish();
 			await this.tellExclusionChange(opened.store, pullDeps.paths, device);
 		} catch (error) {
 			// A pull that was stopped while the remote was asked ends by
