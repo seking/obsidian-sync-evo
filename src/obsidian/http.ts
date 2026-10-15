@@ -49,8 +49,33 @@ export const obsidianHttp: HttpFunction = async (request) => {
  * when it comes through `requestUrl`.
  */
 export function httpFor(platform: HttpPlatform): HttpFunction {
-	if (!platform.isAndroidApp) return obsidianHttp;
-	return (request) => (transportFor(request, platform) === "fetch" ? fetchHttp(request) : obsidianHttp(request));
+	if (!platform.isAndroidApp) return timed(obsidianHttp);
+	return timed((request) => (transportFor(request, platform) === "fetch" ? fetchHttp(request) : obsidianHttp(request)));
+}
+
+/**
+ * Writes how long each request took to the console, and to nothing else: a
+ * pull asks for a file at a time and would push every other line out of the
+ * log that is kept (`log.ts`). Only the method, the host and the path, not
+ * the query: the token is in a header, and what Dropbox is asked about is
+ * in a header too. The path names the repository on GitHub, and the first
+ * file of an empty one (`createFile`).
+ * Read on a phone through the WebView's debugger, to see where a sync spends
+ * its time.
+ */
+function timed(http: HttpFunction): HttpFunction {
+	return async (request) => {
+		const started = Date.now();
+		const where = request.url.split("?")[0];
+		try {
+			const response = await http(request);
+			console.debug(`Sync Evo: http ${request.method} ${where} ${response.status} in ${Date.now() - started}ms`);
+			return response;
+		} catch (error) {
+			console.debug(`Sync Evo: http ${request.method} ${where} failed in ${Date.now() - started}ms`);
+			throw error;
+		}
+	};
 }
 
 /** How this device reaches GitHub: what its client and its backend are built with. */

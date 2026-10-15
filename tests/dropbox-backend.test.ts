@@ -382,8 +382,8 @@ describe("pushing to Dropbox", () => {
 		const { dropbox, backend } = harness();
 		await dropbox.put("/Vault/x.md", "X");
 		const listed = await listing(backend);
-		dropbox.beforeCall = (endpoint, arg) => {
-			if (endpoint === "files/upload" && arg.path === "/Vault/big.bin") throw new DropboxApiError("files/upload", "path/insufficient_space/..");
+		dropbox.beforeEntry = (endpoint, path) => {
+			if (path === "/Vault/big.bin") throw new DropboxApiError(endpoint, "path/insufficient_space/..");
 		};
 		const big = write("big.bin", "BIG");
 		const result = await backend.push({ baseRevision: listed.revision, writes: [big, write("a.md", "A")], deletes: [] });
@@ -403,7 +403,7 @@ describe("pushing to Dropbox", () => {
 		expect(result.status === "pushed" && result.listing).toBeUndefined();
 	});
 
-	test("stops before the next file once stopped", async () => {
+	test("stopped while the contents are sent, writes nothing", async () => {
 		const dropbox = new FakeDropbox();
 		const controller = new AbortController();
 		const backend = new DropboxBackend(dropbox, { folder: "Vault", signal: controller.signal });
@@ -414,7 +414,106 @@ describe("pushing to Dropbox", () => {
 		await expect(
 			backend.push({ baseRevision: listed.revision, writes: [stopping, write("b.md", "B")], deletes: [] }),
 		).rejects.toMatchObject({ kind: "cancelled" });
-		expect(dropbox.tree(ROOT)).toEqual({ "a.md": "A", "x.md": "X" });
+		expect(dropbox.tree(ROOT)).toEqual({ "x.md": "X" });
+		expect(dropbox.calls).not.toContain("files/upload_session/finish_batch_v2");
+	});
+
+	test("one file is written by its own call; several are sent into sessions and committed in one call", async () => {
+		const { dropbox, backend } = harness();
+		await dropbox.put("/Vault/x.md", "X");
+		let listed = await listing(backend);
+		dropbox.calls.length = 0;
+		await backend.push({ baseRevision: listed.revision, writes: [write("a.md", "A")], deletes: [] });
+		expect(dropbox.calls).toEqual(["files/upload", "files/list_folder/continue"]);
+
+		listed = await listing(backend);
+		dropbox.calls.length = 0;
+		const result = await backend.push({ baseRevision: listed.revision, writes: [write("b.md", "B"), write("c.md", "C"), write("d.md", "D")], deletes: [] });
+		expect(dropbox.calls).toEqual([
+			"files/upload_session/start",
+			"files/upload_session/start",
+			"files/upload_session/start",
+			"files/upload_session/finish_batch_v2",
+			"files/list_folder/continue",
+		]);
+		expect(dropbox.tree(ROOT)).toEqual({ "a.md": "A", "b.md": "B", "c.md": "C", "d.md": "D", "x.md": "X" });
+		expect(result.status === "pushed" && result.written.map((entry) => entry.path)).toEqual(["b.md", "c.md", "d.md"]);
+	});
+
+	test("the contents on their way are bounded by their bytes, and one larger than the bound goes alone", async () => {
+		const dropbox = new FakeDropbox();
+		const backend = new DropboxBackend(dropbox, { folder: "Vault", maxConcurrentFetchBytes: 2 });
+		await dropbox.put("/Vault/x.md", "X");
+		const listed = await listing(backend);
+		let now = 0;
+		const most: number[] = [];
+		dropbox.beforeCall = async (endpoint) => {
+			if (endpoint !== "files/upload_session/start") return;
+			now += 1;
+			most.push(now);
+			await new Promise((resolve) => setTimeout(resolve, 1));
+			now -= 1;
+		};
+		await backend.push({ baseRevision: listed.revision, writes: [write("a.md", "A"), write("b.md", "B"), write("big.md", "BIG"), write("c.md", "C")], deletes: [] });
+		// a and b together (2 bytes), big alone, then c.
+		expect(most).toEqual([1, 2, 1, 1]);
+		expect(dropbox.tree(ROOT)).toEqual({ "a.md": "A", "b.md": "B", "big.md": "BIG", "c.md": "C", "x.md": "X" });
+	});
+
+	test("an entry of the commit that met another write is committed again from its session, after a wait", async () => {
+		const { dropbox, backend } = harness();
+		await dropbox.put("/Vault/x.md", "X");
+		const listed = await listing(backend);
+		let busy = 2;
+		dropbox.beforeEntry = (endpoint, path) => {
+			if (path === "/Vault/b.md" && busy-- > 0) throw new DropboxApiError(endpoint, "too_many_write_operations/");
+		};
+		const result = await backend.push({ baseRevision: listed.revision, writes: [write("a.md", "A"), write("b.md", "B")], deletes: [] });
+		expect(dropbox.calls.filter((call) => call === "files/upload_session/start")).toHaveLength(2);
+		expect(dropbox.calls.filter((call) => call === "files/upload_session/finish_batch_v2")).toHaveLength(3);
+		expect(dropbox.waits).toEqual([1000, 2000]);
+		expect(dropbox.tree(ROOT)).toEqual({ "a.md": "A", "b.md": "B", "x.md": "X" });
+		expect(result.status === "pushed" && result.written.map((entry) => entry.path)).toEqual(["a.md", "b.md"]);
+	});
+
+	test("several files are deleted in one call, asked on until it is done, each guarded by its version", async () => {
+		const { dropbox, backend } = harness();
+		await dropbox.put("/Vault/a.md", "A");
+		await dropbox.put("/Vault/b.md", "B");
+		await dropbox.put("/Vault/c.md", "C");
+		await dropbox.put("/Vault/d.md", "D");
+		const listed = await listing(backend);
+		await dropbox.put("/Vault/b.md", "B, from another device");
+		dropbox.delete("/Vault/c.md");
+		dropbox.deleteChecks = 2;
+		dropbox.calls.length = 0;
+		const result = await backend.push({
+			baseRevision: listed.revision,
+			writes: [],
+			deletes: [entryOf(listed, "a.md"), entryOf(listed, "b.md"), entryOf(listed, "c.md"), entryOf(listed, "d.md")],
+		});
+		expect(dropbox.calls).toEqual([
+			"files/delete_batch",
+			"files/delete_batch/check",
+			"files/delete_batch/check",
+			"files/delete_batch/check",
+			"files/list_folder/continue",
+		]);
+		expect(dropbox.tree(ROOT)).toEqual({ "b.md": "B, from another device" });
+		expect(result.status === "pushed" && result.kept).toEqual([entryOf(listed, "b.md")]);
+	});
+
+	test("a file of a delete of several that met another write is deleted by its own call", async () => {
+		const { dropbox, backend } = harness();
+		await dropbox.put("/Vault/a.md", "A");
+		await dropbox.put("/Vault/b.md", "B");
+		const listed = await listing(backend);
+		dropbox.beforeEntry = (endpoint, path) => {
+			if (path === "/Vault/b.md") throw new DropboxApiError(endpoint, "too_many_write_operations/");
+		};
+		await backend.push({ baseRevision: listed.revision, writes: [], deletes: [entryOf(listed, "a.md"), entryOf(listed, "b.md")] });
+		expect(dropbox.calls).toContain("files/delete_v2");
+		expect(dropbox.tree(ROOT)).toEqual({});
 	});
 });
 

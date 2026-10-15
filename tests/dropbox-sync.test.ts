@@ -49,7 +49,8 @@ function device(dropbox: FakeDropbox, name: string) {
 /** Has `other` run right before the next write of any device reaches Dropbox, once. */
 function sendFirst(dropbox: FakeDropbox, other: () => Promise<unknown>): void {
 	dropbox.beforeCall = async (endpoint) => {
-		if (endpoint !== "files/upload" && endpoint !== "files/delete_v2") return;
+		const writes = ["files/upload", "files/upload_session/finish_batch_v2", "files/delete_v2", "files/delete_batch"];
+		if (!writes.includes(endpoint)) return;
 		dropbox.beforeCall = undefined;
 		await other();
 	};

@@ -133,9 +133,12 @@ export class DropboxClient {
 		return this.json(endpoint, response.body);
 	}
 
-	/** Sends the content of a file (`files/upload`), and answers with what Dropbox says of it. */
-	async upload(arg: unknown, content: Uint8Array): Promise<unknown> {
-		const endpoint = "files/upload";
+	/**
+	 * Sends the content of a file, and answers with what Dropbox says of it:
+	 * by `files/upload`, or by another call that takes content the same way
+	 * (`files/upload_session/start`).
+	 */
+	async upload(arg: unknown, content: Uint8Array, endpoint = "files/upload"): Promise<unknown> {
 		const body = bufferOf(content);
 		const response = await this.send(
 			endpoint,
@@ -258,6 +261,15 @@ export class DropboxClient {
 
 	private throwIfCancelled(what: string): void {
 		if (this.options.signal?.aborted) throw new BackendError("cancelled", `${what}: cancelled`);
+	}
+
+	/**
+	 * Waits as Dropbox asked within an answer that came with 200: a job that
+	 * is not done yet, or an entry of a batch that met another write. Comes
+	 * back at once, as cancelled, when the caller cancels.
+	 */
+	wait(what: string, ms: number): Promise<void> {
+		return this.sleepUnlessCancelled(what, ms);
 	}
 
 	/** Sleeps, but comes back at once, as cancelled, when the caller cancels. */

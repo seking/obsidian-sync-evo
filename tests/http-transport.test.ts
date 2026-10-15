@@ -32,7 +32,7 @@ vi.mock("obsidian", () => ({
 	},
 }));
 
-const { httpFor, obsidianHttp } = await import("../src/obsidian/http");
+const { httpFor } = await import("../src/obsidian/http");
 
 const ANDROID = { isAndroidApp: true };
 const OTHER = { isAndroidApp: false };
@@ -170,7 +170,19 @@ describe("the HTTP function of a platform", () => {
 		expect(app.requests).toHaveLength(1);
 	});
 
-	test("anywhere else is requestUrl as it was", () => {
-		expect(httpFor(OTHER)).toBe(obsidianHttp);
+	test("anywhere else is requestUrl as it was, also for a large blob", async () => {
+		const calls = stubFetch(async () => new Response("x", { headers: { via: "fetch" } }));
+		const http = httpFor(OTHER);
+		expect((await http(request())).headers.via).toBe("requestUrl");
+		expect(calls).toHaveLength(0);
+		expect(app.requests).toHaveLength(1);
+	});
+
+	test("writes how long each request took to the console, without what it asked", async () => {
+		const debug = vi.spyOn(console, "debug").mockImplementation(() => {});
+		await httpFor(OTHER)(request({ url: "https://api.github.com/repos/o/r/git/trees/abc?recursive=1" }));
+		expect(debug).toHaveBeenCalledTimes(1);
+		expect(debug.mock.calls[0]?.[0]).toMatch(/^Sync Evo: http GET https:\/\/api\.github\.com\/repos\/o\/r\/git\/trees\/abc 200 in \d+ms$/);
+		debug.mockRestore();
 	});
 });

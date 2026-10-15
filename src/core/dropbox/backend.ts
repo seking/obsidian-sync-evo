@@ -12,9 +12,10 @@
 // A folder in the app folder of Dropbox as a remote (R-3, R-4). Dropbox has
 // no commit: the revision of a listing is the cursor of `list_folder`, and
 // the listing is kept with it, so that the next one is the changes since,
-// laid on top. A push writes file by file, each write and delete guarded by
-// the version (`rev`) the listing had, so that nothing another device wrote
-// first is written over or deleted.
+// laid on top. A push commits its writes together and deletes together,
+// each file guarded by the version (`rev`) the listing had, so that nothing
+// another device wrote first is written over or deleted, and the rest goes
+// on.
 
 import {
 	type Backend,
@@ -22,6 +23,8 @@ import {
 	type BaseRelation,
 	type FetchedFile,
 	type ListResult,
+	type PushFile,
+	type PushRefusal,
 	type PushRequest,
 	type PushResult,
 	type RemoteEntry,
@@ -29,12 +32,12 @@ import {
 	type StartRequest,
 	type StartResult,
 } from "../backend";
-import { fetchConcurrently } from "../concurrent-fetch";
+import { fetchConcurrently, MAX_CONCURRENT_FETCH_BYTES } from "../concurrent-fetch";
 import { type DropboxClient, DropboxApiError } from "./client";
 import { dropboxContentHash } from "./content-hash";
 
 /** The calls of the client a backend is built from. */
-export type DropboxBackendClient = Pick<DropboxClient, "rpc" | "upload" | "download">;
+export type DropboxBackendClient = Pick<DropboxClient, "rpc" | "upload" | "download" | "wait">;
 
 export interface DropboxBackendOptions {
 	/**
@@ -48,7 +51,7 @@ export interface DropboxBackendOptions {
 	readonly signal?: AbortSignal;
 	/** How many files are fetched at once. */
 	readonly maxConcurrentFetches?: number;
-	/** The most the files fetched at once may add up to, in bytes. */
+	/** The most the files fetched at once, and the contents sent at once, may add up to, in bytes. */
 	readonly maxConcurrentFetchBytes?: number;
 }
 
@@ -56,6 +59,19 @@ export interface DropboxBackendOptions {
 const PAGE_LIMIT = 2000;
 /** How many versions `list_revisions` answers at most. Also Dropbox's own limit. */
 const REVISIONS_LIMIT = 100;
+/**
+ * How many contents are sent at once before they are committed together.
+ * Sending takes no lock on Dropbox (R-3); the bound is for the device.
+ */
+const MAX_CONCURRENT_UPLOADS = 8;
+/** How many files one commit (`finish_batch_v2`) or one `delete_batch` takes at most. Dropbox's own limit. */
+const BATCH_LIMIT = 1000;
+/** How many times the entries of a commit that met another write are committed again. */
+const BATCH_RETRIES = 5;
+/** The first wait before such entries are committed again, doubled each time; and the wait between the checks of a delete. */
+const BATCH_WAIT_MS = 1000;
+/** How many times a delete of several files is checked on before it is given up: about five minutes. */
+const MAX_DELETE_CHECKS = 300;
 
 /** An entry of `list_folder` and of its `continue`, as far as it is read. */
 interface ListedItem {
@@ -197,6 +213,74 @@ class Tree {
 		const spelled = this.folders.get(parent) ?? this.spell(parent, parentOf(display));
 		return `${spelled}/${name}`;
 	}
+}
+
+/** What a file a push wrote, or would not, comes to. */
+interface Writes {
+	readonly written: RemoteEntry[];
+	readonly refused: Refused[];
+}
+
+/** The reasons Dropbox gives for not taking a write. */
+type Refusal = Extract<PushRefusal, "changed" | "no-space">;
+
+interface Refused {
+	readonly file: PushFile;
+	readonly reason: Refusal;
+}
+
+/** What the deletes of a push come to. */
+interface Removes {
+	readonly deleted: number;
+	readonly kept: readonly RemoteEntry[];
+}
+
+/** A file whose content Dropbox holds in a closed upload session, to be committed. */
+interface Sent {
+	/** Its place among the files of the push. */
+	readonly index: number;
+	readonly file: PushFile;
+	readonly session: string;
+	readonly size: number;
+	readonly hash: string;
+}
+
+/** How a write is guarded: over the version listed, or where none was. */
+function modeOf(replaces: RemoteEntry | undefined): unknown {
+	return replaces?.version === undefined ? "add" : { ".tag": "update", update: replaces.version };
+}
+
+/**
+ * The tags of an error within an answer of 200, from the outside in, as
+ * Dropbox spells them in the summary of a 409 (`a/b/c`).
+ */
+function tagsOf(value: unknown): string {
+	const tags: string[] = [];
+	for (let at = value; isRecord(at) && typeof at[".tag"] === "string"; at = at[at[".tag"]]) tags.push(at[".tag"]);
+	return tags.join("/");
+}
+
+/**
+ * Why Dropbox would not take a write: another version is there, or a file
+ * where none was listed; or the account is full, or its uploads are over
+ * their limit. Any other error is thrown.
+ */
+function refusalOf(error: DropboxApiError): Refusal {
+	if (error.is("path", "conflict")) return "changed";
+	if (error.is("path", "insufficient_space") || error.is("upload_traffic_limit_reached")) return "no-space";
+	throw error;
+}
+
+/**
+ * Whether a delete Dropbox refused left the file gone: it was gone
+ * already. False when another version than `parent_rev` is there
+ * (`DeleteError.path_write`, `WriteError.conflict`), or a folder was put
+ * where the file was. Any other error is thrown.
+ */
+function removedBy(error: DropboxApiError): boolean {
+	if (error.is("path_lookup", "not_found")) return true;
+	if (error.is("path_write", "conflict")) return false;
+	throw error;
 }
 
 export class DropboxBackend implements Backend {
@@ -400,11 +484,17 @@ export class DropboxBackend implements Backend {
 	}
 
 	/**
-	 * Writes, then deletes, one at a time, and in the order that leaves the
-	 * remote whole the longest: a delete that makes room for a write of the
-	 * same path in another case goes before that write; every other delete
-	 * after the writes. What another device changed first is left as it is
+	 * Writes, then deletes, in the order that leaves the remote whole the
+	 * longest: a delete that makes room for a write of the same path in
+	 * another case goes before that write; every other delete after the
+	 * writes. What another device changed first is left as it is
 	 * (`PushFile.refused`, `kept`), and the rest goes on.
+	 *
+	 * Several files are written as one: their contents are sent at once,
+	 * each into an upload session, and committed together in one call.
+	 * Dropbox locks the user's whole Dropbox for each commit, not while
+	 * content comes in, and a commit of one file took about 1.4 seconds
+	 * (R-3). Several deletes are one call too.
 	 *
 	 * A push that untracks writes the `.gitignore` first and deletes only
 	 * once it is through: a delete that came first would have the other
@@ -413,39 +503,21 @@ export class DropboxBackend implements Backend {
 	 */
 	async push(request: PushRequest): Promise<PushResult> {
 		if (request.baseRevision === null) return { status: "stale" };
-		const written: RemoteEntry[] = [];
 		const kept: RemoteEntry[] = [];
 		let deleted = 0;
 		const writing = new Set(request.writes.map((file) => file.path.toLowerCase()));
 		const first = request.deletes.filter((entry) => writing.has(entry.path.toLowerCase()));
 		const rest = request.deletes.filter((entry) => !writing.has(entry.path.toLowerCase()));
-		const remove = async (entry: RemoteEntry): Promise<void> => {
-			this.throwIfCancelled("push");
-			if (await this.remove(entry)) deleted += 1;
-			else kept.push(entry);
+		const count = (removed: { readonly deleted: number; readonly kept: readonly RemoteEntry[] }): void => {
+			deleted += removed.deleted;
+			kept.push(...removed.kept);
 		};
 
-		for (const entry of first) await remove(entry);
-		for (const file of request.writes) {
-			this.throwIfCancelled("push");
-			const content = await file.read();
-			if (content === null) continue;
-			const hash = await this.hashContent(content);
-			// Already what the remote holds: nothing to write, and it is
-			// recorded as the version that is there.
-			if (file.replaces !== undefined && file.replaces.hash === hash) {
-				written.push({ ...file.replaces, path: file.path, hash });
-				continue;
-			}
-			const result = await this.write(file.path, content, file.replaces);
-			if (result === "changed" || result === "no-space") {
-				if (request.untrack === true) return { status: "stale" };
-				file.refused?.(result);
-				continue;
-			}
-			written.push({ ...result, path: file.path, hash });
-		}
-		for (const entry of rest) await remove(entry);
+		count(await this.removeEach(first));
+		const { written, refused } = request.writes.length > 1 ? await this.writeTogether(request.writes) : await this.writeEach(request.writes);
+		if (refused.length > 0 && request.untrack === true) return { status: "stale" };
+		for (const { file, reason } of refused) file.refused?.(reason);
+		count(rest.length > 1 ? await this.removeTogether(rest) : await this.removeEach(rest));
 
 		const keptPart = kept.length === 0 ? {} : { kept };
 		if (written.length === 0 && deleted === 0) return { status: "unchanged", ...keptPart };
@@ -482,29 +554,163 @@ export class DropboxBackend implements Backend {
 	}
 
 	/**
+	 * The content of a file to be written, and its hash; `null` when there
+	 * is nothing to send: it read as `null`, or as what the remote holds
+	 * already, which is then `written` as the version that is there.
+	 */
+	private async contentToSend(file: PushFile, written: RemoteEntry[]): Promise<{ content: Uint8Array; hash: string } | null> {
+		this.throwIfCancelled("push");
+		const content = await file.read();
+		if (content === null) return null;
+		const hash = await this.hashContent(content);
+		if (file.replaces !== undefined && file.replaces.hash === hash) {
+			written.push({ ...file.replaces, path: file.path, hash });
+			return null;
+		}
+		return { content, hash };
+	}
+
+	/** Writes each file by its own call: for a single file, one call fewer than a commit. */
+	private async writeEach(files: readonly PushFile[]): Promise<Writes> {
+		const written: RemoteEntry[] = [];
+		const refused: Refused[] = [];
+		for (const file of files) {
+			const sending = await this.contentToSend(file, written);
+			if (sending === null) continue;
+			const result = await this.write(file.path, sending.content, file.replaces);
+			if (result === "changed" || result === "no-space") refused.push({ file, reason: result });
+			else written.push({ ...result, path: file.path, hash: sending.hash });
+		}
+		return { written, refused };
+	}
+
+	/**
+	 * Sends the contents several at a time, each into an upload session that
+	 * is closed with it, and then commits them all (`finish_batch_v2`). The
+	 * contents on their way are bounded like a fetch: by a count, and by the
+	 * bytes they hold, as all of them are in memory; a file is read only
+	 * once there is room for it. One larger than the bound on bytes goes
+	 * alone. Read one at a time, in order.
+	 *
+	 * Stopped before the commit, nothing is written: Dropbox drops the
+	 * sessions.
+	 */
+	private async writeTogether(files: readonly PushFile[]): Promise<Writes> {
+		const written: RemoteEntry[] = [];
+		const sent: Sent[] = [];
+		const maxBytes = this.options.maxConcurrentFetchBytes ?? MAX_CONCURRENT_FETCH_BYTES;
+		const sending = new Set<Promise<void>>();
+		let heldBytes = 0;
+		// In an object: it is set from callbacks, which the type checker does
+		// not follow for a variable.
+		const state: { failure: { readonly error: unknown } | null } = { failure: null };
+
+		// Until there is room for `size` more bytes, or nothing is on its way.
+		const roomFor = async (size: number): Promise<void> => {
+			while (sending.size > 0 && (sending.size >= MAX_CONCURRENT_UPLOADS || heldBytes + size > maxBytes)) {
+				await Promise.race(sending);
+			}
+		};
+		for (const [index, file] of files.entries()) {
+			// By the size planned before it is read, so that what is read
+			// waits within the bound too; again by the size read, which may
+			// have grown.
+			await roomFor(file.size);
+			if (state.failure !== null) break;
+			const one = await this.contentToSend(file, written);
+			if (one === null) continue;
+			const size = one.content.byteLength;
+			await roomFor(size);
+			if (state.failure !== null) break;
+			this.throwIfCancelled("push");
+			heldBytes += size;
+			const on: Promise<void> = this.client
+				.upload({ close: true, content_hash: one.hash }, one.content, "files/upload_session/start")
+				.then(
+					(json) => {
+						if (!isRecord(json) || typeof json.session_id !== "string") throw malformed("start an upload");
+						sent.push({ index, file, session: json.session_id, size, hash: one.hash });
+					},
+				)
+				.catch((error: unknown) => {
+					state.failure ??= { error };
+				})
+				.finally(() => {
+					heldBytes -= size;
+					sending.delete(on);
+				});
+			sending.add(on);
+		}
+		await Promise.all(sending);
+		if (state.failure !== null) throw state.failure.error;
+
+		// In the order asked for, whatever order the sessions came back in.
+		sent.sort((a, b) => a.index - b.index);
+		const refused: Refused[] = [];
+		for (let at = 0; at < sent.length; at += BATCH_LIMIT) {
+			await this.commit(sent.slice(at, at + BATCH_LIMIT), written, refused);
+		}
+		return { written, refused };
+	}
+
+	/**
+	 * Commits the files of closed upload sessions in one call. Dropbox
+	 * answers for each entry, in the order given: written, or refused as a
+	 * single write would be. An entry that met another write is committed
+	 * again, alone with the others that did, from the same session.
+	 */
+	private async commit(batch: readonly Sent[], written: RemoteEntry[], refused: Refused[]): Promise<void> {
+		const what = "files/upload_session/finish_batch_v2";
+		let left = batch;
+		for (let retries = 0; left.length > 0; retries++) {
+			this.throwIfCancelled("push");
+			const json = await this.client.rpc(what, {
+				entries: left.map((one) => ({
+					cursor: { session_id: one.session, offset: one.size },
+					commit: { path: this.full(one.file.path), mode: modeOf(one.file.replaces), autorename: false, mute: true, strict_conflict: false },
+				})),
+			});
+			const entries = isRecord(json) && Array.isArray(json.entries) ? json.entries : null;
+			if (entries === null || entries.length !== left.length) throw malformed("commit the files");
+			const again: Sent[] = [];
+			for (const [i, value] of entries.entries()) {
+				const one = left[i] as Sent;
+				if (isRecord(value) && value[".tag"] === "success") {
+					written.push({ ...this.writtenEntry(one.file.path, value, "commit the files"), hash: one.hash });
+					continue;
+				}
+				const error = new DropboxApiError(what, isRecord(value) ? tagsOf(value.failure) : "");
+				if (error.is("too_many_write_operations")) again.push(one);
+				else refused.push({ file: one.file, reason: refusalOf(error) });
+			}
+			if (again.length > 0) {
+				if (retries >= BATCH_RETRIES) throw new BackendError("unreachable", `${what}: Dropbox stayed busy with other writes`);
+				await this.client.wait("push", BATCH_WAIT_MS * 2 ** retries);
+			}
+			left = again;
+		}
+	}
+
+	/**
 	 * Writes one file: over the version `replaces` names, or as a new one.
 	 * "changed" when Dropbox holds another version there, or a file where
 	 * none was listed; "no-space" when the account has no room for it.
 	 */
-	private async write(
-		path: string,
-		content: Uint8Array,
-		replaces: RemoteEntry | undefined,
-	): Promise<RemoteEntry | "changed" | "no-space"> {
-		const mode = replaces?.version === undefined ? "add" : { ".tag": "update", update: replaces.version };
+	private async write(path: string, content: Uint8Array, replaces: RemoteEntry | undefined): Promise<RemoteEntry | Refusal> {
 		let json: unknown;
 		try {
-			json = await this.client.upload({ path: this.full(path), mode, autorename: false, mute: true, strict_conflict: false }, content);
+			json = await this.client.upload({ path: this.full(path), mode: modeOf(replaces), autorename: false, mute: true, strict_conflict: false }, content);
 		} catch (error) {
-			if (error instanceof DropboxApiError && error.is("path", "conflict")) return "changed";
-			// The account is full, or its uploads are over their limit.
-			if (error instanceof DropboxApiError && (error.is("path", "insufficient_space") || error.is("upload_traffic_limit_reached"))) {
-				return "no-space";
-			}
+			if (error instanceof DropboxApiError) return refusalOf(error);
 			throw error;
 		}
-		const item = itemOf("upload", { ...(isRecord(json) ? json : {}), ".tag": "file" });
-		if (item === null) throw malformed("upload");
+		return this.writtenEntry(path, json, "upload");
+	}
+
+	/** The entry of a file Dropbox answered for as written. */
+	private writtenEntry(path: string, json: unknown, what: string): RemoteEntry {
+		const item = itemOf(what, { ...(isRecord(json) ? json : {}), ".tag": "file" });
+		if (item === null) throw malformed(what);
 		return {
 			path,
 			kind: "file",
@@ -512,6 +718,80 @@ export class DropboxBackend implements Backend {
 			...(item.size === undefined ? {} : { size: item.size }),
 			...(item.rev === undefined ? {} : { version: item.rev }),
 		};
+	}
+
+	/** Deletes each file by its own call, in order. */
+	private async removeEach(entries: readonly RemoteEntry[]): Promise<Removes> {
+		let deleted = 0;
+		const kept: RemoteEntry[] = [];
+		for (const entry of entries) {
+			this.throwIfCancelled("push");
+			if (await this.remove(entry)) deleted += 1;
+			else kept.push(entry);
+		}
+		return { deleted, kept };
+	}
+
+	/**
+	 * Deletes the files in one call each thousand (`delete_batch`), each only
+	 * while it is the version the listing named. Dropbox answers later, even
+	 * for a few files: it is asked again until it is done. An entry, or a
+	 * call, that met another write is deleted by its own call, which waits
+	 * as asked.
+	 */
+	private async removeTogether(entries: readonly RemoteEntry[]): Promise<Removes> {
+		let deleted = 0;
+		const kept: RemoteEntry[] = [];
+		for (let at = 0; at < entries.length; at += BATCH_LIMIT) {
+			const batch = entries.slice(at, at + BATCH_LIMIT);
+			this.throwIfCancelled("push");
+			const answer = await this.batchDelete(batch);
+			const each: RemoteEntry[] = [];
+			if (answer === "busy") each.push(...batch);
+			else {
+				if (answer.length !== batch.length) throw malformed("delete the files");
+				for (const [i, value] of answer.entries()) {
+					const entry = batch[i] as RemoteEntry;
+					if (isRecord(value) && value[".tag"] === "success") {
+						deleted += 1;
+						continue;
+					}
+					const error = new DropboxApiError("files/delete_batch", isRecord(value) ? tagsOf(value.failure) : "");
+					if (error.is("too_many_write_operations")) each.push(entry);
+					else if (removedBy(error)) deleted += 1;
+					else kept.push(entry);
+				}
+			}
+			const one = await this.removeEach(each);
+			deleted += one.deleted;
+			kept.push(...one.kept);
+		}
+		return { deleted, kept };
+	}
+
+	/** The entries of a finished `delete_batch`, or "busy" when it failed for another write. */
+	private async batchDelete(batch: readonly RemoteEntry[]): Promise<unknown[] | "busy"> {
+		let answer = await this.client.rpc("files/delete_batch", {
+			entries: batch.map((entry) => ({
+				path: this.full(entry.path),
+				...(entry.version === undefined ? {} : { parent_rev: entry.version }),
+			})),
+		});
+		const job = isRecord(answer) && typeof answer.async_job_id === "string" ? answer.async_job_id : null;
+		for (let checks = 0; isRecord(answer) && (answer[".tag"] === "async_job_id" || answer[".tag"] === "in_progress"); checks++) {
+			if (job === null || checks >= MAX_DELETE_CHECKS) throw new BackendError("unreachable", "files/delete_batch: Dropbox did not finish");
+			await this.client.wait("push", BATCH_WAIT_MS);
+			answer = await this.client.rpc("files/delete_batch/check", { async_job_id: job });
+		}
+		if (!isRecord(answer)) throw malformed("delete the files");
+		if (answer[".tag"] === "failed") {
+			const error = new DropboxApiError("files/delete_batch", tagsOf(answer.failed));
+			if (error.is("too_many_write_operations")) return "busy";
+			throw error;
+		}
+		const entries: unknown = answer.entries;
+		if (answer[".tag"] !== "complete" || !Array.isArray(entries)) throw malformed("delete the files");
+		return entries as unknown[];
 	}
 
 	/**
@@ -528,11 +808,7 @@ export class DropboxBackend implements Backend {
 			return true;
 		} catch (error) {
 			if (!(error instanceof DropboxApiError)) throw error;
-			if (error.is("path_lookup", "not_found")) return true;
-			// Another version than `parent_rev` (`DeleteError.path_write`,
-			// `WriteError.conflict`), or a folder put where the file was.
-			if (error.is("path_write", "conflict")) return false;
-			throw error;
+			return removedBy(error);
 		}
 	}
 
