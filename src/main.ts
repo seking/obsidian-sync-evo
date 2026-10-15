@@ -74,6 +74,46 @@ export default class SyncEvoPlugin extends Plugin implements SettingsHost, SyncH
 	private readonly translators = new Map<string, Translate>();
 
 	/**
+	 * The commands, named for the service chosen. Added again when another
+	 * is chosen: Obsidian takes a command of the same id in place of the
+	 * one before, and the palette shows the new name at once.
+	 */
+	private addCommands(): void {
+		this.addCommand({
+			id: "sync",
+			name: this.t("command.sync"),
+			callback: () => void this.syncs.run("sync"),
+		});
+		this.addCommand({
+			id: "pull",
+			name: this.t("command.pull"),
+			callback: () => void this.syncs.run("pull"),
+		});
+		this.addCommand({
+			id: "push",
+			name: this.t("command.push"),
+			callback: () => void this.syncs.run("push"),
+		});
+		this.addCommand({
+			id: "first-fetch",
+			name: this.t("command.firstFetch"),
+			callback: () => void this.syncs.run("first-fetch"),
+		});
+		this.addCommand({
+			id: "stop",
+			name: this.t("command.stop"),
+			callback: () => this.syncs.requestStop(),
+		});
+		// Starts no sync: the last lines of the log, for a device whose
+		// console cannot be read.
+		this.addCommand({
+			id: "show-log",
+			name: this.t("command.showLog"),
+			callback: () => showLog(this.app, this.t),
+		});
+	}
+
+	/**
 	 * Looks up every text the plugin shows, in the language of the app, with
 	 * the service the settings name where a text has `{remote}`.
 	 */
@@ -148,39 +188,8 @@ export default class SyncEvoPlugin extends Plugin implements SettingsHost, SyncH
 		// command: it starts from the settings screen, where its files are
 		// listed (`untrack`). A sync that starts by itself comes from the
 		// clock further down.
-		this.addCommand({
-			id: "sync",
-			name: this.t("command.sync"),
-			callback: () => void this.syncs.run("sync"),
-		});
 		this.addRibbonIcon("refresh-cw", this.t("command.sync"), () => void this.syncs.run("sync"));
-		this.addCommand({
-			id: "pull",
-			name: this.t("command.pull"),
-			callback: () => void this.syncs.run("pull"),
-		});
-		this.addCommand({
-			id: "push",
-			name: this.t("command.push"),
-			callback: () => void this.syncs.run("push"),
-		});
-		this.addCommand({
-			id: "first-fetch",
-			name: this.t("command.firstFetch"),
-			callback: () => void this.syncs.run("first-fetch"),
-		});
-		this.addCommand({
-			id: "stop",
-			name: this.t("command.stop"),
-			callback: () => this.syncs.requestStop(),
-		});
-		// Starts no sync: the last lines of the log, for a device whose
-		// console cannot be read.
-		this.addCommand({
-			id: "show-log",
-			name: this.t("command.showLog"),
-			callback: () => showLog(this.app, this.t),
-		});
+		this.addCommands();
 
 		// Where Dropbox sends the browser back after the user allowed (R-4).
 		this.registerObsidianProtocolHandler(DROPBOX_REDIRECT_ACTION, (params) => void this.finishDropboxSignIn(params));
@@ -269,8 +278,10 @@ export default class SyncEvoPlugin extends Plugin implements SettingsHost, SyncH
 				change === "changed" ? (store) => settleGitignoreWrite({ store, vault }) : undefined,
 			);
 		}
+		const renamed = this.deviceSettings?.backend !== next.backend;
 		this.deviceSettings = next;
 		this.store.save(next);
+		if (renamed) this.addCommands();
 		return change;
 	}
 

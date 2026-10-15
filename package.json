@@ -1,7 +1,7 @@
 {
 	"name": "obsidian-sync-evo",
 	"version": "0.4.0",
-	"description": "Sync Evo: sync an Obsidian vault with a GitHub repository.",
+	"description": "Sync Evo: sync an Obsidian vault with a GitHub repository or a Dropbox folder.",
 	"private": true,
 	"type": "module",
 	"main": "main.js",
