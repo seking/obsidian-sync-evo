@@ -55,6 +55,7 @@ import { MemoryIndex } from "./support/memory-index";
 import { MemoryPullVault, type VaultOp } from "./support/memory-pull-vault";
 import { MemoryStateStore } from "./support/memory-state-store";
 import { listSubmodules, type TestSubmodule } from "./support/submodule-listing";
+import { isTimingLine } from "./support/timing-lines";
 
 const paths = { configDir: ".obsidian", pluginDir: ".obsidian/plugins/sync-evo" };
 
@@ -6778,7 +6779,9 @@ describe("a pull with the light check", () => {
 		expect(result.counts).toEqual({ fetched: 0, deleted: 0, renamed: 0, conflicts: 0 });
 		// The one path the index does not hold, the rules, and the root `.git`.
 		expect(ops.sort()).toEqual(["stat .git", "stat .github/ci.yml", "stat .github/ci.yml", "stat .gitignore"]);
-		expect(lines).toEqual(["pull: light check: 4 files, 1 not in the index, 1 asked of the disk, 0 hashed, 0 ms"]);
+		expect(lines.filter((line) => !isTimingLine(line))).toEqual([
+			"pull: light check: 4 files, 1 not in the index, 1 asked of the disk, 0 hashed, 0 ms (disk 0 ms, reading 0 ms)",
+		]);
 	});
 
 	test("with a .gitignore on the remote, the root is the one folder that is listed, for the rules", async () => {

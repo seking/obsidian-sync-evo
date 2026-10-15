@@ -45,6 +45,7 @@ import { MemoryPullVault, type VaultOp } from "./support/memory-pull-vault";
 import { MemoryStateStore } from "./support/memory-state-store";
 import { listSubmodules, type TestSubmodule } from "./support/submodule-listing";
 import { earlierCopyPath } from "./support/earlier-copy-name";
+import { isTimingLine } from "./support/timing-lines";
 
 const paths = { configDir: ".obsidian", pluginDir: ".obsidian/plugins/sync-evo" };
 
@@ -3280,7 +3281,7 @@ describe("the listing a push leaves behind", () => {
 
 		expect(result).toMatchObject({ outcome: "pushed", storedOtherwise: [] });
 		expect(await h.store.getListing()).toBeNull();
-		expect(logged.length).toBe(1);
+		expect(logged.filter((line) => !isTimingLine(line))).toHaveLength(1);
 		h.backend.listings = 0;
 		const pulled = await h.pull();
 		expect(pulled).toMatchObject({ outcome: "completed", counts: { fetched: 0, deleted: 0, conflicts: 0 } });
@@ -4478,7 +4479,9 @@ describe("a push with the light check", () => {
 		expect(result).toMatchObject({ outcome: "pushed", counts: { added: 1, modified: 2, deleted: 2 } });
 		expect(await h.remote()).toEqual({ ".github/ci.yml": "ci2", "a.md": "A2", "notes/b.md": "B", "notes/new.md": "N" });
 		expect(ops.filter((op) => op.startsWith("list"))).toEqual([]);
-		expect(lines).toEqual(["push: light check: 4 files, 3 not in the index, 3 asked of the disk, 3 hashed, 0 ms"]);
+		expect(lines.filter((line) => !isTimingLine(line))).toEqual([
+			"push: light check: 4 files, 3 not in the index, 3 asked of the disk, 3 hashed, 0 ms (disk 0 ms, reading 0 ms)",
+		]);
 		await expectNothingToPull(h);
 	});
 

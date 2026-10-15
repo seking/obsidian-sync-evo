@@ -34,6 +34,7 @@ import { FakeGitHub, respond, type SentRequest } from "./support/fake-github";
 import { blobHash, bytes, type FileContent } from "./support/memory-backend";
 import { MemoryPullVault } from "./support/memory-pull-vault";
 import { MemoryStateStore } from "./support/memory-state-store";
+import { isTimingLine } from "./support/timing-lines";
 
 // The push of the GitHub backend, through the real client, against a fake of
 // GitHub that answers at the level of HTTP.
@@ -1309,7 +1310,9 @@ describe("a push of a vault against GitHub, where it does not go as planned", ()
 		const pushed = await push({ log: (line) => logged.push(line) });
 
 		expect(pushed).toMatchObject({ outcome: "pushed", counts: { added: 2, modified: 1 }, storedOtherwise: ["a.md", "b.md"] });
-		expect(logged).toEqual(["push: the remote stored other content than was sent: a.md, b.md"]);
+		expect(logged.filter((line) => !isTimingLine(line))).toEqual([
+			"push: the remote stored other content than was sent: a.md, b.md",
+		]);
 		expect(pushReport(t, pushed, { sizeLimit: 50 * 1024 * 1024 }).details).toEqual([
 			"GitHub stored 2 files with other content than this device uploaded. The next download replaces the files on this device with the versions on GitHub:\na.md\nb.md",
 		]);

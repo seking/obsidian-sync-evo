@@ -34,6 +34,7 @@ import { blobHash, bytes, type FileContent, MemoryBackend } from "./support/memo
 import { MemoryPullVault } from "./support/memory-pull-vault";
 import { MemoryStateStore } from "./support/memory-state-store";
 import { ZipBackend } from "./support/zip-backend";
+import { isTimingLine } from "./support/timing-lines";
 
 const MB = 1024 * 1024;
 const entry = (path: string, size?: number): RemoteEntry => ({
@@ -240,7 +241,9 @@ function harness<B extends MemoryBackend = ZipBackend>(backend: B = new ZipBacke
 					return backend.fetch(revision, entries);
 				},
 				onProgress: (event) => h.progress.push(event),
-				log: (message) => h.logs.push(message),
+				log: (message) => {
+					if (!isTimingLine(message)) h.logs.push(message);
+				},
 				...overrides,
 			});
 		},
@@ -1530,7 +1533,9 @@ describe("the remote and its submodules, one place at a time", () => {
 				events.push(`one at a time ${entries.length}`);
 				for (const item of entries) yield { entry: item, content: bytes(item.path) };
 			},
-			log: (message) => logs.push(message),
+			log: (message) => {
+				if (!isTimingLine(message)) logs.push(message);
+			},
 		});
 		return {
 			store,
