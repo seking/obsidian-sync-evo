@@ -1309,9 +1309,9 @@ describe("a push of a vault against GitHub, where it does not go as planned", ()
 		const pushed = await push({ log: (line) => logged.push(line) });
 
 		expect(pushed).toMatchObject({ outcome: "pushed", counts: { added: 2, modified: 1 }, storedOtherwise: ["a.md", "b.md"] });
-		expect(logged).toEqual(["push: GitHub stored other content than was sent: a.md, b.md"]);
+		expect(logged).toEqual(["push: the remote stored other content than was sent: a.md, b.md"]);
 		expect(pushReport(t, pushed, { sizeLimit: 50 * 1024 * 1024 }).details).toEqual([
-			"GitHub stored 2 files with other content than this device uploaded. The next download replaces the files on this device with GitHub's versions:\na.md\nb.md",
+			"GitHub stored 2 files with other content than this device uploaded. The next download replaces the files on this device with the versions on GitHub:\na.md\nb.md",
 		]);
 
 		// The listing is the tree of the commit, not what was sent.
@@ -1556,7 +1556,7 @@ describe("the head of the branch, asked conditionally", () => {
 		expect(first).toMatchObject({ changed: true, listing: { revision: head } });
 		github.requests.length = 0;
 
-		expect(await syncOf(github, headMemory).list(head)).toEqual({ changed: false });
+		expect(await syncOf(github, headMemory).list({ revision: head, entries: [] })).toEqual({ changed: false });
 
 		expect(github.notModified).toBe(1);
 		expect(github.requests.map((request) => `${request.method} ${request.path}`)).toEqual(["GET /git/ref/heads/main"]);
@@ -1569,12 +1569,12 @@ describe("the head of the branch, asked conditionally", () => {
 		await syncOf(github, headMemory).list(null);
 		const next = github.commit({ "b.md": "B" });
 
-		const listed = await syncOf(github, headMemory).list(head);
+		const listed = await syncOf(github, headMemory).list({ revision: head, entries: [] });
 
 		expect(listed).toMatchObject({ changed: true, listing: { revision: next } });
 		expect(github.notModified).toBe(0);
 		// And from then on the new head is the one that is not modified.
-		expect(await syncOf(github, headMemory).list(next)).toEqual({ changed: false });
+		expect(await syncOf(github, headMemory).list({ revision: next, entries: [] })).toEqual({ changed: false });
 		expect(github.notModified).toBe(1);
 	});
 
@@ -1593,7 +1593,7 @@ describe("the head of the branch, asked conditionally", () => {
 		});
 
 		expect(pushed.status).toBe("pushed");
-		const listed = await syncOf(github, headMemory).list(head);
+		const listed = await syncOf(github, headMemory).list({ revision: head, entries: [] });
 		expect(listed).toMatchObject({ changed: true, listing: { revision: github.head } });
 	});
 
@@ -1604,7 +1604,7 @@ describe("the head of the branch, asked conditionally", () => {
 		const headMemory = new HeadMemory();
 		await syncOf(github, headMemory).list(null);
 
-		expect(await syncOf(github, headMemory).list(head)).toEqual({ changed: false });
+		expect(await syncOf(github, headMemory).list({ revision: head, entries: [] })).toEqual({ changed: false });
 		expect(github.notModified).toBe(0);
 	});
 
@@ -1614,7 +1614,7 @@ describe("the head of the branch, asked conditionally", () => {
 		const headMemory = new HeadMemory();
 		await syncOf(github, headMemory).list(null);
 
-		expect(await syncOf(github, headMemory, "github_pat_OTHER").list(head)).toEqual({ changed: false });
+		expect(await syncOf(github, headMemory, "github_pat_OTHER").list({ revision: head, entries: [] })).toEqual({ changed: false });
 
 		expect(github.notModified).toBe(0);
 	});

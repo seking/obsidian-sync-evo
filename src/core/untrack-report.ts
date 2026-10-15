@@ -180,6 +180,8 @@ export function untrackReport(t: Translate, result: UntrackRunResult, options: U
 	const details: string[] = [];
 	if (result.recovered !== null) details.push(recoveredPushText(t, result.recovered));
 	if (result.recoveredUntrack !== undefined) details.push(recoveredUntrackText(t, result.recoveredUntrack));
+	const kept = result.kept ?? [];
+	if (kept.length > 0) details.push(t("untrack.kept", { count: kept.length, list: listText(t, kept) }));
 	return { summary: summaryText(t, result, options.connectionChanged === true), details };
 }
 

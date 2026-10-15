@@ -91,13 +91,16 @@ export interface UntrackDeps {
 /**
  * - "untracked": one commit was made and the branch points at it. The files
  *   are out of the remote, on this device as they were, and without records.
- *   The root `.gitignore` is on the remote as this device has it.
+ *   The root `.gitignore` is on the remote as this device has it. On a
+ *   remote that writes file by file, the ones another device changed first
+ *   are left there (`UntrackRunResult.kept`).
  * - "nothing-to-untrack": none of the files that were shown is on the remote
  *   and matched by a rule any more. No commit was made.
  * - "sync-first": nothing was sent, and something has to be put right first
  *   (`UntrackRefusal`).
  * - "remote-moved": another device has pushed since the remote was listed.
- *   Nothing was changed.
+ *   Nothing was changed. On a remote that writes file by file, also when
+ *   another device changed every one of the files first.
  * - "cancelled": stopped through the signal before the branch was moved.
  *   Nothing shows on the remote.
  */
@@ -145,6 +148,12 @@ export interface UntrackRunResult {
 	readonly revision: string | null;
 	/** The files that were taken out of the remote, as the remote spelled them, sorted. Empty unless "untracked". */
 	readonly untracked: readonly string[];
+	/**
+	 * The files that were not taken out because another device changed them
+	 * on the remote first, as the remote spelled them, sorted. Only on a
+	 * remote that writes file by file (`PushResult.kept`).
+	 */
+	readonly kept?: readonly string[];
 	/**
 	 * Set when this found that an earlier push, which had ended without
 	 * knowing whether it went through, did go through: what that one
@@ -327,15 +336,18 @@ class UntrackRun {
 		// time and the size of the file: the next sync hashes it once, and
 		// finds it unchanged unless it was edited since.
 		let sent: readonly RemoteEntry[] = [];
+		// The deletes a remote that writes file by file would not make: the
+		// file changed there since it was listed (`PushResult.kept`).
+		let made = deletes;
 		const pendingOf = (revision: string): PendingPushState => ({
 			revision,
 			parent: head,
 			records: sent.map((entry) => makeRecord({ path: entry.path, kind: "file", hash: entry.hash }, undefined, 0)),
-			deleted: [...new Set(deletes.map((entry) => pathKey(entry.path)))],
+			deleted: [...new Set(made.map((entry) => pathKey(entry.path)))],
 			counts: {
 				added: sent.length > 0 && remote === undefined ? 1 : 0,
 				modified: sent.length > 0 && remote !== undefined ? 1 : 0,
-				deleted: deletes.length,
+				deleted: made.length,
 			},
 			untrack: true,
 		});
@@ -360,14 +372,18 @@ class UntrackRun {
 			return this.result("remote-moved");
 		}
 		if (pushed.status === "unchanged") {
-			// No remote answers so to deletes of what it holds. No commit
-			// was made, whatever was remembered.
+			// No commit was made, whatever was remembered.
 			if (this.remembered) await forgetPendingPush(store);
+			// A remote that writes file by file, where another device
+			// changed every one of the files first.
+			if ((pushed.kept ?? []).length > 0) return this.result("remote-moved");
 			return this.result("nothing-to-untrack");
 		}
 		const { revision } = pushed;
 		if (revision === null) throw new Error("The remote answered a push without a revision.");
 		sent = pushed.written;
+		const kept = new Set((pushed.kept ?? []).map((entry) => pathKey(entry.path)));
+		made = deletes.filter((entry) => !kept.has(pathKey(entry.path)));
 
 		// From here on it has happened, and is recorded whatever the signal
 		// says. Stopped in between, the next push or pull does it. The
@@ -375,7 +391,12 @@ class UntrackRun {
 		const stored = pushed.listing ?? null;
 		await finishPush(store, pendingOf(revision), stored);
 		if (stored === null) deps.log?.("untrack: the tree of the new commit could not be fetched; the next sync lists the remote again");
-		return this.result("untracked", { revision, untracked: deletes.map((entry) => entry.path).sort() });
+		const left = deletes.filter((entry) => kept.has(pathKey(entry.path))).map((entry) => entry.path);
+		return this.result("untracked", {
+			revision,
+			untracked: made.map((entry) => entry.path).sort(),
+			...(left.length === 0 ? {} : { kept: left.sort() }),
+		});
 	}
 
 	/**

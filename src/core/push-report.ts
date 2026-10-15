@@ -351,6 +351,11 @@ export function pushDetails(t: Translate, result: PushRunResult, options: PushRe
 	if (others.length > 0) {
 		standing(t("push.leftOut", { count: others.length, list: listText(t, others) }));
 	}
+	// Once: the next pull takes them up.
+	const changed = leftOut("remote-changed");
+	if (changed.length > 0) {
+		happened(t("push.remoteChanged", { count: changed.length, list: listText(t, changed) }));
+	}
 	// Of the commit this push made.
 	if (result.storedOtherwise.length > 0) {
 		const paths = result.storedOtherwise;

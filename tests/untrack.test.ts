@@ -10,7 +10,7 @@
  */
 
 import { describe, expect, test } from "vitest";
-import { BackendError, type EntryKind, type ListResult } from "../src/core/backend";
+import { BackendError, type EntryKind, type ListResult, type RemoteListing } from "../src/core/backend";
 import { defaultSectionLines } from "../src/core/exclusion";
 import { SECTION_START, withSection } from "../src/core/gitignore-section";
 import type { PullAnswer, PullConfirmRequest, PullDeps, PullResult } from "../src/core/pull";
@@ -34,6 +34,8 @@ import {
 	type UntrackStep,
 	type UntrackSyncResult,
 } from "../src/core/untrack";
+import { translatorFor } from "../src/core/i18n";
+import { untrackReport } from "../src/core/untrack-report";
 import { blobHash, type FileContent, MemoryBackend } from "./support/memory-backend";
 import { MemoryPullVault } from "./support/memory-pull-vault";
 import { MemoryStateStore } from "./support/memory-state-store";
@@ -53,8 +55,10 @@ class TestBackend extends MemoryBackend {
 	pushes = 0;
 	/** Whether each push was one that untracks, in order. */
 	readonly untracks: boolean[] = [];
+	/** Paths another device changed first, on a remote that writes file by file: a delete of them is not made. */
+	readonly changedFirst = new Set<string>();
 
-	override async list(known: string | null): Promise<ListResult> {
+	override async list(known: RemoteListing | null): Promise<ListResult> {
 		const listed = await super.list(known);
 		if (!listed.changed) return listed;
 		const entries = listed.listing.entries.map((entry) => ({ ...entry, kind: this.kinds.get(entry.path) ?? entry.kind }));
@@ -64,7 +68,10 @@ class TestBackend extends MemoryBackend {
 	override async push(request: Parameters<MemoryBackend["push"]>[0]): ReturnType<MemoryBackend["push"]> {
 		this.pushes += 1;
 		this.untracks.push(request.untrack === true);
-		const pushed = await super.push(request);
+		const kept = request.deletes.filter((entry) => this.changedFirst.has(entry.path));
+		const deletes = request.deletes.filter((entry) => !this.changedFirst.has(entry.path));
+		const made = await super.push({ ...request, deletes });
+		const pushed = kept.length === 0 || made.status === "stale" ? made : { ...made, kept };
 		if (pushed.status !== "pushed" || pushed.listing === undefined) return pushed;
 		const entries = pushed.listing.entries.map((entry) => ({ ...entry, kind: this.kinds.get(entry.path) ?? entry.kind }));
 		return { ...pushed, listing: { revision: pushed.listing.revision, entries } };
@@ -376,6 +383,26 @@ describe("untracking", () => {
 		const result = await h.untrack([nfc]);
 		expect(result).toMatchObject({ outcome: "untracked", untracked: [nfc] });
 		expect(await h.remote()).toEqual([".gitignore", nfd, "notes/a.md"].sort());
+	});
+
+	test("on a remote that writes file by file, what another device changed first is left there and told", async () => {
+		const h = await synced(DRAFTS);
+		h.backend.changedFirst.add("drafts/c.md");
+		const result = await h.untrack(["drafts/b.md", "drafts/c.md"]);
+		expect(result).toMatchObject({ outcome: "untracked", untracked: ["drafts/b.md"], kept: ["drafts/c.md"] });
+		expect(await h.remote()).toEqual([".gitignore", "drafts/c.md", "notes/a.md"]);
+		expect(Object.keys(await h.records()).sort()).toEqual([".gitignore", "drafts/c.md", "notes/a.md"]);
+		expect(untrackReport(translatorFor("en"), result).details).toEqual([
+			"1 file was not removed from GitHub: another device changed it there first. The next sync takes it in. If it is still excluded then, remove it again:\ndrafts/c.md",
+		]);
+	});
+
+	test("on a remote that writes file by file, where another device changed every file first, nothing was removed", async () => {
+		const h = await synced(DRAFTS);
+		h.backend.changedFirst.add("drafts/b.md");
+		const result = await h.untrack(["drafts/b.md"]);
+		expect(result).toMatchObject({ outcome: "remote-moved", untracked: [] });
+		expect(await h.remote()).toEqual([".gitignore", "drafts/b.md", "drafts/c.md", "notes/a.md"]);
 	});
 
 	test("nothing left to untrack: no commit is made", async () => {

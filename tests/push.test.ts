@@ -10,7 +10,7 @@
  */
 
 import { describe, expect, test } from "vitest";
-import { BackendError, type EntryKind, type ListResult, type PushRefusal } from "../src/core/backend";
+import { BackendError, type EntryKind, type ListResult, type PushRefusal, type RemoteListing } from "../src/core/backend";
 import { conflictCopyPath, mergedCopyPath } from "../src/core/conflict-name";
 import { readTidiedCopies, TIDIED_COPIES_KEY } from "../src/core/conflict-tidy";
 import { createExclusion, defaultSectionLines } from "../src/core/exclusion";
@@ -60,6 +60,13 @@ class TestBackend extends MemoryBackend {
 	readonly refusesForSize = new Set<string>();
 	/** Whether the credentials lack the permission for workflow files. */
 	refusesWorkflows = false;
+	/**
+	 * Paths another device changed first, with what it wrote, on a remote
+	 * that writes file by file: a write is refused as "changed", and a
+	 * delete is not made. What the other device wrote shows once the push
+	 * has answered.
+	 */
+	readonly changedFirst = new Map<string, string>();
 	/** How many times it was asked whether one revision is built on another. */
 	checks = 0;
 	/** Whether that question fails, as on a connection that drops. */
@@ -73,7 +80,7 @@ class TestBackend extends MemoryBackend {
 		return super.checkBase(base, head);
 	}
 
-	override async list(known: string | null): Promise<ListResult> {
+	override async list(known: RemoteListing | null): Promise<ListResult> {
 		if (this.emptied) return { changed: true, listing: { revision: null, entries: [] } };
 		const listed = await super.list(known);
 		if (!listed.changed) return listed;
@@ -87,7 +94,13 @@ class TestBackend extends MemoryBackend {
 		// A refused file was read, and then not taken: the same as the
 		// GitHub backend does with a blob that is too large for GitHub.
 		const refusal = (path: string): PushRefusal | undefined =>
-			this.refusesForSize.has(path) ? "too-large" : this.refusesWorkflows && path.startsWith(".github/workflows/") ? "workflows" : undefined;
+			this.refusesForSize.has(path)
+				? "too-large"
+				: this.refusesWorkflows && path.startsWith(".github/workflows/")
+					? "workflows"
+					: this.changedFirst.has(path)
+						? "changed"
+						: undefined;
 		const writes = request.writes.map((file) => {
 			const reason = refusal(file.path);
 			return reason === undefined
@@ -100,7 +113,14 @@ class TestBackend extends MemoryBackend {
 						},
 					};
 		});
-		const pushed = await super.push({ ...request, writes });
+		const kept = request.deletes.filter((entry) => this.changedFirst.has(entry.path));
+		const deletes = request.deletes.filter((entry) => !this.changedFirst.has(entry.path));
+		const made = await super.push({ ...request, writes, deletes });
+		if (made.status !== "stale" && this.changedFirst.size > 0) {
+			this.commit(Object.fromEntries(this.changedFirst));
+			this.changedFirst.clear();
+		}
+		const pushed = kept.length === 0 || made.status === "stale" ? made : { ...made, kept };
 		if (pushed.status !== "pushed" || pushed.listing === undefined) return pushed;
 		const entries = pushed.listing.entries.map((entry) => ({ ...entry, kind: this.kinds.get(entry.path) ?? entry.kind }));
 		return { ...pushed, listing: { revision: pushed.listing.revision, entries: listSubmodules(entries, this.listed) } };
@@ -1047,6 +1067,57 @@ describe("content that changes while the push runs", () => {
 		h.backend.refusesForSize.clear();
 		expect(await h.push()).toMatchObject({ outcome: "pushed", counts: { added: 1, modified: 1 }, leftOut: [] });
 		await expectNothingToPull(h);
+	});
+
+	test("on a remote that writes file by file, what another device changed first is neither written over nor deleted, and the rest is sent", async () => {
+		const h = await synced({ "a.md": "A", "b.md": "B", "c.md": "C" });
+		h.vault.put("a.md", "A2");
+		h.vault.remove("b.md");
+		h.vault.remove("c.md");
+		h.vault.put("d.md", "D");
+		h.backend.changedFirst.set("a.md", "A, from another device").set("b.md", "B, from another device");
+
+		const result = await h.push();
+
+		expect(result).toMatchObject({
+			outcome: "pushed",
+			counts: { added: 1, modified: 0, deleted: 1 },
+			leftOut: [
+				{ path: "a.md", reason: "remote-changed" },
+				{ path: "b.md", reason: "remote-changed" },
+			],
+		});
+		const records = await h.records();
+		expect(records["a.md"]).toBe(blobHash("A"));
+		expect(records["b.md"]).toBe(blobHash("B"));
+		expect(records["c.md"]).toBeUndefined();
+		expect(await readPushFailure(h.store)).toBeNull();
+
+		// The next pull takes them up as conflicts: the change of this
+		// device is kept beside the other one, and a change wins over a delete.
+		const pulled = await h.pull();
+		expect(pulled.counts).toMatchObject({ conflicts: 1 });
+		expect(h.vault.text("a.md")).toBe("A, from another device");
+		expect(h.vault.text("b.md")).toBe("B, from another device");
+		expect(Object.values(h.vault.snapshot()).filter((text) => text === "A2")).toHaveLength(1);
+	});
+
+	test("on a remote that writes file by file, a push the remote took none of is told as such", async () => {
+		const h = await synced({ "a.md": "A", "b.md": "B" });
+		h.vault.put("a.md", "A2");
+		h.vault.remove("b.md");
+		h.backend.changedFirst.set("a.md", "A, from another device").set("b.md", "B, from another device");
+
+		expect(await h.push()).toMatchObject({
+			outcome: "nothing-to-push",
+			leftOut: [
+				{ path: "a.md", reason: "remote-changed" },
+				{ path: "b.md", reason: "remote-changed" },
+			],
+		});
+		expect((await h.records())["b.md"]).toBe(blobHash("B"));
+		// Asked once, and not again for the next push.
+		expect(await h.store.getMeta("first-push-confirmed")).toBe(true);
 	});
 
 	test("a workflow file the token may not write is left out and told, the rest is sent, and it is sent once the token may", async () => {

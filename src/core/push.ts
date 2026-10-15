@@ -364,9 +364,14 @@ export type PullFirstReason =
  * of its size, though it is within the limit. "refused-workflows": the
  * remote would not take a workflow file from these credentials. The next
  * push meets the same answer unless something has changed.
+ *
+ * "remote-changed": on a remote that writes file by file, another device
+ * changed or added the file there first, and the remote would not have it
+ * written over, or deleted. The next pull takes it up as a conflict.
  */
 export type LeftOutReason =
 	| "save-failed"
+	| "remote-changed"
 	| "gone"
 	| "too-large"
 	| "refused-size"
@@ -878,7 +883,7 @@ class PushRun {
 				},
 				refused: (reason) => {
 					stats.delete(pathKey(send.path));
-					leave(reason === "workflows" ? "refused-workflows" : "refused-size");
+					leave(reason === "workflows" ? "refused-workflows" : reason === "changed" ? "remote-changed" : "refused-size");
 				},
 			};
 		});
@@ -918,10 +923,14 @@ class PushRun {
 			if (this.remembered) await forgetPendingPush(store);
 			return this.result("pull-first", { reason: "remote-moved" });
 		}
+		const kept = pushed.kept ?? [];
+		for (const entry of kept) this.leftOut.push({ path: entry.path, reason: "remote-changed" });
 		if (pushed.status === "unchanged") {
 			// The user has answered for this remote, also when the remote
 			// then took none of the files: not asked again for that.
-			if (this.leftOut.some((file) => file.reason === "refused-size" || file.reason === "refused-workflows")) await store.setMeta(FIRST_PUSH_CONFIRMED_KEY, true);
+			if (this.leftOut.some((file) => file.reason === "refused-size" || file.reason === "refused-workflows" || file.reason === "remote-changed")) {
+				await store.setMeta(FIRST_PUSH_CONFIRMED_KEY, true);
+			}
 			if (started === 0) return this.result("nothing-to-push");
 			// The first commit was made, and nothing could be read of the rest.
 			await store.setMeta(FIRST_PUSH_CONFIRMED_KEY, true);
@@ -933,7 +942,7 @@ class PushRun {
 
 		// From here on the push has happened, and is recorded whatever the
 		// signal says. Stopped in between, the next push or pull does it.
-		const pending = this.pendingOf(plan, onto, revision, written, stats);
+		const pending = this.pendingOf(plan, onto, revision, written, stats, kept);
 		// The listing of the new commit is the remote's own, or none at
 		// all: the next sync then lists the remote again.
 		const stored = pushed.listing ?? null;
@@ -946,7 +955,9 @@ class PushRun {
 		// The copies that were tidied and are gone from the remote now have
 		// nothing left to be remembered for. The next push forgets them
 		// too, should this fail.
-		const deleted = new Set(plan.deletes.map((entry) => foldedKey(entry.remote.path)));
+		const deleted = new Set(
+			plan.deletes.filter((entry) => pending.deleted.includes(entry.key)).map((entry) => foldedKey(entry.remote.path)),
+		);
 		if (deleted.size > 0) await this.quietly(() => forgetTidiedCopies(store, (path) => !deleted.has(foldedKey(path))));
 		if (stored === null) deps.log?.("push: the tree of the new commit could not be fetched; the next sync lists the remote again");
 
@@ -960,7 +971,7 @@ class PushRun {
 		// would send the file again.
 		const storedOtherwise = stored === null ? [] : differing(written, stored);
 		if (storedOtherwise.length > 0) {
-			deps.log?.(`push: GitHub stored other content than was sent: ${storedOtherwise.join(", ")}`);
+			deps.log?.(`push: the remote stored other content than was sent: ${storedOtherwise.join(", ")}`);
 		}
 		// The two commits are told as the one push they are.
 		const counts = { ...pending.counts, added: pending.counts.added + started };
@@ -1037,7 +1048,12 @@ class PushRun {
 		revision: string,
 		written: readonly RemoteEntry[],
 		stats: ReadonlyMap<string, FileStat>,
+		kept: readonly RemoteEntry[] = [],
 	): PendingPushState {
+		// Deletes the remote would not make keep their records, and the
+		// next pull finds the file changed there.
+		const notDeleted = new Set(kept.map((entry) => pathKey(entry.path)));
+		const deletes = plan.deletes.filter((entry) => !notDeleted.has(pathKey(entry.remote.path)));
 		const replaced = new Map<string, string>();
 		for (const send of plan.sends) {
 			if (send.replaces !== undefined) replaced.set(send.path, send.replaces.hash);
@@ -1057,8 +1073,8 @@ class PushRun {
 			records: written.map((entry) =>
 				makeRecord({ path: entry.path, kind: "file", hash: entry.hash }, stats.get(pathKey(entry.path)), this.startedAt),
 			),
-			deleted: plan.deletes.map((entry) => entry.key),
-			counts: { added, modified, deleted: plan.deletes.length },
+			deleted: deletes.map((entry) => entry.key),
+			counts: { added, modified, deleted: deletes.length },
 		};
 	}
 

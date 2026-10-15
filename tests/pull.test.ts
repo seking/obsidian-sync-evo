@@ -18,6 +18,7 @@ import {
 	type BaseRelation,
 	type FetchedFile,
 	type ListResult,
+	type RemoteListing,
 	RateLimitedError,
 } from "../src/core/backend";
 import {
@@ -83,7 +84,7 @@ class TestBackend extends MemoryBackend {
 	checkBaseFails = false;
 	checkedBase = 0;
 
-	override async list(known: string | null): Promise<ListResult> {
+	override async list(known: RemoteListing | null): Promise<ListResult> {
 		if (this.emptied) return { changed: true, listing: { revision: null, entries: [] } };
 		const listed = await super.list(known);
 		if (!listed.changed) return listed;
@@ -3898,9 +3899,9 @@ describe("stopping and failing", () => {
 		const h = await synced({ "a.md": "A" });
 		const known: (string | null)[] = [];
 		const real = h.backend.list.bind(h.backend);
-		h.backend.list = (revision) => {
-			known.push(revision);
-			return real(revision);
+		h.backend.list = (listing) => {
+			known.push(listing === null ? null : listing.revision);
+			return real(listing);
 		};
 		const first = await h.base();
 		h.vault.remove("a.md");

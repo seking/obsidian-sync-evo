@@ -19,6 +19,7 @@ import {
 	type PushRequest,
 	type PushResult,
 	type RemoteEntry,
+	type RemoteListing,
 	type StartRequest,
 	type StartResult,
 } from "../../src/core/backend";
@@ -80,8 +81,8 @@ export class MemoryBackend implements Backend {
 		return blobHash(content);
 	}
 
-	async list(known: string | null): Promise<ListResult> {
-		if (known !== null && known === this.revision) return { changed: false };
+	async list(known: RemoteListing | null): Promise<ListResult> {
+		if (known !== null && known.revision === this.revision) return { changed: false };
 		return { changed: true, listing: { revision: this.revision, entries: this.entries() } };
 	}
 

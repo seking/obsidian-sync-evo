@@ -1401,7 +1401,7 @@ class Applier {
 		if (record.hash === mine.hash || record.hash === remote.hash) return null;
 		if (!isMergedPath(path) || !areMergeable([mine.content, content])) return null;
 		try {
-			const base = await backend.contentOf(record.hash);
+			const base = await backend.contentOf(record.hash, remote.path);
 			if (base === null || (await backend.hashContent(base)) !== record.hash) return null;
 			return base;
 		} catch {

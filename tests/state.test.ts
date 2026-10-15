@@ -253,8 +253,13 @@ describe("telling a stored listing from anything else", () => {
 		["has a hash that is no string", { ...entry, hash: null }],
 		["has a size that is no number", { ...entry, size: "3" }],
 		["has a size that is null", { ...entry, size: null }],
+		["has a version that is no string", { ...entry, version: 1 }],
 	])("one entry that %s makes the whole listing none", (_name, bad) => {
 		expect(isListing({ revision: "r", entries: [entry, bad, entry] })).toBe(false);
+	});
+
+	test("an entry may name the remote's version of the file", () => {
+		expect(isListing({ revision: "r", entries: [{ ...entry, version: "015a1b2c3d4e5f6a7b8c9" }] })).toBe(true);
 	});
 
 	const submodule = { path: "lib", kind: "submodule", hash: OTHER };
@@ -344,12 +349,12 @@ describe("the listing of the head of the remote", () => {
 	const waiting: RemoteEntry = { ...submodule, contents: { listed: false, reason: "no-access", repository: "octo/lib" } };
 
 	/** A remote that answers with `answer`, and notes what it was asked with. */
-	function remoteThat(answer: ListResult): { asked: (string | null)[]; list: (known: string | null) => Promise<ListResult> } {
+	function remoteThat(answer: ListResult): { asked: (string | null)[]; list: (known: RemoteListing | null) => Promise<ListResult> } {
 		const asked: (string | null)[] = [];
 		return {
 			asked,
 			list: async (known) => {
-				asked.push(known);
+				asked.push(known === null ? null : known.revision);
 				return answer;
 			},
 		};

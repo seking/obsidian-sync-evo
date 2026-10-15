@@ -402,7 +402,7 @@ export const ja = completeTranslation(en, {
 	"push.error.notAsListed":
 		"{remote} では何も変更していません。{remote} の中身が、このデバイスが知っている内容と違っていました。もう一度同期してください。",
 	"push.storedOtherwise":
-		"GitHub が、このデバイスがアップロードした内容と違う内容で保存したファイル：{count} 件。次のダウンロードで、このデバイスのファイルを GitHub の内容に置き換えます：\n{list}",
+		"{remote} が、このデバイスがアップロードした内容と違う内容で保存したファイル：{count} 件。次のダウンロードで、このデバイスのファイルを {remote} の内容に置き換えます：\n{list}",
 	"push.held":
 		"{count} 件のファイルを、アップロードしていません。ダウンロードが済んでいないか、開いているファイルを保存できませんでした。もう一度同期してください：\n{list}",
 	"push.remoteInTheWay":
@@ -415,6 +415,8 @@ export const ja = completeTranslation(en, {
 		"{count} 件のファイルを、アップロードしていません。GitHub が、大きすぎるとして受け付けませんでした。このファイルは、小さくするか、保管庫の外へ移してください。{remote} にまだ無いファイルは、除外してもアップロードしなくなります。競合ファイルなら、中身を確かめてから削除してください：\n{list}",
 	"push.refusedWorkflows":
 		"{count} 件のファイルを、アップロードしていません。.github/workflows/ の下のファイルを足すか変えるには、トークンに Workflows の読み取りと書き込みの権限が要ります。トークンに権限を足すと、次の同期でアップロードします。足さない時は、このファイルを元の内容に戻して、変更はパソコンの git で行ってください。前の版の Sync Evo が残した競合ファイル（名前に .conflict-from- が入る物）なら、中身を確かめてから削除してください：\n{list}",
+	"push.remoteChanged":
+		"{count} 件のファイルを、アップロードも削除もしていません。ほかのデバイスが、先に {remote} で変えていました。次の同期で、競合として扱います：\n{list}",
 	"push.leftOut":
 		"{count} 件のファイルを、アップロードしていません。アップロードの途中で変わったか、読めなかったか、開いているファイルを保存できませんでした。次のアップロードで、もう一度確かめます：\n{list}",
 
@@ -432,6 +434,8 @@ export const ja = completeTranslation(en, {
 	"untrack.tag.missing": "このデバイスに無い",
 	"untrack.done": "{remote} から {count} 件を削除しました。このデバイスのファイルは、そのままです。",
 	"untrack.nothing": "{remote} から削除する物はありませんでした。一覧のファイルは、もう {remote} に無いか、除外しなくなっています。何も変更していません。",
+	"untrack.kept":
+		"{count} 件は、{remote} から削除していません。ほかのデバイスが、先に {remote} で変えていました。次の同期で取り込みます。除外したままなら、取り込んだ後に、もう一度削除してください：\n{list}",
 	"untrack.remoteMoved": "{remote} から削除していません。その間に、{remote} がほかのデバイスから変更されました。Sync Evo の設定画面から、もう一度行ってください。",
 	"untrack.cancelled": "{remote} からの削除を中止しました。何も削除していません。",
 	"untrack.connectionChanged": "接続先が変わったため、{remote} からの削除を中止しました。何も削除していません。",

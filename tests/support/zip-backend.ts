@@ -10,7 +10,7 @@
  */
 
 import { zipSync } from "fflate";
-import type { ArchiveContents, ListResult } from "../../src/core/backend";
+import type { ArchiveContents, ListResult, RemoteListing } from "../../src/core/backend";
 import { openZip } from "../../src/core/zip";
 import { bytes, type FileContent, MemoryBackend } from "./memory-backend";
 
@@ -52,7 +52,7 @@ export class ZipBackend extends MemoryBackend {
 	/** Awaited by a request for an archive before it answers. */
 	beforeZip: ((revision: string) => Promise<void> | void) | undefined;
 
-	override async list(known: string | null): Promise<ListResult> {
+	override async list(known: RemoteListing | null): Promise<ListResult> {
 		const listed = await super.list(known);
 		if (!listed.changed) return listed;
 		const entries = listed.listing.entries.map((entry) => {

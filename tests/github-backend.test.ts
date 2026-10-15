@@ -199,14 +199,14 @@ describe("list", () => {
 
 	test("a head that is the known revision is answered without listing", async () => {
 		const client = new FakeClient();
-		expect(await new GitHubBackend(client).list(A)).toEqual({ changed: false });
+		expect(await new GitHubBackend(client).list({ revision: A, entries: [] })).toEqual({ changed: false });
 		expect(client.calls).toEqual(["resolveHead"]);
 	});
 
 	test("a head that moved is listed", async () => {
 		const client = new FakeClient();
 		client.head = { status: "commit", sha: B };
-		const listed = await new GitHubBackend(client).list(A);
+		const listed = await new GitHubBackend(client).list({ revision: A, entries: [] });
 		expect(listed.changed && listed.listing.revision).toBe(B);
 	});
 
@@ -223,7 +223,7 @@ describe("list", () => {
 	test("a repository that became empty is a change, not the known revision", async () => {
 		const client = new FakeClient();
 		client.head = { status: "empty" };
-		const listed = await new GitHubBackend(client).list(A);
+		const listed = await new GitHubBackend(client).list({ revision: A, entries: [] });
 		expect(listed.changed).toBe(true);
 	});
 
@@ -613,7 +613,7 @@ describe("list, with a submodule", () => {
 	test("a head that is the known revision is answered without looking at any submodule", async () => {
 		const client = new FakeClient();
 		withLib(client);
-		expect(await new GitHubBackend(client).list(A)).toEqual({ changed: false });
+		expect(await new GitHubBackend(client).list({ revision: A, entries: [] })).toEqual({ changed: false });
 		expect(client.calls).toEqual(["resolveHead"]);
 	});
 });

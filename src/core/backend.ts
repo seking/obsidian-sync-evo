@@ -65,6 +65,12 @@ export interface RemoteEntry {
 	readonly contents?: SubmoduleContents;
 	/** Of an entry below a submodule: where it is read from. */
 	readonly source?: EntrySource;
+	/**
+	 * The remote's own name for this version of the file, on a remote that
+	 * guards each write of a file by the version it replaces (Dropbox's
+	 * `rev`). Absent on a remote whose revision names every file at once.
+	 */
+	readonly version?: string;
 }
 
 export interface RemoteListing {
@@ -114,7 +120,7 @@ export interface ArchiveContents {
 }
 
 /** Why a remote would not take one file of a push (`PushFile.refused`). */
-export type PushRefusal = "too-large" | "workflows";
+export type PushRefusal = "too-large" | "workflows" | "changed";
 
 export interface PushFile {
 	/** Path as it should appear on the remote. */
@@ -150,7 +156,10 @@ export interface PushFile {
 	 *
 	 * "too-large": the content, because of its size. "workflows": the
 	 * path, because the credentials lack the permission the host asks for
-	 * workflow files.
+	 * workflow files. "changed": the remote holds another version of the
+	 * file than `replaces` names, or a file where none was listed: another
+	 * device wrote it first. Only on a remote that writes file by file
+	 * (`RemoteEntry.version`); the next pull takes it as a conflict.
 	 */
 	refused?(reason: PushRefusal): void;
 }
@@ -220,7 +229,9 @@ export interface PushRequest {
 	 * always known (an answer that never arrives), so the caller stores the
 	 * revision here, and can tell later by looking at the head. A rejection
 	 * ends the push with nothing changed. Not called when there is nothing
-	 * to make a revision of.
+	 * to make a revision of, nor by a remote that writes file by file,
+	 * which makes no revision (`Backend.push`): what is stored here would
+	 * not know of the deletes such a remote keeps (`kept`).
 	 */
 	readonly beforePublish?: (pending: PendingPush) => Promise<void>;
 	/**
@@ -240,7 +251,8 @@ export type PushResult =
 			/**
 			 * The written files as the remote now holds them: each with the
 			 * hash of the content that was sent. Without the files whose
-			 * `read` answered `null`.
+			 * `read` answered `null`, and the ones the remote refused
+			 * (`PushFile.refused`).
 			 */
 			readonly written: readonly RemoteEntry[];
 			/**
@@ -252,12 +264,22 @@ export type PushResult =
 			 * asked; the caller then keeps no listing, and lists again.
 			 */
 			readonly listing?: RemoteListing;
+			/**
+			 * The deletes that were not made, because the remote holds
+			 * another version of the file than the one listed: another
+			 * device changed it first. Each is the entry of `deletes` itself. Only on a remote that writes file
+			 * by file (`RemoteEntry.version`); elsewhere a push is made
+			 * whole or not at all. The next pull takes each one as changed
+			 * on the remote and deleted on the device.
+			 */
+			readonly kept?: readonly RemoteEntry[];
 	  }
 	/**
 	 * There was nothing to send, or what was read is what the remote already
-	 * holds. No revision was made.
+	 * holds, or the remote took none of it (`PushFile.refused`, `kept`). No
+	 * revision was made.
 	 */
-	| { readonly status: "unchanged" }
+	| { readonly status: "unchanged"; readonly kept?: readonly RemoteEntry[] }
 	/** The remote moved past `baseRevision`. Nothing was changed. */
 	| { readonly status: "stale" };
 
@@ -291,10 +313,15 @@ export interface Backend {
 	hashContent(content: Uint8Array): Promise<string>;
 
 	/**
-	 * Lists the remote. When `known` is the revision the caller already has
-	 * and the remote has not moved, answers `changed: false` without listing.
-	 * Pass `null` to always get a listing. Fails rather than return a partial
-	 * listing.
+	 * Lists the remote. When `known` is the listing the caller already has
+	 * and the remote has not moved past its revision, answers `changed:
+	 * false` without listing. Pass `null` to always get a listing. Fails
+	 * rather than return a partial listing.
+	 *
+	 * A remote that tells only what changed since a revision (a cursor)
+	 * builds the new listing on top of the entries of `known`: the two are
+	 * one value, stored together (`StateStore.putListing`), so that no
+	 * change is laid twice on a listing that already holds it.
 	 *
 	 * `changed: false` is only useful to a caller that still holds the listing
 	 * it got for `known`. A caller that does not must pass `null`. The sync
@@ -303,7 +330,7 @@ export interface Backend {
 	 * would look absent from the remote, and a vault file of the same name
 	 * would be sent over it.
 	 */
-	list(known: string | null): Promise<ListResult>;
+	list(known: RemoteListing | null): Promise<ListResult>;
 
 	/**
 	 * Tells whether `head` still builds on `base`. A failure to find out is
@@ -339,16 +366,17 @@ export interface Backend {
 	fetchArchive?(revision: string, source?: EntrySource): Promise<ArchiveContents>;
 
 	/**
-	 * The content that has `hash`, whichever revision named it: what a file
-	 * held when it was last synced, which a merge compares the two sides
-	 * with (`merge.ts`). `null` when the remote does not hold such a
-	 * content, or not any more. Absent on a remote that cannot look a
-	 * content up by its hash; nothing is merged there.
+	 * The content that has `hash`, whichever revision named it: what the
+	 * file at `path` held when it was last synced, which a merge compares
+	 * the two sides with (`merge.ts`). A remote that keeps contents by file
+	 * and not by hash looks among the versions of `path`. `null` when the
+	 * remote does not hold such a content, or not any more. Absent on a
+	 * remote that cannot look a content up; nothing is merged there.
 	 *
 	 * Like `fetch`, it does not promise that what comes back has the hash.
 	 * The caller checks with `hashContent`.
 	 */
-	contentOf?(hash: string): Promise<Uint8Array | null>;
+	contentOf?(hash: string, path: string): Promise<Uint8Array | null>;
 
 	/**
 	 * Applies writes and deletes on top of `baseRevision`, as one revision.
@@ -360,6 +388,14 @@ export interface Backend {
 	 *
 	 * A failure does not always mean that nothing changed: see
 	 * `PushRequest.beforePublish`.
+	 *
+	 * A remote that writes file by file (`RemoteEntry.version`) makes no
+	 * revision of the push: it writes and deletes one file at a time, each
+	 * only over the version that was listed. What another device changed
+	 * first is left as it is, told by `PushFile.refused` ("changed") and
+	 * `kept`, and the rest goes on. It never calls `beforePublish`: a push
+	 * that stops half way leaves files that the next sync finds the same
+	 * on both sides, and records then.
 	 */
 	push(request: PushRequest): Promise<PushResult>;
 

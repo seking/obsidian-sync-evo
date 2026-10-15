@@ -492,8 +492,8 @@ export const en = baseCatalog({
 	"push.error.notAsListed":
 		"Nothing was changed on {remote}: what is there is not what this device knew of it. Sync again.",
 	"push.storedOtherwise": {
-		one: "GitHub stored {count} file with other content than this device uploaded. The next download replaces the file on this device with GitHub's version:\n{list}",
-		other: "GitHub stored {count} files with other content than this device uploaded. The next download replaces the files on this device with GitHub's versions:\n{list}",
+		one: "{remote} stored {count} file with other content than this device uploaded. The next download replaces the file on this device with the version on {remote}:\n{list}",
+		other: "{remote} stored {count} files with other content than this device uploaded. The next download replaces the files on this device with the versions on {remote}:\n{list}",
 	},
 	"push.held": {
 		one: "{count} file was not uploaded: a download has not finished with it, or it is open and could not be saved. Sync again:\n{list}",
@@ -518,6 +518,10 @@ export const en = baseCatalog({
 	"push.refusedWorkflows": {
 		one: "{count} file was not uploaded: adding or changing a file under .github/workflows/ needs the Workflows read and write permission on the token. Give the token that permission and the next sync uploads it. Otherwise, put this file back as it was and change it with git on a computer. If it is a conflict file that an earlier version of Sync Evo left there, with .conflict-from- in its name, check its content and then delete it:\n{list}",
 		other: "{count} files were not uploaded: adding or changing a file under .github/workflows/ needs the Workflows read and write permission on the token. Give the token that permission and the next sync uploads them. Otherwise, put these files back as they were and change them with git on a computer. If one is a conflict file that an earlier version of Sync Evo left there, with .conflict-from- in its name, check its content and then delete it:\n{list}",
+	},
+	"push.remoteChanged": {
+		one: "{count} file was neither uploaded nor deleted: another device changed it on {remote} first. The next sync takes it up as a conflict:\n{list}",
+		other: "{count} files were neither uploaded nor deleted: another device changed them on {remote} first. The next sync takes them up as conflicts:\n{list}",
 	},
 	"push.leftOut": {
 		one: "{count} file was left out: it changed or could not be read while the upload ran, or it is open and could not be saved. The next upload looks at it again:\n{list}",
@@ -550,6 +554,10 @@ export const en = baseCatalog({
 	},
 	"untrack.nothing":
 		"There was nothing to remove from {remote}: none of the listed files is still there and excluded. Nothing was changed.",
+	"untrack.kept": {
+		one: "{count} file was not removed from {remote}: another device changed it there first. The next sync takes it in. If it is still excluded then, remove it again:\n{list}",
+		other: "{count} files were not removed from {remote}: another device changed them there first. The next sync takes them in. If they are still excluded then, remove them again:\n{list}",
+	},
 	"untrack.remoteMoved":
 		"Nothing was removed from {remote}. Another device changed what is there meanwhile. Try again in the settings of Sync Evo.",
 	"untrack.cancelled": "The removal was stopped. Nothing was removed from {remote}.",

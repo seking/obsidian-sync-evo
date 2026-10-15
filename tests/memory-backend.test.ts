@@ -56,10 +56,10 @@ test("the listing carries a hash that matches the content", async () => {
 test("listing with the current revision answers unchanged; an older one lists again", async () => {
 	const backend = new MemoryBackend();
 	const first = backend.commit({ "a.md": "A" });
-	expect(await backend.list(first)).toEqual({ changed: false });
+	expect(await backend.list({ revision: first, entries: [] })).toEqual({ changed: false });
 
 	backend.commit({ "a.md": "A2" });
-	const result = await backend.list(first);
+	const result = await backend.list({ revision: first, entries: [] });
 	expect(result.changed).toBe(true);
 });
 

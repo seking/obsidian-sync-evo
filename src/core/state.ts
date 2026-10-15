@@ -392,13 +392,13 @@ export function writeBaseRevision(store: StateStore, revision: string): Promise<
  */
 export async function currentListing(
 	store: Pick<StateStore, "getListing" | "putListing">,
-	list: (known: string | null) => Promise<ListResult>,
+	list: (known: RemoteListing | null) => Promise<ListResult>,
 ): Promise<RemoteListing> {
 	const stored = await store.getListing();
 	// Without a listing to fall back on, "unchanged" would be of no use.
 	// Nor is one that waits for a submodule: the remote is listed again
 	// though it has not moved.
-	const listed = await list(stored === null || awaitsSubmodule(stored) ? null : stored.revision);
+	const listed = await list(stored === null || awaitsSubmodule(stored) ? null : stored);
 	if (!listed.changed) {
 		if (stored !== null) return stored;
 		throw new Error("The remote answered that nothing changed since a listing that was never taken.");
@@ -449,12 +449,13 @@ function isSource(value: unknown): boolean {
 
 function isRemoteEntry(value: unknown): value is RemoteEntry {
 	if (typeof value !== "object" || value === null) return false;
-	const { path, kind, hash, size, contents, source } = value as Record<string, unknown>;
+	const { path, kind, hash, size, contents, source, version } = value as Record<string, unknown>;
 	return (
 		typeof path === "string" &&
 		ENTRY_KINDS.some((known) => known === kind) &&
 		typeof hash === "string" &&
 		(size === undefined || typeof size === "number") &&
+		(version === undefined || typeof version === "string") &&
 		(contents === undefined || (kind === "submodule" && isContents(contents))) &&
 		(source === undefined || (kind !== "submodule" && isSource(source)))
 	);

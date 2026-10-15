@@ -531,7 +531,7 @@ describe("how a push ended", () => {
 		const said = (translate: typeof t): readonly string[] =>
 			pushReport(translate, result({ counts: { added: 1, modified: 0, deleted: 0 }, storedOtherwise: ["a.md"] }), options).details;
 		expect(said(t)).toEqual([
-			"GitHub stored 1 file with other content than this device uploaded. The next download replaces the file on this device with GitHub's version:\na.md",
+			"GitHub stored 1 file with other content than this device uploaded. The next download replaces the file on this device with the version on GitHub:\na.md",
 		]);
 		expect(said(ja)).toEqual([
 			"GitHub が、このデバイスがアップロードした内容と違う内容で保存したファイル：1 件。次のダウンロードで、このデバイスのファイルを GitHub の内容に置き換えます：\na.md",
@@ -576,6 +576,17 @@ describe("how a push ended", () => {
 		expect(said(ja)[1]).toBe(
 			"1 件のファイルを、アップロードしていません。GitHub が、大きすぎるとして受け付けませんでした。このファイルは、小さくするか、保管庫の外へ移してください。GitHub にまだ無いファイルは、除外してもアップロードしなくなります。競合ファイルなら、中身を確かめてから削除してください：\nbig.mov",
 		);
+	});
+
+	test("a file another device changed first on the remote is told as a conflict to come", () => {
+		const said = (translate: typeof t) =>
+			pushReport(translate, result({ leftOut: [{ path: "a.md", reason: "remote-changed" }] }), options).details;
+		expect(said(t)).toEqual([
+			"1 file was neither uploaded nor deleted: another device changed it on GitHub first. The next sync takes it up as a conflict:\na.md",
+		]);
+		expect(said(ja)).toEqual([
+			"1 件のファイルを、アップロードも削除もしていません。ほかのデバイスが、先に GitHub で変えていました。次の同期で、競合として扱います：\na.md",
+		]);
 	});
 
 	test("a new file a cloud drive keeps is told apart from the others left out, and the push is not up to date", () => {

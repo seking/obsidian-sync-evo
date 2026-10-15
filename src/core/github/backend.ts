@@ -224,12 +224,12 @@ export class GitHubBackend implements Backend {
 	 * items or 7 MB) fails the listing in the client with
 	 * "incomplete-listing": part of a listing would read as deletions.
 	 */
-	async list(known: string | null): Promise<ListResult> {
+	async list(known: RemoteListing | null): Promise<ListResult> {
 		const head = await this.client.resolveHead();
 		// A repository without commits. It has no revision to compare with
 		// `known`, so it is always answered as a listing.
 		if (head.status === "empty") return { changed: true, listing: { revision: null, entries: [] } };
-		if (head.sha === known) return { changed: false };
+		if (head.sha === known?.revision) return { changed: false };
 
 		const commit = await this.client.getCommit(head.sha);
 		const entries = await this.withSubmodules(entriesOfTree(await this.client.getTree(commit.treeSha)));
@@ -371,7 +371,7 @@ export class GitHubBackend implements Backend {
 	 * comes for a repository that is out of sight, which the caller cannot
 	 * use either.
 	 */
-	async contentOf(hash: string): Promise<Uint8Array | null> {
+	async contentOf(hash: string, _path?: string): Promise<Uint8Array | null> {
 		try {
 			return await this.client.getBlob(hash);
 		} catch (error) {
