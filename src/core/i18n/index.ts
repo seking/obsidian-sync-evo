@@ -62,5 +62,5 @@ export function translatorFor(appLanguage: string, remote?: string): Translate {
 	return ((key: string, ...args: unknown[]) => {
 		const variant = `${key}${DROPBOX_VARIANT}`;
 		return loose(Object.prototype.hasOwnProperty.call(en, variant) ? variant : key, ...args);
-	}) as Translate;
+	});
 }
