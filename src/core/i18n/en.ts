@@ -43,6 +43,18 @@ export const en = baseCatalog({
 
 	// The settings screen.
 	"settings.connection.heading": "Connection",
+	"settings.service.name": "Service",
+	"settings.service.desc": "Where this vault syncs to. Changing it starts the sync over.",
+	"settings.dropbox.name": "Dropbox",
+	"settings.dropbox.desc":
+		"\"Connect\" opens Dropbox in the browser. Sign in and press \"Allow\" to come back to Obsidian. If Dropbox warns that few people use the app, press \"Continue\".",
+	"settings.dropbox.connected": "Connected: {email}",
+	"settings.dropbox.connect": "Connect",
+	"settings.dropbox.disconnect": "Disconnect",
+	"settings.dropboxFolder.name": "Folder",
+	"settings.dropboxFolder.desc":
+		"The name of the folder of this vault inside Apps/Sync Evo on Dropbox. Devices with the same name sync with each other. Changing it starts the sync over.",
+	"settings.dropboxFolder.invalid": "This cannot be the name of a folder, so it was not saved. Do not leave it empty, and do not use / or \\.",
 	"settings.repository.name": "Repository",
 	"settings.repository.desc":
 		"The GitHub repository to sync this vault with. Enter it as owner/name, or paste its address from the browser.",
@@ -205,6 +217,20 @@ export const en = baseCatalog({
 
 	// The result of testing the connection.
 	"check.connected": "Connected to {repository}, branch {branch}.",
+	"dropbox.connected": "Connected to Dropbox as {email}.",
+	"dropbox.denied": "Not connected to Dropbox: the access was not allowed.",
+	"dropbox.notWaited":
+		"Dropbox sent back a connection this vault did not wait for. Open the vault in which you pressed \"Connect\", and press it again there.",
+	"dropbox.signInFailed": "Could not connect to Dropbox. Press \"Connect\" again. ({detail})",
+	"dropbox.revokeFailed":
+		"This device is no longer connected to Dropbox, but Dropbox could not be told. Remove Sync Evo under \"Connected apps\" in the settings of Dropbox.",
+	"check.dropbox.connected": "Connected to Dropbox. The folder Apps/Sync Evo/{folder} is there.",
+	"check.dropbox.empty": "Connected to Dropbox. The folder Apps/Sync Evo/{folder} is not there yet: the first upload makes it.",
+	"check.dropbox.noFolder": "Enter the name of the folder on Dropbox first.",
+	"check.dropbox.notConnected": "This device is not connected to Dropbox. Press \"Connect\" in the settings of Sync Evo.",
+	"check.dropbox.unauthorized":
+		"Dropbox no longer accepts the connection of this device. It may have been removed in the settings of Dropbox. Connect again in the settings of Sync Evo.",
+	"check.dropbox.forbidden": "Dropbox did not allow Sync Evo to read the folder. Connect again in the settings of Sync Evo.",
 	"check.empty": "Connected to {repository}. The repository is empty.",
 	"check.unauthorized":
 		"GitHub did not accept the token. It is wrong, or it was revoked or has expired. Create a new token and save it under the selected secret.",
@@ -515,6 +541,10 @@ export const en = baseCatalog({
 		one: "{count} file was not uploaded: GitHub refused it as too large. Make this file smaller or move it out of the vault. A file that is not on {remote} yet is also left alone once it is excluded. If it is a conflict file, check its content and then delete it:\n{list}",
 		other: "{count} files were not uploaded: GitHub refused them as too large. Make these files smaller or move them out of the vault. A file that is not on {remote} yet is also left alone once it is excluded. If one is a conflict file, check its content and then delete it:\n{list}",
 	},
+	"push.refusedSpace": {
+		one: "{count} file was not uploaded: there is no room left on {remote}. Make room there, and the next sync uploads it:\n{list}",
+		other: "{count} files were not uploaded: there is no room left on {remote}. Make room there, and the next sync uploads them:\n{list}",
+	},
 	"push.refusedWorkflows": {
 		one: "{count} file was not uploaded: adding or changing a file under .github/workflows/ needs the Workflows read and write permission on the token. Give the token that permission and the next sync uploads it. Otherwise, put this file back as it was and change it with git on a computer. If it is a conflict file that an earlier version of Sync Evo left there, with .conflict-from- in its name, check its content and then delete it:\n{list}",
 		other: "{count} files were not uploaded: adding or changing a file under .github/workflows/ needs the Workflows read and write permission on the token. Give the token that permission and the next sync uploads them. Otherwise, put these files back as they were and change them with git on a computer. If one is a conflict file that an earlier version of Sync Evo left there, with .conflict-from- in its name, check its content and then delete it:\n{list}",
@@ -612,8 +642,12 @@ export const en = baseCatalog({
 	},
 	"confirm.delete.note": "If you cancel, nothing is downloaded and nothing is changed.",
 	"confirm.firstFetch.title": "Confirm the first download",
+	"place.repository": "{repository}, branch {branch}",
+	"place.folder": "the folder Apps/Sync Evo/{folder} on Dropbox",
+	"remotePlace.repository": "{remote} ({repository}, branch {branch})",
+	"remotePlace.folder": "Dropbox, in the folder Apps/Sync Evo/{folder}",
 	"confirm.firstFetch.body":
-		"This is the first download from {repository}, branch {branch}, and this vault already has files.",
+		"This is the first download from {place}, and this vault already has files.",
 	"confirm.firstFetch.different": {
 		one: "{count} file has other content than on {remote}. It gets the content from {remote}, and the content on this device is kept in the folder _conflicts/ as a conflict file:",
 		other: "{count} files have other content than on {remote}. They get the content from {remote}, and the content on this device is kept in the folder _conflicts/ as conflict files:",
@@ -632,7 +666,7 @@ export const en = baseCatalog({
 	},
 	"confirm.firstPush.title": "Confirm the first upload",
 	"confirm.firstPush.body":
-		"This is the first upload from this device to {repository}, branch {branch}. It changes what is on {remote} as listed below. Once an upload has gone through, later uploads do not show this list.",
+		"This is the first upload from this device to {place}. It changes what is on {remote} as listed below. Once an upload has gone through, later uploads do not show this list.",
 	"confirm.firstPush.remoteEmpty":
 		"The repository is empty. If this vault has no .gitignore, an empty one is created and uploaded.",
 	"confirm.firstPush.remoteEmptyWithGitignore":
@@ -651,9 +685,9 @@ export const en = baseCatalog({
 	// With one file, under a key of its own: a language without plural forms
 	// has other words for it too ("none of" one file reads oddly in Japanese).
 	"confirm.emptyVault.bodyOne":
-		"The {count} file that was synced before is not on this device. This happens when the vault was created again, or when its folder was deleted. It is still on {remote} ({repository}, branch {branch}).",
+		"The {count} file that was synced before is not on this device. This happens when the vault was created again, or when its folder was deleted. It is still on {remotePlace}.",
 	"confirm.emptyVault.body":
-		"None of the {count} files that were synced before is on this device. This happens when the vault was created again, or when its folders were deleted. They are still on {remote} ({repository}, branch {branch}).",
+		"None of the {count} files that were synced before is on this device. This happens when the vault was created again, or when its folders were deleted. They are still on {remotePlace}.",
 	"confirm.emptyVault.refetch": "Download again from {remote}",
 	"confirm.emptyVault.refetchNote":
 		"The files on {remote} are downloaded to this device. Nothing is deleted on {remote}.",
@@ -668,7 +702,7 @@ export const en = baseCatalog({
 		"If you cancel, nothing is uploaded. The lines added to .gitignore stay on this device, and the next upload includes them.",
 	"confirm.startOver.title": "Start over",
 	"confirm.startOver.body":
-		"This compares this device with {remote} ({repository}, branch {branch}) again. No file is deleted, on this device or on {remote}.",
+		"This compares this device with {remotePlace} again. No file is deleted, on this device or on {remote}.",
 	"confirm.startOver.nothing":
 		"No file on this device has other content than on {remote}, and none is only on this device.",
 	"confirm.startOver.note": "If you cancel, nothing is changed.",
@@ -684,4 +718,29 @@ export const en = baseCatalog({
 		"\"Proceed\" follows {remote}. These files are first moved to .trash/ in this vault, so you can get them back.",
 	"confirm.rewritten.keepNote":
 		"\"Keep my files\" leaves these files as they are and downloads everything else. \"Cancel\" downloads nothing.",
+	// What Dropbox has no repository, commit or history for (`DROPBOX_VARIANT`).
+	"check.unreachable.dropbox":
+		"Could not reach Dropbox. Check the network connection and try again.",
+	"check.rateLimited.dropbox":
+		"Dropbox asked to wait before more requests. Try again later.",
+	"confirm.firstPush.remoteEmpty.dropbox":
+		"The folder is not on Dropbox yet. If this vault has no .gitignore, an empty one is created and uploaded.",
+	"confirm.firstPush.remoteEmptyWithGitignore.dropbox":
+		"The folder is not on Dropbox yet.",
+	"pull.remoteEmpty.dropbox":
+		"The folder is not on Dropbox yet. There is nothing to download.",
+	"confirm.rewritten.title.dropbox":
+		"Folder gone from Dropbox",
+	"confirm.rewritten.body.dropbox":
+		"The folder of this vault on Dropbox was deleted or emptied since this device last synced with it. Changes that this device uploaded may be gone from {remote}. Following {remote} takes the files below away from this device.",
+	"auto.waiting.rewritten.dropbox":
+		"The folder of this vault on Dropbox was deleted or emptied, so downloading needs your confirmation. Nothing was changed. Sync manually to be asked.",
+	"push.pullFirst.remoteEmpty.dropbox":
+		"Nothing was uploaded. This device has synced with this folder before, and the folder is not on Dropbox now. Download first to look at that.",
+	"untrack.syncFirst.remoteEmpty.dropbox":
+		"Nothing was removed from {remote}. The folder is not on Dropbox now. Sync first, then try again in the settings of Sync Evo.",
+	"pull.reason.hashMismatch.dropbox":
+		"The content Dropbox sent did not match its own listing.",
+	"settings.deviceName.desc.dropbox":
+		"It appears in the names of conflict files.",
 });

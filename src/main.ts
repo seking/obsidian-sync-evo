@@ -11,7 +11,18 @@
 
 import { getLanguage, Notice, Platform, Plugin } from "obsidian";
 import { TICK_MS } from "./core/auto-sync";
-import { type CheckOutcome, runConnectionCheck } from "./core/connection-check";
+import { type CheckOutcome, checkDropboxFolder, runConnectionCheck } from "./core/connection-check";
+import {
+	currentAccount,
+	DROPBOX_REDIRECT_ACTION,
+	exchangeCode,
+	finishSignIn,
+	RefreshingTokens,
+	revokeToken,
+	type SignIn,
+} from "./core/dropbox/auth";
+import { type AccessTokens, DropboxClient } from "./core/dropbox/client";
+import { BackendError } from "./core/backend";
 import {
 	applyExclusionEdit,
 	type ExclusionChanged,
@@ -57,8 +68,27 @@ import { SyncState, syncStateDepsOf } from "./obsidian/sync-state";
 import { windowSleep } from "./obsidian/window-sleep";
 
 export default class SyncEvoPlugin extends Plugin implements SettingsHost, SyncHost {
-	/** Looks up every text the plugin shows, in the language of the app. */
-	t: Translate = translatorFor("");
+	/** The language of the app. A change of it takes effect on restart, so reading it once is enough. */
+	private language = "";
+	/** The translators made so far, by the name of the service in their texts. */
+	private readonly translators = new Map<string, Translate>();
+
+	/**
+	 * Looks up every text the plugin shows, in the language of the app, with
+	 * the service the settings name where a text has `{remote}`.
+	 */
+	get t(): Translate {
+		const remote = this.deviceSettings?.backend === "dropbox" ? "Dropbox" : "GitHub";
+		let translate = this.translators.get(remote);
+		if (translate === undefined) {
+			translate = translatorFor(this.language, remote);
+			this.translators.set(remote, translate);
+		}
+		return translate;
+	}
+
+	/** The access tokens of Dropbox, kept while the refresh token they come from is the one in use. */
+	private dropboxAccess: { readonly refreshToken: string; readonly tokens: RefreshingTokens } | null = null;
 
 	/**
 	 * The settings of this device for this vault. `null` when what is stored
@@ -104,8 +134,8 @@ export default class SyncEvoPlugin extends Plugin implements SettingsHost, SyncH
 	private unloaded = false;
 
 	override onload(): void {
-		// A change of the app language takes effect on restart, so reading it once is enough.
-		this.t = translatorFor(getLanguage());
+		this.language = getLanguage();
+		this.translators.clear();
 
 		const loaded = this.store.load(defaultDeviceName(Platform));
 		this.deviceSettings = loaded.status === "ok" ? loaded.settings : null;
@@ -151,6 +181,9 @@ export default class SyncEvoPlugin extends Plugin implements SettingsHost, SyncH
 			name: this.t("command.showLog"),
 			callback: () => showLog(this.app, this.t),
 		});
+
+		// Where Dropbox sends the browser back after the user allowed (R-4).
+		this.registerObsidianProtocolHandler(DROPBOX_REDIRECT_ACTION, (params) => void this.finishDropboxSignIn(params));
 
 		// Listened to whether or not automatic sync is on: switched on, it
 		// has to know of a composition that began before.
@@ -435,6 +468,107 @@ export default class SyncEvoPlugin extends Plugin implements SettingsHost, SyncH
 		};
 	}
 
+	readDropboxToken(): string | null {
+		return this.store.readDropboxToken();
+	}
+
+	dropboxTokens(refreshToken: string): AccessTokens {
+		const kept = this.dropboxAccess;
+		if (kept !== null && kept.refreshToken === refreshToken) return kept.tokens;
+		const tokens = new RefreshingTokens(deviceNetwork().http, Date.now, refreshToken);
+		this.dropboxAccess = { refreshToken, tokens };
+		return tokens;
+	}
+
+	/** The account this device is connected to Dropbox with, or `null` while it is not. */
+	dropboxConnection(): { readonly email: string } | null {
+		const account = this.deviceSettings?.dropboxAccount ?? null;
+		return account !== null && this.store.readDropboxToken() !== null ? { email: account.email } : null;
+	}
+
+	/**
+	 * Opens Dropbox in the browser for the user to allow, with a sign-in
+	 * made before the press: iOS opens the browser only right after a tap,
+	 * and nothing may be awaited in between (R-4). What the return is
+	 * checked against is stored first, so that it outlives the app being
+	 * closed while the browser is out. A press takes the place of the one
+	 * before.
+	 */
+	startDropboxSignIn(sign: SignIn): void {
+		this.store.saveSignIn({ verifier: sign.verifier, state: sign.state, at: Date.now() });
+		window.open(sign.url);
+	}
+
+	/** What the browser brought back to `obsidian://sync-evo-dropbox`. Never rejects. */
+	private async finishDropboxSignIn(params: { readonly [key: string]: string | undefined }): Promise<void> {
+		const t = this.t;
+		const http = deviceNetwork().http;
+		const pending = this.store.readSignIn();
+		const result = await finishSignIn(
+			params,
+			pending,
+			(sign) => exchangeCode(http, Date.now, sign),
+			(grant) => {
+				const tokens = new RefreshingTokens(http, Date.now, grant.refreshToken, grant);
+				return currentAccount(new DropboxClient({ http, now: Date.now, sleep: windowSleep, tokens }));
+			},
+		);
+		if (this.unloaded) return;
+		if (result.status === "not-waited") {
+			new Notice(t("dropbox.notWaited"), 0);
+			return;
+		}
+		// Used, or turned down: no second return goes on from it.
+		this.store.saveSignIn(null);
+		if (result.status === "denied") {
+			new Notice(t("dropbox.denied"));
+			return;
+		}
+		if (result.status === "failed") {
+			const detail = result.error instanceof Error ? result.error.message : String(result.error);
+			new Notice(t("dropbox.signInFailed", { detail }), 0);
+			return;
+		}
+		const settings = this.deviceSettings;
+		if (settings === null) {
+			new Notice(t("settings.unknownVersion"), 0);
+			return;
+		}
+		const { grant, account } = result;
+		this.store.saveDropboxToken(grant.refreshToken);
+		this.dropboxAccess = { refreshToken: grant.refreshToken, tokens: new RefreshingTokens(http, Date.now, grant.refreshToken, grant) };
+		// Another account than the one before is a new connection, and its
+		// sync state is discarded; the same account keeps it (R-4).
+		this.updateSettings({ ...settings, dropboxAccount: { id: account.accountId, email: account.email } });
+		new Notice(t("dropbox.connected", { email: account.email }));
+		this.settingTab?.redrawIfShown();
+	}
+
+	/**
+	 * Ends the connection to Dropbox: the token is revoked on Dropbox's
+	 * side, and taken off the device whatever Dropbox answers. The account
+	 * stays in the settings, so that connecting again with it keeps the
+	 * sync state (R-4). Never rejects.
+	 */
+	async disconnectDropbox(): Promise<void> {
+		const refreshToken = this.store.readDropboxToken();
+		// A sync that runs is stopped, and waited for, before the token
+		// goes: revoked under it, a write would fail as if Dropbox had
+		// turned this device away.
+		await this.syncs.interrupt();
+		this.store.saveDropboxToken(null);
+		this.dropboxAccess = null;
+		if (refreshToken === null) return;
+		try {
+			const tokens = new RefreshingTokens(deviceNetwork().http, Date.now, refreshToken);
+			await revokeToken(deviceNetwork().http, await tokens.get());
+		} catch (error) {
+			// Ended on Dropbox's side already: nothing to tell.
+			if (error instanceof BackendError && error.kind === "unauthorized") return;
+			if (!this.unloaded) new Notice(this.t("dropbox.revokeFailed"), 0);
+		}
+	}
+
 	/** Asks GitHub for the head of the branch with the settings as given. Sends nothing else. */
 	testConnection(settings: DeviceSettings): Promise<CheckOutcome> {
 		return runConnectionCheck(
@@ -449,6 +583,21 @@ export default class SyncEvoPlugin extends Plugin implements SettingsHost, SyncH
 					// The user is looking at the button. A limit is reported, not waited out.
 					onRateLimit: () => false,
 				}),
+			{
+				readToken: () => this.store.readDropboxToken(),
+				check: (target) =>
+					checkDropboxFolder(
+						new DropboxClient({
+							http: deviceNetwork().http,
+							now: Date.now,
+							sleep: windowSleep,
+							tokens: this.dropboxTokens(target.refreshToken),
+							// The user is looking at the button.
+							maxRetries: 1,
+						}),
+						target.folder,
+					),
+			},
 		);
 	}
 }

@@ -27,6 +27,7 @@ import {
 	type StateProblem,
 	stateProblemText,
 } from "../src/core/pull-report";
+import type { RemotePlace } from "../src/core/remote-place";
 import { DEFAULT_AUTO_SYNC, type DeviceSettings } from "../src/core/settings";
 
 const t = translatorFor("en");
@@ -37,6 +38,8 @@ const settings: DeviceSettings = {
 	repository: "octo/notes",
 	branch: "main",
 	tokenSecret: "github-token",
+	dropboxFolder: "",
+	dropboxAccount: null,
 	deviceName: "Mac",
 	autoSync: DEFAULT_AUTO_SYNC,
 	onConflict: "copy",
@@ -927,6 +930,14 @@ describe("a pull that could not be carried out", () => {
 		);
 	});
 
+	test("with Dropbox, a connection Dropbox refuses or does not allow reads as Dropbox's, and names no repository", () => {
+		const dropbox: DeviceSettings = { ...settings, backend: "dropbox", dropboxFolder: "Vault", dropboxAccount: { id: "dbid:1", email: "a@example.com" } };
+		expect(failureReason(t, dropbox, new BackendError("unauthorized", "x"))).toBe(t("check.dropbox.unauthorized"));
+		expect(failureReason(t, dropbox, new BackendError("forbidden", "x"))).toBe(t("check.dropbox.forbidden"));
+		expect(failureReason(t, dropbox, new BackendError("not-found", "boom"))).toBe("Details: boom");
+		expect(failureReason(t, dropbox, new BackendError("forbidden", "x"))).not.toContain("octo/notes");
+	});
+
 	test("cancelled is not a failure", () => {
 		expect(pullFailureText(t, settings, new BackendError("cancelled", "x"))).toBe(
 			"The download was stopped. The next download continues from there.",
@@ -954,7 +965,7 @@ describe("stateProblemText", () => {
 });
 
 describe("the question before a first fetch", () => {
-	const target = { repository: "octo/notes", branch: "main" };
+	const target: RemotePlace = { backend: "github", repository: "octo/notes", branch: "main" };
 	const none = { localOnly: [], different: [], differentSettings: [], atSymlinks: [] };
 
 	test("names the repository and the branch, and says what becomes of each kind of file", () => {
@@ -1087,10 +1098,18 @@ describe("the question before a first fetch", () => {
 			"このデバイスにだけあるファイル：1 件。このデバイスに、そのまま残します。次のアップロードに入ります。アップロードの前に、ファイルの一覧を示して、もう一度確認を求めます。除外しているファイルは、アップロードしません。",
 		]);
 	});
+
+	test("with Dropbox, names the folder in the app folder", () => {
+		const question = firstFetchQuestion(t, { backend: "dropbox", folder: "Vault" }, { files: { ...none, localOnly: ["mine.md"] }, discardsState: false });
+		expect(question.parts[0]?.text).toContain("Apps/Sync Evo/Vault");
+		expect(question.parts[0]?.text).not.toContain("branch");
+		const over = firstFetchQuestion(t, { backend: "dropbox", folder: "Vault" }, { files: none, discardsState: true });
+		expect(over.parts[0]?.text).toContain("Apps/Sync Evo/Vault");
+	});
 });
 
 describe("the question before starting over, in Japanese", () => {
-	const target = { repository: "octo/notes", branch: "main" };
+	const target: RemotePlace = { backend: "github", repository: "octo/notes", branch: "main" };
 
 	test("says that the sync state is discarded, and that no file is deleted", () => {
 		const question = firstFetchQuestion(ja, target, {

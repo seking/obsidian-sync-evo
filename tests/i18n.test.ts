@@ -12,7 +12,7 @@
 import { describe, expect, test } from "vitest";
 import { baseCatalog, completeTranslation, partialTranslation, type Message } from "../src/core/i18n/catalog";
 import { en } from "../src/core/i18n/en";
-import { resolveLanguage, translations, translatorFor } from "../src/core/i18n/index";
+import { DROPBOX_VARIANT, resolveLanguage, translations, translatorFor } from "../src/core/i18n/index";
 import { createTranslator } from "../src/core/i18n/translator";
 
 // A catalog of its own, so that the mechanism is tested without adding
@@ -308,3 +308,26 @@ export function typeChecks(): void {
 	// @ts-expect-error no other form in the base
 	baseCatalog({ files: { one: "{count} file" } });
 }
+
+describe("the texts while Dropbox is the service", () => {
+	test("a message with a variant for Dropbox is taken from it, and the others as they are, with Dropbox for {remote}", () => {
+		const github = translatorFor("ja");
+		const dropbox = translatorFor("ja", "Dropbox");
+		expect(github("pull.remoteEmpty")).toBe("リポジトリは空です。ダウンロードするものはありません。");
+		expect(dropbox("pull.remoteEmpty")).toBe("Dropbox に、このフォルダはまだありません。ダウンロードするものはありません。");
+		expect(dropbox("untrack.done", { count: 2 })).toBe("Dropbox から 2 件を削除しました。このデバイスのファイルは、そのままです。");
+	});
+
+	test("every variant is of a message there is, and names no placeholder that message lacks", () => {
+		const placeholders = (message: Message): Set<string> =>
+			new Set([...JSON.stringify(message).matchAll(/\{(\w+)\}/g)].map((match) => match[1] ?? ""));
+		const catalog = en as Record<string, Message>;
+		for (const key of Object.keys(catalog).filter((name) => name.endsWith(DROPBOX_VARIANT))) {
+			const base = catalog[key.slice(0, -DROPBOX_VARIANT.length)];
+			const variant = catalog[key];
+			expect(base, key).toBeDefined();
+			if (base === undefined || variant === undefined) continue;
+			for (const name of placeholders(variant)) expect(placeholders(base).has(name) || name === "remote", `${key}: {${name}}`).toBe(true);
+		}
+	});
+});

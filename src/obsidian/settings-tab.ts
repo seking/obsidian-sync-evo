@@ -11,6 +11,7 @@
 
 import { type App, Notice, type Plugin, PluginSettingTab, SecretComponent, Setting } from "obsidian";
 import { type CheckOutcome, connectionCheckText, isSuccess } from "../core/connection-check";
+import { newSignIn, type SignIn } from "../core/dropbox/auth";
 import type { Translate } from "../core/i18n";
 import type { SymlinkTarget } from "../core/pull";
 import type { PushFailure } from "../core/push-failure";
@@ -19,6 +20,7 @@ import {
 	type AutoSyncSettings,
 	branchToStore,
 	conflictHandlingOf,
+	dropboxFolderToStore,
 	type DeviceSettings,
 	deviceNameProblem,
 	intervalToStore,
@@ -40,6 +42,12 @@ export interface SettingsHost extends ExclusionHost {
 	/** Discards what is stored and starts from the defaults. */
 	resetSettings(): void;
 	testConnection(settings: DeviceSettings): Promise<CheckOutcome>;
+	/** The account this device is connected to Dropbox with, or `null` while it is not. */
+	dropboxConnection(): { readonly email: string } | null;
+	/** Opens Dropbox in the browser. Called in the handler of the press, with nothing awaited before. */
+	startDropboxSignIn(sign: SignIn): void;
+	/** Never rejects. */
+	disconnectDropbox(): Promise<void>;
 	/** The symlinks of the remote that are skipped, with where they point. Never rejects. */
 	skippedSymlinks(): Promise<readonly SymlinkTarget[]>;
 	/** The push that did not get to its end, if no sync has sent since. Never rejects. */
@@ -106,71 +114,102 @@ export class SyncEvoSettingTab extends PluginSettingTab {
 
 		const connection = grouped(containerEl, t("settings.connection.heading"), null).listEl;
 
-		// The repository and the branch are taken over when the field is left
-		// or Enter is pressed (the DOM `change` event), not on each key. Every
-		// change of them that is saved discards the sync state, and a name
-		// half typed is a different repository.
-		const repository = new Setting(connection)
-			.setName(t("settings.repository.name"))
-			.setDesc(t("settings.repository.desc"));
-		repository.settingEl.addClass("sync-evo-repository");
-		const repositoryNote = note(repository);
-		// Whether the field holds text that was not taken over. The settings
-		// then still name the repository from before, which is not the one on
-		// the screen.
-		let repositoryRejected = false;
-		repository.addText((text) => {
-			text.setPlaceholder(t("settings.repository.placeholder")).setValue(stored.repository);
-			const commit = (): void => {
-				const value = repositoryToStore(text.getValue());
-				if (value === null) {
-					// Nothing is saved, so the repository that was there stays
-					// in use. The text stays in the field to be corrected.
-					repositoryNote.setText(t("settings.repository.invalid"));
-					repositoryRejected = true;
-					return;
-				}
-				text.setValue(value);
-				repositoryNote.setText("");
-				repositoryRejected = false;
-				this.change((current) => (current.repository === value ? current : { ...current, repository: value }));
-			};
-			text.inputEl.addEventListener("change", commit);
-			this.commits.push(commit);
-		});
-
-		const branch = new Setting(connection).setName(t("settings.branch.name")).setDesc(t("settings.branch.desc"));
-		const branchNote = note(branch);
-		let branchRejected = false;
-		branch.addText((text) => {
-			text.setPlaceholder(t("settings.branch.placeholder")).setValue(stored.branch);
-			const commit = (): void => {
-				const value = branchToStore(text.getValue());
-				if (value === null) {
-					// As with the repository: the branch from before stays in use.
-					branchNote.setText(t("settings.branch.empty"));
-					branchRejected = true;
-					return;
-				}
-				text.setValue(value);
-				branchNote.setText("");
-				branchRejected = false;
-				this.change((current) => (current.branch === value ? current : { ...current, branch: value }));
-			};
-			text.inputEl.addEventListener("change", commit);
-			this.commits.push(commit);
-		});
-
-		// The app's own control: it lists the secrets saved on the device and
-		// lets the user add one. Only the chosen name comes back.
+		// Above the rest: what else the connection asks for depends on it.
 		new Setting(connection)
-			.setName(t("settings.token.name"))
-			.setDesc(t("settings.token.desc"))
-			.addComponent((el) =>
-				new SecretComponent(this.app, el).setValue(stored.tokenSecret).onChange((name) => {
-					this.change((current) => ({ ...current, tokenSecret: name }));
-				}),
-			);
+			.setName(t("settings.service.name"))
+			.setDesc(t("settings.service.desc"))
+			.addDropdown((dropdown) => {
+				dropdown
+					.addOption("github", "GitHub")
+					.addOption("dropbox", "Dropbox")
+					.setValue(stored.backend)
+					.onChange((value) => {
+						const backend = value === "dropbox" ? "dropbox" : "github";
+						this.change((current) => {
+							if (current.backend === backend) return current;
+							// The folder of the vault starts as the name of the
+							// vault, the first time Dropbox is chosen (R-4).
+							const folder = current.dropboxFolder === "" ? (dropboxFolderToStore(this.app.vault.getName()) ?? "") : current.dropboxFolder;
+							return { ...current, backend, dropboxFolder: folder };
+						});
+						this.display();
+					});
+			});
+
+		// What is in a field that was not taken over, as the text the test
+		// of the connection says instead of testing: the settings still
+		// name what was there before, which is not what is on the screen.
+		let rejected = (): string | null => null;
+		if (stored.backend === "dropbox") {
+			rejected = this.showDropbox(connection, stored);
+		} else {
+			// The repository and the branch are taken over when the field is left
+			// or Enter is pressed (the DOM `change` event), not on each key. Every
+			// change of them that is saved discards the sync state, and a name
+			// half typed is a different repository.
+			const repository = new Setting(connection)
+				.setName(t("settings.repository.name"))
+				.setDesc(t("settings.repository.desc"));
+			repository.settingEl.addClass("sync-evo-repository");
+			const repositoryNote = note(repository);
+			// Whether the field holds text that was not taken over. The settings
+			// then still name the repository from before, which is not the one on
+			// the screen.
+			let repositoryRejected = false;
+			repository.addText((text) => {
+				text.setPlaceholder(t("settings.repository.placeholder")).setValue(stored.repository);
+				const commit = (): void => {
+					const value = repositoryToStore(text.getValue());
+					if (value === null) {
+						// Nothing is saved, so the repository that was there stays
+						// in use. The text stays in the field to be corrected.
+						repositoryNote.setText(t("settings.repository.invalid"));
+						repositoryRejected = true;
+						return;
+					}
+					text.setValue(value);
+					repositoryNote.setText("");
+					repositoryRejected = false;
+					this.change((current) => (current.repository === value ? current : { ...current, repository: value }));
+				};
+				text.inputEl.addEventListener("change", commit);
+				this.commits.push(commit);
+			});
+
+			const branch = new Setting(connection).setName(t("settings.branch.name")).setDesc(t("settings.branch.desc"));
+			const branchNote = note(branch);
+			let branchRejected = false;
+			branch.addText((text) => {
+				text.setPlaceholder(t("settings.branch.placeholder")).setValue(stored.branch);
+				const commit = (): void => {
+					const value = branchToStore(text.getValue());
+					if (value === null) {
+						// As with the repository: the branch from before stays in use.
+						branchNote.setText(t("settings.branch.empty"));
+						branchRejected = true;
+						return;
+					}
+					text.setValue(value);
+					branchNote.setText("");
+					branchRejected = false;
+					this.change((current) => (current.branch === value ? current : { ...current, branch: value }));
+				};
+				text.inputEl.addEventListener("change", commit);
+				this.commits.push(commit);
+			});
+
+			// The app's own control: it lists the secrets saved on the device and
+			// lets the user add one. Only the chosen name comes back.
+			new Setting(connection)
+				.setName(t("settings.token.name"))
+				.setDesc(t("settings.token.desc"))
+				.addComponent((el) =>
+					new SecretComponent(this.app, el).setValue(stored.tokenSecret).onChange((name) => {
+						this.change((current) => ({ ...current, tokenSecret: name }));
+					}),
+				);
+			rejected = () => (repositoryRejected ? t("check.noRepository") : branchRejected ? t("check.noBranch") : null);
+		}
 
 		const deviceName = new Setting(connection)
 			.setName(t("settings.deviceName.name"))
@@ -202,11 +241,12 @@ export class SyncEvoSettingTab extends PluginSettingTab {
 				const settings = host.deviceSettings;
 				if (settings === null) return;
 				result.removeClass("mod-warning", "mod-success");
-				if (repositoryRejected || branchRejected) {
+				const unsaved = rejected();
+				if (unsaved !== null) {
 					// A test of the connection from before would read as a
 					// verdict on what is in the fields.
 					result.addClass("mod-warning");
-					result.setText(repositoryRejected ? t("check.noRepository") : t("check.noBranch"));
+					result.setText(unsaved);
 					return;
 				}
 				button.setDisabled(true);
@@ -233,6 +273,88 @@ export class SyncEvoSettingTab extends PluginSettingTab {
 		void this.exclusion.draw();
 
 		void this.showSymlinks(containerEl.createDiv("sync-evo-part"), this.drawn);
+	}
+
+	/**
+	 * The row of Dropbox, with the button that connects or disconnects, and
+	 * the folder of the vault (R-4). Answers what the test of the connection
+	 * says instead while the folder field holds a name that was not taken.
+	 */
+	private showDropbox(el: HTMLElement, stored: DeviceSettings): () => string | null {
+		const { host } = this;
+		const t = host.t;
+		const connected = host.dropboxConnection();
+		const row = new Setting(el)
+			.setName(t("settings.dropbox.name"))
+			.setDesc(connected === null ? t("settings.dropbox.desc") : t("settings.dropbox.connected", { email: connected.email }));
+		if (connected === null) {
+			// Made before the press, and anew after each: iOS opens the
+			// browser only right after a tap, and the challenge of PKCE takes
+			// a moment to compute.
+			let sign: SignIn | null = null;
+			row.addButton((button) => {
+				// Pressable once the sign-in is made.
+				const prepare = (): void => {
+					sign = null;
+					button.setDisabled(true);
+					newSignIn((length) => crypto.getRandomValues(new Uint8Array(length))).then(
+						(made) => {
+							sign = made;
+							button.setDisabled(false);
+						},
+						(error: unknown) => {
+							new Notice(t("dropbox.signInFailed", { detail: error instanceof Error ? error.message : String(error) }));
+						},
+					);
+				};
+				button
+					.setCta()
+					.setButtonText(t("settings.dropbox.connect"))
+					.onClick(() => {
+						if (sign === null) return;
+						host.startDropboxSignIn(sign);
+						prepare();
+					});
+				prepare();
+			});
+		} else {
+			row.addButton((button) => {
+				button.setButtonText(t("settings.dropbox.disconnect")).onClick(async () => {
+					button.setDisabled(true);
+					await host.disconnectDropbox();
+					this.display();
+				});
+			});
+		}
+
+		// Taken over when the field is left, like the repository: every
+		// change of it that is saved discards the sync state.
+		const folder = new Setting(el).setName(t("settings.dropboxFolder.name")).setDesc(t("settings.dropboxFolder.desc"));
+		const folderNote = note(folder);
+		let folderRejected = false;
+		folder.addText((text) => {
+			text.setValue(stored.dropboxFolder);
+			const commit = (): void => {
+				const value = dropboxFolderToStore(text.getValue());
+				if (value === null) {
+					folderNote.setText(t("settings.dropboxFolder.invalid"));
+					folderRejected = true;
+					return;
+				}
+				text.setValue(value);
+				folderNote.setText("");
+				folderRejected = false;
+				this.change((current) => (current.dropboxFolder === value ? current : { ...current, dropboxFolder: value }));
+			};
+			text.inputEl.addEventListener("change", commit);
+			this.commits.push(commit);
+		});
+		return () => (folderRejected ? t("check.dropbox.noFolder") : null);
+	}
+
+	/** Draws the screen again, when it is shown: after the connection to Dropbox changed from outside it. */
+	redrawIfShown(): void {
+		if (this.containerEl.isShown()) this.display();
 	}
 
 	/**

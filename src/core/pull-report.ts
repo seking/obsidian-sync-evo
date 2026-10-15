@@ -26,7 +26,8 @@ import type {
 	PullWaitReason,
 } from "./pull-io";
 import type { PushCounts } from "./push-pending";
-import { type Connection, type DeviceSettings, parseRepository } from "./settings";
+import { placeWords, type RemotePlace } from "./remote-place";
+import { type DeviceSettings, parseRepository } from "./settings";
 
 /** How many paths a confirmation lists before it only counts them. */
 export const CONFIRM_LIST_LIMIT = 50;
@@ -79,13 +80,13 @@ export type FirstFetchQuestion = Question;
  */
 export function firstFetchQuestion(
 	t: Translate,
-	connection: Pick<Connection, "repository" | "branch">,
+	connection: RemotePlace,
 	request: FirstFetchRequest,
 ): FirstFetchQuestion {
 	const { files, discardsState } = request;
-	const target = { repository: connection.repository, branch: connection.branch };
+	const words = placeWords(t, connection);
 	const parts: QuestionPart[] = [
-		{ text: discardsState ? t("confirm.startOver.body", target) : t("confirm.firstFetch.body", target) },
+		{ text: discardsState ? t("confirm.startOver.body", words) : t("confirm.firstFetch.body", words) },
 	];
 	const listed = (text: string, paths: readonly string[]): void => {
 		parts.push({ text, paths: capList(paths, CONFIRM_LIST_LIMIT) });
@@ -190,6 +191,13 @@ export function failureReason(t: Translate, settings: DeviceSettings, error: unk
 	const detail = error instanceof Error ? error.message : String(error);
 	const kind: BackendErrorKind = error instanceof BackendError ? error.kind : "other";
 
+	if (settings.backend === "dropbox") {
+		// No token, repository or branch of the user's to name: what is
+		// wrong is the connection, or the network.
+		if (kind === "unauthorized") return t("check.dropbox.unauthorized");
+		if (kind === "forbidden") return t("check.dropbox.forbidden");
+		if (kind === "not-found" || kind === "branch-not-found") return t("pull.error.other", { detail });
+	}
 	switch (kind) {
 		case "unauthorized":
 			return t("check.unauthorized");

@@ -41,6 +41,8 @@ const settings = {
 	repository: "octo/notes",
 	branch: "main",
 	tokenSecret: "t",
+	dropboxFolder: "",
+	dropboxAccount: null,
 	deviceName: "iPhone",
 	autoSync: DEFAULT_AUTO_SYNC,
 	onConflict: "copy",

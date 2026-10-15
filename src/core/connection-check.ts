@@ -16,7 +16,7 @@
 import { BackendError, type BackendErrorKind } from "./backend";
 import type { GitHubClient } from "./github/client";
 import type { Translate } from "./i18n";
-import { type DeviceSettings, parseRepository } from "./settings";
+import { type DeviceSettings, dropboxFolderToStore, parseRepository } from "./settings";
 
 export type ConnectionCheck =
 	| { readonly status: "connected"; readonly head: string }
@@ -39,15 +39,28 @@ export async function checkConnection(client: Pick<GitHubClient, "resolveHead">)
 	}
 }
 
-/** What the settings lack for a request to be worth sending. */
-export type NotReadyReason = "repository" | "branch" | "token-secret" | "token-value";
+/**
+ * What the settings lack for a request to be worth sending. "dropbox-folder":
+ * no folder of the vault on Dropbox is set. "dropbox-account": this device
+ * is not connected to Dropbox, or no longer.
+ */
+export type NotReadyReason = "repository" | "branch" | "token-secret" | "token-value" | "dropbox-folder" | "dropbox-account";
 
-export interface CheckTarget {
+export interface GitHubCheckTarget {
+	readonly kind?: "github";
 	readonly owner: string;
 	readonly repo: string;
 	readonly branch: string;
 	readonly token: string;
 }
+
+export interface DropboxCheckTarget {
+	readonly kind: "dropbox";
+	readonly folder: string;
+	readonly refreshToken: string;
+}
+
+export type CheckTarget = GitHubCheckTarget | DropboxCheckTarget;
 
 export type CheckPreparation =
 	| { readonly status: "ready"; readonly target: CheckTarget }
@@ -61,7 +74,15 @@ export type CheckPreparation =
 export function prepareCheck(
 	settings: DeviceSettings,
 	readSecret: (name: string) => string | null,
+	readDropboxToken: () => string | null = () => null,
 ): CheckPreparation {
+	if (settings.backend === "dropbox") {
+		const folder = dropboxFolderToStore(settings.dropboxFolder);
+		if (folder === null) return { status: "not-ready", reason: "dropbox-folder" };
+		const refreshToken = settings.dropboxAccount === null ? null : readDropboxToken();
+		if (refreshToken === null || refreshToken === "") return { status: "not-ready", reason: "dropbox-account" };
+		return { status: "ready", target: { kind: "dropbox", folder, refreshToken } };
+	}
 	const repository = parseRepository(settings.repository);
 	if (repository === null) return { status: "not-ready", reason: "repository" };
 	const branch = settings.branch.trim();
@@ -82,12 +103,22 @@ export type CheckOutcome = ConnectionCheck | { readonly status: "not-ready"; rea
 export async function runConnectionCheck(
 	settings: DeviceSettings,
 	readSecret: (name: string) => string | null,
-	clientFor: (target: CheckTarget) => Pick<GitHubClient, "resolveHead">,
+	clientFor: (target: GitHubCheckTarget) => Pick<GitHubClient, "resolveHead">,
+	dropbox?: {
+		readonly readToken: () => string | null;
+		/** Asks Dropbox about the folder; never throws. */
+		readonly check: (target: DropboxCheckTarget) => Promise<ConnectionCheck>;
+	},
 ): Promise<CheckOutcome> {
 	try {
-		const prepared = prepareCheck(settings, readSecret);
+		const prepared = prepareCheck(settings, readSecret, dropbox?.readToken);
 		if (prepared.status === "not-ready") return prepared;
-		return await checkConnection(clientFor(prepared.target));
+		const { target } = prepared;
+		if (target.kind === "dropbox") {
+			if (dropbox === undefined) return { status: "failed", kind: "other", detail: "no way to reach Dropbox" };
+			return await dropbox.check(target);
+		}
+		return await checkConnection(clientFor(target));
 	} catch (error) {
 		return { status: "failed", kind: "other", detail: error instanceof Error ? error.message : String(error) };
 	}
@@ -98,8 +129,29 @@ export function isSuccess(outcome: CheckOutcome): boolean {
 	return outcome.status === "connected" || outcome.status === "empty";
 }
 
+/**
+ * Asks Dropbox about the folder of the vault, with an access token taken
+ * again from the refresh token (R-4): connected when it is there, empty
+ * when it is not yet, which the first upload makes it. Never throws.
+ */
+export async function checkDropboxFolder(
+	client: { rpc(endpoint: string, arg: unknown): Promise<unknown> },
+	folder: string,
+): Promise<ConnectionCheck> {
+	try {
+		await client.rpc("files/get_metadata", { path: `/${folder}` });
+		return { status: "connected", head: "" };
+	} catch (error) {
+		if (error instanceof BackendError) {
+			return error.kind === "not-found" ? { status: "empty" } : { status: "failed", kind: error.kind, detail: error.message };
+		}
+		return { status: "failed", kind: "other", detail: error instanceof Error ? error.message : String(error) };
+	}
+}
+
 /** The text to show for an outcome. `settings` are the ones the test was run with. */
 export function connectionCheckText(t: Translate, settings: DeviceSettings, outcome: CheckOutcome): string {
+	if (settings.backend === "dropbox") return dropboxCheckText(t, settings, outcome);
 	const parsed = parseRepository(settings.repository);
 	const repository = parsed === null ? settings.repository.trim() : `${parsed.owner}/${parsed.repo}`;
 	const branch = settings.branch.trim();
@@ -116,6 +168,11 @@ export function connectionCheckText(t: Translate, settings: DeviceSettings, outc
 				return t("check.noTokenSecret");
 			case "token-value":
 				return t("check.noTokenValue", { name: settings.tokenSecret });
+			// Of Dropbox: not met with GitHub chosen.
+			case "dropbox-folder":
+				return t("check.dropbox.noFolder");
+			case "dropbox-account":
+				return t("check.dropbox.notConnected");
 		}
 	}
 	switch (outcome.kind) {
@@ -144,6 +201,27 @@ export function connectionCheckText(t: Translate, settings: DeviceSettings, outc
 			return t("check.other", { detail: outcome.detail });
 		default:
 			return unhandled(outcome.kind);
+	}
+}
+
+function dropboxCheckText(t: Translate, settings: DeviceSettings, outcome: CheckOutcome): string {
+	const folder = settings.dropboxFolder.trim();
+	if (outcome.status === "connected") return t("check.dropbox.connected", { folder });
+	if (outcome.status === "empty") return t("check.dropbox.empty", { folder });
+	if (outcome.status === "not-ready") {
+		return outcome.reason === "dropbox-folder" ? t("check.dropbox.noFolder") : t("check.dropbox.notConnected");
+	}
+	switch (outcome.kind) {
+		case "unauthorized":
+			return t("check.dropbox.unauthorized");
+		case "forbidden":
+			return t("check.dropbox.forbidden");
+		case "unreachable":
+			return t("check.unreachable");
+		case "rate-limited":
+			return t("check.rateLimited");
+		default:
+			return t("check.other", { detail: outcome.detail });
 	}
 }
 

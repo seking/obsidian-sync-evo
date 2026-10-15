@@ -215,6 +215,12 @@ export type UpdateRefResult =
 	/** The branch no longer points at an ancestor of the new commit. Nothing was changed. */
 	| { readonly status: "stale" };
 
+/** The size of a body on the wire, without building the bytes. */
+function bodyLength(body: string | ArrayBuffer | undefined): number {
+	if (body === undefined) return 0;
+	return typeof body === "string" ? utf8Length(body) : body.byteLength;
+}
+
 /** The size of a string on the wire, without building the bytes. */
 function utf8Length(text: string): number {
 	let bytes = 0;
@@ -494,7 +500,7 @@ export class GitHubClient {
 		const encoded = path.split("/").map(encodeURIComponent).join("/");
 		const body = { message, content: encodeBase64(content), branch: this.options.branch };
 		const request = this.write("PUT", `/contents/${encoded}`, body);
-		const response = await this.send(what, request, this.transferTimeout(utf8Length(request.body ?? "")));
+		const response = await this.send(what, request, this.transferTimeout(bodyLength(request.body)));
 		// A file that is there is only replaced when its sha is named.
 		if (response.status === 422 && /sha/i.test(messageOf(response))) return "exists";
 		if (response.status !== 201) throw this.writeFailure(what, response);
@@ -670,7 +676,7 @@ export class GitHubClient {
 	/** Sends a request that creates a git object and answers with the sha of that object. */
 	private async created(what: string, request: HttpRequest): Promise<string> {
 		// Inline content makes the body of a tree as large as a blob's.
-		const json = await this.json(what, request, 201, this.transferTimeout(utf8Length(request.body ?? "")));
+		const json = await this.json(what, request, 201, this.transferTimeout(bodyLength(request.body)));
 		if (!isSha(json.sha)) throw this.malformed(what);
 		return json.sha;
 	}

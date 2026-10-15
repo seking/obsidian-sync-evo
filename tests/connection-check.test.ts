@@ -16,11 +16,13 @@ import {
 	type CheckOutcome,
 	type CheckTarget,
 	checkConnection,
+	checkDropboxFolder,
 	connectionCheckText,
 	isSuccess,
 	prepareCheck,
 	runConnectionCheck,
 } from "../src/core/connection-check";
+import { DropboxApiError } from "../src/core/dropbox/client";
 import { GitHubClient, type HeadResult } from "../src/core/github/client";
 import type { HttpRequest, HttpResponse } from "../src/core/github/http";
 import { translatorFor } from "../src/core/i18n";
@@ -34,6 +36,8 @@ const settings = (over: Partial<DeviceSettings> = {}): DeviceSettings => ({
 	repository: "octo/notes",
 	branch: "main",
 	tokenSecret: "github-token",
+	dropboxFolder: "",
+	dropboxAccount: null,
 	deviceName: "Mac",
 	autoSync: DEFAULT_AUTO_SYNC,
 	onConflict: "copy",
@@ -318,5 +322,170 @@ describe("the text for each outcome", () => {
 		expect(lacking).not.toMatch(/expired/);
 		expect(lacking).toMatch(/permission/);
 		expect(expired).not.toMatch(/permission/);
+	});
+});
+
+describe("checking the connection to Dropbox", () => {
+	const ACCOUNT = { id: "dbid:1", email: "a@example.com" };
+	const REFRESH = "dropbox-refresh-SECRET";
+	const dropbox = (over: Partial<DeviceSettings> = {}): DeviceSettings =>
+		settings({ backend: "dropbox", dropboxFolder: "Vault", dropboxAccount: ACCOUNT, ...over });
+	const noSecret = (): string | null => null;
+
+	test("ready with a folder, an account, and a refresh token", () => {
+		expect(prepareCheck(dropbox({ dropboxFolder: " Vault " }), noSecret, () => REFRESH)).toEqual({
+			status: "ready",
+			target: { kind: "dropbox", folder: "Vault", refreshToken: REFRESH },
+		});
+	});
+
+	test.each<[string, Partial<DeviceSettings>, string | null, string]>([
+		["no folder", { dropboxFolder: "" }, REFRESH, "dropbox-folder"],
+		["a folder with a slash", { dropboxFolder: "a/b" }, REFRESH, "dropbox-folder"],
+		["no account", { dropboxAccount: null }, REFRESH, "dropbox-account"],
+		["no refresh token", {}, null, "dropbox-account"],
+		["an empty refresh token", {}, "", "dropbox-account"],
+		// The first thing missing is the one reported.
+		["nothing at all", { dropboxFolder: "", dropboxAccount: null }, null, "dropbox-folder"],
+	])("not ready with %s", (_what, over, token, reason) => {
+		expect(prepareCheck(dropbox(over), noSecret, () => token)).toEqual({ status: "not-ready", reason });
+	});
+
+	test("without a way to read the refresh token, it is not connected", () => {
+		expect(prepareCheck(dropbox(), noSecret)).toEqual({ status: "not-ready", reason: "dropbox-account" });
+	});
+
+	test("the refresh token is not read without an account", () => {
+		let read = 0;
+		prepareCheck(dropbox({ dropboxAccount: null }), noSecret, () => {
+			read += 1;
+			return REFRESH;
+		});
+		expect(read).toBe(0);
+	});
+
+	test("the whole check asks Dropbox about the folder, and builds no GitHub client", async () => {
+		const targets: unknown[] = [];
+		const outcome = await runConnectionCheck(
+			dropbox(),
+			noSecret,
+			() => {
+				throw new Error("no GitHub client for Dropbox");
+			},
+			{
+				readToken: () => REFRESH,
+				check: async (target) => {
+					targets.push(target);
+					return { status: "empty" };
+				},
+			},
+		);
+		expect(outcome).toEqual({ status: "empty" });
+		expect(targets).toEqual([{ kind: "dropbox", folder: "Vault", refreshToken: REFRESH }]);
+	});
+
+	test("settings that are not ready ask Dropbox nothing", async () => {
+		let asked = 0;
+		const outcome = await runConnectionCheck(dropbox({ dropboxFolder: "" }), noSecret, () => clientOf({ status: "empty" }), {
+			readToken: () => REFRESH,
+			check: async () => {
+				asked += 1;
+				return { status: "empty" };
+			},
+		});
+		expect(outcome).toEqual({ status: "not-ready", reason: "dropbox-folder" });
+		expect(asked).toBe(0);
+	});
+
+	test("the whole check without a way to read the refresh token is not connected, and does not throw", async () => {
+		expect(await runConnectionCheck(dropbox(), noSecret, () => clientOf({ status: "empty" }))).toEqual({
+			status: "not-ready",
+			reason: "dropbox-account",
+		});
+	});
+
+	describe("asking about the folder", () => {
+		const clientThat = (answer: () => unknown) => {
+			const calls: [string, unknown][] = [];
+			return {
+				calls,
+				client: {
+					rpc: async (endpoint: string, arg: unknown): Promise<unknown> => {
+						calls.push([endpoint, arg]);
+						return answer();
+					},
+				},
+			};
+		};
+
+		test("a folder that is there is connected, asked for by its path in the app folder", async () => {
+			const { client, calls } = clientThat(() => ({ ".tag": "folder", name: "Vault" }));
+			expect(await checkDropboxFolder(client, "Vault")).toEqual({ status: "connected", head: "" });
+			expect(calls).toEqual([["files/get_metadata", { path: "/Vault" }]]);
+		});
+
+		test("a folder that is not there yet is empty, a result of its own", async () => {
+			const { client } = clientThat(() => {
+				throw new DropboxApiError("get metadata", "path/not_found/..");
+			});
+			const result = await checkDropboxFolder(client, "Vault");
+			expect(result).toEqual({ status: "empty" });
+			expect(isSuccess(result)).toBe(true);
+		});
+
+		test.each<[string, unknown, CheckOutcome]>([
+			["another error of Dropbox", new DropboxApiError("get metadata", "path/malformed_path/"), { status: "failed", kind: "other", detail: "get metadata: path/malformed_path/" }],
+			["a connection Dropbox refuses", new BackendError("unauthorized", "expired"), { status: "failed", kind: "unauthorized", detail: "expired" }],
+			["no network", new BackendError("unreachable", "offline"), { status: "failed", kind: "unreachable", detail: "offline" }],
+			["an error that is not from the backend", new TypeError("bad thing"), { status: "failed", kind: "other", detail: "bad thing" }],
+		])("%s is a failure", async (_what, thrown, expected) => {
+			const { client } = clientThat(() => {
+				throw thrown;
+			});
+			expect(await checkDropboxFolder(client, "Vault")).toEqual(expected);
+		});
+	});
+
+	describe("the texts", () => {
+		const outcomes: [string, CheckOutcome][] = [
+			["connected", { status: "connected", head: "" }],
+			["empty", { status: "empty" }],
+			["unauthorized", { status: "failed", kind: "unauthorized", detail: "d" }],
+			["forbidden", { status: "failed", kind: "forbidden", detail: "d" }],
+			["unreachable", { status: "failed", kind: "unreachable", detail: "d" }],
+			["rate-limited", { status: "failed", kind: "rate-limited", detail: "d" }],
+			["other", { status: "failed", kind: "other", detail: "d" }],
+			["no folder", { status: "not-ready", reason: "dropbox-folder" }],
+			["not connected", { status: "not-ready", reason: "dropbox-account" }],
+		];
+
+		test.each(["en", "ja"])("in %s, every outcome has a text of its own, with every placeholder filled", (language) => {
+			const t = translatorFor(language);
+			const texts = outcomes.map(([, outcome]) => connectionCheckText(t, dropbox(), outcome));
+			expect(new Set(texts).size).toBe(outcomes.length);
+			for (const text of texts) {
+				expect(text.trim()).not.toBe("");
+				expect(text).not.toMatch(/[{}]/);
+			}
+		});
+
+		test("connected and empty name the folder in the app folder, and nothing of GitHub", () => {
+			const t = translatorFor("en");
+			for (const outcome of [{ status: "connected", head: "" }, { status: "empty" }] as const) {
+				const text = connectionCheckText(t, dropbox(), outcome);
+				expect(text).toContain("Apps/Sync Evo/Vault");
+				expect(text).not.toContain("octo/notes");
+			}
+		});
+
+		test("a refused connection and a lacking permission read as Dropbox's", () => {
+			const t = translatorFor("en");
+			expect(connectionCheckText(t, dropbox(), { status: "failed", kind: "unauthorized", detail: "d" })).toBe(
+				t("check.dropbox.unauthorized"),
+			);
+			expect(connectionCheckText(t, dropbox(), { status: "failed", kind: "forbidden", detail: "d" })).toBe(
+				t("check.dropbox.forbidden"),
+			);
+		});
 	});
 });

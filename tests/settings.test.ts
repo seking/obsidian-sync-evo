@@ -39,6 +39,8 @@ const settings = (over: Partial<DeviceSettings> = {}): DeviceSettings => ({
 	repository: "octo/notes",
 	branch: "main",
 	tokenSecret: "github-token",
+	dropboxFolder: "",
+	dropboxAccount: null,
 	deviceName: "Mac",
 	autoSync: DEFAULT_AUTO_SYNC,
 	onConflict: "copy",
@@ -54,6 +56,8 @@ describe("the default settings", () => {
 			repository: "",
 			branch: "main",
 			tokenSecret: "",
+			dropboxFolder: "",
+			dropboxAccount: null,
 			deviceName: "iPhone",
 			autoSync: { onStartup: false, atInterval: false, intervalMinutes: 15, sendsChanges: false },
 			onConflict: "merge",
@@ -87,6 +91,8 @@ describe("reading stored settings", () => {
 			repository: "octo/notes",
 			branch: "main",
 			tokenSecret: "github-token",
+			dropboxFolder: "",
+			dropboxAccount: null,
 			deviceName: "Mac",
 			autoSync: { onStartup: false, atInterval: false, intervalMinutes: 15, sendsChanges: false },
 			onConflict: "copy",
@@ -150,7 +156,7 @@ describe("reading stored settings", () => {
 	});
 
 	test.each<[string, unknown]>([
-		["the next version", { ...serializeSettings(settings()), version: 2 }],
+		["the version after Dropbox", { ...serializeSettings(settings()), version: 3 }],
 		["a far newer version", { version: 100 }],
 		["a version between this and the next", { ...serializeSettings(settings()), version: 1.5 }],
 	])("%s is a newer version", (_what, raw) => {
@@ -214,6 +220,29 @@ describe("reading stored settings", () => {
 	test("a stored repository is read in its form", () => {
 		const parsed = parseSettings({ ...serializeSettings(settings()), repository: "https://github.com/octo/notes" }, "Mac");
 		expect(parsed).toEqual({ status: "ok", settings: settings({ repository: "octo/notes" }) });
+	});
+
+	test("Dropbox, its folder, and its account are read back", () => {
+		const saved = settings({ backend: "dropbox", dropboxFolder: "Vault", dropboxAccount: { id: "dbid:1", email: "a@example.com" } });
+		expect(parseSettings(JSON.parse(JSON.stringify(serializeSettings(saved))), "Mac")).toEqual({ status: "ok", settings: saved });
+	});
+
+	test.each(["", "  ", "a/b", "a\\b", ".", "..", 3, null])("a stored Dropbox folder of %j is stored as none", (dropboxFolder) => {
+		const parsed = parseSettings({ ...serializeSettings(settings()), dropboxFolder }, "Mac");
+		expect(parsed.status === "ok" && parsed.settings.dropboxFolder).toBe("");
+	});
+
+	test.each<[string, unknown]>([
+		["nothing", undefined],
+		["text", "dbid:1"],
+		["no id", { email: "a@example.com" }],
+		["an empty id", { id: "", email: "a@example.com" }],
+		["an id that is a number", { id: 1, email: "a@example.com" }],
+		["no email", { id: "dbid:1" }],
+		["a list", ["dbid:1", "a@example.com"]],
+	])("a stored Dropbox account with %s is none", (_what, dropboxAccount) => {
+		const parsed = parseSettings({ ...serializeSettings(settings()), dropboxAccount }, "Mac");
+		expect(parsed.status === "ok" && parsed.settings.dropboxAccount).toBeNull();
 	});
 
 	test("an object with accessors that throw does not make the read throw", () => {
@@ -415,6 +444,18 @@ describe("the connection of the settings", () => {
 		expect(connectionOf(settings(over))).toBeNull();
 	});
 
+	test("with Dropbox, is the account and the folder, and needs both", () => {
+		const account = { id: "dbid:1", email: "a@example.com" };
+		expect(connectionOf(settings({ backend: "dropbox", dropboxFolder: " Vault ", dropboxAccount: account }))).toEqual({
+			backend: "dropbox",
+			account: "dbid:1",
+			folder: "Vault",
+		});
+		expect(connectionOf(settings({ backend: "dropbox", dropboxFolder: "Vault", dropboxAccount: null }))).toBeNull();
+		expect(connectionOf(settings({ backend: "dropbox", dropboxFolder: "", dropboxAccount: account }))).toBeNull();
+		expect(connectionOf(settings({ backend: "dropbox", dropboxFolder: "a/b", dropboxAccount: account }))).toBeNull();
+	});
+
 	test("there is one without a token secret or with any device name", () => {
 		expect(connectionOf(settings({ tokenSecret: "" }))).not.toBeNull();
 	});
@@ -434,6 +475,18 @@ describe("a change of the connection", () => {
 		["a branch that differs in case only", a, { ...a, branch: "Main" }, "changed"],
 		["a repository that differs in case only", a, { ...a, repository: "Octo/Notes" }, "none"],
 		["an owner that differs in case only", a, { ...a, repository: "OCTO/notes" }, "none"],
+	])("%s is %j", (_what, before, after, expected) => {
+		expect(connectionChange(before, after)).toBe(expected);
+	});
+
+	const box: Connection = { backend: "dropbox", account: "dbid:1", folder: "Vault" };
+
+	test.each<[string, Connection | null, Connection | null, string]>([
+		["the same Dropbox account and a folder that differs in case only", box, { ...box, folder: "vault" }, "none"],
+		["another Dropbox account", box, { ...box, account: "dbid:2" }, "changed"],
+		["another Dropbox folder", box, { ...box, folder: "Other" }, "changed"],
+		["GitHub to Dropbox", a, box, "changed"],
+		["Dropbox to GitHub", box, a, "changed"],
 	])("%s is %j", (_what, before, after, expected) => {
 		expect(connectionChange(before, after)).toBe(expected);
 	});
@@ -585,3 +638,15 @@ describe("the settings of automatic sync", () => {
 		expect(connectionChange(connectionOf(before), connectionOf(after))).toBe("none");
 	});
 });
+
+describe("the version settings are stored as", () => {
+	test("with GitHub chosen, the one before Dropbox; with Dropbox, the next, which an older version reads as newer", () => {
+		expect(serializeSettings(settings()).version).toBe(1);
+		const dropbox: DeviceSettings = { ...settings(), backend: "dropbox", dropboxFolder: "Vault", dropboxAccount: { id: "dbid:1", email: "a@example.com" } };
+		const stored = serializeSettings(dropbox);
+		expect(stored.version).toBe(2);
+		expect(parseSettings(JSON.parse(JSON.stringify(stored)), "Mac")).toEqual({ status: "ok", settings: dropbox });
+		expect(parseSettings({ ...stored, version: 3 }, "Mac")).toEqual({ status: "newer-version" });
+	});
+});
+

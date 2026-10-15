@@ -129,6 +129,8 @@ function setup(over: Partial<DeviceSettings> = {}, files: Record<string, string>
 		repository: "octo/notes",
 		branch: "main",
 		tokenSecret: "github-token",
+		dropboxFolder: "",
+		dropboxAccount: null,
 		deviceName: "iPhone",
 		autoSync: { ...DEFAULT_AUTO_SYNC, onStartup: true, atInterval: true },
 		onConflict: "copy",

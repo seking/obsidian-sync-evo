@@ -14,10 +14,10 @@ import type { Translate } from "../core/i18n";
 import type { ConfirmPull, PullAnswer, PullConfirmRequest } from "../core/pull-io";
 import type { PullLoss } from "../core/pull-plan";
 import { type CappedList, CONFIRM_LIST_LIMIT, capList, firstFetchQuestion } from "../core/pull-report";
-import type { Connection } from "../core/settings";
+import type { RemotePlace } from "../core/remote-place";
 
-/** Where a pull fetches from, as the question before a first fetch names it. `repository` is `owner/name`. */
-export type PullTarget = Pick<Connection, "repository" | "branch">;
+/** Where a pull fetches from, as the question before a first fetch names it. */
+export type PullTarget = RemotePlace;
 
 /**
  * Asks in a dialog. Closing it in any way but a button is "cancel", and so

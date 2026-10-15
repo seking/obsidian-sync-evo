@@ -120,7 +120,7 @@ export interface ArchiveContents {
 }
 
 /** Why a remote would not take one file of a push (`PushFile.refused`). */
-export type PushRefusal = "too-large" | "workflows" | "changed";
+export type PushRefusal = "too-large" | "workflows" | "changed" | "no-space";
 
 export interface PushFile {
 	/** Path as it should appear on the remote. */
@@ -160,6 +160,7 @@ export interface PushFile {
 	 * file than `replaces` names, or a file where none was listed: another
 	 * device wrote it first. Only on a remote that writes file by file
 	 * (`RemoteEntry.version`); the next pull takes it as a conflict.
+	 * "no-space": the account on the remote has no room left for it.
 	 */
 	refused?(reason: PushRefusal): void;
 }
@@ -298,6 +299,13 @@ export type StartResult =
 			readonly revision: string;
 			/** The file as the remote now holds it. */
 			readonly entry: RemoteEntry;
+			/**
+			 * Everything `revision` holds, where that can be more than the
+			 * one file: on a remote whose revision is a moment and not a
+			 * commit, another device may have written beside it. Absent,
+			 * the revision holds `entry` alone.
+			 */
+			readonly listing?: RemoteListing;
 	  }
 	/** The remote has a revision by now. Nothing was changed. */
 	| { readonly status: "stale" }

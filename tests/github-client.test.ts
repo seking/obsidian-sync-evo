@@ -89,7 +89,7 @@ class FakeHttp {
 	}
 
 	body(index: number): unknown {
-		return JSON.parse(this.request(index).body ?? "null");
+		return JSON.parse((this.request(index).body as string | undefined) ?? "null");
 	}
 }
 

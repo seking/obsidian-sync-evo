@@ -40,6 +40,8 @@ const settings: DeviceSettings = {
 	repository: "octo/notes",
 	branch: "main",
 	tokenSecret: "github-token",
+	dropboxFolder: "",
+	dropboxAccount: null,
 	deviceName: "iPhone",
 	autoSync: DEFAULT_AUTO_SYNC,
 	onConflict: "copy",

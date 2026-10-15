@@ -36,6 +36,18 @@ export const ja = completeTranslation(en, {
 	"vaultConfig.communityPlugins.desc": "インストールされているコミュニティプラグイン（.js、.css、manifest.json のファイル）と、その設定を同期します。",
 
 	"settings.connection.heading": "接続",
+	"settings.service.name": "サービス",
+	"settings.service.desc": "この保管庫を同期する先です。変えると、同期を最初からやり直します。",
+	"settings.dropbox.name": "Dropbox",
+	"settings.dropbox.desc":
+		"「接続する」を押すと、ブラウザで Dropbox が開きます。ログインして「許可」を押すと、Obsidian に戻ります。利用者が少ないアプリだという警告が出たら、「続行」で進めます。",
+	"settings.dropbox.connected": "接続中：{email}",
+	"settings.dropbox.connect": "接続する",
+	"settings.dropbox.disconnect": "接続を解除",
+	"settings.dropboxFolder.name": "フォルダ",
+	"settings.dropboxFolder.desc":
+		"Dropbox の アプリ/Sync Evo の中の、この保管庫のフォルダの名前です。同じ名前にしたデバイスどうしが同期します。変えると、同期を最初からやり直します。",
+	"settings.dropboxFolder.invalid": "フォルダの名前にならないため、保存されていません。空にせず、/ や \\ を入れないでください。",
 	"settings.repository.name": "リポジトリ",
 	"settings.repository.desc": "同期する GitHub のリポジトリです。owner/name の形で入力するか、ブラウザのアドレスを貼り付けます。",
 	"settings.repository.placeholder": "owner/name",
@@ -180,6 +192,20 @@ export const ja = completeTranslation(en, {
 	"settings.exclusion.write.failed": ".gitignore を変更していません：{detail}",
 
 	"check.connected": "{repository} のブランチ {branch} に接続できました。",
+	"dropbox.connected": "Dropbox に接続しました（{email}）。",
+	"dropbox.denied": "Dropbox に接続していません。許可されませんでした。",
+	"dropbox.notWaited":
+		"この保管庫が待っていない接続が、Dropbox から戻りました。「接続する」を押した保管庫を開き、そこでもう一度押してください。",
+	"dropbox.signInFailed": "Dropbox に接続できませんでした。もう一度「接続する」を押してください。（{detail}）",
+	"dropbox.revokeFailed":
+		"このデバイスの接続は解除しましたが、Dropbox に伝えられませんでした。Dropbox の設定の「連携アプリ」から、Sync Evo を外してください。",
+	"check.dropbox.connected": "Dropbox に接続できました。アプリ/Sync Evo/{folder} フォルダがあります。",
+	"check.dropbox.empty": "Dropbox に接続できました。アプリ/Sync Evo/{folder} フォルダは、まだありません。最初のアップロードで作ります。",
+	"check.dropbox.noFolder": "先に、Dropbox のフォルダの名前を入れてください。",
+	"check.dropbox.notConnected": "このデバイスは Dropbox に接続していません。Sync Evo の設定画面で「接続する」を押してください。",
+	"check.dropbox.unauthorized":
+		"Dropbox が、このデバイスの接続を受け付けなくなりました。Dropbox の設定で連携が外された可能性があります。Sync Evo の設定画面で、接続し直してください。",
+	"check.dropbox.forbidden": "Dropbox が、フォルダを読むことを許しませんでした。Sync Evo の設定画面で、接続し直してください。",
 	"check.empty": "{repository} に接続できました。リポジトリは空です。",
 	"check.unauthorized":
 		"GitHub がトークンを受け付けませんでした。トークンが間違っているか、取り消されたか、期限が切れています。新しいトークンを作り、選択中のシークレットに保存してください。",
@@ -413,6 +439,8 @@ export const ja = completeTranslation(en, {
 		"{count} 件のファイルを、アップロードしていません。アップロードの途中で {limit}MB を超えました。{limit}MB を超えるファイルは同期しません：\n{list}",
 	"push.refusedSize":
 		"{count} 件のファイルを、アップロードしていません。GitHub が、大きすぎるとして受け付けませんでした。このファイルは、小さくするか、保管庫の外へ移してください。{remote} にまだ無いファイルは、除外してもアップロードしなくなります。競合ファイルなら、中身を確かめてから削除してください：\n{list}",
+	"push.refusedSpace":
+		"{count} 件のファイルを、アップロードしていません。{remote} の容量が足りません。{remote} で空きを作ると、次の同期でアップロードします：\n{list}",
 	"push.refusedWorkflows":
 		"{count} 件のファイルを、アップロードしていません。.github/workflows/ の下のファイルを足すか変えるには、トークンに Workflows の読み取りと書き込みの権限が要ります。トークンに権限を足すと、次の同期でアップロードします。足さない時は、このファイルを元の内容に戻して、変更はパソコンの git で行ってください。前の版の Sync Evo が残した競合ファイル（名前に .conflict-from- が入る物）なら、中身を確かめてから削除してください：\n{list}",
 	"push.remoteChanged":
@@ -475,7 +503,11 @@ export const ja = completeTranslation(en, {
 		"このデバイスにあるファイル {count} 件が、{remote} で削除されたか、シンボリックリンクに変わっています。ダウンロードすると、このデバイスから削除されます。",
 	"confirm.delete.note": "やめた場合は、何もダウンロードせず、何も変更しません。",
 	"confirm.firstFetch.title": "最初のダウンロードの確認",
-	"confirm.firstFetch.body": "{repository} のブランチ {branch} から、この保管庫に初めてダウンロードします。この保管庫には、すでにファイルがあります。",
+	"place.repository": "{repository} のブランチ {branch}",
+	"place.folder": "Dropbox の「アプリ/Sync Evo/{folder}」フォルダ",
+	"remotePlace.repository": "{remote}（{repository} のブランチ {branch}）",
+	"remotePlace.folder": "Dropbox の「アプリ/Sync Evo/{folder}」フォルダ",
+	"confirm.firstFetch.body": "{place} から、この保管庫に初めてダウンロードします。この保管庫には、すでにファイルがあります。",
 	"confirm.firstFetch.different":
 		"{remote} と中身が違うファイル：{count} 件。{remote} の内容に書き換えます。このデバイスの内容は、_conflicts/ フォルダに競合ファイルとして残します。",
 	"confirm.firstFetch.differentSettings":
@@ -486,7 +518,7 @@ export const ja = completeTranslation(en, {
 		"{remote} でシンボリックリンクになっているパスにあるファイル：{count} 件。比べずに、そのまま残します。",
 	"confirm.firstPush.title": "最初のアップロードの確認",
 	"confirm.firstPush.body":
-		"このデバイスから {repository} のブランチ {branch} へ、初めてアップロードします。{remote} を、下のとおりに変更します。アップロードが1回済むと、次からのアップロードでは、この一覧を出しません。",
+		"このデバイスから {place} へ、初めてアップロードします。{remote} を、下のとおりに変更します。アップロードが1回済むと、次からのアップロードでは、この一覧を出しません。",
 	"confirm.firstPush.remoteEmpty":
 		"リポジトリは空です。この保管庫に .gitignore が無い時は、空の .gitignore を作ってアップロードします。",
 	"confirm.firstPush.remoteEmptyWithGitignore": "リポジトリは空です。",
@@ -498,9 +530,9 @@ export const ja = completeTranslation(en, {
 	"confirm.pushDelete.alsoSent": "同じアップロードに、下のファイルも入ります。",
 	"confirm.emptyVault.title": "保管庫にファイルがありません",
 	"confirm.emptyVault.bodyOne":
-		"前に同期したファイル {count} 件が、このデバイスにありません。保管庫を作り直した時や、フォルダを消した時に、こうなります。{remote}（{repository} のブランチ {branch}）には、まだあります。",
+		"前に同期したファイル {count} 件が、このデバイスにありません。保管庫を作り直した時や、フォルダを消した時に、こうなります。{remotePlace}には、まだあります。",
 	"confirm.emptyVault.body":
-		"前に同期したファイル {count} 件が、このデバイスに1つもありません。保管庫を作り直した時や、フォルダを消した時に、こうなります。{remote}（{repository} のブランチ {branch}）には、まだあります。",
+		"前に同期したファイル {count} 件が、このデバイスに1つもありません。保管庫を作り直した時や、フォルダを消した時に、こうなります。{remotePlace}には、まだあります。",
 	"confirm.emptyVault.refetch": "{remote} からダウンロードし直す",
 	"confirm.emptyVault.refetchNote":
 		"{remote} のファイルを、このデバイスにダウンロードします。{remote} からは、何も消しません。",
@@ -511,7 +543,7 @@ export const ja = completeTranslation(en, {
 	"confirm.push.note": "やめた場合は、何もアップロードせず、何も変更しません。",
 	"confirm.push.noteSection": "やめた場合は、何もアップロードしません。.gitignore に足した行は、このデバイスに残り、次のアップロードに入ります。",
 	"confirm.startOver.title": "最初からやり直す",
-	"confirm.startOver.body": "{remote}（{repository} のブランチ {branch}）と比べ直します。ファイルは、このデバイスでも {remote} でも削除しません。",
+	"confirm.startOver.body": "{remotePlace}と比べ直します。ファイルは、このデバイスでも {remote} でも削除しません。",
 	"confirm.startOver.nothing":
 		"{remote} と中身が違うファイルも、このデバイスにだけあるファイルも、ありません。",
 	"confirm.startOver.note": "やめた場合は、何も変更しません。",
@@ -524,4 +556,29 @@ export const ja = completeTranslation(en, {
 		"「進める」を選ぶと、{remote} に合わせます。これらのファイルは、先にこの保管庫の .trash/ へ移すので、後から戻せます。",
 	"confirm.rewritten.keepNote":
 		"「このデバイスのファイルを残す」を選ぶと、これらのファイルをそのままにして、ほかの変更だけをダウンロードします。「やめる」を選ぶと、何もダウンロードしません。",
+	// What Dropbox has no repository, commit or history for (`DROPBOX_VARIANT`).
+	"check.unreachable.dropbox":
+		"Dropbox に接続できませんでした。ネットワーク接続を確かめて、もう一度試してください。",
+	"check.rateLimited.dropbox":
+		"Dropbox が、しばらく待つよう求めています。しばらくしてから、もう一度試してください。",
+	"confirm.firstPush.remoteEmpty.dropbox":
+		"Dropbox に、このフォルダはまだありません。この保管庫に .gitignore が無い時は、空の .gitignore を作ってアップロードします。",
+	"confirm.firstPush.remoteEmptyWithGitignore.dropbox":
+		"Dropbox に、このフォルダはまだありません。",
+	"pull.remoteEmpty.dropbox":
+		"Dropbox に、このフォルダはまだありません。ダウンロードするものはありません。",
+	"confirm.rewritten.title.dropbox":
+		"Dropbox のフォルダが消えています",
+	"confirm.rewritten.body.dropbox":
+		"Dropbox のこの保管庫のフォルダが、このデバイスが最後に同期した後に、消されたか空になっています。このデバイスからアップロードした変更が、{remote} から消えている可能性があります。{remote} に合わせると、下のファイルがこのデバイスから失われます。",
+	"auto.waiting.rewritten.dropbox":
+		"Dropbox のこの保管庫のフォルダが、消されたか空になっているため、ダウンロードする前に確認が必要です。何も変更していません。手動で同期すると、確認が表示されます。",
+	"push.pullFirst.remoteEmpty.dropbox":
+		"何もアップロードしていません。このデバイスは、前にこのフォルダと同期していますが、Dropbox にフォルダがありません。先にダウンロードを実行して確かめてください。",
+	"untrack.syncFirst.remoteEmpty.dropbox":
+		"{remote} から削除していません。Dropbox にフォルダがありません。先に同期してから、Sync Evo の設定画面で、もう一度行ってください。",
+	"pull.reason.hashMismatch.dropbox":
+		"Dropbox から受け取った内容が、Dropbox の一覧と合いませんでした。",
+	"settings.deviceName.desc.dropbox":
+		"競合ファイルの名前に使われます。",
 });

@@ -48,7 +48,15 @@
 //    and the base revision (`finishPush`).
 
 import { untilAborted } from "./archive-fetch";
-import { type Backend, BackendError, type PushFile, type PushResult, type RemoteEntry, type RemoteListing } from "./backend";
+import {
+	type Backend,
+	BackendError,
+	type PushFile,
+	type PushRefusal as RemoteRefusal,
+	type PushResult,
+	type RemoteEntry,
+	type RemoteListing,
+} from "./backend";
 import { forgetTidiedCopies, readTidiedCopies } from "./conflict-tidy";
 import type { DeviceExclusion } from "./device-exclusion";
 import { createExclusion, type Exclusion, type ExclusionPaths, untrackableByAddedLines } from "./exclusion";
@@ -365,6 +373,9 @@ export type PullFirstReason =
  * remote would not take a workflow file from these credentials. The next
  * push meets the same answer unless something has changed.
  *
+ * "refused-space": the remote has no room left for it, in the account of
+ * the user. The next push meets the same answer until room is made.
+ *
  * "remote-changed": on a remote that writes file by file, another device
  * changed or added the file there first, and the remote would not have it
  * written over, or deleted. The next pull takes it up as a conflict.
@@ -372,12 +383,21 @@ export type PullFirstReason =
 export type LeftOutReason =
 	| "save-failed"
 	| "remote-changed"
+	| "refused-space"
 	| "gone"
 	| "too-large"
 	| "refused-size"
 	| "refused-workflows"
 	| "unreadable"
 	| "not-downloaded";
+
+/** What a file the remote refused is left out as (`PushFile.refused`). */
+const LEFT_OUT_FOR: { readonly [Refusal in RemoteRefusal]: LeftOutReason } = {
+	"too-large": "refused-size",
+	workflows: "refused-workflows",
+	changed: "remote-changed",
+	"no-space": "refused-space",
+};
 
 export interface LeftOutFile {
 	readonly path: string;
@@ -883,7 +903,7 @@ class PushRun {
 				},
 				refused: (reason) => {
 					stats.delete(pathKey(send.path));
-					leave(reason === "workflows" ? "refused-workflows" : reason === "changed" ? "remote-changed" : "refused-size");
+					leave(LEFT_OUT_FOR[reason]);
 				},
 			};
 		});
@@ -928,7 +948,7 @@ class PushRun {
 		if (pushed.status === "unchanged") {
 			// The user has answered for this remote, also when the remote
 			// then took none of the files: not asked again for that.
-			if (this.leftOut.some((file) => file.reason === "refused-size" || file.reason === "refused-workflows" || file.reason === "remote-changed")) {
+			if (this.leftOut.some((file) => Object.values(LEFT_OUT_FOR).includes(file.reason))) {
 				await store.setMeta(FIRST_PUSH_CONFIRMED_KEY, true);
 			}
 			if (started === 0) return this.result("nothing-to-push");
@@ -1024,7 +1044,7 @@ class PushRun {
 		await store.commitWrite(
 			makeRecord(record, stat === null ? undefined : { mtime: stat.mtime, size: stat.size }, this.startedAt),
 		);
-		await store.putListing({ revision, entries: [entry] });
+		await store.putListing(first.listing ?? { revision, entries: [entry] });
 		await writeBaseRevision(store, revision);
 		await markFirstFetchConfirmed(store);
 		return { revision };

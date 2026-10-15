@@ -43,7 +43,8 @@ import {
 	type PushWaitReason,
 	type SectionAdded,
 } from "./push";
-import type { Connection, DeviceSettings } from "./settings";
+import { placeWords, type RemotePlace } from "./remote-place";
+import type { DeviceSettings } from "./settings";
 import { BackendError } from "./backend";
 
 /**
@@ -85,7 +86,7 @@ export function pushProgressText(t: Translate, progress: PushProgress, waitingUn
  */
 export function pushQuestion(
 	t: Translate,
-	connection: Pick<Connection, "repository" | "branch">,
+	connection: RemotePlace,
 	request: PushConfirmRequest,
 ): Question {
 	const { firstPush, deletions } = request;
@@ -95,8 +96,7 @@ export function pushQuestion(
 	};
 
 	if (firstPush !== null) {
-		const target = { repository: connection.repository, branch: connection.branch };
-		parts.push({ text: t("confirm.firstPush.body", target) });
+		parts.push({ text: t("confirm.firstPush.body", placeWords(t, connection)) });
 		// The vault has a `.gitignore` once the section was added to it: no
 		// empty one is made for the first commit.
 		if (request.remoteEmpty) {
@@ -162,16 +162,14 @@ export interface EmptyVaultQuestion {
  */
 export function emptyVaultQuestion(
 	t: Translate,
-	connection: Pick<Connection, "repository" | "branch">,
+	connection: RemotePlace,
 	request: EmptyVaultRequest,
 ): EmptyVaultQuestion {
-	const { repository, branch } = connection;
 	return {
 		title: t("confirm.emptyVault.title"),
 		body: t(request.missing === 1 ? "confirm.emptyVault.bodyOne" : "confirm.emptyVault.body", {
 			count: request.missing,
-			repository,
-			branch,
+			remotePlace: placeWords(t, connection).remotePlace,
 		}),
 		choices: [
 			{ answer: "refetch", label: t("confirm.emptyVault.refetch"), text: t("confirm.emptyVault.refetchNote") },
@@ -342,6 +340,10 @@ export function pushDetails(t: Translate, result: PushRunResult, options: PushRe
 	const refusedSize = leftOut("refused-size");
 	if (refusedSize.length > 0) {
 		standing(t("push.refusedSize", { count: refusedSize.length, list: listText(t, refusedSize) }));
+	}
+	const space = leftOut("refused-space");
+	if (space.length > 0) {
+		standing(t("push.refusedSpace", { count: space.length, list: listText(t, space) }));
 	}
 	const workflows = leftOut("refused-workflows");
 	if (workflows.length > 0) {

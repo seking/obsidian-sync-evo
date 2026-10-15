@@ -44,7 +44,23 @@ export function resolveLanguage(appLanguage: string): string {
 	);
 }
 
-export function translatorFor(appLanguage: string): Translate {
+/** The suffix of a message that takes the place of another while Dropbox is the service. */
+export const DROPBOX_VARIANT = ".dropbox";
+
+/**
+ * `remote` is the name of the service put where a text has `{remote}`:
+ * GitHub when absent. With Dropbox, a message that has a variant of its
+ * own (the key with `DROPBOX_VARIANT` after it) is taken from that: a text
+ * that speaks of a repository, a commit or its history, which Dropbox has
+ * none of. A variant has no placeholder its message lacks.
+ */
+export function translatorFor(appLanguage: string, remote?: string): Translate {
 	const language = resolveLanguage(appLanguage);
-	return createTranslator(en, translations[language], language);
+	const translate = createTranslator(en, translations[language], language, remote);
+	if (remote !== "Dropbox") return translate;
+	const loose = translate as (key: string, ...args: unknown[]) => string;
+	return ((key: string, ...args: unknown[]) => {
+		const variant = `${key}${DROPBOX_VARIANT}`;
+		return loose(Object.prototype.hasOwnProperty.call(en, variant) ? variant : key, ...args);
+	}) as Translate;
 }

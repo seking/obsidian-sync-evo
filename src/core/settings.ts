@@ -21,7 +21,14 @@ import {
 } from "./device-exclusion";
 
 /** The remotes there are. Only one for now; the field is kept so that adding one is not a change of format. */
-export type BackendId = "github";
+export type BackendId = "github" | "dropbox";
+
+/** The Dropbox account this device connected with (R-4), for the screen and for telling a new account from the same one. */
+export interface DropboxAccountSettings {
+	/** Dropbox's `account_id`. */
+	readonly id: string;
+	readonly email: string;
+}
 
 export interface DeviceSettings {
 	readonly backend: BackendId;
@@ -34,6 +41,19 @@ export interface DeviceSettings {
 	 * them, and a name gives nothing away.
 	 */
 	readonly tokenSecret: string;
+	/**
+	 * The folder of the vault inside the app folder of Dropbox, by its name
+	 * (R-4). Kept while GitHub is chosen, like the repository is while
+	 * Dropbox is. "" until Dropbox is chosen for the first time.
+	 */
+	readonly dropboxFolder: string;
+	/**
+	 * The account the last connection to Dropbox was made with. Kept when
+	 * the user disconnects, so that connecting again with the same account
+	 * keeps the sync state (`connectionChange`). The refresh token is not
+	 * here: it is kept apart (`DropboxTokenStore`), and only while connected.
+	 */
+	readonly dropboxAccount: DropboxAccountSettings | null;
 	readonly deviceName: string;
 	readonly autoSync: AutoSyncSettings;
 	readonly onConflict: ConflictHandling;
@@ -170,11 +190,20 @@ export function withSendsChanges(auto: AutoSyncSettings, sendsChanges: boolean):
  * again for the kinds an earlier version wrote there (`kindsFromSection`).
  * And whether the change of what an exclusion does was told: read as
  * absent, it was not, and is told once more.
+ *
+ * Dropbox is not added that way: a version from before it would read the
+ * settings as GitHub's, with the repository entered before, and sync the
+ * sync state of Dropbox with that repository. Settings with Dropbox chosen
+ * are stored as the next version (`DROPBOX_SETTINGS_VERSION`), which such a
+ * version reads as newer and does not touch. With GitHub chosen they stay
+ * at this one, as before.
  */
 export const SETTINGS_VERSION = 1;
+/** The version of settings with Dropbox chosen. Read by this version as its own. */
+export const DROPBOX_SETTINGS_VERSION = 2;
 
 export interface StoredSettings extends DeviceSettings {
-	readonly version: typeof SETTINGS_VERSION;
+	readonly version: typeof SETTINGS_VERSION | typeof DROPBOX_SETTINGS_VERSION;
 }
 
 export type ParsedSettings =
@@ -192,6 +221,8 @@ export function defaultSettings(defaultDeviceName: string): DeviceSettings {
 		repository: "",
 		branch: "main",
 		tokenSecret: "",
+		dropboxFolder: "",
+		dropboxAccount: null,
 		deviceName: defaultDeviceName,
 		autoSync: DEFAULT_AUTO_SYNC,
 		onConflict: DEFAULT_ON_CONFLICT,
@@ -211,24 +242,28 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  */
 export function parseSettings(raw: unknown, defaultDeviceName: string): ParsedSettings {
 	const defaults = defaultSettings(defaultDeviceName);
-	if (isRecord(raw) && typeof raw.version === "number" && raw.version > SETTINGS_VERSION) {
+	if (isRecord(raw) && typeof raw.version === "number" && raw.version > SETTINGS_VERSION && raw.version !== DROPBOX_SETTINGS_VERSION) {
 		return { status: "newer-version" };
 	}
 	// Nothing stored, or something no version of Sync Evo writes. The second
 	// is taken for the first: none of it can be trusted, and without a
 	// connection nothing syncs until the user has entered one again.
-	if (!isRecord(raw) || raw.version !== SETTINGS_VERSION) return { status: "ok", settings: defaults };
+	if (!isRecord(raw) || (raw.version !== SETTINGS_VERSION && raw.version !== DROPBOX_SETTINGS_VERSION)) {
+		return { status: "ok", settings: defaults };
+	}
 
 	const text = (value: unknown, fallback: string): string => (typeof value === "string" ? value : fallback);
 	const deviceName = text(raw.deviceName, "").trim();
 	return {
 		status: "ok",
 		settings: {
-			backend: defaults.backend,
+			backend: raw.backend === "dropbox" ? "dropbox" : defaults.backend,
 			// Stored in its form or not at all, like the screen does it.
 			repository: normalizeRepository(text(raw.repository, "")) ?? defaults.repository,
 			branch: branchToStore(text(raw.branch, "")) ?? defaults.branch,
 			tokenSecret: text(raw.tokenSecret, defaults.tokenSecret),
+			dropboxFolder: dropboxFolderToStore(text(raw.dropboxFolder, "")) ?? defaults.dropboxFolder,
+			dropboxAccount: parseDropboxAccount(raw.dropboxAccount),
 			deviceName: deviceNameProblem(deviceName) === null ? deviceName : defaults.deviceName,
 			autoSync: parseAutoSync(raw.autoSync),
 			onConflict: conflictHandlingOf(raw.onConflict),
@@ -236,6 +271,11 @@ export function parseSettings(raw: unknown, defaultDeviceName: string): ParsedSe
 			exclusionChangeTold: raw.exclusionChangeTold === true,
 		},
 	};
+}
+
+function parseDropboxAccount(raw: unknown): DropboxAccountSettings | null {
+	if (!isRecord(raw) || typeof raw.id !== "string" || raw.id === "" || typeof raw.email !== "string") return null;
+	return { id: raw.id, email: raw.email };
 }
 
 // A switch is on only when it was stored as on: anything else, from a
@@ -255,11 +295,13 @@ function parseAutoSync(raw: unknown): AutoSyncSettings {
 export function serializeSettings(settings: DeviceSettings): StoredSettings {
 	// Field by field, so that nothing else an object happens to carry is stored.
 	return {
-		version: SETTINGS_VERSION,
+		version: settings.backend === "dropbox" ? DROPBOX_SETTINGS_VERSION : SETTINGS_VERSION,
 		backend: settings.backend,
 		repository: settings.repository,
 		branch: settings.branch,
 		tokenSecret: settings.tokenSecret,
+		dropboxFolder: settings.dropboxFolder,
+		dropboxAccount: settings.dropboxAccount === null ? null : { id: settings.dropboxAccount.id, email: settings.dropboxAccount.email },
 		deviceName: settings.deviceName,
 		autoSync: {
 			onStartup: settings.autoSync.onStartup,
@@ -331,6 +373,18 @@ export function branchToStore(typed: string): string | null {
 	return branch === "" ? null : branch;
 }
 
+/**
+ * What to store for the text typed into the field of the Dropbox folder, or
+ * `null` to store nothing and keep what was there: a name of one folder,
+ * without a slash, and not one of the names a path gives a meaning to.
+ * Dropbox answers for the rest.
+ */
+export function dropboxFolderToStore(typed: string): string | null {
+	const name = typed.trim();
+	if (name === "" || name === "." || name === ".." || /[/\\\p{Cc}]/u.test(name)) return null;
+	return name;
+}
+
 export type DeviceNameProblem = "empty" | "invalid-character";
 
 // The device name becomes part of the name of a file kept from a conflict and
@@ -380,11 +434,10 @@ export function defaultDeviceName(platform: PlatformKind): DefaultDeviceName {
 }
 
 /** Where the vault syncs to. `repository` is always in the form `owner/name`. */
-export interface Connection {
-	readonly backend: BackendId;
-	readonly repository: string;
-	readonly branch: string;
-}
+export type Connection =
+	| { readonly backend: "github"; readonly repository: string; readonly branch: string }
+	/** A folder in the app folder of the Dropbox account of `account` (its `account_id`). */
+	| { readonly backend: "dropbox"; readonly account: string; readonly folder: string };
 
 /**
  * The connection the settings describe, or `null` while they describe none:
@@ -393,12 +446,20 @@ export interface Connection {
  *
  * The token is not part of it. A connection with no token fails when it is
  * used, and replacing an expired token must not look like a new connection.
+ * Nor is the refresh token of Dropbox: the account it was of is, and stays
+ * when the user disconnects, so that connecting again with the same account
+ * is no new connection (R-4).
  */
 export function connectionOf(settings: DeviceSettings): Connection | null {
+	if (settings.backend === "dropbox") {
+		const folder = dropboxFolderToStore(settings.dropboxFolder);
+		if (settings.dropboxAccount === null || folder === null) return null;
+		return { backend: "dropbox", account: settings.dropboxAccount.id, folder };
+	}
 	const repository = normalizeRepository(settings.repository);
 	const branch = settings.branch.trim();
 	if (repository === null || branch === "") return null;
-	return { backend: settings.backend, repository, branch };
+	return { backend: "github", repository, branch };
 }
 
 export type ConnectionChange =
@@ -415,12 +476,18 @@ export type ConnectionChange =
 export function connectionChange(before: Connection | null, after: Connection | null): ConnectionChange {
 	if (before === null) return after === null ? "none" : "set";
 	if (after === null) return "cleared";
+	return sameConnection(before, after) ? "none" : "changed";
+}
+
+function sameConnection(before: Connection, after: Connection): boolean {
 	// GitHub takes owner and repository names in any case, so a change of case
 	// alone still names the same repository and must not cost the sync state.
-	// Branch names differ by case.
-	const same =
-		before.backend === after.backend &&
-		before.repository.toLowerCase() === after.repository.toLowerCase() &&
-		before.branch === after.branch;
-	return same ? "none" : "changed";
+	// Branch names differ by case. Dropbox takes a folder in any case too.
+	if (before.backend === "github" && after.backend === "github") {
+		return before.repository.toLowerCase() === after.repository.toLowerCase() && before.branch === after.branch;
+	}
+	if (before.backend === "dropbox" && after.backend === "dropbox") {
+		return before.account === after.account && before.folder.toLowerCase() === after.folder.toLowerCase();
+	}
+	return false;
 }

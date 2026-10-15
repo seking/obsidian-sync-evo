@@ -70,6 +70,18 @@ describe("which way a request goes", () => {
 		expect(transportFor(request({ expectedBytes: 37_000_000 }), ANDROID)).toBe("fetch");
 	});
 
+	test("on Android a large download from Dropbox goes by fetch, with the header that names its file", () => {
+		const download: HttpRequest = {
+			url: "https://content.dropboxapi.com/2/files/download",
+			method: "POST",
+			headers: {},
+			expectedBytes: 37_000_000,
+		};
+		expect(transportFor(download, ANDROID)).toBe("fetch");
+		expect(transportFor({ ...download, expectedBytes: FETCH_MIN_BYTES - 1 }, ANDROID)).toBe("requestUrl");
+		expect(transportFor({ ...download, url: "https://content.dropboxapi.com/2/files/upload", body: "x" }, ANDROID)).toBe("requestUrl");
+	});
+
 	test.each<[string, HttpRequest]>([
 		["below the threshold", request({ expectedBytes: FETCH_MIN_BYTES - 1 })],
 		["of a size that is not known", { url: BLOB, method: "GET", headers: {} }],

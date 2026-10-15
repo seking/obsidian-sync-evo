@@ -17,8 +17,11 @@ export interface HttpRequest {
 	readonly url: string;
 	readonly method: "GET" | "POST" | "PATCH" | "PUT";
 	readonly headers: Readonly<Record<string, string>>;
-	/** Already serialised. The matching `Content-Type` is among the headers. */
-	readonly body?: string;
+	/**
+	 * Already serialised: text, or the bytes of a file that is sent as it
+	 * is. The matching `Content-Type` is among the headers.
+	 */
+	readonly body?: string | ArrayBuffer;
 	/**
 	 * How many bytes the body of the response is expected to have, where the
 	 * caller knows. A hint for the platform: one that cannot take a large

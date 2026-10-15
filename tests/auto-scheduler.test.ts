@@ -80,6 +80,8 @@ function setup(auto: Partial<AutoSyncSettings>, over: Partial<DeviceSettings> = 
 			repository: "octo/notes",
 			branch: "main",
 			tokenSecret: "github-token",
+			dropboxFolder: "",
+			dropboxAccount: null,
 			deviceName: "iPhone",
 			autoSync: { ...DEFAULT_AUTO_SYNC, ...auto },
 			onConflict: "copy",

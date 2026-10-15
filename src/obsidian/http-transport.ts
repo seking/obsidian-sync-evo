@@ -54,29 +54,37 @@ export const ANDROID_CONCURRENT_FETCH_BYTES = 8 * 1024 * 1024;
 // for at all (`archiveAllowedFor`).
 const CROSS_ORIGIN_HOST = "https://api.github.com/";
 
+// The download of a file from Dropbox: a POST without a body, which the API
+// of Dropbox allows from another origin (its own library for browsers calls
+// it so). Not yet seen through on a device.
+const DROPBOX_DOWNLOAD = "https://content.dropboxapi.com/2/files/download";
+
 // The request headers `fetch` sends, in lower case. GitHub's answer to the
 // preflight allows only a fixed set of request headers (looked at
 // 2026-10-12), and one header outside it makes the whole `fetch` fail, which
 // reads as "unreachable". So only these are sent and every other is left
 // out: a header added to the client later must not silently break the large
-// downloads on Android.
+// downloads on Android. A download from Dropbox names its file in a header
+// of its own, which GitHub's requests never carry.
 const CROSS_ORIGIN_HEADERS: ReadonlySet<string> = new Set([
 	"authorization",
 	"accept",
 	"x-github-api-version",
 	"if-none-match",
+	"dropbox-api-arg",
 ]);
 
 /**
  * How a request is sent on a platform. `fetch` only on Android, and only
- * for what it is needed for and known to work for: a GET without a body
- * that is expected to be large, to GitHub's API.
+ * for what it is needed for: a request without a body that is expected to
+ * be large, a GET to GitHub's API or the download of a file from Dropbox.
  */
 export function transportFor(request: HttpRequest, platform: HttpPlatform): HttpTransport {
 	if (!platform.isAndroidApp) return "requestUrl";
-	if (request.method !== "GET" || request.body !== undefined) return "requestUrl";
+	if (request.body !== undefined) return "requestUrl";
 	if (request.expectedBytes === undefined || request.expectedBytes < FETCH_MIN_BYTES) return "requestUrl";
-	return request.url.startsWith(CROSS_ORIGIN_HOST) ? "fetch" : "requestUrl";
+	if (request.method === "GET" && request.url.startsWith(CROSS_ORIGIN_HOST)) return "fetch";
+	return request.method === "POST" && request.url === DROPBOX_DOWNLOAD ? "fetch" : "requestUrl";
 }
 
 /** The limit on the bytes fetched at once that a platform's backend is given. */

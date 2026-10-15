@@ -25,6 +25,7 @@ import {
 	pushReport,
 	sectionAddedText,
 } from "../src/core/push-report";
+import type { RemotePlace } from "../src/core/remote-place";
 import { DEFAULT_AUTO_SYNC } from "../src/core/settings";
 
 const t = translatorFor("en");
@@ -34,13 +35,15 @@ const settings = {
 	repository: "octo/notes",
 	branch: "main",
 	tokenSecret: "t",
+	dropboxFolder: "",
+	dropboxAccount: null,
 	deviceName: "iPhone",
 	autoSync: DEFAULT_AUTO_SYNC,
 	onConflict: "copy",
 	deviceExclusion: NO_DEVICE_EXCLUSION,
 	exclusionChangeTold: true,
 } as const;
-const target = { repository: "octo/notes", branch: "main" };
+const target: RemotePlace = { backend: "github", repository: "octo/notes", branch: "main" };
 const options = { sizeLimit: 50 * 1024 * 1024 };
 
 function result(overrides: Partial<PushRunResult> = {}): PushRunResult {
@@ -216,6 +219,15 @@ describe("the question a push stops with", () => {
 			"このデバイスで削除したファイル 1 件を、GitHub からも削除します。ほかのデバイスでも、ダウンロードすると削除されます。",
 		]);
 		expect(question.note).toBe("やめた場合は、何もアップロードせず、何も変更しません。");
+	});
+
+	test("with Dropbox, the first push and a vault without its files name the folder in the app folder", () => {
+		const place: RemotePlace = { backend: "dropbox", folder: "Vault" };
+		const question = pushQuestion(t, place, { firstPush: { added: ["new.md"], modified: [], deleted: [] }, deletions: null, remoteEmpty: false, recordCount: 0 });
+		expect(question.parts[0]?.text).toContain("Apps/Sync Evo/Vault");
+		expect(question.parts[0]?.text).not.toContain("branch");
+		expect(emptyVaultQuestion(t, place, { missing: 14, deletions: 14 }).body).toContain("Apps/Sync Evo/Vault");
+		expect(emptyVaultQuestion(t, place, { missing: 1, deletions: 1 }).body).toContain("Apps/Sync Evo/Vault");
 	});
 });
 

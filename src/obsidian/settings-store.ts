@@ -10,11 +10,17 @@
  */
 
 import type { App } from "obsidian";
+import type { PendingSignIn } from "../core/dropbox/auth";
 import { type DeviceSettings, type ParsedSettings, parseSettings, serializeSettings } from "../core/settings";
 
 // The app puts the id of the vault in front of the key, which is what keeps
 // the settings of one vault from another's.
 const KEY = "sync-evo-settings";
+/** The refresh token of Dropbox, apart from the settings: it is only there while this device is connected. */
+const DROPBOX_TOKEN_KEY = "sync-evo-dropbox-token";
+/** The sign-in to Dropbox that waits for the browser to come back (R-4). */
+const DROPBOX_SIGN_IN_KEY = "sync-evo-dropbox-sign-in";
+
 
 /**
  * Where the settings and the token are kept on the device. Both are outside
@@ -49,5 +55,33 @@ export class SettingsStore {
 	readToken(secretName: string): string | null {
 		const value = this.app.secretStorage.getSecret(secretName);
 		return typeof value === "string" ? value.trim() : null;
+	}
+
+	/**
+	 * The refresh token of Dropbox, or `null` while this device is not
+	 * connected. Kept by the app in this device's storage for the vault, and
+	 * not in its secret storage: it is a value Sync Evo was handed, not one
+	 * the user chose (R-4).
+	 */
+	readDropboxToken(): string | null {
+		const value: unknown = this.app.loadLocalStorage(DROPBOX_TOKEN_KEY);
+		return typeof value === "string" && value !== "" ? value : null;
+	}
+
+	saveDropboxToken(token: string | null): void {
+		this.app.saveLocalStorage(DROPBOX_TOKEN_KEY, token);
+	}
+
+	readSignIn(): PendingSignIn | null {
+		const value: unknown = this.app.loadLocalStorage(DROPBOX_SIGN_IN_KEY);
+		if (typeof value !== "object" || value === null) return null;
+		const { verifier, state, at } = value as Record<string, unknown>;
+		if (typeof verifier !== "string" || typeof state !== "string" || typeof at !== "number") return null;
+		return { verifier, state, at };
+	}
+
+	/** Written at once: the browser is opened right after, and the app may be closed while it is out. */
+	saveSignIn(pending: PendingSignIn | null): void {
+		this.app.saveLocalStorage(DROPBOX_SIGN_IN_KEY, pending);
 	}
 }

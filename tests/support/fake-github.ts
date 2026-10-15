@@ -129,7 +129,7 @@ export class FakeGitHub {
 		const sent: SentRequest = {
 			method: request.method,
 			path: request.url.slice(FakeGitHub.REPO.length),
-			body: request.body === undefined ? undefined : JSON.parse(request.body),
+			body: request.body === undefined ? undefined : JSON.parse(request.body as string),
 		};
 		this.requests.push(sent);
 		const instead = this.before?.(sent);

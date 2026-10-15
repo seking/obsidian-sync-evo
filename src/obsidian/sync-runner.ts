@@ -46,6 +46,9 @@ import { excludedOnRemoteCount } from "../core/exclusion-settings";
 import { type EditingFact, isBeingEdited } from "../core/editing";
 import { type FetchLimitState, FetchLimitWatch, NO_FETCH_LIMIT, sameFetchLimit } from "../core/fetch-quota";
 import { type GitignoreEdit, GitignoreGate } from "../core/gitignore-gate";
+import type { Backend } from "../core/backend";
+import { DropboxBackend } from "../core/dropbox/backend";
+import { type AccessTokens, DropboxClient } from "../core/dropbox/client";
 import { GitHubBackend } from "../core/github/backend";
 import { GitHubClient, HeadMemory } from "../core/github/client";
 import type { MessageKey, Translate } from "../core/i18n";
@@ -94,6 +97,14 @@ export interface SyncHost {
 	readonly syncState: SyncState;
 	/** The token saved under a name, or `null`. */
 	readToken(secretName: string): string | null;
+	/** The refresh token of Dropbox this device keeps, or `null` while it is not connected. */
+	readDropboxToken(): string | null;
+	/**
+	 * Where the access tokens of Dropbox come from, for this refresh token:
+	 * the same for every sync while the refresh token is, so that a token is
+	 * taken again only once it ends.
+	 */
+	dropboxTokens(refreshToken: string): AccessTokens;
 	/** What was seen of where the user types (`editing-watch.ts`). Asked by a sync that started by itself. */
 	readonly editing: { facts(): readonly EditingFact[] };
 	/**
@@ -409,21 +420,33 @@ export class SyncRunner {
 			if (auto === null) new Notice(t("settings.unknownVersion"));
 			return;
 		}
-		const prepared = prepareCheck(settings, (name) => host.readToken(name));
+		const prepared = prepareCheck(
+			settings,
+			(name) => host.readToken(name),
+			() => host.readDropboxToken(),
+		);
 		if (prepared.status === "not-ready") {
 			const text = connectionCheckText(t, settings, prepared);
 			if (auto === null) new Notice(text);
 			else {
 				// With a repository and a branch there is a connection, and a
 				// sync state to remember this in. Without, none is ever opened.
-				const connected = prepared.reason !== "repository" && prepared.reason !== "branch";
+				// Dropbox is connected once it was: the account stays when
+				// the user disconnects.
+				const connected =
+					prepared.reason === "dropbox-account"
+						? settings.dropboxAccount !== null
+						: prepared.reason !== "repository" && prepared.reason !== "branch" && prepared.reason !== "dropbox-folder";
 				this.notReady(notReadyAutoReport(t, prepared.reason, text), connected);
 			}
 			return;
 		}
 		// Named in the question before a first fetch.
-		const { owner, repo, branch } = prepared.target;
-		const target: PullTarget = { repository: `${owner}/${repo}`, branch };
+		const remote = prepared.target;
+		const target: PullTarget =
+			remote.kind === "dropbox"
+				? { backend: "dropbox", folder: remote.folder }
+				: { backend: "github", repository: `${remote.owner}/${remote.repo}`, branch: remote.branch };
 
 		const controller = new AbortController();
 		this.controller = controller;
@@ -498,38 +521,57 @@ export class SyncRunner {
 			const beingEdited =
 				auto === null ? {} : { beingEdited: (path: string) => isBeingEdited(host.editing.facts(), path, Date.now()) };
 			const network = deviceNetwork();
-			const client: GitHubClient = new GitHubClient({
-				...prepared.target,
-				http: network.http,
-				now: Date.now,
-				sleep: windowSleep,
-				signal: controller.signal,
-				headMemory: this.heads,
-				// Waited out: a fetch of thousands of files does not fit in
-				// the quota of an hour, and a push of many binary files runs
-				// into the limit on creating content. The requests that run
-				// together ask once, and the line of progress says until when.
-				// Not by a sync that started by itself: it fails, and a later
-				// one goes on from where it stopped.
-				onRateLimit: (notice) => {
-					// Before the wait, which may be as long as an hour and
-					// may be the last thing this sync does.
-					void sentBlobs.save();
-					if (auto !== null) return false;
-					limitWatch.rateLimited(notice.until);
-					this.showLimit();
-					return true;
-				},
-				// Whether the head was answered with a 304, to be read on a device.
-				...(auto === null ? {} : { log }),
-			});
-			const limitWatch = new FetchLimitWatch(() => client.quota, Date.now);
+			// Dropbox tells no quota: a wait it asks for is waited out by its client.
+			let limitWatch = new FetchLimitWatch(() => null, Date.now);
+			let backend: Backend;
+			if (remote.kind === "dropbox") {
+				const client = new DropboxClient({
+					http: network.http,
+					now: Date.now,
+					sleep: windowSleep,
+					signal: controller.signal,
+					tokens: host.dropboxTokens(remote.refreshToken),
+				});
+				backend = new DropboxBackend(client, {
+					folder: remote.folder,
+					yieldControl,
+					signal: controller.signal,
+					maxConcurrentFetchBytes: network.maxConcurrentFetchBytes,
+				});
+			} else {
+				const client: GitHubClient = new GitHubClient({
+					...remote,
+					http: network.http,
+					now: Date.now,
+					sleep: windowSleep,
+					signal: controller.signal,
+					headMemory: this.heads,
+					// Waited out: a fetch of thousands of files does not fit in
+					// the quota of an hour, and a push of many binary files runs
+					// into the limit on creating content. The requests that run
+					// together ask once, and the line of progress says until when.
+					// Not by a sync that started by itself: it fails, and a later
+					// one goes on from where it stopped.
+					onRateLimit: (notice) => {
+						// Before the wait, which may be as long as an hour and
+						// may be the last thing this sync does.
+						void sentBlobs.save();
+						if (auto !== null) return false;
+						limitWatch.rateLimited(notice.until);
+						this.showLimit();
+						return true;
+					},
+					// Whether the head was answered with a 304, to be read on a device.
+					...(auto === null ? {} : { log }),
+				});
+				limitWatch = new FetchLimitWatch(() => client.quota, Date.now);
+				backend = new GitHubBackend(client, {
+					yieldControl,
+					signal: controller.signal,
+					maxConcurrentFetchBytes: network.maxConcurrentFetchBytes,
+				});
+			}
 			this.limitWatch = limitWatch;
-			const backend = new GitHubBackend(client, {
-				yieldControl,
-				signal: controller.signal,
-				maxConcurrentFetchBytes: network.maxConcurrentFetchBytes,
-			});
 			const fetchContents = limitWatch.watch((revision, entries) => backend.fetch(revision, entries));
 			const pullDeps: PullDeps = {
 				store: opened.store,
