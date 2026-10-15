@@ -37,7 +37,8 @@ import {
 import { translatorFor } from "../src/core/i18n";
 import { PUSH_FAILURE_KEY, readPushFailure } from "../src/core/push-failure";
 import { pushReport } from "../src/core/push-report";
-import { makeMarker, readBaseRevision, type StateStore } from "../src/core/state";
+import type { ListedStats } from "../src/core/listed-stats";
+import { type FileStat, makeMarker, readBaseRevision, type StateStore } from "../src/core/state";
 import { pathsToHold, pathsToHoldQuietly, pushFollows, runSync, type SyncResult } from "../src/core/sync";
 import { blobHash, type FileContent, MemoryBackend } from "./support/memory-backend";
 import { MemoryIndex } from "./support/memory-index";
@@ -4948,5 +4949,44 @@ describe("a file whose stat keeps telling a size of 0", () => {
 		expect(await h.remote()).toEqual({ "a.md": "A", "b.md": "B2" });
 		expect((await h.records())["a.md"]).toBe(blobHash("A"));
 		expect(lines.some((line) => /^scan: a\.md is 0 bytes .*not its record's content, left alone$/.test(line))).toBe(true);
+	});
+});
+
+describe("a push that walks the vault with the stats of the listing", () => {
+	test("sends what was edited and deletes what is gone, asking the disk only of what the listing tells as changed", async () => {
+		const h = await synced({ "a.md": "A", "notes/b.md": "B", "gone.md": "G" });
+		// Records the times of the files the first pull wrote.
+		await h.pull();
+		h.vault.put("a.md", "A2");
+		h.vault.put("notes/new.md", "N");
+		h.vault.remove("gone.md");
+		// What the listing of each folder holds of its files: what the disk says.
+		const listedStats: ListedStats = async (folder) => {
+			const before = h.vault.before;
+			h.vault.before = undefined;
+			try {
+				const held = new Map<string, FileStat>();
+				for (const path of (await h.vault.list(folder)).files) {
+					const stat = await h.vault.stat(path);
+					if (stat !== null) held.set(path, { mtime: stat.mtime, size: stat.size });
+				}
+				return held;
+			} finally {
+				h.vault.before = before;
+			}
+		};
+		const ops: string[] = [];
+		h.vault.before = (op, path) => {
+			ops.push(`${op} ${path}`);
+		};
+
+		const result = await h.push({ listedStats });
+
+		expect(result).toMatchObject({ outcome: "pushed", counts: { added: 1, modified: 1, deleted: 1 } });
+		expect(await h.remote()).toEqual({ "a.md": "A2", "notes/b.md": "B", "notes/new.md": "N" });
+		// The file the listing tells as its record has it is neither asked of the disk nor read.
+		expect(ops.filter((op) => op === "stat notes/b.md" || op === "read notes/b.md")).toEqual([]);
+		expect(ops).toContain("read a.md");
+		await expectNothingToPull(h);
 	});
 });
