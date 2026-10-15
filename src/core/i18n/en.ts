@@ -250,7 +250,7 @@ export const en = baseCatalog({
 	// Things the user is told once, and again only after they went away and
 	// came back. Neither stops the sync.
 	"notice.ownFolderOnRemote":
-		"Sync Evo's own folder ({path}) is on {remote}. Sync Evo never syncs that folder: it is left as it is, on {remote} and on this device. Everything else is synced as usual. To remove the folder, use \"Remove from {remote}\" in the settings of Sync Evo (while .gitignore has the line for that folder).",
+		"Sync Evo's own folder is on {remote}. Sync Evo never syncs that folder: it is left as it is, on {remote} and on this device. Everything else is synced as usual. To remove the folder, use \"Remove from {remote}\" in the settings of Sync Evo (while .gitignore has the line for that folder):\n{list}",
 	"notice.gitAtRoot":
 		"This vault has a .git at its root, so it is a git repository. Sync this device with git or the Obsidian Git plugin instead: git does not learn of what Sync Evo uploads, and its next pull would stop. Sync Evo keeps syncing in the meantime.",
 
@@ -263,15 +263,18 @@ export const en = baseCatalog({
 	"notice.invalidPath":
 		"There are paths on {remote} that cannot be used as file paths. They are skipped:\n{list}",
 	"notice.pluginNotListed":
-		"The list of active community plugins that was just downloaded ({path}) does not include Sync Evo. The next time Obsidian starts, Sync Evo will be turned off and syncing stops. Turn it on again under Settings → Community plugins.",
+		"The list of active community plugins that was just downloaded does not include Sync Evo. The next time Obsidian starts, Sync Evo will be turned off and syncing stops. Turn it on again under Settings → Community plugins:\n{list}",
 	"notice.unwritablePath":
 		"This device refused to write, move, or delete some files, so the download skipped them. Nothing about them was changed on {remote}, and each download tries them again:\n{list}",
 	"notice.blockedPath":
-		"The file {path} on {remote} could not be written: files that are only on this device are in its place. Move or rename them, and the next download writes it:\n{list}",
+		"These files on {remote} could not be written: files that are only on this device are in their place. Move or rename those, and the next download writes these:\n{list}",
+	"notice.blockedPath.item": "{path} (in its place: {local})",
 	"notice.archiveLimited":
 		"Downloading all files at once did not work on this device. From now on Sync Evo does not try it here when the download is expected to be about {size} MB or more. Many files are then downloaded one by one, which takes longer.",
 	"notice.archiveGivenUp":
 		"Downloading all files at once did not work on this device, so Sync Evo no longer tries it here. When there are many files to download, they are now downloaded one by one, which takes longer.",
+	"notice.archiveLimited.brief": "Downloads of about {size} MB or more are no longer made at once on this device.",
+	"notice.archiveGivenUp.brief": "Files are no longer downloaded all at once on this device.",
 	"notice.localPathCollision":
 		"Some new files were not uploaded. Their paths differ only in upper and lower case from another path on {remote}, or from another new file. Rename them, and the next upload includes them. Other files are uploaded as usual:\n{list}",
 	"notice.renameNotSent":
@@ -298,6 +301,20 @@ export const en = baseCatalog({
 	},
 	"notice.localLink":
 		"This vault has links in it (symbolic links, or junctions). Sync Evo does not sync a link or what is in it, and leaves it as it is, on {remote} and on this device, where it points to. Everything else is synced as usual:\n{list}",
+	"notice.nestedGitignore.brief": {
+		one: "{count} .gitignore in a subfolder is not read as rules.",
+		other: "{count} .gitignore files in subfolders are not read as rules.",
+	},
+	"notice.submodule.brief": {
+		one: "What is inside {count} submodule cannot be downloaded.",
+		other: "What is inside {count} submodules cannot be downloaded.",
+	},
+	"notice.localLink.brief": {
+		one: "{count} link in the vault is not synced.",
+		other: "{count} links in the vault are not synced.",
+	},
+	// The last line of a notice that leaves something out.
+	"notice.seeResults": "Everything is in \"Show the last sync results\" (a command).",
 
 	"section.added.intro":
 		"Sync Evo added the lines below to the top of the .gitignore of this vault. They are the lines Sync Evo manages, and say what is not synced:",
@@ -315,6 +332,7 @@ export const en = baseCatalog({
 		one: "{count} file that these lines exclude is on {remote}. Sync Evo no longer syncs it on any device:",
 		other: "{count} files that these lines exclude are on {remote}. Sync Evo no longer syncs them on any device:",
 	},
+	"section.added.brief": "Sync Evo added the lines it manages to .gitignore.",
 	"section.added.untrackHint":
 		"To remove them from {remote}, use \"Remove from {remote}\" in the settings of Sync Evo. The files on your devices with Sync Evo stay.",
 
@@ -330,6 +348,21 @@ export const en = baseCatalog({
 	"command.firstFetch": "Start over (download everything from {remote} again)",
 	"command.stop": "Stop the sync",
 	"command.showLog": "Show sync log",
+	"command.showResults": "Show the last sync results",
+
+	// The screen of the results of the last syncs that had something to tell.
+	"results.title": "Last sync results",
+	"results.desc":
+		"The last {count} syncs that had something to tell, the newest first, with every file. Kept on this device, also when Obsidian is closed.",
+	"results.empty": "No sync has had anything to tell yet.",
+	"results.manual": "{time}: sync",
+	"results.automatic": "{time}: automatic sync",
+	"results.error": "Errors",
+	"results.warn": "To see to",
+	"results.info": "For your information",
+	"results.copy": "Copy all",
+	"results.copied": "Copied the results.",
+	"results.copyFailed": "Could not copy. Select the text by hand and copy it.",
 
 	// The last lines of the log, shown on the device. The lines themselves are not translated.
 	"log.title": "Sync log",
@@ -443,9 +476,17 @@ export const en = baseCatalog({
 		one: "{count} file in the configuration folder now has the content from {remote}. What it held on this device before is in .trash/ in this vault:\n{list}",
 		other: "{count} files in the configuration folder now have the content from {remote}. What they held on this device before is in .trash/ in this vault:\n{list}",
 	},
+	"pull.replacedSettings.brief": {
+		one: "{count} file in the configuration folder now has the content from {remote}.",
+		other: "{count} files in the configuration folder now have the content from {remote}.",
+	},
 	"pull.trashed": {
 		one: "{count} file was moved to .trash/ in this vault by the download, so that its content is not lost. You can get it back from there:\n{list}",
 		other: "{count} files were moved to .trash/ in this vault by the download, so that their content is not lost. You can get them back from there:\n{list}",
+	},
+	"pull.trashed.brief": {
+		one: "{count} file was moved to .trash/.",
+		other: "{count} files were moved to .trash/.",
 	},
 	"pull.halfWritten": {
 		one: "An earlier download stopped while it was writing {count} file. What was left of it was moved to .trash/ in this vault. The content from {remote} is downloaded again. If you had edited the file since, you can get your edit back from there:\n{list}",
@@ -459,17 +500,33 @@ export const en = baseCatalog({
 		one: "{count} conflict file that an earlier download left unfinished was moved to .trash/ in this vault. A complete one is made again. If you had edited it, your edit is there:\n{list}",
 		other: "{count} conflict files that an earlier download left unfinished were moved to .trash/ in this vault. Complete ones are made again. If you had edited them, your edits are there:\n{list}",
 	},
+	"pull.halfCopies.brief": {
+		one: "{count} unfinished conflict file was moved to .trash/.",
+		other: "{count} unfinished conflict files were moved to .trash/.",
+	},
 	"pull.tidiedCopies": {
 		one: "{count} conflict file in _conflicts/ was made 30 days ago or more, and was moved to .trash/ in this vault. To keep a conflict file, move it out of _conflicts/ or rename it.",
 		other: "{count} conflict files in _conflicts/ were made 30 days ago or more, and were moved to .trash/ in this vault. To keep a conflict file, move it out of _conflicts/ or rename it.",
+	},
+	"pull.tidiedCopies.brief": {
+		one: "{count} conflict file 30 days old was moved to .trash/.",
+		other: "{count} conflict files 30 days old were moved to .trash/.",
 	},
 	"pull.keptLocal": {
 		one: "{count} file was left as it is on this device, as you chose. It differs from what is on {remote}:\n{list}",
 		other: "{count} files were left as they are on this device, as you chose. They differ from what is on {remote}:\n{list}",
 	},
+	"pull.keptLocal.brief": {
+		one: "{count} file was left as it is, as you chose.",
+		other: "{count} files were left as they are, as you chose.",
+	},
 	"pull.symlinks": {
 		one: "There is {count} symbolic link on {remote}. Sync Evo does not write it to this device and leaves it as it is on {remote}. The settings list the links that are skipped:\n{list}",
 		other: "There are {count} symbolic links on {remote}. Sync Evo does not write them to this device and leaves them as they are on {remote}. The settings list the links that are skipped:\n{list}",
+	},
+	"pull.symlinks.brief": {
+		one: "{count} symbolic link on {remote} is skipped.",
+		other: "{count} symbolic links on {remote} are skipped.",
 	},
 
 	// A push: its progress, its outcome, and what the user has to know of it.
@@ -552,6 +609,10 @@ export const en = baseCatalog({
 	"push.remoteChanged": {
 		one: "{count} file was neither uploaded nor deleted: another device changed it on {remote} first. The next sync takes it up as a conflict:\n{list}",
 		other: "{count} files were neither uploaded nor deleted: another device changed them on {remote} first. The next sync takes them up as conflicts:\n{list}",
+	},
+	"push.remoteChanged.brief": {
+		one: "{count} file was changed on {remote} by another device first. The next sync takes it up.",
+		other: "{count} files were changed on {remote} by another device first. The next sync takes them up.",
 	},
 	"push.leftOut": {
 		one: "{count} file was left out: it changed or could not be read while the upload ran, or it is open and could not be saved. The next upload looks at it again:\n{list}",

@@ -247,8 +247,9 @@ describe("a push that finds none of the files it has a record of", () => {
 
 	test("the notices that stay are taken away while the question is open, and put back after", async () => {
 		const runner = setup();
-		// What the pull right before tells with a notice that stays.
-		app.pulled = { replacedSettings: [".obsidian/core-plugins.json"] };
+		// What the pull right before tells with a notice that stays: a
+		// file it found half written is to be seen to.
+		app.pulled = { halfWritten: [".obsidian/core-plugins.json"] };
 		app.answer = "cancel";
 
 		await runner.run("sync");

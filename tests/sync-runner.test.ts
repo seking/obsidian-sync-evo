@@ -16,6 +16,7 @@ import { MAX_CONCURRENT_FETCH_BYTES } from "../src/core/concurrent-fetch";
 import { translatorFor } from "../src/core/i18n";
 import { DEFAULT_AUTO_SYNC, type DeviceSettings } from "../src/core/settings";
 import { ANDROID_CONCURRENT_FETCH_BYTES } from "../src/obsidian/http-transport";
+import type { SyncResult } from "../src/core/sync-results";
 import type { SyncHost } from "../src/obsidian/sync-runner";
 import { MemoryStateStore } from "./support/memory-state-store";
 
@@ -29,6 +30,10 @@ const app = vi.hoisted(() => ({
 	notices: [] as string[],
 	/** Every notice that was taken down, in order. */
 	hidden: [] as string[],
+	/** Every notice that was taken down, as its place in `notices`: which one it was, of those with the same text. */
+	hiddenAt: [] as number[],
+	/** Every notice that was made to look as an error (`sync-evo-notice-error`), by its text, in order. */
+	errors: [] as string[],
 	/** Answers a request: rejects like a device without a network unless a test says otherwise. */
 	request: (): Promise<unknown> => Promise.reject(new Error("net::ERR_INTERNET_DISCONNECTED")),
 	requests: 0,
@@ -47,13 +52,25 @@ const app = vi.hoisted(() => ({
 vi.mock("obsidian", () => {
 	class Notice {
 		private readonly text: string;
+		private readonly at: number;
+		/** Only what the runner touches of it: the classes it is given. */
+		readonly containerEl: { classList: { add(name: string): void } };
 		constructor(text: string) {
 			this.text = text;
+			this.at = app.notices.length;
 			app.notices.push(text);
+			this.containerEl = {
+				classList: {
+					add: (name: string) => {
+						if (name === "sync-evo-notice-error") app.errors.push(text);
+					},
+				},
+			};
 		}
 		setMessage(): void {}
 		hide(): void {
 			app.hidden.push(this.text);
+			app.hiddenAt.push(this.at);
 		}
 	}
 	class Empty {}
@@ -139,6 +156,8 @@ function setup(over: Partial<DeviceSettings> = {}, files: Record<string, string>
 		...over,
 	};
 	const tokens: Record<string, string | null> = { "github-token": "github_pat_SECRET" };
+	/** What was kept for the screen of the results, in order. */
+	const results: SyncResult[] = [];
 	const host = {
 		app: {
 			vault: {
@@ -182,9 +201,14 @@ function setup(over: Partial<DeviceSettings> = {}, files: Record<string, string>
 				return [];
 			},
 		},
+		results: {
+			add: async (result: SyncResult) => {
+				results.push(result);
+			},
+		},
 	};
 	const runner = new SyncRunner(host as unknown as SyncHost);
-	return { runner, store, state, tokens, host, editing };
+	return { runner, store, state, tokens, host, editing, results };
 }
 
 /** A request that does not answer until the test lets it fail: a sync that is running. */
@@ -211,6 +235,8 @@ const underWay = async (): Promise<void> => {
 beforeEach(() => {
 	app.notices.length = 0;
 	app.hidden.length = 0;
+	app.hiddenAt.length = 0;
+	app.errors.length = 0;
 	app.requests = 0;
 	app.platform.isAndroidApp = false;
 	app.backends.length = 0;
@@ -563,6 +589,23 @@ describe("what a sync that started by itself left on the screen", () => {
 		expect(automatic(app.hidden)).toHaveLength(1);
 	});
 
+	test("a question taken away for another question and put back is still taken down by a sync the user starts", async () => {
+		const { runner } = setup(sending, { "a.md": "A" });
+		emptyRemote();
+		await runner.runAuto("full");
+
+		const putBack = runner.hideStaying();
+		putBack();
+		expect(automatic(app.hidden)).toEqual([expect.stringContaining(QUESTION)]);
+		expect(automatic(app.notices).filter((text) => text.includes(QUESTION))).toHaveLength(2);
+		app.request = () => Promise.reject(new Error("offline"));
+		await runner.run("pull");
+
+		// The one that was put back, and not only the one it replaced.
+		const putBackAt = app.notices.findLastIndex((text) => text.startsWith(HEADING) && text.includes(QUESTION));
+		expect(app.hiddenAt).toContain(putBackAt);
+	});
+
 	test("a failure is not: it stays until it is dismissed", async () => {
 		const { runner } = setup();
 		await runner.runAuto("full");
@@ -571,6 +614,70 @@ describe("what a sync that started by itself left on the screen", () => {
 		await runner.run("pull");
 
 		expect(automatic(app.hidden)).toEqual([]);
+	});
+});
+
+describe("how much what a sync tells matters", () => {
+	test("a failure looks apart from the other notices, whoever started the sync", async () => {
+		const { runner } = setup();
+
+		await runner.runAuto("full");
+		await runner.run("pull");
+
+		expect(app.errors).toEqual([HEADING + OFFLINE, OFFLINE]);
+	});
+
+	test("a failure taken away for a question is put back looking as it did", async () => {
+		const { runner } = setup();
+		await runner.run("pull");
+		app.notices.length = 0;
+		app.hidden.length = 0;
+		app.errors.length = 0;
+
+		const putBack = runner.hideStaying();
+		expect(app.hidden).toEqual([OFFLINE]);
+		putBack();
+
+		expect(app.notices).toEqual([OFFLINE]);
+		expect(app.errors).toEqual([OFFLINE]);
+	});
+
+	test("what a sync told is kept for the screen of the results, with who started it", async () => {
+		const { runner, results } = setup();
+
+		await runner.runAuto("full");
+		await runner.run("pull");
+
+		expect(results).toEqual([
+			{ at: expect.any(Number), automatic: true, summaries: [], items: [{ level: "error", text: OFFLINE }] },
+			{ at: expect.any(Number), automatic: false, summaries: [], items: [{ level: "error", text: OFFLINE }] },
+		]);
+	});
+
+	test("a sync the user stopped, with nothing else to tell, is not kept", async () => {
+		const { runner, results } = setup();
+		heldRequest();
+		const manual = runner.run("pull");
+		await underWay();
+
+		runner.requestStop();
+		await manual;
+
+		expect(app.notices).toContain("The download was stopped. The next download continues from there.");
+		expect(results).toEqual([]);
+	});
+
+	test("a sync that told nothing but how it ended is not kept, nor one that did not tell its cause again", async () => {
+		const sending = { autoSync: { ...DEFAULT_AUTO_SYNC, atInterval: true, sendsChanges: true } };
+		const { runner, results } = setup(sending);
+		await runner.runAuto("full");
+		await runner.runAuto("light");
+		expect(results).toHaveLength(1);
+
+		emptyRemote();
+		await runner.run("pull");
+
+		expect(results.slice(1)).toEqual([]);
 	});
 });
 

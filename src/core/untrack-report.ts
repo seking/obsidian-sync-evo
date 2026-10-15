@@ -23,10 +23,13 @@ import {
 	capList,
 	failureReason,
 	listText,
+	type PartReport,
 	type PullReport,
 	type QuestionPart,
 	recoveredPushText,
 	recoveredUntrackText,
+	type ReportDetail,
+	reportDetail,
 } from "./pull-report";
 import type { DeviceSettings } from "./settings";
 import type { UntrackRefusal, UntrackRunResult, UntrackSyncResult } from "./untrack";
@@ -177,12 +180,24 @@ export function untrackStoppedText(t: Translate, connectionChanged: boolean): st
  * earlier push it found to have gone through as a message of its own.
  */
 export function untrackReport(t: Translate, result: UntrackRunResult, options: UntrackReportOptions = {}): PullReport {
-	const details: string[] = [];
-	if (result.recovered !== null) details.push(recoveredPushText(t, result.recovered));
-	if (result.recoveredUntrack !== undefined) details.push(recoveredUntrackText(t, result.recoveredUntrack));
-	const kept = result.kept ?? [];
-	if (kept.length > 0) details.push(t("untrack.kept", { count: kept.length, list: listText(t, kept) }));
+	const details = untrackDetails(t, result).map((detail) => detail.text);
 	return { summary: summaryText(t, result, options.connectionChanged === true), details };
+}
+
+function untrackDetails(t: Translate, result: UntrackRunResult): ReportDetail[] {
+	const details: ReportDetail[] = [];
+	const known = (text: string): void => {
+		details.push(reportDetail("info", false, () => text, text));
+	};
+	if (result.recovered !== null) known(recoveredPushText(t, result.recovered));
+	if (result.recoveredUntrack !== undefined) known(recoveredUntrackText(t, result.recoveredUntrack));
+	const kept = result.kept ?? [];
+	if (kept.length > 0) {
+		details.push(
+			reportDetail("warn", false, (limit) => t("untrack.kept", { count: kept.length, list: listText(t, kept, limit) })),
+		);
+	}
+	return details;
 }
 
 function summaryText(t: Translate, result: UntrackRunResult, connectionChanged: boolean): string {
@@ -214,17 +229,31 @@ export function untrackSyncReport(
 	result: UntrackSyncResult,
 	options: UntrackReportOptions = {},
 ): PullReport {
-	if (result.untrack !== null) return untrackReport(t, result.untrack, options);
-	const connectionChanged = options.connectionChanged === true;
-	if (connectionChanged) return { summary: untrackStoppedText(t, true), details: [] };
+	const part = untrackPart(t, result, options);
+	return { summary: part.summary, details: part.details.map((detail) => detail.text) };
+}
+
+/**
+ * `untrackSyncReport`, with how much each matters. Why nothing was
+ * untracked is something to act on. That it was stopped is not, as for a
+ * pull and a push.
+ */
+export function untrackPart(t: Translate, result: UntrackSyncResult, options: UntrackReportOptions = {}): PartReport {
+	const passing = untrackedSome(result) || untrackStopped(result) || options.connectionChanged === true;
+	const level = passing ? "info" : "warn";
+	if (result.untrack !== null) {
+		const summary = summaryText(t, result.untrack, options.connectionChanged === true);
+		return { summary, level, details: untrackDetails(t, result.untrack) };
+	}
+	if (options.connectionChanged === true) return { summary: untrackStoppedText(t, true), level, details: [] };
 	switch (result.skipped) {
 		case "pull-declined":
-			return { summary: t("untrack.skipped.pullDeclined"), details: [] };
+			return { summary: t("untrack.skipped.pullDeclined"), level, details: [] };
 		case "pull-cancelled":
-			return { summary: t("untrack.skipped.pullCancelled"), details: [] };
+			return { summary: t("untrack.skipped.pullCancelled"), level, details: [] };
 		case "cancelled":
 		case undefined:
-			return { summary: untrackStoppedText(t, false), details: [] };
+			return { summary: untrackStoppedText(t, false), level, details: [] };
 	}
 }
 

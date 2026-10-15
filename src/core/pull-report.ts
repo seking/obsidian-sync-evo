@@ -32,8 +32,15 @@ import { type DeviceSettings, parseRepository } from "./settings";
 /** How many paths a confirmation lists before it only counts them. */
 export const CONFIRM_LIST_LIMIT = 50;
 
-/** How many paths a notice lists. A notice is small, and on a phone it covers the note. */
-export const NOTICE_LIST_LIMIT = 5;
+/**
+ * How many paths a notice lists, per kind. A notice is small, and on a phone
+ * it covers the note; every path is on the screen of the results
+ * (`ReportDetail.full`).
+ */
+export const NOTICE_LIST_LIMIT = 3;
+
+/** Every path: what the screen of the results lists (`ReportDetail.full`). */
+export const NO_LIST_LIMIT = Number.POSITIVE_INFINITY;
 
 export interface CappedList<T> {
 	readonly shown: readonly T[];
@@ -300,6 +307,21 @@ export interface PullReportOptions {
 const FAILURES: readonly DeferReason[] = ["fetch-failed", "hash-mismatch", "trash-failed"];
 
 /**
+ * How much a thing a sync tells matters, which is how it is shown (E-2):
+ *
+ * - "error": the sync could not be carried out, or stopped. A notice of its
+ *   own that stays, and looks apart from the others.
+ * - "warn": the sync went on, and something is left that the user has to see
+ *   to, or may lose content by not knowing of. One notice that stays, per
+ *   part of the sync.
+ * - "info": done, and only worth knowing. A short line in the summary,
+ *   which goes by itself; nothing at all from a sync that started by itself.
+ *
+ * All of them are on the screen of the results, in full.
+ */
+export type NoticeLevel = "error" | "warn" | "info";
+
+/**
  * One thing a sync has to tell beside how it ended.
  *
  * `standing` tells the two kinds apart that a sync which starts by itself
@@ -312,19 +334,62 @@ const FAILURES: readonly DeferReason[] = ["fetch-failed", "hash-mismatch", "tras
  *   long as it is so: files that could not be fetched, or read, or sent.
  *   Told every time by a sync the user starts, who is looking; a sync that
  *   starts every few minutes tells it once.
+ *
+ * `level` is the other way to look at it: how it is shown (`NoticeLevel`).
  */
 export interface ReportDetail {
+	/** As a notice shows it: its lists cut to `NOTICE_LIST_LIMIT`. */
 	readonly text: string;
+	/** With every path, for the screen of the results. */
+	readonly full: string;
+	/** For "info": the short line the summary gets in its place, with the count alone. */
+	readonly brief?: string;
+	readonly level: NoticeLevel;
 	readonly standing: boolean;
 }
 
-/** Words what a pull answered. */
+/**
+ * A `ReportDetail` from what words it: `words` is called with how many
+ * paths a list shows, once for the notice and once for the screen.
+ */
+export function reportDetail(
+	level: NoticeLevel,
+	standing: boolean,
+	words: (limit: number) => string,
+	brief?: string,
+): ReportDetail {
+	return {
+		text: words(NOTICE_LIST_LIMIT),
+		full: words(NO_LIST_LIMIT),
+		...(brief === undefined ? {} : { brief }),
+		level,
+		standing,
+	};
+}
+
+/**
+ * A part of a sync (a pull, a push, an untracking), worded: how it ended,
+ * how much that matters, and what else it has to tell.
+ */
+export interface PartReport {
+	readonly summary: string;
+	/** Of `summary`: "info" but for a part that ended with something to see to. */
+	readonly level: NoticeLevel;
+	readonly details: readonly ReportDetail[];
+}
+
+/** Words what a pull answered, as the texts of the notices of each matter. */
 export function pullReport(t: Translate, result: PullResult, options: PullReportOptions): PullReport {
-	const details = pullDetails(t, result, options).map((detail) => detail.text);
+	const part = pullPart(t, result, options);
+	return { summary: part.summary, details: part.details.map((detail) => detail.text) };
+}
+
+/** Words what a pull answered, with how much each matters. */
+export function pullPart(t: Translate, result: PullResult, options: PullReportOptions): PartReport {
 	// With the summary and not a message of its own: it is nothing to act on.
 	const summary = [summaryText(t, result, options.connectionChanged === true)];
 	if (result.refetched > 0) summary.push(t("pull.refetched", { count: result.refetched }));
-	return { summary: summary.join("\n"), details };
+	return { summary: summary.join("\n"), level: "info", details: pullDetails(t, result, options) };
 }
 
 /** How a pull ended, in a line: the first line of `PullReport.summary`. */
@@ -335,68 +400,99 @@ export function pullSummaryText(t: Translate, result: PullResult, connectionChan
 /** `PullReport.details`, each with whether it is told by every pull while it is so. */
 export function pullDetails(t: Translate, result: PullResult, options: PullReportOptions): ReportDetail[] {
 	const details: ReportDetail[] = [];
-	const happened = (text: string): void => {
-		details.push({ text, standing: false });
+	// What happened in this pull, and has to be seen to.
+	const warn = (words: (limit: number) => string): void => {
+		details.push(reportDetail("warn", false, words));
+	};
+	// What happened in this pull, and is only worth knowing.
+	const info = (brief: string, words: (limit: number) => string): void => {
+		details.push(reportDetail("info", false, words, brief));
 	};
 
 	if (result.conflicts.length > 0) {
 		const lines = result.conflicts.map((conflict) => conflictLine(t, conflict));
-		happened(t("pull.conflicts", { count: lines.length, list: listText(t, lines, 10) }));
+		warn((limit) => t("pull.conflicts", { count: lines.length, list: listText(t, lines, limit) }));
 	}
+	// Seen to as well: a merge can break the text (S-5).
 	if (result.merged.length > 0) {
 		const lines = result.merged.map((merge) => t("pull.merged.item", { path: merge.path, kept: merge.keptAt }));
-		happened(t("pull.merged", { count: lines.length, list: listText(t, lines, 10) }));
+		warn((limit) => t("pull.merged", { count: lines.length, list: listText(t, lines, limit) }));
 	}
 	if (result.replacedSettings.length > 0) {
 		const { replacedSettings } = result;
-		happened(t("pull.replacedSettings", { count: replacedSettings.length, list: listText(t, replacedSettings) }));
+		const count = replacedSettings.length;
+		info(t("pull.replacedSettings.brief", { count }), (limit) =>
+			t("pull.replacedSettings", { count, list: listText(t, replacedSettings, limit) }),
+		);
 	}
 	if (result.trashed.length > 0) {
-		happened(t("pull.trashed", { count: result.trashed.length, list: listText(t, result.trashed) }));
+		const { trashed } = result;
+		info(t("pull.trashed.brief", { count: trashed.length }), (limit) =>
+			t("pull.trashed", { count: trashed.length, list: listText(t, trashed, limit) }),
+		);
 	}
 	// Listed until a pull has answered with them, and by none after that.
+	// What was typed after the stop is in the trash alone.
 	if (result.halfWritten.length > 0) {
 		const { halfWritten } = result;
-		happened(t("pull.halfWritten", { count: halfWritten.length, list: listText(t, halfWritten) }));
+		warn((limit) => t("pull.halfWritten", { count: halfWritten.length, list: listText(t, halfWritten, limit) }));
 	}
 	// The ones of them a merge was writing: what the vault had is not in the
 	// file that was moved away, and the path gets the remote's content.
 	if (result.halfMerged.length > 0) {
 		const lines = result.halfMerged.map((merge) => t("pull.merged.item", { path: merge.path, kept: merge.keptAt }));
-		happened(t("pull.halfMerged", { count: lines.length, list: listText(t, lines, 10) }));
+		warn((limit) => t("pull.halfMerged", { count: lines.length, list: listText(t, lines, limit) }));
 	}
 	if (result.halfCopies.length > 0) {
 		const { halfCopies } = result;
-		happened(t("pull.halfCopies", { count: halfCopies.length, list: listText(t, halfCopies) }));
+		info(t("pull.halfCopies.brief", { count: halfCopies.length }), (limit) =>
+			t("pull.halfCopies", { count: halfCopies.length, list: listText(t, halfCopies, limit) }),
+		);
 	}
 	// The count alone: they are in the `.trash/`, and nothing is to be done.
-	if (result.tidiedCopies.length > 0) happened(t("pull.tidiedCopies", { count: result.tidiedCopies.length }));
-	if (result.keptLocal.length > 0) {
-		happened(t("pull.keptLocal", { count: result.keptLocal.length, list: listText(t, result.keptLocal) }));
+	if (result.tidiedCopies.length > 0) {
+		const count = result.tidiedCopies.length;
+		info(t("pull.tidiedCopies.brief", { count }), () => t("pull.tidiedCopies", { count }));
 	}
-	if (result.recoveredPush !== undefined) happened(recoveredPushText(t, result.recoveredPush));
-	if (result.recoveredUntrack !== undefined) happened(recoveredUntrackText(t, result.recoveredUntrack));
+	if (result.keptLocal.length > 0) {
+		const { keptLocal } = result;
+		info(t("pull.keptLocal.brief", { count: keptLocal.length }), (limit) =>
+			t("pull.keptLocal", { count: keptLocal.length, list: listText(t, keptLocal, limit) }),
+		);
+	}
+	if (result.recoveredPush !== undefined) {
+		const text = recoveredPushText(t, result.recoveredPush);
+		info(text, () => text);
+	}
+	if (result.recoveredUntrack !== undefined) {
+		const text = recoveredUntrackText(t, result.recoveredUntrack);
+		info(text, () => text);
+	}
 	// Not after a "no": that pull left nothing for later, it did not begin.
 	// What it put off before it asked (a file left half written that could
 	// not be looked at) is found again by the next pull, which tells it.
 	// Nor after a question that was left for later, for the same reason.
 	if (result.outcome !== "declined" && result.outcome !== "waiting") {
 		const failed = incompleteText(t, result, options.settings);
-		if (failed !== null) details.push({ text: failed, standing: true });
+		if (failed !== null) details.push(reportDetail("warn", true, () => failed));
 		// The files that only wait are counted once: by the text above
 		// when there is one.
-		for (const text of unreadTexts(t, result, failed === null)) details.push({ text, standing: true });
+		for (const words of unreadTexts(t, result, failed === null)) details.push(reportDetail("warn", true, words));
 	}
 	// They have a record now, and are told by no later pull.
 	if (result.newSymlinks.length > 0) {
-		happened(t("pull.symlinks", { count: result.newSymlinks.length, list: listText(t, result.newSymlinks) }));
+		const { newSymlinks } = result;
+		info(t("pull.symlinks.brief", { count: newSymlinks.length }), (limit) =>
+			t("pull.symlinks", { count: newSymlinks.length, list: listText(t, newSymlinks, limit) }),
+		);
 	}
 	// Remembered as told by the pull that answers with them.
-	const notices = noticeTexts(t, result.notices, options.sizeLimit, (path) => {
-		const blocked = result.unwritable.find((entry) => entry.reason === "blocked" && entry.path === path);
-		return blocked?.inTheWay ?? [];
-	});
-	for (const text of notices) happened(text);
+	details.push(
+		...noticeDetails(t, result.notices, options.sizeLimit, (path) => {
+			const blocked = result.unwritable.find((entry) => entry.reason === "blocked" && entry.path === path);
+			return blocked?.inTheWay ?? [];
+		}),
+	);
 	return details;
 }
 
@@ -491,20 +587,20 @@ function incompleteText(t: Translate, result: PullResult, settings: DeviceSettin
  * counted here, in a text of their own after them. They are when no other
  * text counts them (`incompleteText`), so that they are told at all.
  */
-function unreadTexts(t: Translate, result: PullResult, countWaiting: boolean): string[] {
-	const texts: string[] = [];
+function unreadTexts(t: Translate, result: PullResult, countWaiting: boolean): ((limit: number) => string)[] {
+	const texts: ((limit: number) => string)[] = [];
 	const pathsOf = (reason: DeferReason): string[] =>
 		result.deferred.filter((file) => file.reason === reason).map((file) => file.path);
 	const notDownloaded = pathsOf("not-downloaded");
 	if (notDownloaded.length > 0) {
-		texts.push(t("pull.notDownloaded", { count: notDownloaded.length, list: listText(t, notDownloaded) }));
+		texts.push((limit) => t("pull.notDownloaded", { count: notDownloaded.length, list: listText(t, notDownloaded, limit) }));
 	}
 	const unreadable = pathsOf("unreadable");
 	if (unreadable.length > 0) {
-		texts.push(t("pull.unreadable", { count: unreadable.length, list: listText(t, unreadable) }));
+		texts.push((limit) => t("pull.unreadable", { count: unreadable.length, list: listText(t, unreadable, limit) }));
 	}
 	const waiting = pathsOf("depends-on-deferred").length;
-	if (countWaiting && texts.length > 0 && waiting > 0) texts.push(t("pull.waitingForUnread", { count: waiting }));
+	if (countWaiting && texts.length > 0 && waiting > 0) texts.push(() => t("pull.waitingForUnread", { count: waiting }));
 	return texts;
 }
 
@@ -532,9 +628,9 @@ export function recoveredUntrackText(t: Translate, count: number): string {
 }
 
 /**
- * The texts of the one-time notices: per kind, in the order of
- * `NOTICE_KINDS`. `inTheWay` answers the vault files that are in the place
- * of a blocked file of the remote.
+ * The texts of the one-time notices, as a notice shows them: per kind, in
+ * the order of `NOTICE_KINDS`. `inTheWay` answers the vault files that are
+ * in the place of a blocked file of the remote.
  */
 export function noticeTexts(
 	t: Translate,
@@ -542,71 +638,146 @@ export function noticeTexts(
 	sizeLimit: number,
 	inTheWay: (path: string) => readonly string[] = () => [],
 ): string[] {
+	return noticeDetails(t, notices, sizeLimit, inTheWay).map((detail) => detail.text);
+}
+
+/** `noticeTexts`, with how much each matters (`NOTICE_LEVELS`) and every path. */
+export function noticeDetails(
+	t: Translate,
+	notices: readonly NoticeRef[],
+	sizeLimit: number,
+	inTheWay: (path: string) => readonly string[] = () => [],
+): ReportDetail[] {
 	return NOTICE_KINDS.flatMap((kind) => {
 		const paths = notices.filter((notice) => notice.kind === kind).map((notice) => notice.path);
-		return paths.length === 0 ? [] : noticeText(t, kind, paths, sizeLimit, inTheWay);
+		if (paths.length === 0) return [];
+		const level = NOTICE_LEVELS[kind];
+		const brief = level === "info" ? noticeBrief(t, kind, paths) : undefined;
+		return [reportDetail(level, false, (limit) => noticeText(t, kind, paths, sizeLimit, inTheWay, limit), brief)];
 	});
 }
 
-// A kind about one thing gets a text per path; a kind that can hold many
-// paths gets one text that lists them. No `default`: a kind added later
-// fails the type check here until it is given a text.
+/**
+ * How much each kind of one-time notice matters. "warn": what is not
+ * written, read or sent until the user does something, and what stops
+ * syncing if left as it is (the plugin that the next start of the app turns
+ * off; a fixed exclusion that is off, which git on a computer then commits
+ * the trash with). "info": what is so, and needs nothing done.
+ */
+const NOTICE_LEVELS: { readonly [Kind in NoticeKind]: NoticeLevel } = {
+	"own-folder-on-remote": "warn",
+	"git-at-root": "warn",
+	"remote-path-collision": "warn",
+	"too-large": "warn",
+	"lfs-pointer": "warn",
+	"invalid-path": "warn",
+	"plugin-not-listed": "warn",
+	"unwritable-path": "warn",
+	"blocked-path": "warn",
+	"archive-given-up": "info",
+	"archive-limited": "info",
+	"local-path-collision": "warn",
+	"rename-not-sent": "warn",
+	"nested-gitignore": "info",
+	"fixed-exclusion-off": "warn",
+	submodule: "info",
+	"submodule-no-access": "warn",
+	"submodule-no-commit": "warn",
+	"submodule-not-sent": "warn",
+	"local-link": "info",
+};
+
+// One text per kind, which lists its paths. No `default`: a kind added
+// later fails the type check here until it is given a text.
 function noticeText(
 	t: Translate,
 	kind: NoticeKind,
 	paths: readonly string[],
 	sizeLimit: number,
 	inTheWay: (path: string) => readonly string[],
-): string[] {
-	const list = listText(t, paths);
+	limit: number,
+): string {
+	const list = listText(t, paths, limit);
 	switch (kind) {
 		case "own-folder-on-remote":
-			return paths.map((path) => t("notice.ownFolderOnRemote", { path }));
+			return t("notice.ownFolderOnRemote", { list });
 		case "git-at-root":
-			return [t("notice.gitAtRoot")];
+			return t("notice.gitAtRoot");
 		case "remote-path-collision":
-			return [t("notice.remotePathCollision", { list })];
+			return t("notice.remotePathCollision", { list });
 		case "too-large":
-			return [t("notice.tooLarge", { limit: megabytes(sizeLimit), list })];
+			return t("notice.tooLarge", { limit: megabytes(sizeLimit), list });
 		case "lfs-pointer":
-			return [t("notice.lfsPointer", { list })];
+			return t("notice.lfsPointer", { list });
 		case "invalid-path":
-			return [t("notice.invalidPath", { list })];
+			return t("notice.invalidPath", { list });
 		case "plugin-not-listed":
-			return paths.map((path) => t("notice.pluginNotListed", { path }));
+			return t("notice.pluginNotListed", { list });
 		case "unwritable-path":
-			return [t("notice.unwritablePath", { list })];
-		case "blocked-path":
-			// One text per remote file: each has its own files in its place.
-			return paths.map((path) => t("notice.blockedPath", { path, list: listText(t, inTheWay(path)) }));
-		case "archive-given-up":
-			return [t("notice.archiveGivenUp")];
-		case "archive-limited":
-			return paths.map((bytes) => {
-				const size = Number(bytes) / (1024 * 1024);
-				return t("notice.archiveLimited", { size: size >= 10 ? String(Math.floor(size)) : Math.max(size, 0.1).toFixed(1) });
+			return t("notice.unwritablePath", { list });
+		case "blocked-path": {
+			// Each remote file has its own files in its place: those are
+			// named on the screen of the results, where every path is.
+			if (limit !== NO_LIST_LIMIT) return t("notice.blockedPath", { list });
+			const lines = paths.map((path) => {
+				const local = inTheWay(path);
+				return local.length === 0
+					? path
+					: t("notice.blockedPath.item", { path, local: local.join(t("list.separator")) });
 			});
+			return t("notice.blockedPath", { list: listText(t, lines, limit) });
+		}
+		case "archive-given-up":
+			return t("notice.archiveGivenUp");
+		case "archive-limited":
+			// The "path" is the estimate, in bytes. The last is the one the
+			// device goes by now.
+			return t("notice.archiveLimited", { size: archiveSize(paths) });
 		case "local-path-collision":
-			return [t("notice.localPathCollision", { list })];
+			return t("notice.localPathCollision", { list });
 		case "rename-not-sent":
-			return [t("notice.renameNotSent", { list })];
+			return t("notice.renameNotSent", { list });
 		case "nested-gitignore":
-			return [t("notice.nestedGitignore", { list })];
+			return t("notice.nestedGitignore", { list });
 		case "fixed-exclusion-off":
 			// The "paths" are lines of `.gitignore`, and all of them are shown:
 			// which ones are off is the whole of the notice.
-			return [t("notice.fixedExclusionOff", { list: listText(t, paths, paths.length) })];
+			return t("notice.fixedExclusionOff", { list: listText(t, paths, NO_LIST_LIMIT) });
 		case "submodule":
-			return [t("notice.submodule", { list })];
+			return t("notice.submodule", { list });
 		case "submodule-no-access":
-			return [t("notice.submoduleNoAccess", { list })];
+			return t("notice.submoduleNoAccess", { list });
 		case "submodule-no-commit":
-			return [t("notice.submoduleNoCommit", { list })];
+			return t("notice.submoduleNoCommit", { list });
 		case "submodule-not-sent":
-			return [t("notice.submoduleNotSent", { list })];
+			return t("notice.submoduleNotSent", { list });
 		case "local-link":
-			return [t("notice.localLink", { list })];
+			return t("notice.localLink", { list });
 	}
+}
+
+/** The short line of a one-time notice of the kind "info", for the summary. */
+function noticeBrief(t: Translate, kind: NoticeKind, paths: readonly string[]): string | undefined {
+	const count = paths.length;
+	switch (kind) {
+		case "archive-given-up":
+			return t("notice.archiveGivenUp.brief");
+		case "archive-limited":
+			return t("notice.archiveLimited.brief", { size: archiveSize(paths) });
+		case "nested-gitignore":
+			return t("notice.nestedGitignore.brief", { count });
+		case "submodule":
+			return t("notice.submodule.brief", { count });
+		case "local-link":
+			return t("notice.localLink.brief", { count });
+		default:
+			return undefined;
+	}
+}
+
+function archiveSize(paths: readonly string[]): string {
+	const size = Number(paths[paths.length - 1] ?? 0) / (1024 * 1024);
+	return size >= 10 ? String(Math.floor(size)) : Math.max(size, 0.1).toFixed(1);
 }
 
 export function megabytes(bytes: number): string {

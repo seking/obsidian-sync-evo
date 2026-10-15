@@ -24,10 +24,14 @@ import {
 	failureReason,
 	listText,
 	megabytes,
-	noticeTexts,
+	NO_LIST_LIMIT,
+	noticeDetails,
+	type NoticeLevel,
+	type PartReport,
 	type PullReport,
 	pushCountsText,
 	type ReportDetail,
+	reportDetail,
 	type Question,
 	type QuestionPart,
 	recoveredPushText,
@@ -80,6 +84,13 @@ export function pushProgressText(t: Translate, progress: PushProgress, waitingUn
 }
 
 /**
+ * How many of the files of the remote the added lines match the question
+ * before a first push lists. A dialog, and not a notice: it has the room,
+ * and nothing else lists them.
+ */
+const QUESTION_TRACKED_LIMIT = 5;
+
+/**
  * The words of the question a push stops with: what the first push of a
  * sync state sends, and the deletions when there are too many. With both
  * reasons together, the files to delete are listed once, by the first.
@@ -113,7 +124,7 @@ export function pushQuestion(
 			for (const text of sectionNotes(t, section, "sends")) parts.push({ text });
 			if (section.tracked.length > 0) {
 				const text = t("section.added.tracked", { count: section.tracked.length });
-				parts.push({ text, paths: capList(section.tracked, NOTICE_LIST_LIMIT) });
+				parts.push({ text, paths: capList(section.tracked, QUESTION_TRACKED_LIMIT) });
 				parts.push({ text: t("section.added.untrackHint") });
 			}
 		}
@@ -202,18 +213,23 @@ export type SectionDelivery = "sends" | "sent" | "unsent" | "unknown";
  * remote, where to change them, and how to say that they are not wanted.
  * With the files of the remote the lines match, which no device syncs from
  * now on and which stay on the remote, and where they can be untracked. Every added line is shown, however many: they are
- * what was written.
+ * what was written. `limit`: how many of those files are listed.
  */
-export function sectionAddedText(t: Translate, section: SectionAdded, delivery: SectionDelivery): string {
+export function sectionAddedText(
+	t: Translate,
+	section: SectionAdded,
+	delivery: SectionDelivery,
+	limit = NOTICE_LIST_LIMIT,
+): string {
 	const lines = [
 		sectionIntro(t, section),
-		listText(t, section.lines, section.lines.length),
+		listText(t, section.lines, NO_LIST_LIMIT),
 		...sectionNotes(t, section, delivery),
 	];
 	if (section.tracked.length > 0) {
 		lines.push(
 			t("section.added.tracked", { count: section.tracked.length }),
-			listText(t, section.tracked),
+			listText(t, section.tracked, limit),
 			t("section.added.untrackHint"),
 		);
 	}
@@ -282,10 +298,40 @@ export interface PushReportOptions {
 	readonly connectionChanged?: boolean;
 }
 
-/** Words what a push answered. */
+/** Words what a push answered, as the texts of the notices of each matter. */
 export function pushReport(t: Translate, result: PushRunResult, options: PushReportOptions): PullReport {
-	const details = pushDetails(t, result, options).map((detail) => detail.text);
-	return { summary: summaryText(t, result, options.connectionChanged === true), details };
+	const part = pushPart(t, result, options);
+	return { summary: part.summary, details: part.details.map((detail) => detail.text) };
+}
+
+/** Words what a push answered, with how much each matters. */
+export function pushPart(t: Translate, result: PushRunResult, options: PushReportOptions): PartReport {
+	return {
+		summary: summaryText(t, result, options.connectionChanged === true),
+		level: summaryLevel(result),
+		details: pushDetails(t, result, options),
+	};
+}
+
+/**
+ * How much the way a push ended matters: "warn" where nothing was sent and
+ * the user has something to do first. Not where the remote only moved on in
+ * between, which the next sync pulls first for by itself.
+ */
+function summaryLevel(result: PushRunResult): NoticeLevel {
+	switch (result.outcome) {
+		case "pull-first":
+			return result.reason === "remote-moved" ? "info" : "warn";
+		case "nothing-to-push":
+			return pushUnsent(result) ? "warn" : "info";
+		default:
+			return "info";
+	}
+}
+
+/** Whether a push left files unsent. */
+function pushUnsent(result: PushRunResult): boolean {
+	return result.refused.length + result.heldRenames.length + result.held.length + result.leftOut.length > 0;
 }
 
 /** How a push ended, in a line: `PullReport.summary` of `pushReport`. */
@@ -296,12 +342,13 @@ export function pushSummaryText(t: Translate, result: PushRunResult, connectionC
 /** The details of `pushReport`, each with whether it is told by every push while it is so (`ReportDetail`). */
 export function pushDetails(t: Translate, result: PushRunResult, options: PushReportOptions): ReportDetail[] {
 	const details: ReportDetail[] = [];
-	const happened = (text: string): void => {
-		details.push({ text, standing: false });
+	// What happened in this push, and is only worth knowing.
+	const info = (brief: string, words: (limit: number) => string): void => {
+		details.push(reportDetail("info", false, words, brief));
 	};
 	// What is not sent, by every push for as long as that is so.
-	const standing = (text: string): void => {
-		details.push({ text, standing: true });
+	const standing = (words: (limit: number) => string): void => {
+		details.push(reportDetail("warn", true, words));
 	};
 	// First: it is what this push wrote to the vault. Not a second time when
 	// the question showed it and the push then sent it. A push that was
@@ -310,16 +357,24 @@ export function pushDetails(t: Translate, result: PushRunResult, options: PushRe
 	// sent is the push's to say, and not read from how it ended.
 	const section = result.sectionAdded;
 	if (section !== undefined && !(section.asked && section.sent)) {
-		happened(sectionAddedText(t, section, section.sent ? "sent" : "unsent"));
+		const delivery = section.sent ? "sent" : "unsent";
+		info(t("section.added.brief"), (limit) => sectionAddedText(t, section, delivery, limit));
 	}
-	if (result.recovered !== null) happened(recoveredPushText(t, result.recovered));
-	if (result.recoveredUntrack !== undefined) happened(recoveredUntrackText(t, result.recoveredUntrack));
+	if (result.recovered !== null) {
+		const text = recoveredPushText(t, result.recovered);
+		info(text, () => text);
+	}
+	if (result.recoveredUntrack !== undefined) {
+		const text = recoveredUntrackText(t, result.recoveredUntrack);
+		info(text, () => text);
+	}
 	if (result.held.length > 0) {
-		standing(t("push.held", { count: result.held.length, list: listText(t, result.held) }));
+		const { held } = result;
+		standing((limit) => t("push.held", { count: held.length, list: listText(t, held, limit) }));
 	}
 	const inTheWay = result.refused.filter((file) => file.reason === "remote-in-the-way").map((file) => file.path);
 	if (inTheWay.length > 0) {
-		standing(t("push.remoteInTheWay", { count: inTheWay.length, list: listText(t, inTheWay) }));
+		standing((limit) => t("push.remoteInTheWay", { count: inTheWay.length, list: listText(t, inTheWay, limit) }));
 	}
 	// A new file a cloud drive keeps is told apart: it is the cloud drive
 	// the user has to see to, and the next push alone changes nothing.
@@ -327,43 +382,56 @@ export function pushDetails(t: Translate, result: PushRunResult, options: PushRe
 		result.leftOut.filter((file) => reasons.includes(file.reason)).map((file) => file.path);
 	const notDownloaded = leftOut("not-downloaded");
 	if (notDownloaded.length > 0) {
-		standing(t("push.notDownloaded", { count: notDownloaded.length, list: listText(t, notDownloaded) }));
+		standing((limit) =>
+			t("push.notDownloaded", { count: notDownloaded.length, list: listText(t, notDownloaded, limit) }),
+		);
 	}
 	// Left out for its size: waiting for the next push changes nothing, so
 	// these say what the user can do, apart from the ones that only need
 	// another try.
 	const grown = leftOut("too-large");
 	if (grown.length > 0) {
-		const limit = megabytes(options.sizeLimit);
-		standing(t("push.grownTooLarge", { count: grown.length, limit, list: listText(t, grown) }));
+		const sizeLimit = megabytes(options.sizeLimit);
+		standing((limit) =>
+			t("push.grownTooLarge", { count: grown.length, limit: sizeLimit, list: listText(t, grown, limit) }),
+		);
 	}
 	const refusedSize = leftOut("refused-size");
 	if (refusedSize.length > 0) {
-		standing(t("push.refusedSize", { count: refusedSize.length, list: listText(t, refusedSize) }));
+		standing((limit) => t("push.refusedSize", { count: refusedSize.length, list: listText(t, refusedSize, limit) }));
 	}
 	const space = leftOut("refused-space");
 	if (space.length > 0) {
-		standing(t("push.refusedSpace", { count: space.length, list: listText(t, space) }));
+		standing((limit) => t("push.refusedSpace", { count: space.length, list: listText(t, space, limit) }));
 	}
 	const workflows = leftOut("refused-workflows");
 	if (workflows.length > 0) {
-		standing(t("push.refusedWorkflows", { count: workflows.length, list: listText(t, workflows) }));
+		standing((limit) =>
+			t("push.refusedWorkflows", { count: workflows.length, list: listText(t, workflows, limit) }),
+		);
 	}
 	const others = leftOut("save-failed", "gone", "unreadable");
 	if (others.length > 0) {
-		standing(t("push.leftOut", { count: others.length, list: listText(t, others) }));
+		standing((limit) => t("push.leftOut", { count: others.length, list: listText(t, others, limit) }));
 	}
 	// Once: the next pull takes them up.
 	const changed = leftOut("remote-changed");
 	if (changed.length > 0) {
-		happened(t("push.remoteChanged", { count: changed.length, list: listText(t, changed) }));
+		info(t("push.remoteChanged.brief", { count: changed.length }), (limit) =>
+			t("push.remoteChanged", { count: changed.length, list: listText(t, changed, limit) }),
+		);
 	}
-	// Of the commit this push made.
+	// Of the commit this push made. Seen to: the next pull writes the
+	// remote's content over the file of this device.
 	if (result.storedOtherwise.length > 0) {
 		const paths = result.storedOtherwise;
-		happened(t("push.storedOtherwise", { count: paths.length, list: listText(t, paths) }));
+		details.push(
+			reportDetail("warn", false, (limit) =>
+				t("push.storedOtherwise", { count: paths.length, list: listText(t, paths, limit) }),
+			),
+		);
 	}
-	for (const text of noticeTexts(t, result.notices, options.sizeLimit)) happened(text);
+	details.push(...noticeDetails(t, result.notices, options.sizeLimit));
 	return details;
 }
 
@@ -373,9 +441,7 @@ function summaryText(t: Translate, result: PushRunResult, connectionChanged: boo
 			return t("push.summary", { details: pushCountsText(t, result.counts) });
 		case "nothing-to-push": {
 			// "Up to date" would not be true of a push that left files unsent.
-			const unsent =
-				result.refused.length + result.heldRenames.length + result.held.length + result.leftOut.length > 0;
-			return unsent ? t("push.nothingSent") : t("push.nothing");
+			return pushUnsent(result) ? t("push.nothingSent") : t("push.nothing");
 		}
 		case "pull-first":
 			switch (result.reason) {

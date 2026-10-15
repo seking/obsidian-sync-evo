@@ -21,6 +21,8 @@ import {
 	pushFailureText,
 	pushProgressText,
 	emptyVaultQuestion,
+	pushDetails,
+	pushPart,
 	pushQuestion,
 	pushReport,
 	sectionAddedText,
@@ -358,7 +360,7 @@ describe("the section a push added to .gitignore", () => {
 		const text = sectionAddedText(t, { ...added, tracked }, "sent");
 		expect(
 			text.endsWith(
-				`\n6 files that these lines exclude are on GitHub. Sync Evo no longer syncs them on any device:\n${tracked.slice(0, 5).join("\n")}\n…and 1 more\nTo remove them from GitHub, use \"Remove from GitHub\" in the settings of Sync Evo. The files on your devices with Sync Evo stay.`,
+				`\n6 files that these lines exclude are on GitHub. Sync Evo no longer syncs them on any device:\n${tracked.slice(0, 3).join("\n")}\n…and 3 more\nTo remove them from GitHub, use \"Remove from GitHub\" in the settings of Sync Evo. The files on your devices with Sync Evo stay.`,
 			),
 		).toBe(true);
 	});
@@ -628,6 +630,61 @@ describe("how a push ended", () => {
 	test("a collision that was told before is not told again", () => {
 		const report = pushReport(t, result({ refused: [{ path: "case.md", reason: "case-collision" }] }), options);
 		expect(report.details).toEqual([]);
+	});
+});
+
+describe("how much each thing a push tells matters", () => {
+	test("files it did not send are to be seen to, and told by every push; what the remote stored otherwise as well, once", () => {
+		const details = pushDetails(
+			t,
+			result({
+				recovered: { added: 1, modified: 0, deleted: 0 },
+				held: ["half.md"],
+				leftOut: [
+					{ path: "big.bin", reason: "too-large" },
+					{ path: "x.md", reason: "remote-changed" },
+				],
+				storedOtherwise: ["a.md"],
+			}),
+			options,
+		);
+		expect(details.map((detail) => [detail.level, detail.standing])).toEqual([
+			["info", false],
+			["warn", true],
+			["warn", true],
+			["info", false],
+			["warn", false],
+		]);
+		expect(details[3]?.brief).toBe("1 file was changed on GitHub by another device first. The next sync takes it up.");
+	});
+
+	test("the section it added is only worth knowing, with a short line, and every file the lines match on the screen", () => {
+		const tracked = Array.from({ length: 6 }, (_, index) => `.trash/${index}.md`);
+		const section = { lines: ["# >>> Sync Evo", "/.trash/", "# <<< Sync Evo"], created: false, tracked, asked: false, sent: true };
+		const [detail] = pushDetails(t, result({ sectionAdded: section }), options);
+		expect(detail?.level).toBe("info");
+		expect(detail?.brief).toBe("Sync Evo added the lines it manages to .gitignore.");
+		expect(detail?.text).toBe(sectionAddedText(t, section, "sent"));
+		expect(detail?.full).toBe(sectionAddedText(t, section, "sent", Number.POSITIVE_INFINITY));
+		expect(detail?.full).toContain(tracked.join("\n"));
+	});
+
+	test("a notice lists the first files of a kind, the screen of the results all of them", () => {
+		const held = Array.from({ length: 4 }, (_, index) => `${index}.md`);
+		const [detail] = pushDetails(t, result({ held }), options);
+		expect(detail?.text.split("\n").slice(1)).toEqual([...held.slice(0, 3), "…and 1 more"]);
+		expect(detail?.full.split("\n").slice(1)).toEqual(held);
+	});
+
+	test("a push that sent nothing until the user does something ends with something to see to", () => {
+		const level = (over: Partial<PushRunResult>) => pushPart(t, result(over), options).level;
+		expect(level({})).toBe("info");
+		expect(level({ outcome: "pull-first", reason: "no-base", revision: null })).toBe("warn");
+		expect(level({ outcome: "pull-first", reason: "gitignore-unreadable", revision: null })).toBe("warn");
+		// Not where another device only pushed in between: the next sync pulls first by itself.
+		expect(level({ outcome: "pull-first", reason: "remote-moved", revision: null })).toBe("info");
+		expect(level({ outcome: "nothing-to-push", revision: null })).toBe("info");
+		expect(level({ outcome: "nothing-to-push", revision: null, held: ["a.md"] })).toBe("warn");
 	});
 });
 

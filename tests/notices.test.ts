@@ -335,7 +335,7 @@ describe("in the sync state", () => {
 
 describe("the texts", () => {
 	test.each(["en", "ja"])("in %s, the notice about the plugin's own folder names the folder", (language) => {
-		const text = translatorFor(language)("notice.ownFolderOnRemote", { path: ownFolder.path });
+		const text = translatorFor(language)("notice.ownFolderOnRemote", { list: ownFolder.path });
 		expect(text).toContain(ownFolder.path);
 		expect(text).not.toContain("{");
 	});
@@ -348,8 +348,8 @@ describe("the texts", () => {
 
 	test("Japanese has a text of its own for both", () => {
 		expect(translatorFor("ja")("notice.gitAtRoot")).not.toBe(en["notice.gitAtRoot"]);
-		expect(translatorFor("ja")("notice.ownFolderOnRemote", { path: "x" })).not.toBe(
-			translatorFor("en")("notice.ownFolderOnRemote", { path: "x" }),
+		expect(translatorFor("ja")("notice.ownFolderOnRemote", { list: "x" })).not.toBe(
+			translatorFor("en")("notice.ownFolderOnRemote", { list: "x" }),
 		);
 	});
 });

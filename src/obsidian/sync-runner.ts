@@ -20,7 +20,8 @@ import { type App, Notice, type PluginManifest } from "obsidian";
 import { ArchiveGate } from "../core/archive-fetch";
 import {
 	type AutoReport,
-	autoTexts,
+	autoNotices,
+	autoResults,
 	failureAutoReport,
 	joinAutoReports,
 	notReadyAutoReport,
@@ -55,17 +56,20 @@ import type { MessageKey, Translate } from "../core/i18n";
 import { DEFAULT_SIZE_LIMIT } from "../core/plan";
 import { type PullDeps, type PullProgress, type PullResult, runPull } from "../core/pull";
 import {
+	NOTICE_LIST_LIMIT,
+	type NoticeLevel,
+	type PartReport,
 	pullFailureText,
+	pullPart,
 	pullProgressText,
-	pullReport,
 	stateProblemText,
 	stoppedText,
 } from "../core/pull-report";
 import { type PushDeps, type PushProgress, type PushRunResult, runPush, type SectionAdded } from "../core/push";
 import {
 	pushFailureText,
+	pushPart,
 	pushProgressText,
-	pushReport,
 	pushStoppedText,
 	sectionAddedText,
 } from "../core/push-report";
@@ -73,8 +77,15 @@ import { SentBlobMemory } from "../core/sent-blobs";
 import type { DeviceSettings } from "../core/settings";
 import type { StateStore } from "../core/state";
 import { runSync } from "../core/sync";
+import {
+	paragraphs,
+	partNotices,
+	partResults,
+	type ResultItem,
+	type SyncResult,
+} from "../core/sync-results";
 import { runUntrackSync, type UntrackDeps, type UntrackStep, type UntrackSyncResult } from "../core/untrack";
-import { untrackedSome, untrackFailureText, untrackStopped, untrackSyncReport } from "../core/untrack-report";
+import { untrackFailureText, untrackPart } from "../core/untrack-report";
 import { askEmptyVaultIn } from "./empty-vault-confirm";
 import { exclusionPathsOf } from "./exclusion-paths";
 import { graphViewPause } from "./graph-views";
@@ -118,6 +129,8 @@ export interface SyncHost {
 	 * (`DeviceSettings.exclusionChangeTold`).
 	 */
 	exclusionChangeTold?(): void;
+	/** Where the results of the syncs that had something to tell are kept (`results-store.ts`). */
+	readonly results?: { add(result: SyncResult): Promise<void> };
 }
 
 /**
@@ -153,6 +166,12 @@ const AUTO_PROGRESS_DELAY_MS = 5000;
 
 /** How many of the notices that stay are kept track of, for taking them away while a question is asked. */
 const STAYING_NOTICES = 12;
+
+/**
+ * How long a notice that goes by itself stays, when it says more than a
+ * line: a summary with the short lines of what is only worth knowing.
+ */
+const LONG_NOTICE_MS = 10_000;
 
 /**
  * The one place a sync is started from, whichever kind it is: one runs at
@@ -236,8 +255,12 @@ export class SyncRunner {
 	 * does. They stay until dismissed, and would lie over that question.
 	 */
 	private questions: Notice[] = [];
-	/** The notices of this plugin that stay until they are tapped, with their text (`whileAsking`). */
-	private staying: { notice: Notice; text: string }[] = [];
+	/** The notices of this plugin that stay until they are tapped, with their text and level (`whileAsking`). */
+	private staying: { notice: Notice; text: string; level: NoticeLevel }[] = [];
+	/** What the running sync has told, with every path, for the screen of the results. */
+	private told: ResultItem[] = [];
+	/** How each part of the running sync ended, for the screen of the results. */
+	private summaries: string[] = [];
 	/**
 	 * Whether the push of the running sync ended on the answer that the
 	 * vault is to get its files from the remote again
@@ -457,6 +480,8 @@ export class SyncRunner {
 		const check: AutoCheck = auto ?? "full";
 		this.quiet = auto !== null;
 		this.parts = [];
+		this.told = [];
+		this.summaries = [];
 		// The sync state, once it is open: what is remembered is stored there.
 		let store: StateStore | null = null;
 		// From here on the settings screen writes nothing to `.gitignore`.
@@ -499,7 +524,11 @@ export class SyncRunner {
 			if (opened.status !== "ok") {
 				const problem = opened.status === "unavailable" ? opened.reason : opened.status;
 				this.parts.push(stateAutoReport(t, problem));
-				if (!this.quiet) this.show(stateProblemText(t, problem), 0);
+				if (!this.quiet) {
+					const text = stateProblemText(t, problem);
+					this.told.push({ level: "error", text });
+					this.show(text, 0, "error");
+				}
 				return;
 			}
 			store = opened.store;
@@ -744,12 +773,30 @@ export class SyncRunner {
 			if (!this.stopped && !cancelled) console.error(`Sync Evo: the ${this.direction} failed`, error);
 			const text = this.failureText(settings, error);
 			this.parts.push(failureAutoReport(t, error, text));
-			if (!this.quiet) this.show(text, this.failureStays(cancelled) ? 0 : undefined);
 			// A push that failed has no result to tell it with, and the file
 			// on this device is changed all the same. Whether it reached the
-			// remote before the failure is not known.
+			// remote before the failure is not known. Told with the failure:
+			// there is no summary to give it a line in.
 			// Never of a sync that started by itself, which adds none.
-			if (sectionAdded !== null) this.show(sectionAddedText(t, sectionAdded, "unknown"), 0);
+			// Set in a callback: the compiler takes it for null still.
+			const section = sectionAdded as SectionAdded | null;
+			if (!this.quiet) {
+				// That it was stopped is no error: it stays all the same,
+				// but for an untracking (`failureStays`).
+				const stays = this.failureStays(cancelled);
+				const level: NoticeLevel = !cancelled ? "error" : stays ? "warn" : "info";
+				const added = section === null ? "" : sectionAddedText(t, section, "unknown");
+				const more = section !== null && section.tracked.length > NOTICE_LIST_LIMIT ? t("notice.seeResults") : "";
+				this.show(paragraphs([text, added, more]), stays ? 0 : undefined, level);
+				// A stop the user asked for is how the sync ended, and nothing
+				// to see to: alone, it does not keep the sync on the screen
+				// of the results.
+				if (cancelled && this.stopping && !this.connectionChanged) this.summaries.push(text);
+				else this.told.push({ level, text });
+				if (section !== null) {
+					this.told.push({ level: "info", text: sectionAddedText(t, section, "unknown", Number.POSITIVE_INFINITY) });
+				}
+			}
 		} finally {
 			// Before anything is awaited: the line of progress of a sync
 			// that started by itself must not come up once it has ended.
@@ -764,6 +811,7 @@ export class SyncRunner {
 				// The sync has ended all the same, and the next may begin.
 				console.error("Sync Evo: the end of the sync could not be recorded", error);
 			}
+			this.keepResult(auto !== null);
 			this.quiet = false;
 			this.parts = [];
 			// Not for a sync that was stopped, or whose connection was
@@ -888,7 +936,7 @@ export class SyncRunner {
 		const settled = settleAutoSync({ ...this.memory, lastStartedAt: Date.now() }, report, true);
 		this.memory = settled.memory;
 		log(`automatic sync: not started (${report.cause ?? ""})`);
-		for (const text of autoTexts(report, settled.tell)) this.show(text, 0);
+		for (const notice of autoNotices(this.host.t, report, settled.tell)) this.show(notice.text, 0, notice.level);
 		if (store) void this.storeAside();
 	}
 
@@ -958,9 +1006,32 @@ export class SyncRunner {
 		log(`automatic sync: ${whole.end}${whole.cause === null ? "" : ` (${whole.cause})`}`);
 		// The user asked for the stop, and is told that it was heard.
 		if (this.stopping && !this.connectionChanged) this.show(this.stoppedText());
-		for (const text of autoTexts(whole, tell)) {
-			const notice = this.show(text, 0);
-			if (notice !== null && whole.questions.includes(text)) this.questions.push(notice);
+		for (const shown of autoNotices(this.host.t, whole, tell)) {
+			const notice = this.show(shown.text, 0, shown.level);
+			if (notice !== null && shown.question === true) this.questions.push(notice);
+		}
+		this.told.push(...autoResults(whole, tell));
+	}
+
+	/**
+	 * Keeps what the sync that ended told, with every path, for the screen
+	 * of the results: only when it told more than how its parts ended, so
+	 * that the syncs that went well do not push out the ones that did not.
+	 */
+	private keepResult(automatic: boolean): void {
+		const items = this.told;
+		const summaries = this.summaries.filter((summary) => summary !== "");
+		this.told = [];
+		this.summaries = [];
+		if (this.stopped || items.length === 0) return;
+		void this.host.results?.add({ at: Date.now(), automatic, summaries, items });
+	}
+
+	/** The notices of a part of a sync the user started (`partNotices`). */
+	private showPart(part: PartReport): void {
+		for (const notice of partNotices(this.host.t, part)) {
+			const duration = notice.stays ? 0 : notice.text.includes("\n") ? LONG_NOTICE_MS : undefined;
+			this.show(notice.text, duration, notice.level);
 		}
 	}
 
@@ -1065,12 +1136,12 @@ export class SyncRunner {
 		if (this.stopped) return;
 		const options = { settings, sizeLimit: DEFAULT_SIZE_LIMIT, connectionChanged: this.connectionChanged };
 		this.parts.push(pullAutoReport(this.host.t, result, options));
+		const part = pullPart(this.host.t, result, options);
+		this.summaries.push(part.summary);
 		// Told at the end, and not all of it (`settle`).
 		if (this.quiet) return;
-		const report = pullReport(this.host.t, result, options);
-		this.show(report.summary);
-		// Until they are dismissed: each is something to know or to act on.
-		for (const detail of report.details) this.show(detail, 0);
+		this.told.push(...partResults(part));
+		this.showPart(part);
 	}
 
 	/**
@@ -1080,7 +1151,9 @@ export class SyncRunner {
 	 * (`excludedOnRemoteCount`). Nothing where there are none. Remembered as
 	 * told either way, in the settings and not the sync state, so that a
 	 * first fetch does not tell it again. Also after a sync that started by
-	 * itself: it is said once, and the change is no less for that.
+	 * itself: it is said once, and the change is no less for that. Only
+	 * worth knowing: a sync that started by itself leaves it on the screen
+	 * of the results alone.
 	 *
 	 * Never fails the sync: what goes wrong here is tried again by the next.
 	 */
@@ -1102,20 +1175,31 @@ export class SyncRunner {
 		}
 		if (count === null || this.stopped || this.connectionChanged) return;
 		host.exclusionChangeTold?.();
-		if (count > 0) this.show(host.t("notice.exclusionChange", { count }), 0);
+		if (count === 0) return;
+		const text = host.t("notice.exclusionChange", { count });
+		this.told.push({ level: "info", text });
+		if (!this.quiet) this.show(text, LONG_NOTICE_MS);
 	}
 
 	private reportPush(result: PushRunResult): void {
 		if (this.stopped) return;
 		const options = { sizeLimit: DEFAULT_SIZE_LIMIT, connectionChanged: this.connectionChanged };
 		this.parts.push(pushAutoReport(this.host.t, result, options));
-		if (this.quiet) return;
-		const report = pushReport(this.host.t, result, options);
+		const part = pushPart(this.host.t, result, options);
+		if (this.quiet) {
+			this.summaries.push(part.summary);
+			return;
+		}
+		this.told.push(...partResults(part));
 		// Not told as a push the user said no to: the first fetch that was
 		// asked for comes next, and tells how it went.
-		if (result.refetch === true) this.refetchAsked = true;
-		else this.show(report.summary);
-		for (const detail of report.details) this.show(detail, 0);
+		if (result.refetch === true) {
+			this.refetchAsked = true;
+			this.showPart({ ...part, summary: "" });
+			return;
+		}
+		this.summaries.push(part.summary);
+		this.showPart(part);
 	}
 
 	/**
@@ -1134,12 +1218,12 @@ export class SyncRunner {
 	private reportUntrack(result: UntrackSyncResult): void {
 		if (this.stopped) return;
 		const { connectionChanged } = this;
-		const report = untrackSyncReport(this.host.t, result, { connectionChanged });
-		// Why nothing was untracked is something to act on, and stays. That
-		// it was stopped is not, as for a pull and a push.
-		const passing = untrackedSome(result) || untrackStopped(result) || connectionChanged;
-		this.show(report.summary, passing ? undefined : 0);
-		for (const detail of report.details) this.show(detail, 0);
+		const part = untrackPart(this.host.t, result, { connectionChanged });
+		this.summaries.push(part.summary);
+		this.told.push(...partResults(part));
+		// Why nothing was untracked is something to act on, and stays
+		// (`untrackPart`).
+		this.showPart(part);
 	}
 
 	/** The text for a sync that ended by throwing, by the part of it that was at work. */
@@ -1173,12 +1257,14 @@ export class SyncRunner {
 			: stoppedText(t, this.connectionChanged);
 	}
 
-	private show(text: string, duration?: number): Notice | null {
+	/** Puts up a notice. One that tells of an error looks apart from the others (`styles.css`). */
+	private show(text: string, duration?: number, level: NoticeLevel = "info"): Notice | null {
 		if (this.stopped) return null;
 		const notice = new Notice(text, duration);
+		if (level === "error") (notice.containerEl as HTMLElement | undefined)?.classList.add("sync-evo-notice-error");
 		// Those that stay until they are tapped, for `whileAsking`. The
 		// oldest are let go of: by then they are long read, or long gone.
-		if (duration === 0) this.staying = [...this.staying, { notice, text }].slice(-STAYING_NOTICES);
+		if (duration === 0) this.staying = [...this.staying, { notice, text, level }].slice(-STAYING_NOTICES);
 		return notice;
 	}
 
@@ -1213,7 +1299,16 @@ export class SyncRunner {
 		this.staying = [];
 		for (const { notice } of hidden) notice.hide();
 		return () => {
-			for (const { text } of hidden) this.show(text, 0);
+			for (const { notice: before, text, level } of hidden) {
+				const notice = this.show(text, 0, level);
+				// A question of automatic sync is still one: a sync the user
+				// starts takes it down (`hideQuestions`).
+				const at = this.questions.indexOf(before);
+				if (at !== -1) {
+					if (notice === null) this.questions.splice(at, 1);
+					else this.questions[at] = notice;
+				}
+			}
 		};
 	}
 }

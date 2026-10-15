@@ -224,7 +224,7 @@ export const ja = completeTranslation(en, {
 		"シークレット {name} に値がありません。トークンをこの名前で保存するか、別のシークレットを選んでください。",
 
 	"notice.ownFolderOnRemote":
-		"{remote} に Sync Evo 自身のフォルダ（{path}）があります。Sync Evo はこのフォルダを同期しません。{remote} でも、このデバイスでも、そのままにします。ほかのファイルは、通常どおり同期されます。{remote} から消すには、Sync Evo の設定画面で「{remote} から削除」を行います（.gitignore にこのフォルダの行がある時）。",
+		"{remote} に Sync Evo 自身のフォルダがあります。Sync Evo はこのフォルダを同期しません。{remote} でも、このデバイスでも、そのままにします。ほかのファイルは、通常どおり同期されます。{remote} から消すには、Sync Evo の設定画面で「{remote} から削除」を行います（.gitignore にこのフォルダの行がある時）：\n{list}",
 	"notice.gitAtRoot":
 		"この保管庫のルートに .git があり、git のリポジトリになっています。このデバイスでは、git か Obsidian Git プラグインで同期してください。Sync Evo がアップロードした内容を git は知らないため、次の git pull が止まります。Sync Evo は、その間も同期を続けます。",
 
@@ -236,15 +236,18 @@ export const ja = completeTranslation(en, {
 		"{remote} に Git LFS のポインターファイルがあります。Sync Evo はポインターをそのまま同期し、本体はダウンロードしません。そのため、このデバイスでは開けません：\n{list}",
 	"notice.invalidPath": "{remote} に、ファイルのパスとして扱えないパスがあります。スキップします：\n{list}",
 	"notice.pluginNotListed":
-		"ダウンロードした「アクティブなコミュニティプラグインのリスト」（{path}）に Sync Evo がありません。次に Obsidian を起動すると Sync Evo が無効になり、同期が止まります。設定の「コミュニティプラグイン」で、もう一度有効にしてください。",
+		"ダウンロードした「アクティブなコミュニティプラグインのリスト」に Sync Evo がありません。次に Obsidian を起動すると Sync Evo が無効になり、同期が止まります。設定の「コミュニティプラグイン」で、もう一度有効にしてください：\n{list}",
 	"notice.unwritablePath":
 		"このデバイスで書き込み、移動、または削除ができなかったファイルがあったため、スキップしました。{remote} では何も変更していません。ダウンロードのたびに、もう一度試します：\n{list}",
 	"notice.blockedPath":
-		"{remote} のファイル {path} を書き込めませんでした。その場所に、このデバイスにだけあるファイルがあります。移動するか名前を変えると、次のダウンロードで書き込みます：\n{list}",
+		"{remote} の次のファイルを書き込めませんでした。その場所に、このデバイスにだけあるファイルがあります。それを移動するか名前を変えると、次のダウンロードで書き込みます：\n{list}",
+	"notice.blockedPath.item": "{path}（その場所にあるファイル：{local}）",
 	"notice.archiveLimited":
 		"このデバイスでは、全ファイルをまとめてダウンロードできませんでした。今後このデバイスでは、まとめた大きさの見込みが約 {size}MB 以上のときは、まとめてダウンロードしません。ファイルが多いときも1件ずつダウンロードするため、時間が長くかかります。",
 	"notice.archiveGivenUp":
 		"このデバイスでは、全ファイルをまとめてダウンロードできませんでした。今後このデバイスでは、まとめてダウンロードしません。ファイルが多いときも1件ずつダウンロードするため、時間が長くかかります。",
+	"notice.archiveLimited.brief": "今後このデバイスでは、約 {size}MB 以上はまとめてダウンロードしません。",
+	"notice.archiveGivenUp.brief": "今後このデバイスでは、まとめてダウンロードしません。",
 
 	"notice.localPathCollision":
 		"一部の新しいファイルを、アップロードしていません。{remote} のほかのパス、またはほかの新しいファイルと、大文字と小文字だけが違います。名前を変えると、次のアップロードに入ります。ほかのファイルは、通常どおりアップロードします：\n{list}",
@@ -267,6 +270,10 @@ export const ja = completeTranslation(en, {
 		"このバージョンの Sync Evo から、除外している物は、{remote} にあっても同期しません。{remote} にある {count} 件のファイルを、このデバイスでは同期しなくなりました。全デバイスで除外している物は、Sync Evo の設定画面の「除外していて、{remote} に残っているファイル」で見られます。",
 	"notice.localLink":
 		"保管庫の中に、リンク（シンボリックリンク、ジャンクション）があります。Sync Evo は、リンクとその中を同期しません。{remote} でも、このデバイス（リンクの先）でも、そのままにします。ほかは通常どおり同期します：\n{list}",
+	"notice.nestedGitignore.brief": "下位のフォルダの .gitignore {count} 件は、規則として読みません。",
+	"notice.submodule.brief": "サブモジュール {count} 件の中身は、ダウンロードできません。",
+	"notice.localLink.brief": "保管庫の中のリンク {count} 件は、同期しません。",
+	"notice.seeResults": "全部は、コマンド「前回の同期の結果を表示」で見られます。",
 
 	"section.added.intro":
 		"この保管庫の .gitignore の先頭に、下の行を足しました。Sync Evo が管理する行で、同期しない物を決めます：",
@@ -280,6 +287,7 @@ export const ja = completeTranslation(en, {
 	"section.added.howTo":
 		"これらの行は、Sync Evo の設定画面で変えられます。要らない時は、最初と最後の行（# で始まる2行）だけを残して、間の行を消してください。その2行も消すと、次の同期でまた足します。",
 	"section.added.tracked": "これらの行で除外しているファイルが、{remote} に {count} 件あります。どのデバイスの Sync Evo も、これらを同期しなくなります：",
+	"section.added.brief": ".gitignore に、Sync Evo が管理する行を足しました。",
 	"section.added.untrackHint": "{remote} から消すには、Sync Evo の設定画面で「{remote} から削除」を行います。Sync Evo のデバイスのファイルは残ります。",
 
 	"list.separator": "、",
@@ -292,6 +300,20 @@ export const ja = completeTranslation(en, {
 	"command.firstFetch": "最初からやり直す（{remote} から全部ダウンロードし直す）",
 	"command.stop": "同期を中止する",
 	"command.showLog": "同期ログを表示",
+	"command.showResults": "前回の同期の結果を表示",
+
+	"results.title": "前回の同期の結果",
+	"results.desc":
+		"知らせることがあった同期を、新しい方から {count} 回分、全部のファイルと一緒に示します。このデバイスに残り、Obsidian を閉じても消えません。",
+	"results.empty": "知らせることがあった同期は、まだありません。",
+	"results.manual": "{time}　同期",
+	"results.automatic": "{time}　自動同期",
+	"results.error": "エラー",
+	"results.warn": "確認が要る物",
+	"results.info": "お知らせ",
+	"results.copy": "すべてコピー",
+	"results.copied": "結果をコピーしました。",
+	"results.copyFailed": "コピーできませんでした。文字を選択して、コピーしてください。",
 
 	"log.title": "同期ログ",
 	"log.desc":
@@ -372,18 +394,24 @@ export const ja = completeTranslation(en, {
 	"pull.merged.item": "{path}（前の内容：{kept}）",
 	"pull.replacedSettings":
 		"設定フォルダのファイル {count} 件を、{remote} の内容にしました。このデバイスの前の内容は、この保管庫の .trash/ にあります：\n{list}",
+	"pull.replacedSettings.brief": "設定フォルダのファイル {count} 件を、{remote} の内容にしました。",
 	"pull.trashed":
 		"ダウンロードで、{count} 件のファイルをこの保管庫の .trash/ へ移しました。内容は失われていません。そこから戻せます：\n{list}",
+	"pull.trashed.brief": "{count} 件のファイルを .trash/ へ移しました。",
 	"pull.halfWritten":
 		"前のダウンロードが、{count} 件のファイルを書いている途中で止まっていました。残っていた内容は、この保管庫の .trash/ へ移しました。{remote} の内容を、ダウンロードし直します。その後に編集していた時は、そこから戻せます：\n{list}",
 	"pull.halfMerged":
 		"前のダウンロードが、統合した内容を {count} 件のファイルに書いている途中で止まっていました。ダウンロードし直すのは {remote} の内容で、このデバイスの変更は入りません。統合する前のこのデバイスの内容は、この保管庫の .trash/.sync-evo-merged/ にあります：\n{list}",
 	"pull.halfCopies":
 		"前のダウンロードが作りかけていた競合ファイル {count} 件を、この保管庫の .trash/ へ移しました。競合ファイルは作り直します。競合ファイルを編集していた時は、編集した内容がそこにあります：\n{list}",
+	"pull.halfCopies.brief": "作りかけの競合ファイル {count} 件を .trash/ へ移しました。",
 	"pull.tidiedCopies":
 		"作ってから30日たった競合ファイル {count} 件を、_conflicts/ からこの保管庫の .trash/ へ移しました。残したい競合ファイルは、_conflicts/ の外へ移すか、名前を変えてください。",
+	"pull.tidiedCopies.brief": "30日たった競合ファイル {count} 件を .trash/ へ移しました。",
 	"pull.keptLocal":
 		"選んだとおり、このデバイスのファイル {count} 件をそのまま残しました。{remote} の内容とは異なります：\n{list}",
+	"pull.keptLocal.brief": "選んだとおり、{count} 件のファイルをそのまま残しました。",
+	"pull.symlinks.brief": "{remote} のシンボリックリンク {count} 件をスキップしています。",
 	"pull.symlinks":
 		"{remote} にシンボリックリンクが {count} 件あります。Sync Evo は、このデバイスに書き込まず、{remote} でもそのままにします。スキップしているリンクは、設定画面で確認できます：\n{list}",
 
@@ -445,6 +473,7 @@ export const ja = completeTranslation(en, {
 		"{count} 件のファイルを、アップロードしていません。.github/workflows/ の下のファイルを足すか変えるには、トークンに Workflows の読み取りと書き込みの権限が要ります。トークンに権限を足すと、次の同期でアップロードします。足さない時は、このファイルを元の内容に戻して、変更はパソコンの git で行ってください。前の版の Sync Evo が残した競合ファイル（名前に .conflict-from- が入る物）なら、中身を確かめてから削除してください：\n{list}",
 	"push.remoteChanged":
 		"{count} 件のファイルを、アップロードも削除もしていません。ほかのデバイスが、先に {remote} で変えていました。次の同期で、競合として扱います：\n{list}",
+	"push.remoteChanged.brief": "{count} 件のファイルは、ほかのデバイスが先に {remote} で変えていました。次の同期で扱います。",
 	"push.leftOut":
 		"{count} 件のファイルを、アップロードしていません。アップロードの途中で変わったか、読めなかったか、開いているファイルを保存できませんでした。次のアップロードで、もう一度確かめます：\n{list}",
 

@@ -61,6 +61,8 @@ import type { ExclusionChange, ExclusionLoad } from "./obsidian/exclusion-settin
 import { deviceNetwork } from "./obsidian/http";
 import { log, showLog } from "./obsidian/log";
 import { pullVaultOf } from "./obsidian/pull-vault";
+import { ResultsStore, resultsStoreDepsOf } from "./obsidian/results-store";
+import { showResults } from "./obsidian/results-view";
 import { type SyncHost, SyncRunner } from "./obsidian/sync-runner";
 import { SettingsStore } from "./obsidian/settings-store";
 import { type SettingsHost, SyncEvoSettingTab } from "./obsidian/settings-tab";
@@ -111,6 +113,13 @@ export default class SyncEvoPlugin extends Plugin implements SettingsHost, SyncH
 			name: this.t("command.showLog"),
 			callback: () => showLog(this.app, this.t),
 		});
+		// Every file of what the last syncs told, which a notice lists the
+		// first few of.
+		this.addCommand({
+			id: "show-results",
+			name: this.t("command.showResults"),
+			callback: () => void showResults(this.app, this.t, this.results),
+		});
 	}
 
 	/**
@@ -160,6 +169,13 @@ export default class SyncEvoPlugin extends Plugin implements SettingsHost, SyncH
 	 * the page tell. A sync that starts by itself leaves that file alone.
 	 */
 	readonly editing = new EditingWatch(this.app);
+
+	/**
+	 * The results of the last syncs that had something to tell, for the
+	 * screen that lists them. Apart from the sync state: they outlive a
+	 * change of the connection, and a first fetch.
+	 */
+	readonly results = new ResultsStore(resultsStoreDepsOf(this.app));
 
 	/** The one place a sync of any kind is started from, so that two never run at once. */
 	private readonly syncs = new SyncRunner(this);

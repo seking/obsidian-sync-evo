@@ -21,7 +21,11 @@ import {
 	failureReason,
 	firstFetchQuestion,
 	listText,
+	NOTICE_LIST_LIMIT,
+	noticeDetails,
+	pullDetails,
 	pullFailureText,
+	pullPart,
 	pullProgressText,
 	pullReport,
 	type StateProblem,
@@ -489,7 +493,7 @@ describe("files left for the next sync", () => {
 			const deferred = Array.from({ length: 8 }, (_, index) => ({ path: `f${index}.md`, reason }));
 			const [text] = pullReport(t, result({ outcome: "incomplete", deferred }), options).details;
 			expect(text?.startsWith("8 files ")).toBe(true);
-			expect(text?.split("\n").slice(1)).toEqual(["f0.md", "f1.md", "f2.md", "f3.md", "f4.md", "…and 3 more"]);
+			expect(text?.split("\n").slice(1)).toEqual(["f0.md", "f1.md", "f2.md", "…and 5 more"]);
 		}
 	});
 
@@ -582,28 +586,27 @@ describe("files left for the next sync", () => {
 
 describe("what the user has to know", () => {
 	test("each conflict names its copy and says what is at the path now", () => {
-		const report = pullReport(
-			t,
-			result({
-				counts: { fetched: 1, deleted: 0, renamed: 0, conflicts: 4 },
-				conflicts: [
-					{ path: "a.md", copyPath: "_conflicts/2026-10-03 a (Mac).md", cause: "conflict" },
-					{ path: "link", copyPath: "_conflicts/2026-10-03 link (Mac)", cause: "became-symlink" },
-					{ path: "dir", copyPath: "_conflicts/2026-10-03 dir (Mac)", cause: "became-folder" },
-					{ path: "Notes.md", copyPath: "_conflicts/2026-10-03 Notes (Mac).md", cause: "name-taken" },
-				],
-			}),
-			options,
-		);
-		expect(report.details).toEqual([
-			[
-				"The content of 4 files on this device was kept as conflict files:",
-				"_conflicts/2026-10-03 a (Mac).md (a conflict: a.md now has the content from GitHub)",
-				"_conflicts/2026-10-03 link (Mac) (link is a symbolic link on GitHub now, which is not written to this device)",
-				"_conflicts/2026-10-03 dir (Mac) (dir is a folder on GitHub now)",
-				"_conflicts/2026-10-03 Notes (Mac).md (another file was renamed to Notes.md on GitHub)",
-			].join("\n"),
-		]);
+		const conflicted = result({
+			counts: { fetched: 1, deleted: 0, renamed: 0, conflicts: 4 },
+			conflicts: [
+				{ path: "a.md", copyPath: "_conflicts/2026-10-03 a (Mac).md", cause: "conflict" },
+				{ path: "link", copyPath: "_conflicts/2026-10-03 link (Mac)", cause: "became-symlink" },
+				{ path: "dir", copyPath: "_conflicts/2026-10-03 dir (Mac)", cause: "became-folder" },
+				{ path: "Notes.md", copyPath: "_conflicts/2026-10-03 Notes (Mac).md", cause: "name-taken" },
+			],
+		});
+		const report = pullReport(t, conflicted, options);
+		const lines = [
+			"_conflicts/2026-10-03 a (Mac).md (a conflict: a.md now has the content from GitHub)",
+			"_conflicts/2026-10-03 link (Mac) (link is a symbolic link on GitHub now, which is not written to this device)",
+			"_conflicts/2026-10-03 dir (Mac) (dir is a folder on GitHub now)",
+			"_conflicts/2026-10-03 Notes (Mac).md (another file was renamed to Notes.md on GitHub)",
+		];
+		const heading = "The content of 4 files on this device was kept as conflict files:";
+		// The notice lists the first three; the screen of the results all of them.
+		expect(report.details).toEqual([[heading, ...lines.slice(0, 3), "…and 1 more"].join("\n")]);
+		const [detail] = pullDetails(t, conflicted, options);
+		expect(detail?.full).toBe([heading, ...lines].join("\n"));
 	});
 
 	test("many conflicts are counted in full and listed in part", () => {
@@ -615,8 +618,8 @@ describe("what the user has to know", () => {
 		const [text = ""] = pullReport(t, result({ conflicts }), options).details;
 		const lines = text.split("\n");
 		expect(lines[0]).toContain("12 files");
-		expect(lines).toHaveLength(12);
-		expect(lines[11]).toBe("…and 2 more");
+		expect(lines).toHaveLength(5);
+		expect(lines[4]).toBe("…and 9 more");
 	});
 
 	test("files that were merged, with where the content from before is, apart from the conflicts and the fetched", () => {
@@ -684,7 +687,7 @@ describe("what the user has to know", () => {
 		const many = Array.from({ length: 7 }, (_, index) => `.obsidian/f${index}.json`);
 		const [text = ""] = pullReport(t, result({ replacedSettings: many }), options).details;
 		expect(text).toContain("7 files in the configuration folder");
-		expect(text.split("\n")).toHaveLength(7);
+		expect(text.split("\n")).toHaveLength(5);
 
 		// After the conflicts, which are counted by themselves.
 		const both = result({
@@ -719,8 +722,8 @@ describe("what the user has to know", () => {
 		const [text = ""] = pullReport(t, result({ keptLocal: kept }), options).details;
 		expect(text.split("\n")).toEqual([
 			"8 files were left as they are on this device, as you chose. They differ from what is on GitHub:",
-			...kept.slice(0, 5),
-			"…and 3 more",
+			...kept.slice(0, 3),
+			"…and 5 more",
 		]);
 	});
 
@@ -815,8 +818,9 @@ describe("what the user has to know", () => {
 		expect(report.details[5]?.endsWith("\na//b")).toBe(true);
 		expect(report.details[6]).toContain(".obsidian/community-plugins.json");
 		expect(report.details[7]?.endsWith("\na:b.md")).toBe(true);
+		// The files in its place are named on the screen of the results alone.
 		expect(report.details[8]).toBe(
-			"The file notes on GitHub could not be written: files that are only on this device are in its place. Move or rename them, and the next download writes it:\nnotes/draft.md\nnotes/sub/idea.md",
+			"These files on GitHub could not be written: files that are only on this device are in their place. Move or rename those, and the next download writes these:\nnotes",
 		);
 	});
 
@@ -861,25 +865,50 @@ describe("what the user has to know", () => {
 		expect(pullReport(t, given, options).details).toHaveLength(1);
 	});
 
-	test("each blocked file has a text of its own, and many files in the way are listed in part", async () => {
+	test("blocked files are one text, and the screen of the results names what is in the place of each", () => {
 		const inTheWay = Array.from({ length: 8 }, (_, i) => `notes/${i}.md`);
+		const blocked = result({
+			notices: [
+				{ kind: "blocked-path", path: "notes" },
+				{ kind: "blocked-path", path: "todo" },
+			],
+			unwritable: [
+				{ path: "notes", reason: "blocked", inTheWay, isNew: true },
+				{ path: "todo", reason: "blocked", inTheWay: ["todo/x.md"], isNew: true },
+			],
+		});
+		const report = pullReport(t, blocked, options);
+		expect(report.details).toHaveLength(1);
+		expect(report.details[0]?.split("\n").slice(1)).toEqual(["notes", "todo"]);
+		const [detail] = pullDetails(t, blocked, options);
+		expect(detail?.level).toBe("warn");
+		expect(detail?.full.split("\n").slice(1)).toEqual([
+			`notes (in its place: ${inTheWay.join(", ")})`,
+			"todo (in its place: todo/x.md)",
+		]);
+		expect(pullDetails(ja, blocked, options)[0]?.full).toContain("todo/x.md");
+	});
+
+	test("a kind that was told of one path at a time is one text that lists them", () => {
 		const report = pullReport(
 			t,
 			result({
 				notices: [
-					{ kind: "blocked-path", path: "notes" },
-					{ kind: "blocked-path", path: "todo" },
-				],
-				unwritable: [
-					{ path: "notes", reason: "blocked", inTheWay, isNew: true },
-					{ path: "todo", reason: "blocked", inTheWay: ["todo/x.md"], isNew: true },
+					{ kind: "own-folder-on-remote", path: ".obsidian/plugins/sync-evo" },
+					{ kind: "own-folder-on-remote", path: "Settings/plugins/sync-evo" },
+					{ kind: "plugin-not-listed", path: ".obsidian/community-plugins.json" },
+					{ kind: "plugin-not-listed", path: "Settings/community-plugins.json" },
+					{ kind: "archive-limited", path: String(200 * 1024 * 1024) },
+					{ kind: "archive-limited", path: String(140 * 1024 * 1024) },
 				],
 			}),
 			options,
 		);
-		expect(report.details).toHaveLength(2);
-		expect(report.details[0]?.split("\n").slice(1)).toEqual([...inTheWay.slice(0, 5), "…and 3 more"]);
-		expect(report.details[1]?.endsWith("\ntodo/x.md")).toBe(true);
+		expect(report.details).toHaveLength(3);
+		expect(report.details[0]?.endsWith("\n.obsidian/plugins/sync-evo\nSettings/plugins/sync-evo")).toBe(true);
+		expect(report.details[1]?.endsWith("\n.obsidian/community-plugins.json\nSettings/community-plugins.json")).toBe(true);
+		// The size the device goes by now: the last.
+		expect(report.details[2]).toContain("about 140 MB or more");
 	});
 
 	test("a blocked file that was told before is not told again", () => {
@@ -917,6 +946,97 @@ describe("what the user has to know", () => {
 			options,
 		);
 		expect(report.details).toHaveLength(1);
+	});
+});
+
+describe("how much each thing a pull tells matters", () => {
+	test("a notice lists three paths of a kind", () => {
+		expect(NOTICE_LIST_LIMIT).toBe(3);
+	});
+
+	test("conflicts, merges and what is not downloaded are to be seen to; the trash and kept files only worth knowing", () => {
+		const details = pullDetails(
+			t,
+			result({
+				outcome: "incomplete",
+				conflicts: [{ path: "a.md", copyPath: "a (conflict).md", cause: "conflict" }],
+				merged: [{ path: "m.md", keptAt: ".trash/.sync-evo-merged/m.md" }],
+				trashed: ["b.md"],
+				keptLocal: ["c.md"],
+				tidiedCopies: ["_conflicts/old.md"],
+				deferred: [{ path: "d.md", reason: "unreadable" }],
+			}),
+			options,
+		);
+		expect(details.map((detail) => [detail.level, detail.standing])).toEqual([
+			["warn", false],
+			["warn", false],
+			["info", false],
+			["info", false],
+			["info", false],
+			["warn", true],
+		]);
+	});
+
+	test("the screen of the results lists every path, where a notice lists the first few", () => {
+		const trashed = Array.from({ length: 5 }, (_, i) => `${i}.md`);
+		const [detail] = pullDetails(t, result({ trashed }), options);
+		expect(detail?.text.split("\n").slice(1)).toEqual([...trashed.slice(0, 3), "…and 2 more"]);
+		expect(detail?.full.split("\n").slice(1)).toEqual(trashed);
+	});
+
+	test("what is only worth knowing has a short line with the count alone, for the summary", () => {
+		const details = pullDetails(
+			t,
+			result({ trashed: ["a.md", "b.md"], keptLocal: ["c.md"], tidiedCopies: ["_conflicts/x.md"], newSymlinks: ["l"] }),
+			options,
+		);
+		expect(details.map((detail) => detail.brief)).toEqual([
+			"2 files were moved to .trash/.",
+			"1 conflict file 30 days old was moved to .trash/.",
+			"1 file was left as it is, as you chose.",
+			"1 symbolic link on GitHub is skipped.",
+		]);
+		// Nothing to see to has one.
+		const [conflict] = pullDetails(t, result({ conflicts: [{ path: "a.md", copyPath: "b.md", cause: "conflict" }] }), options);
+		expect(conflict?.brief).toBeUndefined();
+	});
+
+	test("a pull is told as only worth knowing, however it ended: what there is to see to is in its details", () => {
+		expect(pullPart(t, result({}), options).level).toBe("info");
+		expect(pullPart(t, result({ outcome: "incomplete", deferred: [{ path: "a.md", reason: "unreadable" }] }), options).level).toBe(
+			"info",
+		);
+	});
+
+	test("one-time notices: what needs nothing done is only worth knowing, with a short line; the rest is to be seen to", () => {
+		const details = noticeDetails(
+			t,
+			[
+				{ kind: "too-large", path: "big.mov" },
+				{ kind: "plugin-not-listed", path: ".obsidian/community-plugins.json" },
+				{ kind: "nested-gitignore", path: "a/.gitignore" },
+				{ kind: "nested-gitignore", path: "b/.gitignore" },
+				{ kind: "local-link", path: "Projects" },
+			],
+			50 * 1024 * 1024,
+		);
+		expect(details.map((detail) => [detail.level, detail.brief])).toEqual([
+			["warn", undefined],
+			["warn", undefined],
+			["info", "2 .gitignore files in subfolders are not read as rules."],
+			["info", "1 link in the vault is not synced."],
+		]);
+	});
+
+	test("every one-time notice of the kind only worth knowing has a short line in both languages", () => {
+		for (const kind of NOTICE_KINDS) {
+			for (const translate of [t, ja]) {
+				const [detail] = noticeDetails(translate, [{ kind, path: "1024" }], 50 * 1024 * 1024);
+				if (detail?.level === "info") expect(detail.brief?.trim()).not.toBe("");
+				else expect(detail?.brief).toBeUndefined();
+			}
+		}
 	});
 });
 

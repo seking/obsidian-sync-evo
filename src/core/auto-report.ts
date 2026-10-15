@@ -21,7 +21,8 @@
 // same one.
 //
 // Everything it tells starts with a line that says where it comes from:
-// nobody pressed anything.
+// nobody pressed anything. What is only worth knowing ("info") it does not
+// tell at all: it is on the screen of the results.
 
 import type { AutoSyncMemory } from "./auto-sync";
 import { BackendError } from "./backend";
@@ -32,11 +33,14 @@ import {
 	pullDetails,
 	type PullReportOptions,
 	pullSummaryText,
+	type ReportDetail,
+	reportDetail,
 	type StateProblem,
 	stateProblemText,
 } from "./pull-report";
 import type { PushRunResult } from "./push";
 import { pushDetails, type PushReportOptions, pushSummaryText } from "./push-report";
+import { cut, paragraphs, type ResultItem, resultItem, type ShownNotice } from "./sync-results";
 
 /**
  * How a sync ended, as far as the next one that starts by itself cares:
@@ -53,13 +57,15 @@ export type SyncEnd = "success" | "failure" | "waiting" | "neither";
 
 /** A sync, or a part of one, as a sync that starts by itself tells it. */
 export interface AutoReport {
-	/** What happened in this sync. Always shown. */
-	readonly happened: readonly string[];
+	/** What happened in this sync. Always shown, but for "info". */
+	readonly happened: readonly ReportDetail[];
 	/** What stands in the way. Shown when `cause` is not the one that was last told. */
-	readonly standing: readonly string[];
+	readonly standing: readonly ReportDetail[];
 	/**
-	 * Those of `standing` that say a question waits for a sync the user
-	 * starts. Once one has started they have said it, and are taken down.
+	 * What else stands in the way, and is shown like it: that a question
+	 * waits for a sync the user starts. Each in a notice of its own, apart
+	 * from the rest: once such a sync has started they have said it, and
+	 * are taken down.
 	 */
 	readonly questions: readonly string[];
 	/**
@@ -90,6 +96,11 @@ const TOLD_DEFERRALS: readonly DeferReason[] = [
 /** A text under the line that says it comes from a sync nobody started. */
 function headed(t: Translate, text: string): string {
 	return `${t("auto.heading")}\n${text}`;
+}
+
+/** A text that is the same in a notice and on the screen of the results. */
+function whole(level: "error" | "warn", text: string): ReportDetail {
+	return reportDetail(level, true, () => text);
 }
 
 /**
@@ -124,19 +135,18 @@ function isCancellation(error: unknown): boolean {
 /** A pull, as a sync that started by itself tells it. */
 export function pullAutoReport(t: Translate, result: PullResult, options: PullReportOptions): AutoReport {
 	const details = pullDetails(t, result, options);
-	const happened = details.filter((detail) => !detail.standing).map((detail) => headed(t, detail.text));
-	const standing = details.filter((detail) => detail.standing).map((detail) => headed(t, detail.text));
+	const happened = details.filter((detail) => !detail.standing);
+	const standing = details.filter((detail) => detail.standing);
 
 	switch (result.outcome) {
 		case "completed":
 		case "remote-empty":
 			return { happened, standing: [], questions: [], cause: null, end: "success" };
 		case "waiting": {
-			const question = headed(t, pullSummaryText(t, result));
 			return {
 				happened,
-				standing: [question],
-				questions: [question],
+				standing: [],
+				questions: [pullSummaryText(t, result)],
 				cause: `pull:waiting:${result.waitingFor ?? "deletions"}`,
 				end: "waiting",
 			};
@@ -164,8 +174,8 @@ export function pullAutoReport(t: Translate, result: PullResult, options: PullRe
 /** A push, as a sync that started by itself tells it. */
 export function pushAutoReport(t: Translate, result: PushRunResult, options: PushReportOptions): AutoReport {
 	const details = pushDetails(t, result, options);
-	const happened = details.filter((detail) => !detail.standing).map((detail) => headed(t, detail.text));
-	const standing = details.filter((detail) => detail.standing).map((detail) => headed(t, detail.text));
+	const happened = details.filter((detail) => !detail.standing);
+	const standing = details.filter((detail) => detail.standing);
 	const questions: string[] = [];
 
 	// What the texts of the files that were not sent are about, each with
@@ -197,13 +207,12 @@ export function pushAutoReport(t: Translate, result: PushRunResult, options: Pus
 			}
 			end = "failure";
 			causes.unshift(`push:pull-first:${result.reason ?? "no-base"}`);
-			standing.unshift(headed(t, pushSummaryText(t, result)));
+			standing.unshift(whole("warn", pushSummaryText(t, result)));
 			break;
 		case "waiting":
 			end = "waiting";
 			causes.unshift(`push:waiting:${result.waitingFor ?? "deletions"}`);
-			questions.push(headed(t, pushSummaryText(t, result)));
-			standing.unshift(...questions);
+			questions.push(pushSummaryText(t, result));
 			break;
 		case "declined":
 		case "cancelled":
@@ -221,7 +230,7 @@ export function pushAutoReport(t: Translate, result: PushRunResult, options: Pus
  */
 export function failureAutoReport(t: Translate, error: unknown, text: string): AutoReport {
 	if (isCancellation(error)) return NOTHING;
-	return { happened: [], standing: [headed(t, text)], questions: [], cause: `error:${kindOf(error)}`, end: "failure" };
+	return { happened: [], standing: [whole("error", text)], questions: [], cause: `error:${kindOf(error)}`, end: "failure" };
 }
 
 /**
@@ -232,14 +241,14 @@ export function failureAutoReport(t: Translate, error: unknown, text: string): A
  * at the clock.
  */
 export function notReadyAutoReport(t: Translate, reason: NotReadyReason, text: string): AutoReport {
-	return { happened: [], standing: [headed(t, text)], questions: [], cause: `not-ready:${reason}`, end: "failure" };
+	return { happened: [], standing: [whole("error", text)], questions: [], cause: `not-ready:${reason}`, end: "failure" };
 }
 
 /** A sync that had no sync state to run with. */
 export function stateAutoReport(t: Translate, problem: StateProblem): AutoReport {
 	return {
 		happened: [],
-		standing: [headed(t, stateProblemText(t, problem))],
+		standing: [whole("error", stateProblemText(t, problem))],
 		questions: [],
 		cause: `state:${problem}`,
 		end: "failure",
@@ -297,7 +306,38 @@ export function settleAutoSync(memory: AutoSyncMemory, report: AutoReport, autom
 	return { memory: { lastStartedAt: memory.lastStartedAt, failures, told }, tell };
 }
 
-/** The texts a sync that started by itself shows, each until it is dismissed. */
-export function autoTexts(report: AutoReport, tell: boolean): string[] {
-	return [...report.happened, ...(tell ? report.standing : [])];
+/**
+ * The notices a sync that started by itself shows, each until it is
+ * dismissed: what went wrong in one, what there is to see to in another,
+ * and each question that waits in one of its own. "info" is not shown.
+ */
+export function autoNotices(t: Translate, report: AutoReport, tell: boolean): ShownNotice[] {
+	const told = [...report.happened, ...(tell ? report.standing : [])];
+	const notices: ShownNotice[] = [];
+	const errors = told.filter((detail) => detail.level === "error");
+	if (errors.length > 0) {
+		notices.push({ text: headed(t, paragraphs(errors.map((detail) => detail.text))), level: "error", stays: true });
+	}
+	const warns = told.filter((detail) => detail.level === "warn");
+	if (warns.length > 0) {
+		const texts = warns.map((detail) => detail.text);
+		if (warns.some(cut)) texts.push(t("notice.seeResults"));
+		notices.push({ text: headed(t, paragraphs(texts)), level: "warn", stays: true });
+	}
+	if (tell) {
+		for (const text of report.questions) notices.push({ text: headed(t, text), level: "warn", stays: true, question: true });
+	}
+	return notices;
+}
+
+/**
+ * What a sync that started by itself leaves on the screen of the results:
+ * all that happened, "info" as well, and what stands in its way when it is
+ * told. Not every time it is not: a device without a network would fill
+ * the screen with that alone.
+ */
+export function autoResults(report: AutoReport, tell: boolean): ResultItem[] {
+	const items = [...report.happened, ...(tell ? report.standing : [])].map(resultItem);
+	if (tell) items.push(...report.questions.map((text) => ({ level: "warn" as const, text })));
+	return items;
 }
