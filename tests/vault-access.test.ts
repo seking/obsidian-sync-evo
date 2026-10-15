@@ -739,3 +739,100 @@ describe("a pull through the routing", () => {
 		expect(ports.text("notes.md")).toBeUndefined();
 	});
 });
+
+describe("links of the vault", () => {
+	/** The vault of a desktop where these paths are links. `asked` notes every path asked about. */
+	function linked(links: readonly string[], caseSensitive = false) {
+		const ports = new FakeVaultPorts({ caseSensitive });
+		const asked: string[] = [];
+		const isLink = async (path: string): Promise<boolean> => {
+			asked.push(path);
+			return links.some((link) => link.toLowerCase() === path.toLowerCase());
+		};
+		return { ports, asked, vault: new RoutedVault(Object.assign(ports, { isLink })) };
+	}
+
+	test("nothing is written, renamed, or deleted at a link or below one", async () => {
+		const { ports, vault } = linked(["Ext", "note.md"]);
+		ports.put("Ext/x.md", "outside");
+		ports.put("note.md", "outside");
+		ports.put("a.md", "a");
+
+		expect(await failure(vault.write("Ext/x.md", bytes("new")))).toBe("a link of the vault is at Ext");
+		expect(await failure(vault.write("ext/sub/y.md", bytes("new")))).toBe("a link of the vault is at ext");
+		expect(await failure(vault.write("note.md", bytes("new")))).toBe("a link of the vault is at note.md");
+		expect(await failure(vault.trash("Ext/x.md", "user-setting"))).toBe("a link of the vault is at Ext");
+		expect(await failure(vault.trash("note.md", "user-setting"))).toBe("a link of the vault is at note.md");
+		expect(await failure(vault.rename("a.md", "Ext/a.md"))).toBe("a link of the vault is at Ext");
+		expect(await failure(vault.rename("Ext/x.md", "x.md"))).toBe("a link of the vault is at Ext");
+		expect(await failure(vault.removeFolderIfEmpty("Ext"))).toBe("a link of the vault is at Ext");
+
+		expect(ports.calls).toEqual([]);
+		expect(ports.text("Ext/x.md")).toBe("outside");
+		expect(ports.text("note.md")).toBe("outside");
+	});
+
+	test("each folder on the way is asked once, and the path itself each time", async () => {
+		const { asked, vault } = linked([]);
+		await vault.write("notes/sub/a.md", bytes("a"));
+		await vault.write("notes/sub/b.md", bytes("b"));
+		await vault.trash("notes/sub/a.md", "user-setting");
+		expect(asked).toEqual(["notes", "notes/sub", "notes/sub/a.md", "notes/sub/b.md", "notes/sub/a.md"]);
+	});
+
+	test("where links cannot be told, nothing is asked and everything is written", async () => {
+		const { ports, vault } = mac();
+		await vault.write("Ext/x.md", bytes("new"));
+		expect(ports.text("Ext/x.md")).toBe("new");
+	});
+
+	test("a pull that was not told of a link the vault has refuses to write there, and says so", async () => {
+		const ports = new FakeVaultPorts({ caseSensitive: false });
+		const backend = new MemoryBackend();
+		const store = new MemoryStateStore();
+		const links = new Set<string>();
+		Object.assign(ports, { isLink: async (path: string) => links.has(path) });
+		let time = Date.UTC(2026, 9, 3, 12, 0, 0);
+		const pull = (): Promise<PullResult> => {
+			time += 60_000;
+			return runPull({
+				store,
+				backend,
+				vault: new RoutedVault(ports),
+				paths: { configDir: ".obsidian", pluginDir: ".obsidian/plugins/sync-evo" },
+				pluginId: "sync-evo",
+				deviceName: "iPhone",
+				now: () => time,
+				confirm: async () => "proceed",
+			});
+		};
+		backend.commit({ "a.md": "a", "note.md": "n" });
+		await pull();
+		// A file the scan does not tell from a link, as an index can hold one.
+		links.add("note.md");
+		backend.commit({ "note.md": "n2" });
+		ports.calls.length = 0;
+
+		const result = await pull();
+
+		expect(result.outcome).toBe("completed");
+		expect(ports.text("note.md")).toBe("n");
+		expect(ports.calls).toEqual([]);
+		expect(result.unwritable).toMatchObject([{ path: "note.md", reason: "write-failed" }]);
+	});
+
+	test("a folder whose links cannot be read fails as its listing does", async () => {
+		const ports = new FakeVaultPorts({ caseSensitive: false });
+		const linksIn = async (folder: string): Promise<readonly string[]> => {
+			throw new Error(`EACCES: permission denied, scandir '/Users/me/vault/${folder}'`);
+		};
+		const vault = new RoutedVault(Object.assign(ports, { linksIn }));
+		ports.putFolder("notes");
+		// Listed again, and the listing goes through: the first failure is passed on.
+		expect(await failure(vault.linksIn?.("notes") ?? Promise.resolve())).toBe(
+			"EACCES: permission denied, scandir '/Users/me/vault/notes'",
+		);
+		// The listing fails too: its failure is the one told.
+		expect(await failure(vault.linksIn?.("gone") ?? Promise.resolve())).toBe("ENOTDIR: gone");
+	});
+});

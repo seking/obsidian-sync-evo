@@ -113,11 +113,32 @@ export class RoutedVault<Handle> implements PullVault {
 	readonly linksIn?: (folder: string) => Promise<readonly string[]>;
 	readonly isLink?: (path: string) => Promise<boolean>;
 
+	/**
+	 * Whether each folder a write, a rename or a trash went through is a
+	 * link, by folded path. Kept for the life of this vault, which is one
+	 * sync: a folder is asked once, and only the path itself each time.
+	 */
+	private readonly linkFolders = new Map<string, Promise<boolean>>();
+
 	constructor(ports: VaultPorts<Handle>) {
 		this.ports = ports;
 		const { linksIn, isLink } = ports;
 		if (linksIn !== undefined) {
-			this.linksIn = async (folder) => (await linksIn(folder)).map(fromRoot);
+			// A folder whose links cannot be read fails like one that
+			// cannot be listed, with what the listing says: it is listed
+			// again, and only when that goes through is the first failure
+			// passed on. The scan fails either way; going on without the
+			// links would follow them.
+			this.linksIn = async (folder) => {
+				let links: readonly string[];
+				try {
+					links = await linksIn(folder);
+				} catch (error) {
+					await this.list(folder);
+					throw error;
+				}
+				return links.map(fromRoot);
+			};
 		}
 		if (isLink !== undefined) this.isLink = isLink;
 	}
@@ -201,6 +222,7 @@ export class RoutedVault<Handle> implements PullVault {
 	 */
 	async write(path: string, content: Uint8Array): Promise<void> {
 		const { ports } = this;
+		await this.refuseLinks(path);
 		const data = bufferOf(content);
 		if (isDotPath(path)) {
 			if ((await ports.stat(path))?.type === "folder") throw new Error(`a folder is at ${path}`);
@@ -245,6 +267,8 @@ export class RoutedVault<Handle> implements PullVault {
 	 */
 	async rename(from: string, to: string): Promise<void> {
 		const { ports } = this;
+		await this.refuseLinks(from);
+		await this.refuseLinks(to);
 		// Asked of the disk first: the listing alone would take a name that
 		// differs in case for this one, also where it is another file.
 		const source = (await ports.stat(from)) === null ? null : await this.spelledOnDisk(from);
@@ -267,6 +291,7 @@ export class RoutedVault<Handle> implements PullVault {
 
 	async trash(path: string, mode: TrashMode): Promise<void> {
 		const { ports } = this;
+		await this.refuseLinks(path);
 		const item = await this.find(path);
 		const route = trashRoute(mode, item !== null, trashOptionOf(ports.trashOption()));
 		if (item !== null) {
@@ -301,6 +326,7 @@ export class RoutedVault<Handle> implements PullVault {
 	 */
 	async removeFolderIfEmpty(path: string): Promise<boolean> {
 		const { ports } = this;
+		await this.refuseLinks(path);
 		const stat = await ports.stat(path);
 		if (stat === null) return true;
 		if (stat.type !== "folder") throw new Error(`a file is at ${path}`);
@@ -337,6 +363,30 @@ export class RoutedVault<Handle> implements PullVault {
 	}
 
 	// -----------------------------------------------------------------------
+
+	/**
+	 * Fails when the path, or a folder on the way to it, is a link of the
+	 * vault (`VaultPorts.isLink`): what is written or deleted there would
+	 * be the place it points to, which can be outside the vault. The sync
+	 * decision turns such paths away before (`PlanInput.links`); this is
+	 * for what a scan did not tell, such as a file the app's index holds
+	 * that is a link. The caller takes the failure as the vault refusing
+	 * the path. Nothing is asked where links cannot be told.
+	 */
+	private async refuseLinks(path: string): Promise<void> {
+		const { isLink } = this.ports;
+		if (isLink === undefined) return;
+		for (const folder of foldersTo(path)) {
+			const key = foldedKey(folder);
+			let asked = this.linkFolders.get(key);
+			if (asked === undefined) {
+				asked = isLink(folder);
+				this.linkFolders.set(key, asked);
+			}
+			if (await asked) throw new Error(`a link of the vault is at ${folder}`);
+		}
+		if (await isLink(path)) throw new Error(`a link of the vault is at ${path}`);
+	}
 
 	/** What the index holds at exactly this spelling, in the form given or in NFC, which is the form it keeps. */
 	private indexed(path: string): IndexedItem<Handle> | null {

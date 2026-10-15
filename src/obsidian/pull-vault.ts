@@ -26,6 +26,7 @@ import {
 } from "obsidian";
 import type { PullVault } from "../core/pull-io";
 import { type OpenEditor, RoutedVault, type VaultPorts } from "../core/vault-access";
+import { type LinkFs, linkPorts } from "./vault-links";
 
 /**
  * The app's setting for deleted files, unchecked. `getConfig` is not part of
@@ -58,49 +59,17 @@ function editorOf(view: View): OpenEditor | null {
 	};
 }
 
-// The little of Node's `fs` that tells a link (a symbolic link, or a
-// junction on Windows) from what it points to.
-interface LinkFs {
-	readonly promises: {
-		readdir(
-			path: string,
-			options: { withFileTypes: true },
-		): Promise<readonly { readonly name: string; isSymbolicLink(): boolean }[]>;
-		lstat(path: string): Promise<{ isSymbolicLink(): boolean }>;
-	};
-}
-
 /**
- * How to tell the links of the vault, on a desktop. Nothing elsewhere: the
- * mobile app has no Node, and its user has no means to make a link. The app
- * itself does not tell them: it lists a link to a folder as a folder.
- *
- * Listed entries that say they are links are asked again with `lstat`. On
- * Windows a listing also says so of other reparse points, such as a file a
- * cloud drive keeps online only; `lstat` says so of symbolic links and
- * junctions alone.
+ * How to tell the links of the vault, on a desktop (`linkPorts`). Nothing
+ * elsewhere: the mobile app has no Node, and its user has no means to make
+ * a link. The app itself does not tell them: it lists a link to a folder as
+ * a folder.
  */
 function linkPortsOf(adapter: DataAdapter): Pick<VaultPorts<TAbstractFile>, "linksIn" | "isLink"> {
 	if (!Platform.isDesktopApp || !(adapter instanceof FileSystemAdapter)) return {};
 	const load = (window as { require?: (id: string) => unknown }).require;
 	if (load === undefined) return {};
-	const fs = load("fs") as LinkFs;
-	const base = adapter.getBasePath();
-	const inVault = (path: string): string => (path === "/" || path === "" ? base : `${base}/${path}`);
-	const isLink = async (path: string): Promise<boolean> => (await fs.promises.lstat(inVault(path))).isSymbolicLink();
-	return {
-		linksIn: async (folder) => {
-			const links: string[] = [];
-			for (const entry of await fs.promises.readdir(inVault(folder), { withFileTypes: true })) {
-				if (!entry.isSymbolicLink()) continue;
-				const path = folder === "/" || folder === "" ? entry.name : `${folder}/${entry.name}`;
-				if (await isLink(path)) links.push(path);
-			}
-			return links;
-		},
-		// Nothing at the path is no link.
-		isLink: (path) => isLink(path).catch(() => false),
-	};
+	return linkPorts(load("fs") as LinkFs, adapter.getBasePath());
 }
 
 // A handle of the wrong type is a mistake of the caller, not a state of the vault.
