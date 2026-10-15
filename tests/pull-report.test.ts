@@ -10,6 +10,7 @@
  */
 
 import { describe, expect, test } from "vitest";
+import { NO_DEVICE_EXCLUSION } from "../src/core/device-exclusion";
 import { BackendError, type BackendErrorKind, RateLimitedError } from "../src/core/backend";
 import { translatorFor } from "../src/core/i18n";
 import { NOTICE_KINDS } from "../src/core/notices";
@@ -39,6 +40,8 @@ const settings: DeviceSettings = {
 	deviceName: "Mac",
 	autoSync: DEFAULT_AUTO_SYNC,
 	onConflict: "copy",
+	deviceExclusion: NO_DEVICE_EXCLUSION,
+	exclusionChangeTold: true,
 };
 const options = { settings, sizeLimit: 50 * 1024 * 1024 };
 
@@ -59,7 +62,6 @@ const result = (over: Partial<PullResult> = {}): PullResult => ({
 	unwritable: [],
 	keptLocal: [],
 	tidiedCopies: [],
-	keptUnsent: [],
 	newSymlinks: [],
 	notices: [],
 	closedViews: false,
@@ -717,17 +719,6 @@ describe("what the user has to know", () => {
 			...kept.slice(0, 5),
 			"…and 3 more",
 		]);
-	});
-
-	test("the kept files that a rule keeps from being sent back are listed apart", () => {
-		const kept = result({ keptLocal: ["a.md", "drafts/c.md"], keptUnsent: ["drafts/c.md"] });
-		expect(pullReport(t, kept, options).details).toEqual([
-			"2 files were left as they are on this device, as you chose. They differ from what is on GitHub:\na.md\ndrafts/c.md",
-			"1 of the files you chose to keep on this device is not uploaded back to GitHub, because it is excluded. It stays on this device only:\ndrafts/c.md",
-		]);
-		expect(pullReport(ja, kept, options).details[1]).toBe(
-			"選んだとおりに残したファイルのうち 1 件は、除外しているため、GitHub へはアップロードしません。このデバイスにだけ残ります：\ndrafts/c.md",
-		);
 	});
 
 	test("symlinks seen for the first time", () => {

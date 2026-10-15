@@ -10,6 +10,7 @@
  */
 
 import { describe, expect, test } from "vitest";
+import { NO_DEVICE_EXCLUSION } from "../src/core/device-exclusion";
 import {
 	type AutoSyncSettings,
 	clampInterval,
@@ -41,6 +42,8 @@ const settings = (over: Partial<DeviceSettings> = {}): DeviceSettings => ({
 	deviceName: "Mac",
 	autoSync: DEFAULT_AUTO_SYNC,
 	onConflict: "copy",
+	deviceExclusion: NO_DEVICE_EXCLUSION,
+	exclusionChangeTold: true,
 	...over,
 });
 
@@ -54,6 +57,8 @@ describe("the default settings", () => {
 			deviceName: "iPhone",
 			autoSync: { onStartup: false, atInterval: false, intervalMinutes: 15, sendsChanges: false },
 			onConflict: "merge",
+			deviceExclusion: { kinds: [], folders: [], sectionChecked: false },
+			exclusionChangeTold: true,
 		});
 		expect(connectionOf(defaultSettings("iPhone"))).toBeNull();
 	});
@@ -85,7 +90,49 @@ describe("reading stored settings", () => {
 			deviceName: "Mac",
 			autoSync: { onStartup: false, atInterval: false, intervalMinutes: 15, sendsChanges: false },
 			onConflict: "copy",
+			deviceExclusion: { kinds: [], folders: [], sectionChecked: false },
+			exclusionChangeTold: true,
 		});
+	});
+
+	test("what this device alone does not sync is read back, and what is not known in it is dropped", () => {
+		const device = { kinds: ["image", "video"], folders: ["Attachments", "日記/写真"], sectionChecked: true } as const;
+		const saved = settings({ deviceExclusion: device });
+		expect(parseSettings(JSON.parse(JSON.stringify(serializeSettings(saved))), "Mac")).toEqual({
+			status: "ok",
+			settings: saved,
+		});
+		const read = (deviceExclusion: unknown): unknown => {
+			const parsed = parseSettings({ ...serializeSettings(settings()), deviceExclusion }, "Mac");
+			return parsed.status === "ok" ? parsed.settings.deviceExclusion : parsed.status;
+		};
+		// A kind that is not known, a folder that is no path from the root,
+		// each once and the kinds in their order.
+		expect(read({ kinds: ["pdf", "photo", "image", "pdf"], folders: ["a", "/b", "a", "c/", "d", 3], sectionChecked: 1 })).toEqual({
+			kinds: ["image", "pdf"],
+			folders: ["a", "d"],
+			sectionChecked: false,
+		});
+		// Stored by a version from before it, or damaged: nothing is left out.
+		for (const bad of [undefined, null, "image", ["image"], 1]) {
+			expect(read(bad)).toEqual({ kinds: [], folders: [], sectionChecked: false });
+		}
+	});
+
+	test("changing what this device alone does not sync is no change of the connection: the sync state stays", () => {
+		const before = settings();
+		const after = settings({ deviceExclusion: { kinds: ["image"], folders: ["Attachments"], sectionChecked: true } });
+		expect(connectionChange(connectionOf(before), connectionOf(after))).toBe("none");
+	});
+
+	test("settings a version from before stored were not told of the change of what an exclusion does", () => {
+		const { exclusionChangeTold: _, ...before } = serializeSettings(settings());
+		const parsed = parseSettings(before, "Mac");
+		expect(parsed.status === "ok" && parsed.settings.exclusionChangeTold).toBe(false);
+		const told = parseSettings(serializeSettings(settings({ exclusionChangeTold: true })), "Mac");
+		expect(told.status === "ok" && told.settings.exclusionChangeTold).toBe(true);
+		const not = parseSettings(serializeSettings(settings({ exclusionChangeTold: false })), "Mac");
+		expect(not.status === "ok" && not.settings.exclusionChangeTold).toBe(false);
 	});
 
 	test("what to do on a conflict is read back, and anything that is neither of the two is the default: a merge", () => {
@@ -145,7 +192,12 @@ describe("reading stored settings", () => {
 	});
 
 	test("missing fields are filled from the defaults", () => {
-		expect(parseSettings({ version: 1 }, "Windows")).toEqual({ status: "ok", settings: defaultSettings("Windows") });
+		// But for the change of what an exclusion does: stored without the
+		// field, by a version from before, it was not told.
+		expect(parseSettings({ version: 1 }, "Windows")).toEqual({
+			status: "ok",
+			settings: { ...defaultSettings("Windows"), exclusionChangeTold: false },
+		});
 	});
 
 	test("a stored device name is trimmed", () => {

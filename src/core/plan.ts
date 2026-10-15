@@ -14,7 +14,7 @@
 // no I/O and knows nothing about any particular backend.
 
 import type { EntryKind, RemoteEntry } from "./backend";
-import { type Exclusion, type HardExclusion, type KnownPaths, knownPaths, ruleMatchesFolder } from "./exclusion";
+import { type Exclusion, type HardExclusion, knownPaths, ruleMatchesFolder } from "./exclusion";
 import { foldedKey, isPathFromRoot, pathKey } from "./paths";
 
 export interface LocalEntry {
@@ -31,6 +31,14 @@ export interface SyncRecord {
 	readonly path: string;
 	readonly kind: EntryKind;
 	readonly hash: string;
+	/**
+	 * Set by a sync that found a rule excluding the path (`SyncPlan.marks`).
+	 * Apart from what the record says of the content, which an excluded path
+	 * keeps as it was. Once no rule excludes the path any more, a side that
+	 * no longer has it is no deletion to carry over: the record is dropped
+	 * instead, and the side that has it sends it or fetches it again.
+	 */
+	readonly wasExcluded?: true;
 }
 
 interface Sides {
@@ -66,9 +74,11 @@ export type SyncAction =
 	  })
 	/**
 	 * Only the record is left to remove; no file is touched. Either the path
-	 * is gone on both sides, or the remote deleted it while the vault edited
-	 * it and a rule now excludes it. The action carries `local` in the second
-	 * case: the vault file stays, and is not sent back.
+	 * is gone on both sides, or a rule excluded it at the last sync
+	 * (`SyncRecord.wasExcluded`), none does now, and one side no longer has
+	 * it. Whatever happened to it while it was excluded is not carried over
+	 * to the other side: without the record, the side that has it sends it
+	 * or fetches it again.
 	 */
 	| (Sides & { readonly type: "drop-record"; readonly record: SyncRecord })
 	/** Both sides hold different content and neither may be overwritten. */
@@ -141,8 +151,12 @@ export type SkipReason =
 	 */
 	| "held"
 	/**
-	 * Only in the vault, never synced, and matched by a rule of `.gitignore`.
-	 * Not every such file is listed: the scan already leaves most of them out.
+	 * A rule excludes the path (`Exclusion.excludes`): of the root
+	 * `.gitignore`, or of this device's own exclusion. Turned away before the
+	 * three sides are compared, whatever they hold: nothing is sent,
+	 * fetched, or deleted, on either side, and the record stays as it is but
+	 * for its mark (`SyncPlan.marks`). The vault side is mostly empty: the
+	 * scan does not look below a folder a rule matches.
 	 */
 	| "excluded";
 
@@ -198,6 +212,40 @@ export interface SyncPlan {
 	/** Sorted by key. Paths that need nothing are not listed. */
 	readonly actions: readonly SyncAction[];
 	readonly skipped: readonly SkippedPath[];
+	/**
+	 * Records whose mark of an exclusion (`SyncRecord.wasExcluded`) is to be
+	 * set or taken away, sorted by key: set on the record of a path a rule
+	 * excludes, taken away from that of a path none excludes any more that
+	 * both sides still have. Nothing else of the record changes. Stored where
+	 * a pull or a push stores its records, and not by one that stops before
+	 * that: one that waits for an answer, one that is declined, one that
+	 * fails.
+	 *
+	 * An action of the same key stores a record of its own afterwards,
+	 * which has no mark.
+	 */
+	readonly marks: readonly RecordMark[];
+}
+
+export interface RecordMark {
+	readonly key: string;
+	/** As the records were given it. */
+	readonly record: SyncRecord;
+	/** What the mark is to be. */
+	readonly wasExcluded: boolean;
+}
+
+/**
+ * How many of the records are of paths a rule excludes now. They are left
+ * out of what the share of deletions is taken of (`recordCount` of a pull
+ * and of a push), as they are left out of the sync.
+ */
+export function excludedRecordCount(skipped: readonly SkippedPath[]): number {
+	let count = 0;
+	for (const skip of skipped) {
+		if (skip.reason === "excluded") count += skip.records.length;
+	}
+	return count;
 }
 
 export function planSync(input: PlanInput): SyncPlan {
@@ -234,6 +282,7 @@ export function planSync(input: PlanInput): SyncPlan {
 	const keys = new Set([...remote.keys(), ...local.keys(), ...records.keys()]);
 	const actions: SyncAction[] = [];
 	const skipped: SkippedPath[] = [];
+	const marks: RecordMark[] = [];
 
 	for (const key of [...keys].sort()) {
 		const onRemote = remote.get(key) ?? [];
@@ -241,36 +290,63 @@ export function planSync(input: PlanInput): SyncPlan {
 		const onRecords = records.get(key) ?? [];
 
 		// Paths that must not be touched on either side, whatever the three
-		// sides hold, are turned away here, before the three-way comparison.
-		// Of the exclusion, only the two fixed ones are of that nature.
-		// A path that is not one comes first: the exclusion refuses it.
+		// sides hold, are turned away here, before the three-way comparison:
+		// the two fixed exclusions, and what a rule excludes. A path that is
+		// not one comes first: the exclusion refuses it. A path that is held
+		// comes before the rules, so that its record, whose write marker is
+		// still there, is not stored again for a mark.
+		//
+		// The rules come before the comparison, and not after it, and not
+		// only by the scan not going below a folder: a recorded file the scan
+		// does not find would read as deleted in the vault, and a push would
+		// delete it on the remote.
+		const excluded = isPathFromRoot(key) && input.exclusion.excludes(key, "file", known);
 		const reason: SkipReason | undefined = !isPathFromRoot(key)
 			? "invalid-path"
 			: (input.exclusion.hardExclusionOf(key) ??
 				(input.held?.has(foldedKey(key)) === true ? "held" : undefined) ??
+				(excluded ? "excluded" : undefined) ??
 				(isAtOrUnderLink(key, links) ? "local-link" : undefined) ??
 				skipReason(key, [onRemote, onLocal, onRecords], collided, nonFiles, closed) ??
 				(isTooLarge(onRemote, sizeLimit) || isTooLarge(onLocal, sizeLimit) ? "too-large" : undefined));
 		if (reason !== undefined) {
 			skipped.push({ key, reason, remote: onRemote, local: onLocal, records: onRecords });
+			// Its value stays as it is. The mark says that the path was cut
+			// off, should no rule exclude it later.
+			const [record] = onRecords;
+			if (reason === "excluded" && onRecords.length === 1 && record !== undefined && record.wasExcluded !== true) {
+				marks.push({ key, record, wasExcluded: true });
+			}
 			continue;
 		}
 
-		// The rules of `.gitignore` come after the comparison. They change
-		// nothing for a path the remote holds, and what they change for the
-		// others depends on what the comparison found.
-		const decided = decide({ key, record: onRecords[0], local: onLocal[0], remote: onRemote[0] });
-		const action = decided === undefined ? decided : applyRules(decided, input.exclusion, known);
-		if (action === "excluded") {
-			skipped.push({ key, reason: "excluded", remote: onRemote, local: onLocal, records: onRecords });
-		} else if (action !== undefined && isPushOnly(action) && isUnderAnyOf(key, open)) {
+		const record = onRecords[0];
+		if (record?.wasExcluded === true) {
+			// Excluded at the last sync, and not any more. A side that does
+			// not have the path lost it while it was cut off, which is no
+			// deletion to carry over. Both sides have it: compared as usual,
+			// from the record as it was.
+			//
+			// The remote is taken not to have it only where its listing
+			// covers the path; below a submodule it does not list, a path
+			// is turned away above. A file a cloud drive took off the device
+			// is held, and turned away above too.
+			if (onLocal.length === 0 || onRemote.length === 0) {
+				actions.push({ key, record, local: onLocal[0], remote: onRemote[0], type: "drop-record" });
+				continue;
+			}
+			marks.push({ key, record, wasExcluded: false });
+		}
+
+		const action = decide({ key, record, local: onLocal[0], remote: onRemote[0] });
+		if (action !== undefined && isPushOnly(action) && isUnderAnyOf(key, open)) {
 			skipped.push({ key, reason: "in-submodule", remote: onRemote, local: onLocal, records: onRecords });
 		} else if (action !== undefined) {
 			actions.push(action);
 		}
 	}
 
-	return { actions, skipped };
+	return { actions, skipped, marks };
 }
 
 /** Every entry of one side, grouped by key. More than one under a key is a duplicate. */
@@ -428,34 +504,4 @@ function decide(sides: Sides): SyncAction | undefined {
 	}
 
 	return record === undefined ? undefined : { ...sides, type: "drop-record", record };
-}
-
-// A rule only ever stops a file from being sent to a remote that does not
-// hold it. Everything else goes on as decided: a path on the remote is synced
-// whatever the rules say, and a recorded path the remote deleted is deleted
-// in the vault like any other.
-function applyRules(action: SyncAction, exclusion: Exclusion, known: KnownPaths): SyncAction | "excluded" {
-	if (action.type !== "upload" || action.remote !== undefined) return action;
-
-	// Asked as if the path had no record: the remote does not hold it, so a
-	// record is all that could make it known, and the question is what the
-	// path would be without one. Whether the remote holds some other path is
-	// answered as it is; the exclusion asks that when this is a copy kept
-	// from a conflict, which is sent while the file it is a copy of is there.
-	const { key, record } = action;
-	const withoutItself: KnownPaths = {
-		has: (other, type) => other !== key && known.has(other, type),
-		onRemote: known.onRemote,
-		copyOnRemote: known.copyOnRemote,
-	};
-	if (!exclusion.excludes(key, "file", withoutItself)) return action;
-	if (record === undefined) return "excluded";
-
-	// Recorded, deleted on the remote, edited in the vault, and matched by a
-	// rule: the edit is kept but not sent back, as git does after a
-	// `git rm --cached`. The record goes. If it stayed, every later plan
-	// would come to this same decision again; without it the path is simply
-	// excluded. Should the remote ever hold the path again with other
-	// content, that is a conflict, which loses nothing.
-	return { ...action, type: "drop-record", record };
 }

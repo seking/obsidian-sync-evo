@@ -10,6 +10,7 @@
  */
 
 import { describe, expect, test } from "vitest";
+import { NO_DEVICE_EXCLUSION } from "../src/core/device-exclusion";
 import { BackendError, type BackendErrorKind, RateLimitedError } from "../src/core/backend";
 import {
 	type CheckOutcome,
@@ -36,6 +37,8 @@ const settings = (over: Partial<DeviceSettings> = {}): DeviceSettings => ({
 	deviceName: "Mac",
 	autoSync: DEFAULT_AUTO_SYNC,
 	onConflict: "copy",
+	deviceExclusion: NO_DEVICE_EXCLUSION,
+	exclusionChangeTold: true,
 	...over,
 });
 

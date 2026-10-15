@@ -788,7 +788,6 @@ class PullRun {
 		const files = unconfirmed ? firstFetchFiles(plan, deps.paths.configDir) : null;
 		const firstDue = files !== null && (startOver || hasFirstFetchQuestion(files, this.deps.paths.configDir));
 		const keptLocal: string[] = [];
-		const keptUnsent: string[] = [];
 		let declined = false;
 		// Whether the question was closed because the pull was stopped. That
 		// is no answer of the user's: the pull ends as a "no" does, with
@@ -863,12 +862,11 @@ class PullRun {
 				if (keep) {
 					const all = [...losses.deletions, ...losses.overwrites];
 					plan = keepLocal(plan, new Set(all.map((loss) => loss.key)));
-					keptLocal.push(...all.map((loss) => loss.path));
 					// A kept file the remote no longer holds has no record
-					// now, and is sent like a new one: not at all, where a
-					// rule excludes it.
-					const excluded = new Set(plan.skipped.filter((skip) => skip.reason === "excluded").map((skip) => skip.key));
-					keptUnsent.push(...losses.deletions.filter((loss) => excluded.has(loss.key)).map((loss) => loss.path));
+					// now, and is sent like a new one. None of them is
+					// excluded: a rule turns a path away before it could be
+					// a deletion to ask about.
+					keptLocal.push(...all.map((loss) => loss.path));
 					// Nothing was confirmed by this answer, and a "yes" from
 					// before was to another question. Left in place, it
 					// would stand for this pull if it stops halfway.
@@ -928,7 +926,7 @@ class PullRun {
 		// symlink has its record by now and is not told a second time.
 		const newSymlinks = plan.symlinks.filter((link) => link.firstSeen).map((link) => link.remote.path);
 		const tried = completed && this.tally.fetchError === undefined;
-		const extra = { keptLocal, keptUnsent, newSymlinks, notices: await notices(tried) };
+		const extra = { keptLocal, newSymlinks, notices: await notices(tried) };
 		if (!completed) return finish("cancelled", extra);
 
 		await this.updateSymlinkTargets(plan, listing);
@@ -1029,7 +1027,6 @@ class PullRun {
 			deferred: tally.deferred,
 			unwritable,
 			keptLocal: [],
-			keptUnsent: [],
 			tidiedCopies: [],
 			newSymlinks: [],
 			notices: [],
@@ -1064,7 +1061,11 @@ class PullRun {
 		}
 		if (this.aborted()) return null;
 
-		const exclusion = createExclusion({ ...deps.paths, gitignore });
+		const exclusion = createExclusion({
+			...deps.paths,
+			gitignore,
+			...(deps.device === undefined ? {} : { device: deps.device }),
+		});
 
 		this.progress("scanning");
 		const began = deps.now();

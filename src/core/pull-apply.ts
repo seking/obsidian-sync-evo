@@ -81,6 +81,7 @@ import {
 	makeMarker,
 	makeMergeMarker,
 	makeRecord,
+	markedRecord,
 	RACY_MTIME_MARGIN_MS,
 	type StateStore,
 } from "./state";
@@ -638,6 +639,10 @@ class Applier {
 	private async applyRecord(change: RecordChange): Promise<void> {
 		if (change.type === "drop") {
 			await this.store.deleteRecord(change.key);
+			return;
+		}
+		if (change.type === "mark") {
+			await this.store.commitWrite(markedRecord(change.record, change.wasExcluded));
 			return;
 		}
 		// The time and the size only go with a record of what the file holds.

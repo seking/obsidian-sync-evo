@@ -50,6 +50,7 @@
 import { untilAborted } from "./archive-fetch";
 import { type Backend, BackendError, type PushFile, type PushResult, type RemoteEntry, type RemoteListing } from "./backend";
 import { forgetTidiedCopies, readTidiedCopies } from "./conflict-tidy";
+import type { DeviceExclusion } from "./device-exclusion";
 import { createExclusion, type Exclusion, type ExclusionPaths, untrackableByAddedLines } from "./exclusion";
 import { isFirstFetchConfirmed, markFirstFetchConfirmed } from "./first-fetch";
 import { addDefaultSection, isGitignoreAsRecorded, settleGitignoreWrite } from "./gitignore-file";
@@ -96,6 +97,7 @@ import {
 	currentListing,
 	type FileStat,
 	makeRecord,
+	markedRecord,
 	readBaseRevision,
 	type StateStore,
 	type StoredRecord,
@@ -128,7 +130,8 @@ export interface SectionAdded {
 	readonly created: boolean;
 	/**
 	 * The files the remote holds that the added lines match, as the remote
-	 * spells them, sorted. They stay synced (`remoteFilesMatchingRules`).
+	 * spells them, sorted. No device of Sync Evo syncs them from now on, and
+	 * they stay on the remote (`remoteFilesMatchingRules`).
 	 */
 	readonly tracked: readonly string[];
 }
@@ -221,6 +224,8 @@ export interface PushDeps {
 	readonly vault: PushVault;
 	/** The configuration folder and the plugin's own folder. */
 	readonly paths: ExclusionPaths;
+	/** What this device alone does not sync (`device-exclusion.ts`). Absent: nothing. */
+	readonly device?: Pick<DeviceExclusion, "kinds" | "folders">;
 	/** The name of this device, for the description of the commit. */
 	readonly deviceName: string;
 	/** Milliseconds since the epoch, on the clock the file times come from. */
@@ -655,7 +660,11 @@ class PushRun {
 		if (deps.addSection !== false && !(await this.addSection(listing, records))) {
 			return this.result("pull-first", { reason: "gitignore-unsettled" });
 		}
-		const exclusion = createExclusion({ ...deps.paths, gitignore: await this.rootGitignore() });
+		const exclusion = createExclusion({
+			...deps.paths,
+			gitignore: await this.rootGitignore(),
+			...(deps.device === undefined ? {} : { device: deps.device }),
+		});
 
 		this.progress("scanning");
 		const began = deps.now();
@@ -751,6 +760,9 @@ class PushRun {
 		};
 		if (plan.sends.length + plan.deletes.length === 0) {
 			await tell();
+			// Nothing to send, and nothing to ask: the push is through, and
+			// stores what it found of the exclusion.
+			await this.storeMarks(plan);
 			return this.result("nothing-to-push");
 		}
 
@@ -927,6 +939,9 @@ class PushRun {
 		const stored = pushed.listing ?? null;
 		// Their commit is in the branch: nothing is left to go on from.
 		sentBlobs?.settled();
+		// Before the records of what was sent, which take the place of a
+		// mark of the same key.
+		await this.storeMarks(plan);
 		await finishPush(store, pending, stored);
 		// The copies that were tidied and are gone from the remote now have
 		// nothing left to be remembered for. The next push forgets them
@@ -1002,6 +1017,17 @@ class PushRun {
 		await writeBaseRevision(store, revision);
 		await markFirstFetchConfirmed(store);
 		return { revision };
+	}
+
+	/**
+	 * Stores what the plan found of the exclusion (`PushPlan.marks` and
+	 * `drops`). Only by a push that is through: not by one that waits for an
+	 * answer, is declined, or fails.
+	 */
+	private async storeMarks(plan: PushPlan): Promise<void> {
+		const { store } = this.deps;
+		for (const mark of plan.marks) await store.commitWrite(markedRecord(mark.record, mark.wasExcluded));
+		for (const record of plan.drops) await store.deleteRecord(pathKey(record.path));
 	}
 
 	/** What is recorded once the commit is the head of the remote. */
@@ -1095,8 +1121,8 @@ class PushRun {
 			return true;
 		}
 		// By the added lines, and by the file as it is now. Without Sync
-		// Evo's own folder, which is not synced: these are told as files
-		// that stay synced.
+		// Evo's own folder, which was never synced: these are told as files
+		// that no device syncs from now on, and that stay on the remote.
 		const tracked = untrackableByAddedLines(deps.paths, addition.lines.slice(1, -1), addition.text, listing.entries)
 			.files.filter((file) => !file.ownFolder)
 			.map((file) => file.entry.path)

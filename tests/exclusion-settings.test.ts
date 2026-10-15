@@ -19,12 +19,12 @@ import {
 	editorText,
 	type ExclusionEdit,
 	exclusionView,
+	excludedOnRemoteCount,
 	exclusionWriteText,
 	folderToExclude,
 	readExclusionScreen,
 	saveGitignoreText,
 	SHOWN_CONFIG_ITEMS,
-	SHOWN_FILE_KINDS,
 	textFromEditor,
 	unreadableGitignoreText,
 } from "../src/core/exclusion-settings";
@@ -41,6 +41,7 @@ import {
 } from "../src/core/gitignore-section";
 import { translatorFor } from "../src/core/i18n/index";
 import { writeNotices } from "../src/core/notices";
+import { writeBaseRevision } from "../src/core/state";
 import { MemoryPullVault } from "./support/memory-pull-vault";
 import { MemoryStateStore } from "./support/memory-state-store";
 
@@ -166,7 +167,6 @@ describe("what the screen shows of a .gitignore", () => {
 	});
 
 	test("the switches are listed in the order of the requirements, each once", () => {
-		expect(SHOWN_FILE_KINDS).toEqual(["image", "audio", "video", "pdf", "other"]);
 		expect(SHOWN_CONFIG_ITEMS).toEqual(Object.keys(defaultSectionState(paths).config));
 		expect(SHOWN_CONFIG_ITEMS).toHaveLength(8);
 	});
@@ -175,24 +175,28 @@ describe("what the screen shows of a .gitignore", () => {
 describe("changing one thing in the section", () => {
 	const rest = "\n# mine\n*.log\n!keep.log\n";
 
-	test("a kind switched off: its lines are in the section, and nothing outside it changed", () => {
-		const before = defaults(rest);
-		const after = edited(before, { kind: "file-kind", item: "pdf", synced: false });
-		expect(stateOf(after).kinds).toEqual({ image: true, audio: true, video: true, pdf: false, other: true });
-		expect(after.endsWith(`${SECTION_END}\n${rest}`)).toBe(true);
-		expect(after.startsWith(`${SECTION_START}\n*.pdf\n!/.obsidian/**\n`)).toBe(true);
+	test("the lines of the kinds an earlier version wrote are taken out, with the ! line, and nothing outside it changed", () => {
+		const lines = ["*.pdf", "*.png", "!/.obsidian/**", ...defaultSectionLines(paths)];
+		const before = withLines(lines, rest);
+		const after = edited(before, { kind: "drop-kinds" });
+		expect(after).toBe(defaults(rest));
+		expect(stateOf(after).kinds).toEqual(defaultSectionState(paths).kinds);
 	});
 
-	test("switched on again, the file is as it was", () => {
-		const before = defaults(rest);
-		const off = edited(before, { kind: "file-kind", item: "pdf", synced: false });
-		expect(edited(off, { kind: "file-kind", item: "pdf", synced: true })).toBe(before);
+	test("taking out the kinds of a section that has none changes nothing", () => {
+		expect(edited(defaults(rest), { kind: "drop-kinds" })).toBe(defaults(rest));
 	});
 
-	test.each(SHOWN_FILE_KINDS)("the switch for %s changes that kind alone, off and on", (item) => {
-		const off = edited(defaults(), { kind: "file-kind", item, synced: false });
-		expect(stateOf(off)).toEqual({ ...defaultSectionState(paths), kinds: { ...defaultSectionState(paths).kinds, [item]: false } });
-		expect(stateOf(edited(off, { kind: "file-kind", item, synced: true }))).toEqual(defaultSectionState(paths));
+	test("any other change keeps the lines of the kinds an earlier version wrote", () => {
+		// Another device may not have copied them to its own exclusion yet.
+		const lines = ["*.pdf", "!/.obsidian/**", ...defaultSectionLines(paths)];
+		const after = edited(withLines(lines), { kind: "add-folder", folder: "drafts" });
+		expect(stateOf(after).kinds.pdf).toBe(false);
+		expect(after.startsWith(`${SECTION_START}\n*.pdf\n!/.obsidian/**\n/drafts/\n`)).toBe(true);
+		const flipped = edited(withLines(lines), { kind: "config-item", item: "hotkeys", synced: false });
+		expect(stateOf(flipped).kinds.pdf).toBe(false);
+		const restored = edited(withLines(["*.pdf", "!/.obsidian/**"]), { kind: "restore-fixed" });
+		expect(stateOf(restored).kinds.pdf).toBe(false);
 	});
 
 	test.each(SHOWN_CONFIG_ITEMS)("the switch for %s changes that part alone, either way", (item) => {
@@ -204,10 +208,10 @@ describe("changing one thing in the section", () => {
 
 	test("the change is made in the file as it is handed in, not in a state from before", () => {
 		// The file was changed on another device since the screen was drawn:
-		// images are off there. Switching the PDFs off keeps that.
-		const pulled = edited(defaults(), { kind: "file-kind", item: "image", synced: false });
-		const after = edited(pulled, { kind: "file-kind", item: "pdf", synced: false });
-		expect(stateOf(after).kinds).toMatchObject({ image: false, pdf: false });
+		// the hotkeys are off there. Switching the appearance off keeps that.
+		const pulled = edited(defaults(), { kind: "config-item", item: "hotkeys", synced: false });
+		const after = edited(pulled, { kind: "config-item", item: "appearance", synced: false });
+		expect(stateOf(after).config).toMatchObject({ hotkeys: false, appearance: false });
 	});
 
 	test("a folder is added as a line from the root, escaped, after the ones before it", () => {
@@ -229,7 +233,7 @@ describe("changing one thing in the section", () => {
 
 	test("a switch does not bring back a line of a fixed exclusion the user deleted", () => {
 		const lines = defaultSectionLines(paths).filter((line) => line !== ".DS_Store");
-		const after = edited(withLines(lines), { kind: "file-kind", item: "image", synced: false });
+		const after = edited(withLines(lines), { kind: "config-item", item: "hotkeys", synced: false });
 		expect(after.split("\n")).not.toContain(".DS_Store");
 	});
 
@@ -250,13 +254,13 @@ describe("changing one thing in the section", () => {
 
 	test("a line the section does not know is kept by a switch, comments too", () => {
 		const lines = [...defaultSectionLines(paths), "# from a later version", "*.future"];
-		const after = edited(withLines(lines), { kind: "file-kind", item: "video", synced: false });
+		const after = edited(withLines(lines), { kind: "config-item", item: "hotkeys", synced: false });
 		expect(stateOf(after).unknown).toEqual(["# from a later version", "*.future"]);
 	});
 
 	test("a section edited by hand is rewritten in the one form by the next switch", () => {
 		const lines = [...defaultSectionLines(paths), "/.obsidian/app.json"];
-		const after = edited(withLines(lines), { kind: "file-kind", item: "pdf", synced: false });
+		const after = edited(withLines(lines), { kind: "config-item", item: "hotkeys", synced: false });
 		expect(exclusionView(textOf(after), paths, LIMIT)).toMatchObject({ kind: "section", handEdited: false });
 		// Read as off before, and still off: nothing more is synced than was.
 		expect(stateOf(after).config["main-settings"]).toBe(false);
@@ -264,8 +268,8 @@ describe("changing one thing in the section", () => {
 
 	test("the line ends and the byte order mark of the file are kept", () => {
 		const before = `﻿${SECTION_START}\r\n${SECTION_END}\r\n*.log\r\n`;
-		const after = edited(before, { kind: "file-kind", item: "pdf", synced: false });
-		expect(after).toBe(`﻿${SECTION_START}\r\n*.pdf\r\n!/.obsidian/**\r\n${SECTION_END}\r\n*.log\r\n`);
+		const after = edited(before, { kind: "add-folder", folder: "drafts" });
+		expect(after).toBe(`﻿${SECTION_START}\r\n/drafts/\r\n${SECTION_END}\r\n*.log\r\n`);
 	});
 
 	test("the section is added to a file without one, and to no file at all", () => {
@@ -279,7 +283,7 @@ describe("changing one thing in the section", () => {
 	});
 
 	test.each<ExclusionEdit>([
-		{ kind: "file-kind", item: "pdf", synced: false },
+		{ kind: "drop-kinds" },
 		{ kind: "config-item", item: "hotkeys", synced: false },
 		{ kind: "add-folder", folder: "drafts" },
 		{ kind: "remove-folder", folder: "drafts" },
@@ -343,12 +347,12 @@ describe("a change of the screen, made in the file", () => {
 	test("the file is read again and the change made in what it holds now", async () => {
 		const { vault, deps } = setup();
 		// What the screen was drawn from is not handed in at all. The file
-		// has images off, as a pull just wrote it.
-		vault.put(".gitignore", edited(defaults("*.log\n"), { kind: "file-kind", item: "image", synced: false }));
+		// has the hotkeys off, as a pull just wrote it.
+		vault.put(".gitignore", edited(defaults("*.log\n"), { kind: "config-item", item: "hotkeys", synced: false }));
 
-		expect((await applyExclusionEdit(deps, { kind: "file-kind", item: "pdf", synced: false })).write).toBe("written");
+		expect((await applyExclusionEdit(deps, { kind: "config-item", item: "appearance", synced: false })).write).toBe("written");
 		const text = vault.text(".gitignore") ?? "";
-		expect(stateOf(text).kinds).toMatchObject({ image: false, pdf: false });
+		expect(stateOf(text).config).toMatchObject({ hotkeys: false, appearance: false });
 		expect(text.endsWith(`${SECTION_END}\n*.log\n`)).toBe(true);
 	});
 
@@ -368,7 +372,7 @@ describe("a change of the screen, made in the file", () => {
 	test("a switch on a file whose section is gone by now writes nothing", async () => {
 		const { vault, deps } = setup();
 		vault.put(".gitignore", "*.log\n");
-		expect((await applyExclusionEdit(deps, { kind: "file-kind", item: "pdf", synced: false })).write).toBe("changed");
+		expect((await applyExclusionEdit(deps, { kind: "config-item", item: "hotkeys", synced: false })).write).toBe("changed");
 		expect(vault.text(".gitignore")).toBe("*.log\n");
 	});
 
@@ -409,7 +413,7 @@ describe("a change of the screen, made in the file", () => {
 			// The first read is the one the change is made from.
 			if (op === "read" && path === ".gitignore" && ++reads === 2) vault.put(".gitignore", defaults("mine\n"));
 		};
-		expect((await applyExclusionEdit(deps, { kind: "file-kind", item: "pdf", synced: false })).write).toBe("changed");
+		expect((await applyExclusionEdit(deps, { kind: "config-item", item: "hotkeys", synced: false })).write).toBe("changed");
 		expect(vault.text(".gitignore")).toBe(defaults("mine\n"));
 	});
 
@@ -419,7 +423,7 @@ describe("a change of the screen, made in the file", () => {
 		vault.before = (op) => {
 			if (op === "write") throw new Error("read-only");
 		};
-		expect((await applyExclusionEdit(deps, { kind: "file-kind", item: "pdf", synced: false })).write).toBe("refused");
+		expect((await applyExclusionEdit(deps, { kind: "config-item", item: "hotkeys", synced: false })).write).toBe("refused");
 		expect(vault.text(".gitignore")).toBe(defaults());
 		expect(await store.getMeta(GITIGNORE_WRITE_KEY)).toBeUndefined();
 	});
@@ -430,8 +434,8 @@ describe("a change of the screen, made in the file", () => {
 		vault.put(".gitignore", writing.slice(0, 40));
 		await store.setMeta(GITIGNORE_WRITE_KEY, { before: "*.log\n", writing });
 
-		expect((await applyExclusionEdit(deps, { kind: "file-kind", item: "pdf", synced: false })).write).toBe("written");
-		expect(vault.text(".gitignore")).toBe(edited(writing, { kind: "file-kind", item: "pdf", synced: false }));
+		expect((await applyExclusionEdit(deps, { kind: "config-item", item: "hotkeys", synced: false })).write).toBe("written");
+		expect(vault.text(".gitignore")).toBe(edited(writing, { kind: "config-item", item: "hotkeys", synced: false }));
 		expect(await store.getMeta(GITIGNORE_WRITE_KEY)).toBeUndefined();
 	});
 
@@ -441,6 +445,76 @@ describe("a change of the screen, made in the file", () => {
 		await store.setMeta(GITIGNORE_WRITE_KEY, { before: null, writing: defaults() });
 		expect((await applyExclusionEdit(deps, { kind: "add-section" })).write).toBe("unsettled");
 		expect(await store.getMeta(GITIGNORE_WRITE_KEY)).toEqual({ before: null, writing: defaults() });
+	});
+});
+
+describe("taking the kinds an earlier version wrote out of the section, for a switch of this device", () => {
+	test("the lines go, the rest of the file stays, and nothing is asked of the remote", async () => {
+		const { vault, store, deps } = setup();
+		vault.put(".gitignore", withLines(["*.png", "*.mp4", "!/.obsidian/**", ...defaultSectionLines(paths)], "*.log\n"));
+		store.getListing = async () => {
+			throw new Error("not asked");
+		};
+		expect(await applyExclusionEdit(deps, { kind: "drop-kinds" })).toEqual({ write: "written" });
+		expect(vault.text(".gitignore")).toBe(defaults("*.log\n"));
+	});
+
+	test("a section without them is not written", async () => {
+		const { vault, deps } = setup();
+		vault.put(".gitignore", defaults());
+		expect(await applyExclusionEdit(deps, { kind: "drop-kinds" })).toEqual({ write: "unchanged" });
+		expect(vault.log.filter((op) => op.startsWith("write"))).toEqual([]);
+	});
+});
+
+describe("what this device no longer syncs since what an exclusion does was changed", () => {
+	const head = "r1";
+	async function listed(entries: RemoteEntry[], text: string | null, base: string | null = head) {
+		const { vault, store, deps } = setup();
+		if (text !== null) vault.put(".gitignore", text);
+		await store.putListing({ revision: head, entries });
+		if (base !== null) await writeBaseRevision(store, base);
+		return { vault, store, deps };
+	}
+
+	test("the files of the remote the rules exclude, and the kinds this device leaves out, not its own folder", async () => {
+		const entries = [
+			file("notes/a.md"),
+			file("notes/photo.png"),
+			file(".obsidian/plugins/other/main.js"),
+			file(".obsidian/plugins/other/data.json"),
+			file(".obsidian/plugins/sync-evo/main.js"),
+			file(".obsidian/workspace.json"),
+			file("drafts/b.md"),
+		];
+		const { deps } = await listed(entries, defaults());
+		expect(await excludedOnRemoteCount(deps, [])).toBe(3);
+		expect(await excludedOnRemoteCount(deps, ["image"])).toBe(4);
+		const folder = await listed(entries, withLines([...defaultSectionLines(paths), "/drafts/"]));
+		expect(await excludedOnRemoteCount(folder.deps, [])).toBe(4);
+	});
+
+	test("without a .gitignore, by the lines of the default section", async () => {
+		const { deps } = await listed([file("notes/a.md"), file(".obsidian/workspace.json")], null);
+		expect(await excludedOnRemoteCount(deps, [])).toBe(1);
+	});
+
+	test("none to tell: nothing excluded is on the remote", async () => {
+		const { deps } = await listed([file("notes/a.md")], defaults());
+		expect(await excludedOnRemoteCount(deps, ["image"])).toBe(0);
+	});
+
+	test("not yet: no listing, a remote without commits, a pull that has not got to the head, or a .gitignore that cannot be read", async () => {
+		const none = setup();
+		expect(await excludedOnRemoteCount(none.deps, [])).toBeNull();
+		const empty = setup();
+		await empty.store.putListing({ revision: null, entries: [] });
+		expect(await excludedOnRemoteCount(empty.deps, [])).toBeNull();
+		const behind = await listed([file(".obsidian/workspace.json")], defaults(), "r0");
+		expect(await excludedOnRemoteCount(behind.deps, [])).toBeNull();
+		const unread = await listed([file(".obsidian/workspace.json")], null);
+		unread.vault.put(".GITIGNORE", defaults());
+		expect(await excludedOnRemoteCount(unread.deps, [])).toBeNull();
 	});
 });
 
@@ -494,136 +568,6 @@ describe("saving the whole file from the editing field", () => {
 		vault.put(".gitignore", defaults());
 		expect((await saveGitignoreText(deps, `${SECTION_START}\n*.png\n`, defaults())).write).toBe("written");
 		expect(vault.text(".gitignore")).toBe(`${SECTION_START}\n*.png\n`);
-	});
-});
-
-describe("what a change of the screen leaves to ask", () => {
-	const listed = [
-		file("notes/a.md"),
-		file("notes/b.pdf"),
-		file("drafts/c.md"),
-		file(".obsidian/workspace.json"),
-		file(".obsidian/hotkeys.json"),
-		file(".obsidian/plugins/sync-evo/main.js"),
-		{ ...file("drafts/link"), kind: "symlink" as const },
-		{ ...file("knowledge"), kind: "submodule" as const },
-	];
-	const plain = (path: string) => ({ path, symlink: false, ownFolder: false });
-
-	test("a switch turned off: the files it makes a rule match, and not the ones a rule matched before", async () => {
-		const { vault, store, deps } = setup();
-		vault.put(".gitignore", defaults());
-		await store.putListing({ revision: "abc", entries: listed });
-		expect(await applyExclusionEdit(deps, { kind: "file-kind", item: "pdf", synced: false })).toEqual({
-			write: "written",
-			matched: { files: [plain("notes/b.pdf")], submodules: [] },
-		});
-		expect(await applyExclusionEdit(deps, { kind: "config-item", item: "hotkeys", synced: false })).toEqual({
-			write: "written",
-			matched: { files: [plain(".obsidian/hotkeys.json")], submodules: [] },
-		});
-	});
-
-	test("a folder that is added: its files, a link among them marked, and a submodule of that name apart", async () => {
-		const { vault, store, deps } = setup();
-		vault.put(".gitignore", defaults());
-		await store.putListing({ revision: "abc", entries: listed });
-		expect(await applyExclusionEdit(deps, { kind: "add-folder", folder: "drafts" })).toEqual({
-			write: "written",
-			matched: { files: [plain("drafts/c.md"), { path: "drafts/link", symlink: true, ownFolder: false }], submodules: [] },
-		});
-		expect(await applyExclusionEdit(deps, { kind: "add-folder", folder: "knowledge" })).toEqual({
-			write: "written",
-			matched: { files: [], submodules: ["knowledge"] },
-		});
-	});
-
-	test("a switch turned on, or a folder removed, makes no rule match: empty lists", async () => {
-		const { vault, store, deps } = setup();
-		vault.put(".gitignore", withLines([...defaultSectionLines(paths), "/drafts/"]));
-		await store.putListing({ revision: "abc", entries: listed });
-		expect(await applyExclusionEdit(deps, { kind: "remove-folder", folder: "drafts" })).toEqual({
-			write: "written",
-			matched: { files: [], submodules: [] },
-		});
-	});
-
-	test("restoring a fixed exclusion: what its line matches again, Sync Evo's own folder marked", async () => {
-		const { vault, store, deps } = setup();
-		const without = defaultSectionLines(paths).filter(
-			(line) => line !== "/.obsidian/plugins/sync-evo/" && line !== "/.obsidian/plugins/",
-		);
-		vault.put(".gitignore", withLines(without));
-		await store.putListing({ revision: "abc", entries: listed });
-		expect(await applyExclusionEdit(deps, { kind: "restore-fixed" })).toEqual({
-			write: "written",
-			matched: { files: [{ path: ".obsidian/plugins/sync-evo/main.js", symlink: false, ownFolder: true }], submodules: [] },
-		});
-	});
-
-	test("adding the section is not compared with before: what its lines match, and the file as it is now matches too", async () => {
-		const { vault, store, deps } = setup();
-		// A line of the user's undoes one of the section's.
-		vault.put(".gitignore", "*.log\n!/.obsidian/workspace.json\n");
-		await store.putListing({ revision: "abc", entries: [...listed, file("debug.log")] });
-		const changed = await applyExclusionEdit(deps, { kind: "add-section" });
-		expect(changed).toEqual({
-			write: "written",
-			matched: { files: [{ path: ".obsidian/plugins/sync-evo/main.js", symlink: false, ownFolder: true }], submodules: [] },
-		});
-		// By the comparison alone there would have been nothing to ask.
-		const before = "*.log\n!/.obsidian/workspace.json\n";
-		const was = createExclusion({ ...paths, gitignore: before });
-		const now = createExclusion({ ...paths, gitignore: defaults(before) });
-		for (const entry of listed.filter((entry) => entry.kind === "file")) {
-			expect(now.matchesRule(entry.path, "file")).toBe(was.matchesRule(entry.path, "file"));
-		}
-	});
-
-	test("saving the whole file: what the new text matches and the old did not", async () => {
-		const { vault, store, deps } = setup();
-		vault.put(".gitignore", defaults());
-		await store.putListing({ revision: "abc", entries: listed });
-		expect(await saveGitignoreText(deps, defaults("/drafts/*\n!/drafts/link\n"), defaults())).toEqual({
-			write: "written",
-			matched: { files: [plain("drafts/c.md")], submodules: [] },
-		});
-	});
-
-	test("saving a file with a section over one without: the lines of the section and what else is new", async () => {
-		const { vault, store, deps } = setup();
-		vault.put(".gitignore", "*.log\n");
-		await store.putListing({ revision: "abc", entries: listed });
-		const changed = await saveGitignoreText(deps, defaults("*.log\n/drafts/\n"), "*.log\n");
-		expect(changed.matched?.files.map((entry) => entry.path)).toEqual([
-			".obsidian/plugins/sync-evo/main.js",
-			".obsidian/workspace.json",
-			"drafts/c.md",
-			"drafts/link",
-		]);
-	});
-
-	test("nothing to ask: no listing, a file left without a section, or nothing written", async () => {
-		const { vault, store, deps } = setup();
-		vault.put(".gitignore", defaults());
-		// The remote was never listed.
-		expect(await applyExclusionEdit(deps, { kind: "add-folder", folder: "drafts" })).toEqual({ write: "written", matched: null });
-		await store.putListing({ revision: "abc", entries: listed });
-		// Nothing was written.
-		expect(await applyExclusionEdit(deps, { kind: "add-folder", folder: "drafts" })).toEqual({ write: "unchanged", matched: null });
-		expect(await applyExclusionEdit(deps, { kind: "add-section" })).toEqual({ write: "changed", matched: null });
-		// The file that was saved has no section: nothing can be untracked by it.
-		const opened = vault.text(".gitignore") ?? null;
-		expect(await saveGitignoreText(deps, "/notes/\n", opened)).toEqual({ write: "written", matched: null });
-	});
-
-	test("the listing cannot be read after the write: the file is written, and there is nothing to ask", async () => {
-		const { vault, store, deps } = setup();
-		vault.put(".gitignore", defaults());
-		await store.putListing({ revision: "abc", entries: listed });
-		store.getListing = () => Promise.reject(new Error("the state would not read"));
-		expect(await applyExclusionEdit(deps, { kind: "add-folder", folder: "drafts" })).toEqual({ write: "written", matched: null });
-		expect(stateOf(vault.text(".gitignore") ?? "").folders).toEqual(["drafts"]);
 	});
 });
 

@@ -11,6 +11,7 @@
 
 import { describe, expect, test } from "vitest";
 import { createExclusion, type Exclusion } from "../src/core/exclusion";
+import { withSection } from "../src/core/gitignore-section";
 import { planSync } from "../src/core/plan";
 import { scanVault, type ScanResult, placeholderTarget } from "../src/core/scan";
 import { blobHash } from "./support/memory-backend";
@@ -163,7 +164,7 @@ describe("the two things that are never synced", () => {
 });
 
 describe("what the rules leave out", () => {
-	test("a matched folder with nothing known below it is not entered", async () => {
+	test("a matched folder is not entered", async () => {
 		const vault = new MemoryVault([
 			"drafts/a.md",
 			"drafts/sub/b.md",
@@ -176,43 +177,39 @@ describe("what the rules leave out", () => {
 		expect(vault.listed.sort()).toEqual([".obsidian", "/", "notes"]);
 	});
 
-	test("a matched folder with something known below it is entered, and only the known files are returned", async () => {
-		const vault = new MemoryVault([
-			"drafts/tracked.md",
-			"drafts/new.md",
-			"drafts/sub/deep.md",
-			"drafts/other/new.md",
-		]);
+	test("a matched folder is not entered, though the remote holds files in it and records do", async () => {
+		const vault = new MemoryVault(["drafts/tracked.md", "drafts/new.md", "drafts/sub/deep.md", "notes/a.md"]);
 		const result = await scan(vault, {
 			gitignore: "/drafts/\n",
-			known: ["drafts/tracked.md", "drafts/sub/deep.md", "drafts/deleted-here.md"],
+			known: ["drafts/tracked.md", "drafts/sub/deep.md"],
+			recorded: ["drafts/new.md"],
 		});
-		expect(found(result)).toEqual(["drafts/sub/deep.md", "drafts/tracked.md"]);
-		expect(vault.listed).toContain("drafts/sub");
-		expect(vault.listed).not.toContain("drafts/other");
+		expect(found(result)).toEqual(["notes/a.md"]);
+		expect(vault.listed.sort()).toEqual(["/", "notes"]);
 	});
 
-	test("a matched file is returned only when it is known", async () => {
+	test("a matched file is not returned, though it is known", async () => {
 		const vault = new MemoryVault(["a.png", "b.png", "notes/.DS_Store", ".obsidian/workspace.json", "c.md"]);
-		const result = await scan(vault, { gitignore: "*.png\n", known: ["b.png", ".obsidian/workspace.json"] });
-		expect(found(result)).toEqual([".obsidian/workspace.json", "b.png", "c.md"]);
+		const result = await scan(vault, { gitignore: "*.png\n", known: ["b.png", ".obsidian/workspace.json"], recorded: ["a.png"] });
+		expect(found(result)).toEqual(["c.md"]);
 	});
 
-	test("a folder is known by a path below it, not by a name that only starts the same", async () => {
-		const vault = new MemoryVault(["drafts/a.md"]);
-		const result = await scan(vault, { gitignore: "/drafts/\n", known: ["drafts-old/a.md", "drafts.md"] });
-		expect(found(result)).toEqual([]);
-		expect(vault.listed).toEqual(["/"]);
-	});
-
-	test("known is asked without regard to case or normalization, so nothing synced is missed", async () => {
-		const nfc = "ガイド";
-		const vault = new MemoryVault(["Drafts/A.md", `${nfc.normalize("NFD")}/が.md`.normalize("NFD")]);
-		const result = await scan(vault, {
-			gitignore: `/drafts/\n/${nfc}/\n`,
-			known: ["drafts/a.md", `${nfc}/が.md`],
+	test("what this device alone leaves out is not entered or returned either", async () => {
+		const vault = new MemoryVault(["Attachments/a.pdf", "notes/b.png", "notes/c.md", ".obsidian/icon.png"]);
+		const result = await scanVault({
+			lister: vault,
+			exclusion: createExclusion({
+				configDir: ".obsidian",
+				pluginDir: ownFolder,
+				gitignore: null,
+				device: { kinds: ["image"], folders: ["Attachments"] },
+			}),
+			remote: [{ path: "notes/b.png", kind: "file", hash: anyHash }],
+			records: [],
 		});
-		expect(result.paths.map((entry) => entry.key).sort()).toEqual(["Drafts/A.md", `${nfc}/が.md`].sort());
+		// A kind is not left out inside the configuration folder.
+		expect(found(result)).toEqual([".obsidian/icon.png", "notes/c.md"]);
+		expect(vault.listed).not.toContain("Attachments");
 	});
 
 	test("a rule in NFC prunes a folder returned in NFD", async () => {
@@ -237,47 +234,27 @@ describe("a copy kept from a conflict, of the earlier form beside its file", () 
 	const draft = earlierCopyPath("drafts/a.md", "iPhone", at);
 	const image = earlierCopyPath("img.png", "iPhone", at);
 
-	test("is returned when the file it is a copy of is known, though a rule matches it", async () => {
-		const vault = new MemoryVault(["drafts/a.md", draft, "drafts/new.md", "img.png", image, "new.png"]);
-		const result = await scan(vault, { gitignore: "/drafts/\n*.png\n", known: ["drafts/a.md", "img.png"] });
-		expect(found(result)).toEqual(["drafts/a.md", draft, "img.png", image].sort());
-	});
-
-	test("is left out when the file it is a copy of only has a record: the remote deleted it", async () => {
-		const vault = new MemoryVault(["img.png", image]);
-		const result = await scan(vault, { gitignore: "*.png\n", recorded: ["img.png"] });
-		expect(found(result)).toEqual(["img.png"]);
-	});
-
-	test("a file known only by its record is still found, and so is what lies in a folder known only by records", async () => {
-		const vault = new MemoryVault(["drafts/a.md", "drafts/new.md", "b.png"]);
-		const result = await scan(vault, { gitignore: "/drafts/\n*.png\n", recorded: ["drafts/a.md", "b.png"] });
-		expect(found(result)).toEqual(["b.png", "drafts/a.md"]);
-	});
-
-	test("is left out when the file it is a copy of is not known", async () => {
-		const vault = new MemoryVault([draft, image, "drafts/sub/x.md", "b.md"]);
-		const result = await scan(vault, { gitignore: "/drafts/\n*.png\n", known: ["drafts/sub/x.md"] });
-		expect(found(result)).toEqual(["b.md", "drafts/sub/x.md"]);
-	});
-
-	test("and the decision then sends it", async () => {
-		const exclusion = rules("/drafts/\n*.png\n");
-		const hash = blobHash("theirs");
-		const remote = [
-			{ path: "drafts/a.md", kind: "file" as const, hash },
-			{ path: "img.png", kind: "file" as const, hash },
-		];
-		const scanned = await scanVault({
-			lister: new MemoryVault(["drafts/a.md", draft, "img.png", image]),
-			exclusion,
-			remote,
-			records: remote,
+	test("is left out where a rule matches the file it is a copy of, whatever is known", async () => {
+		const vault = new MemoryVault(["drafts/a.md", draft, "notes/a.md", "img.png", image, "new.png"]);
+		const result = await scan(vault, {
+			gitignore: "/drafts/\n*.png\n",
+			known: ["drafts/a.md", "img.png", draft],
+			recorded: [image],
 		});
-		const local = scanned.paths.map(({ path }) => ({ path, hash: path.includes(".conflict-from-") ? blobHash("mine") : hash }));
-		const plan = planSync({ remote, local, records: remote, exclusion });
-		expect(plan.actions.map((action) => `${action.type} ${action.key}`)).toEqual([`upload ${draft}`, `upload ${image}`]);
-		expect(plan.skipped).toEqual([]);
+		expect(found(result)).toEqual(["notes/a.md"]);
+	});
+
+	test("is returned where no rule matches the file it is a copy of, known or not", async () => {
+		const copy = earlierCopyPath("notes/a.md", "iPhone", at);
+		const vault = new MemoryVault(["notes/a.md", copy]);
+		expect(found(await scan(vault))).toEqual(["notes/a.md", copy].sort());
+	});
+
+	test("one of a file in the configuration folder is returned only when it is known itself", async () => {
+		const config = earlierCopyPath(".obsidian/app.json", "iPhone", at);
+		const vault = new MemoryVault([".obsidian/app.json", config]);
+		expect(found(await scan(vault, { known: [".obsidian/app.json"] }))).toEqual([".obsidian/app.json"]);
+		expect(found(await scan(vault, { recorded: [config] }))).toEqual([".obsidian/app.json", config].sort());
 	});
 });
 
@@ -305,7 +282,7 @@ describe("the folder of the conflict copies", () => {
 			"_conflicts/sub/deep/x.md",
 		]);
 		const result = await scan(vault, { gitignore: "_conflicts/\n", known: ["_conflicts/kept.md"] });
-		expect(found(result)).toEqual([copy, "_conflicts/kept.md"]);
+		expect(found(result)).toEqual([copy]);
 		expect(vault.listed).not.toContain("_conflicts/sub");
 	});
 
@@ -374,12 +351,14 @@ describe("the scan and the decision together", () => {
 		expect(afterScan.actions).toEqual(withoutScan.actions);
 		expect(afterScan.actions.map((action) => `${action.type} ${action.key}`)).toEqual([
 			"upload .obsidian/app.json",
-			"update-record drafts/tracked.md",
 			"upload notes/a.md",
 		]);
-		// The remote holds the plugin's folder: skipped, and the caller can tell.
+		// The remote holds the plugin's folder: skipped, and the caller can
+		// tell. What the remote holds below a folder a rule matches is
+		// skipped as excluded, with or without the vault side.
 		expect(afterScan.skipped.map((skip) => `${skip.reason} ${skip.key} ${skip.remote.length}`)).toEqual([
 			`own-folder ${ownFolder}/main.js 1`,
+			"excluded drafts/tracked.md 1",
 		]);
 		expect(scanned.rootHasGit).toBe(true);
 	});
@@ -414,7 +393,7 @@ describe("the placeholder a cloud drive leaves for a file it took off the device
 		expect(placeholderTarget(".a.icloud")).toBe("a");
 
 		const result = await scan(new MemoryVault(["notes/x.icloud", "notes/.hidden", "notes/.a.icloud.md"]), {
-			known: ["notes/x.icloud"],
+			gitignore: withSection(null, []),
 		});
 		expect(result.paths.every((entry) => entry.state === "present")).toBe(true);
 		expect(found(result)).toEqual(["notes/.a.icloud.md", "notes/.hidden", "notes/x.icloud"]);

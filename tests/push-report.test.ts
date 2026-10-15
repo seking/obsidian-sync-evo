@@ -10,6 +10,7 @@
  */
 
 import { describe, expect, test } from "vitest";
+import { NO_DEVICE_EXCLUSION } from "../src/core/device-exclusion";
 import { BackendError } from "../src/core/backend";
 import { translatorFor } from "../src/core/i18n";
 import { pullReport } from "../src/core/pull-report";
@@ -36,6 +37,8 @@ const settings = {
 	deviceName: "iPhone",
 	autoSync: DEFAULT_AUTO_SYNC,
 	onConflict: "copy",
+	deviceExclusion: NO_DEVICE_EXCLUSION,
+	exclusionChangeTold: true,
 } as const;
 const target = { repository: "octo/notes", branch: "main" };
 const options = { sizeLimit: 50 * 1024 * 1024 };
@@ -275,16 +278,16 @@ describe("the section a push added to .gitignore", () => {
 		const tracked = Array.from({ length: 7 }, (_, index) => `.trash/${index}.md`);
 		const question = pushQuestion(t, target, { ...request, sectionAdded: { ...added, tracked } });
 		expect(question.parts[5]).toEqual({
-			text: "7 files that these lines exclude are already on GitHub, so they stay synced:",
+			text: "7 files that these lines exclude are on GitHub. Sync Evo no longer syncs them on any device:",
 			paths: { shown: tracked.slice(0, 5), more: 2 },
 		});
 		// With where they can be taken out of the remote.
 		expect(question.parts[6]).toEqual({
-			text: "To stop syncing them, use \"Remove from GitHub\" in the settings of Sync Evo. That removes them from GitHub and leaves them on this device.",
+			text: "To remove them from GitHub, use \"Remove from GitHub\" in the settings of Sync Evo. The files on your devices with Sync Evo stay.",
 		});
 		expect(question.parts).toHaveLength(9);
 		const one = pushQuestion(t, target, { ...request, sectionAdded: { ...added, tracked: [".DS_Store"] } });
-		expect(one.parts[5]?.text).toBe("1 file that these lines exclude is already on GitHub, so it stays synced:");
+		expect(one.parts[5]?.text).toBe("1 file that these lines exclude is on GitHub. Sync Evo no longer syncs it on any device:");
 	});
 
 	test("a .gitignore that was made says so, and nothing about the rest of the file; no empty one is promised for an empty remote", () => {
@@ -310,7 +313,7 @@ describe("the section a push added to .gitignore", () => {
 			{
 				text: "これらの行は、Sync Evo の設定画面で変えられます。要らない時は、最初と最後の行（# で始まる2行）だけを残して、間の行を消してください。その2行も消すと、次の同期でまた足します。",
 			},
-			{ text: "これらの行で除外しているファイルが、GitHub に 1 件あります。これらは同期を続けます：", paths: { shown: tracked, more: 0 } },
+			{ text: "これらの行で除外しているファイルが、GitHub に 1 件あります。どのデバイスの Sync Evo も、これらを同期しなくなります：", paths: { shown: tracked, more: 0 } },
 		]);
 		expect(question.note).toBe("やめた場合は、何もアップロードしません。.gitignore に足した行は、このデバイスに残り、次のアップロードに入ります。");
 		const created = pushQuestion(ja, target, { ...request, sectionAdded: { ...added, created: true } });
@@ -343,7 +346,7 @@ describe("the section a push added to .gitignore", () => {
 		const text = sectionAddedText(t, { ...added, tracked }, "sent");
 		expect(
 			text.endsWith(
-				`\n6 files that these lines exclude are already on GitHub, so they stay synced:\n${tracked.slice(0, 5).join("\n")}\n…and 1 more\nTo stop syncing them, use \"Remove from GitHub\" in the settings of Sync Evo. That removes them from GitHub and leaves them on this device.`,
+				`\n6 files that these lines exclude are on GitHub. Sync Evo no longer syncs them on any device:\n${tracked.slice(0, 5).join("\n")}\n…and 1 more\nTo remove them from GitHub, use \"Remove from GitHub\" in the settings of Sync Evo. The files on your devices with Sync Evo stay.`,
 			),
 		).toBe(true);
 	});
@@ -403,9 +406,9 @@ describe("the section a push added to .gitignore", () => {
 				...lines,
 				"この変更は、まだアップロードしていません。次の同期でアップロードします。",
 				"これらの行は、Sync Evo の設定画面で変えられます。要らない時は、最初と最後の行（# で始まる2行）だけを残して、間の行を消してください。その2行も消すと、次の同期でまた足します。",
-				"これらの行で除外しているファイルが、GitHub に 1 件あります。これらは同期を続けます：",
+				"これらの行で除外しているファイルが、GitHub に 1 件あります。どのデバイスの Sync Evo も、これらを同期しなくなります：",
 				".DS_Store",
-				"同期をやめるには、Sync Evo の設定画面で「GitHub から削除」を行います。GitHub からは消え、このデバイスのファイルは残ります。",
+				"GitHub から消すには、Sync Evo の設定画面で「GitHub から削除」を行います。Sync Evo のデバイスのファイルは残ります。",
 			].join("\n"),
 		);
 		expect(sectionAddedText(ja, added, "sent")).toContain("この変更は、今回アップロードしました。");
@@ -484,7 +487,6 @@ describe("how a push ended", () => {
 			unwritable: [],
 			keptLocal: [],
 			tidiedCopies: [],
-			keptUnsent: [],
 			newSymlinks: [],
 			notices: [],
 			closedViews: false,

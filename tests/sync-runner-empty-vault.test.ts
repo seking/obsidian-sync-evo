@@ -10,6 +10,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { NO_DEVICE_EXCLUSION } from "../src/core/device-exclusion";
 import { translatorFor } from "../src/core/i18n";
 import type { PullDeps, PullResult } from "../src/core/pull";
 import type { EmptyVaultAnswer, EmptyVaultRequest, PushDeps, PushRunResult } from "../src/core/push";
@@ -94,7 +95,6 @@ const pulled: PullResult = {
 	unwritable: [],
 	keptLocal: [],
 	tidiedCopies: [],
-	keptUnsent: [],
 	newSymlinks: [],
 	notices: [],
 	closedViews: false,
@@ -151,6 +151,8 @@ function setup() {
 		deviceName: "iPhone",
 		autoSync: { ...DEFAULT_AUTO_SYNC, onStartup: true, atInterval: true, sendsChanges: true },
 		onConflict: "copy",
+		deviceExclusion: NO_DEVICE_EXCLUSION,
+		exclusionChangeTold: true,
 	};
 	const host = {
 		app: {

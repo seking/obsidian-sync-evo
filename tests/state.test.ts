@@ -23,8 +23,10 @@ import {
 	makeMarker,
 	makeMergeMarker,
 	makeRecord,
+	markedRecord,
 	mergeOf,
 	plainMarker,
+	plainRecord,
 	RACY_MTIME_MARGIN_MS,
 	RecordBatcher,
 	refreshStat,
@@ -158,6 +160,36 @@ describe("after hashing again and finding the same hash", () => {
 		expect(refreshStat(fileRecord("a.md", HASH, 1000, 10), { mtime: 1000, size: 10 }, SYNC_START)).toBeNull();
 		const racy = makeRecord({ path: "a.md", kind: "file", hash: HASH }, undefined, SYNC_START);
 		expect(refreshStat(racy, { mtime: SYNC_START, size: 10 }, SYNC_START)).toBeNull();
+	});
+});
+
+describe("the mark of an exclusion", () => {
+	test("is set and taken away with everything else of the record as it was", () => {
+		const record = fileRecord("a.md", HASH, 1000, 10);
+		const marked = markedRecord(record, true);
+		expect(marked).toEqual({ ...record, wasExcluded: true });
+		expect(markedRecord(marked, false)).toEqual(record);
+		const link: StoredRecord = { key: "l", path: "l", kind: "symlink", hash: HASH };
+		expect(markedRecord(link, true)).toEqual({ ...link, wasExcluded: true });
+	});
+
+	test("is stored, and nothing else that an object carries", () => {
+		const marked = { ...fileRecord("a.md", HASH, 1000, 10), wasExcluded: true as const, extra: 1 };
+		expect(plainRecord(marked)).toEqual({ ...fileRecord("a.md", HASH, 1000, 10), wasExcluded: true });
+	});
+
+	test("goes with a record made anew, and stays with one whose time and size are taken again", () => {
+		const marked = markedRecord(fileRecord("a.md", HASH, 1000, 10), true);
+		expect(makeRecord(marked, { mtime: SAFE, size: 10 }, SYNC_START)).not.toHaveProperty("wasExcluded");
+		expect(refreshStat(marked, { mtime: SAFE, size: 10 }, SYNC_START)).toMatchObject({ wasExcluded: true, mtime: SAFE });
+	});
+
+	test("an update of the time and the size made before the mark changed is not one any more", () => {
+		const stored = fileRecord("a.md", HASH, 1000, 10);
+		const marked = markedRecord(stored, true);
+		expect(isStatUpdateOf(marked, fileRecord("a.md", HASH, 3000, 12))).toBe(false);
+		expect(isStatUpdateOf(stored, markedRecord(fileRecord("a.md", HASH, 3000, 12), true))).toBe(false);
+		expect(isStatUpdateOf(marked, markedRecord(fileRecord("a.md", HASH, 3000, 12), true))).toBe(true);
 	});
 });
 

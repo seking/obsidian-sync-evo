@@ -9,8 +9,8 @@
  * Source: https://github.com/seking/obsidian-sync-evo
  */
 
-// Running a sync in the app (a pull, a push, one after the other, or the
-// untracking that comes after them): gathering what `runPull`, `runPush` and
+// Running a sync in the app (a pull, a push, one after the other, or a pull
+// and the untracking that comes after it): gathering what `runPull`, `runPush` and
 // `runUntrackSync` are handed, and putting what they answer on the screen.
 // Everything that is decided about a sync is in `core/`; everything that is
 // worded is in `core/pull-report.ts`, `core/push-report.ts` and
@@ -40,6 +40,9 @@ import {
 } from "../core/auto-sync";
 import { BackendError } from "../core/backend";
 import { connectionCheckText, prepareCheck } from "../core/connection-check";
+import type { DeviceExclusion } from "../core/device-exclusion";
+import type { ExclusionPaths } from "../core/exclusion";
+import { excludedOnRemoteCount } from "../core/exclusion-settings";
 import { type EditingFact, isBeingEdited } from "../core/editing";
 import { type FetchLimitState, FetchLimitWatch, NO_FETCH_LIMIT, sameFetchLimit } from "../core/fetch-quota";
 import { type GitignoreEdit, GitignoreGate } from "../core/gitignore-gate";
@@ -93,6 +96,17 @@ export interface SyncHost {
 	readToken(secretName: string): string | null;
 	/** What was seen of where the user types (`editing-watch.ts`). Asked by a sync that started by itself. */
 	readonly editing: { facts(): readonly EditingFact[] };
+	/**
+	 * Copies the kinds of file an earlier version left out in the section of
+	 * the root `.gitignore` to what this device alone does not sync, once.
+	 * Never rejects.
+	 */
+	adoptSectionKinds?(): Promise<void>;
+	/**
+	 * Remembers that the change of what an exclusion does was told
+	 * (`DeviceSettings.exclusionChangeTold`).
+	 */
+	exclusionChangeTold?(): void;
 }
 
 /**
@@ -101,18 +115,21 @@ export interface SyncHost {
  * - "push": the changes of this device alone.
  * - "first-fetch": the sync state is discarded and the pull starts over,
  *   after one question that says so. No push follows.
- * - "untrack": a pull, a push where the rules of `.gitignore` are not on the
- *   remote yet, and then the files that were confirmed are taken out of the
- *   remote (`runUntrackSync`). Asked before it is started
- *   (`untrack-confirm.ts`), and not by the sync.
+ * - "untrack": a pull, and then the files that were confirmed are taken out
+ *   of the remote, in one commit with the rules of `.gitignore` where the
+ *   remote does not hold them yet (`runUntrackSync`). Asked before it is
+ *   started (`untrack-confirm.ts`), and not by the sync.
  */
 export type SyncMode = "sync" | "pull" | "push" | "first-fetch" | "untrack";
+
+/** The part of a sync that is at work: a pull, a push, or the one commit of an untracking. */
+type Direction = UntrackStep | "push";
 
 const STOPPING_LINES = {
 	pull: "pull.progress.stopping",
 	push: "push.progress.stopping",
 	untrack: "untrack.progress.stopping",
-} as const satisfies Record<UntrackStep, MessageKey>;
+} as const satisfies Record<Direction, MessageKey>;
 
 // The line of progress is rewritten at most this often. A sync reports
 // every file, thousands of them in a second.
@@ -143,7 +160,7 @@ export class SyncRunner {
 	/** Whether the running sync is waiting for the sync state to open. */
 	private opening = false;
 	/** Which part of the running sync is at work: it words the line of progress, and a failure. */
-	private direction: UntrackStep = "pull";
+	private direction: Direction = "pull";
 	/** What the push last reported, for writing the line again when only the request limit changed. */
 	private lastPushProgress: PushProgress | null = null;
 	private progress: Notice | null = null;
@@ -445,6 +462,10 @@ export class SyncRunner {
 			// A read and a write of one small file: waited out rather than
 			// answered with "a sync is already running", which it is not.
 			await gitignoreEdits;
+			// Before the rules are read: the settings it changes are what
+			// this sync goes by.
+			await host.adoptSectionKinds?.();
+			const device = (host.deviceSettings ?? settings).deviceExclusion;
 			this.opening = true;
 			const opened = await host.syncState.open();
 			this.opening = false;
@@ -515,6 +536,7 @@ export class SyncRunner {
 				backend,
 				vault: pullVaultOf(host.app),
 				paths: exclusionPathsOf(host.app, host.manifest),
+				device,
 				pluginId: host.manifest.id,
 				deviceName: settings.deviceName,
 				mergeConflicts: settings.onConflict === "merge",
@@ -588,6 +610,7 @@ export class SyncRunner {
 				sentBlobs,
 				vault: pullDeps.vault,
 				paths: pullDeps.paths,
+				device,
 				deviceName: settings.deviceName,
 				now: Date.now,
 				confirm: async (request) => {
@@ -644,21 +667,15 @@ export class SyncRunner {
 					sizeLimit: DEFAULT_SIZE_LIMIT,
 					log,
 				};
-				// The pull and the push are told as they end, like those of
-				// a sync, and the untracking last.
+				// The pull is told as it ends, like that of a sync, and the
+				// untracking last.
 				const result = await runUntrackSync({
 					pull: pullDeps,
-					push: pushDeps,
 					untrack: untrackDeps,
 					shown,
 					onStep: (step) => this.beginStep(step),
 					onPulled: (pulled) => this.report(pulled, settings),
-					onPushed: (pushed) => {
-						sectionAdded = null;
-						this.reportPush(pushed);
-					},
 				});
-				sectionAdded = null;
 				this.reportUntrack(result);
 			} else if (mode === "sync") {
 				// The pull is told before the push begins: its result is
@@ -677,6 +694,7 @@ export class SyncRunner {
 			} else {
 				this.report(await runPull(pullDeps), settings);
 			}
+			await this.tellExclusionChange(opened.store, pullDeps.paths, device);
 		} catch (error) {
 			// A pull that was stopped while the remote was asked ends by
 			// throwing too, and did not fail.
@@ -1013,6 +1031,38 @@ export class SyncRunner {
 		for (const detail of report.details) this.show(detail, 0);
 	}
 
+	/**
+	 * Tells once, after the first sync that got to the head of the remote,
+	 * how many files the remote holds that this device no longer syncs since
+	 * what an exclusion does was changed, and where the settings list them
+	 * (`excludedOnRemoteCount`). Nothing where there are none. Remembered as
+	 * told either way, in the settings and not the sync state, so that a
+	 * first fetch does not tell it again. Also after a sync that started by
+	 * itself: it is said once, and the change is no less for that.
+	 *
+	 * Never fails the sync: what goes wrong here is tried again by the next.
+	 */
+	private async tellExclusionChange(
+		store: StateStore,
+		paths: ExclusionPaths,
+		device: Pick<DeviceExclusion, "kinds">,
+	): Promise<void> {
+		const host = this.host;
+		if (this.stopped || this.connectionChanged || host.deviceSettings?.exclusionChangeTold !== false) return;
+		let count: number | null;
+		try {
+			count = await excludedOnRemoteCount(
+				{ store, vault: pullVaultOf(host.app), paths, sizeLimit: DEFAULT_SIZE_LIMIT },
+				device.kinds,
+			);
+		} catch {
+			return;
+		}
+		if (count === null || this.stopped || this.connectionChanged) return;
+		host.exclusionChangeTold?.();
+		if (count > 0) this.show(host.t("notice.exclusionChange", { count }), 0);
+	}
+
 	private reportPush(result: PushRunResult): void {
 		if (this.stopped) return;
 		const options = { sizeLimit: DEFAULT_SIZE_LIMIT, connectionChanged: this.connectionChanged };
@@ -1027,8 +1077,8 @@ export class SyncRunner {
 	}
 
 	/**
-	 * A step of an untracking begins (`UntrackSyncDeps.onStep`). The pull and
-	 * the push write the line of progress themselves; the untracking reports
+	 * A step of an untracking begins (`UntrackSyncDeps.onStep`). The pull
+	 * writes the line of progress itself; the untracking reports
 	 * nothing, and gets its one line here. There is no line after a question
 	 * that was answered "no", and nothing follows that either.
 	 */
@@ -1036,7 +1086,6 @@ export class SyncRunner {
 		this.direction = step;
 		if (step !== "untrack" || this.stopped || this.stopping) return;
 		this.progress?.setMessage(this.host.t("untrack.progress.running"));
-		// Whatever the push reports next is written at once.
 		this.progressPhase = "";
 	}
 

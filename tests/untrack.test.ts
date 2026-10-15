@@ -27,7 +27,6 @@ import {
 } from "../src/core/push-pending";
 import { makeMarker, readBaseRevision, type StateStore } from "../src/core/state";
 import {
-	pushCanSettle,
 	runUntrack,
 	runUntrackSync,
 	type UntrackDeps,
@@ -136,7 +135,7 @@ interface Harness {
 	untrack(shown: readonly string[], overrides?: Partial<UntrackDeps>): Promise<UntrackRunResult>;
 	untrackSync(
 		shown: readonly string[],
-		overrides?: { pull?: Partial<PullDeps>; push?: Partial<PushDeps>; untrack?: Partial<UntrackDeps> },
+		overrides?: { pull?: Partial<PullDeps>; untrack?: Partial<UntrackDeps> },
 	): Promise<UntrackSyncResult & { readonly steps: UntrackStep[]; readonly told: string[] }>;
 	/** Path → hash of every record. */
 	records(): Promise<Record<string, string>>;
@@ -145,10 +144,10 @@ interface Harness {
 	remote(): Promise<string[]>;
 }
 
-function harness(): Harness {
+/** A device. Another device of the same remote is one with its `backend`. */
+function harness(backend = new TestBackend()): Harness {
 	let time = Date.UTC(2026, 9, 10, 12, 0, 0);
 	const now = (): number => time;
-	const backend = new TestBackend();
 	const store = new MemoryStateStore();
 	const crash = new Crash();
 	const vault = new MemoryPullVault({ caseSensitive: false, now });
@@ -211,12 +210,10 @@ function harness(): Harness {
 			const told: string[] = [];
 			const result = await runUntrackSync({
 				pull: { ...pullDeps(), ...overrides.pull },
-				push: { ...pushDeps(), ...overrides.push },
 				untrack: { ...untrackDeps(), ...overrides.untrack },
 				shown,
 				onStep: (step) => steps.push(step),
 				onPulled: (pulled) => told.push(`pull:${pulled.outcome}`),
-				onPushed: (pushed) => told.push(`push:${pushed.outcome}`),
 			});
 			return { ...result, steps, told };
 		},
@@ -239,14 +236,22 @@ function harness(): Harness {
 /**
  * A harness whose vault and remote are in sync on `files`, after one pull.
  * A push has gone through before, unless `firstPush` says it has not.
+ *
+ * What the rules of the `.gitignore` of `files` leave out was synced before
+ * they were added, by a pull of the same files under an empty section: a
+ * rule cuts a path off from the remote, and the first fetch would not have
+ * fetched it. Its file is in the vault, and its record is kept, as the
+ * record of an excluded path is.
  */
 async function synced(
 	files: Record<string, FileContent>,
 	options: { firstPush?: boolean; kinds?: Record<string, EntryKind> } = {},
 ): Promise<Harness> {
 	const h = harness();
-	h.backend.commit(files);
 	for (const [path, kind] of Object.entries(options.kinds ?? {})) h.backend.kinds.set(path, kind);
+	h.backend.commit({ ...files, ".gitignore": withSection(null, []) });
+	expect((await h.pull()).outcome).toBe("completed");
+	h.backend.commit({ ".gitignore": null, ...files });
 	expect((await h.pull()).outcome).toBe("completed");
 	if (options.firstPush !== true) await h.store.setMeta(FIRST_PUSH_CONFIRMED_KEY, true);
 	h.vault.log.length = 0;
@@ -280,7 +285,8 @@ describe("untracking", () => {
 			recovered: null,
 		});
 		expect(h.backend.revision).not.toBe(head);
-		expect(h.backend.revisionCount).toBe(2);
+		// The two of `synced`, and the untracking.
+		expect(h.backend.revisionCount).toBe(3);
 		expect(h.backend.untracks).toEqual([true]);
 		expect(h.backend.lastUntrack).toBe(true);
 		expect(h.backend.lastDeviceName).toBe("iPhone");
@@ -410,7 +416,7 @@ describe("untracking", () => {
 	});
 });
 
-describe("untracking looks for itself whether the rules are on the remote", () => {
+describe("untracking looks for itself whether it can go by the rules of this device", () => {
 	const shown = ["drafts/b.md", "drafts/c.md"];
 
 	test("a remote without commits", async () => {
@@ -455,16 +461,17 @@ describe("untracking looks for itself whether the rules are on the remote", () =
 		expect(h.backend.pushes).toBe(0);
 	});
 
-	test("a write of Sync Evo's own to the .gitignore that stopped half way is finished first, and then compared", async () => {
+	test("a write of Sync Evo's own to the .gitignore that stopped half way is finished first, and then sent as it is", async () => {
 		const h = await synced(DRAFTS);
 		const writing = gitignore(["/drafts/", "/more/"]);
 		await h.store.setMeta("gitignore-write", { before: RULES, writing });
 		h.vault.put(".gitignore", writing.slice(0, 20));
-		// Finished, it is a file the remote does not hold yet.
-		expect(await h.untrack(shown)).toMatchObject({ outcome: "sync-first", reason: "gitignore-not-sent" });
+		// Finished, it is a file the remote does not hold yet: it goes with the deletions.
+		expect(await h.untrack(shown)).toMatchObject({ outcome: "untracked", untracked: shown });
 		expect(h.vault.text(".gitignore")).toBe(writing);
 		expect(await h.store.getMeta("gitignore-write")).toBeUndefined();
-		expect(h.backend.pushes).toBe(0);
+		expect(new TextDecoder().decode(h.backend.read(".gitignore"))).toBe(writing);
+		expect(h.backend.pushes).toBe(1);
 	});
 
 	test("a .gitignore that cannot be read", async () => {
@@ -494,16 +501,13 @@ describe("untracking looks for itself whether the rules are on the remote", () =
 		expect(h.backend.pushes).toBe(0);
 	});
 
-	test("a .gitignore that is not the remote's: edited here and not sent, or absent there", async () => {
-		const h = await synced({ ...DRAFTS, ".gitignore": gitignore() });
-		// The rule that makes the files match was written on this device.
-		h.vault.put(".gitignore", RULES);
-		expect(await h.untrack(shown)).toMatchObject({ outcome: "sync-first", reason: "gitignore-not-sent" });
-
-		const none = await synced({ "notes/a.md": "A", "drafts/b.md": "B" });
-		none.vault.put(".gitignore", RULES);
-		expect(await none.untrack(shown)).toMatchObject({ outcome: "sync-first", reason: "gitignore-not-sent" });
-		expect(h.backend.pushes + none.backend.pushes).toBe(0);
+	test("the remote's .gitignore changed since this device last synced it, and this device has another", async () => {
+		const h = await synced(DRAFTS);
+		h.vault.put(".gitignore", gitignore(["/drafts/", "/more/"]));
+		// As if the pull had not taken in the remote's change: the record is of something else.
+		await h.store.commitWrite({ key: ".gitignore", path: ".gitignore", kind: "file", hash: blobHash("older") });
+		expect(await h.untrack(shown)).toMatchObject({ outcome: "sync-first", reason: "gitignore-differs" });
+		expect(h.backend.pushes).toBe(0);
 		expect(await h.remote()).toEqual(Object.keys(DRAFTS).sort());
 	});
 
@@ -512,13 +516,13 @@ describe("untracking looks for itself whether the rules are on the remote", () =
 		h.backend.kinds.set(".gitignore", "symlink");
 		await h.store.clearListing();
 		// The base revision is still the head: only the kind is bent.
-		expect(await h.untrack(shown)).toMatchObject({ outcome: "sync-first", reason: "gitignore-not-sent" });
+		expect(await h.untrack(shown)).toMatchObject({ outcome: "sync-first", reason: "gitignore-differs" });
 		expect(h.backend.pushes).toBe(0);
 	});
 
 	test("refused, nothing is sent or recorded, whichever the reason", async () => {
-		const h = await synced({ ...DRAFTS, ".gitignore": gitignore() });
-		h.vault.put(".gitignore", RULES);
+		const h = await synced(DRAFTS);
+		h.vault.put(".gitignore", `${SECTION_START}\n/drafts/\n`);
 		const records = await h.records();
 		const head = h.backend.revision;
 		await h.untrack(shown);
@@ -526,6 +530,89 @@ describe("untracking looks for itself whether the rules are on the remote", () =
 		expect(await h.records()).toEqual(records);
 		expect(await h.store.getMeta(PENDING_PUSH_KEY)).toBeUndefined();
 		expect(h.vault.text("drafts/b.md")).toBe("B");
+	});
+});
+
+describe("the rules of this device go in the same commit", () => {
+	const shown = ["drafts/b.md", "drafts/c.md"];
+
+	test("a .gitignore edited here and not sent: in the commit of the deletions, and its record moved on to it", async () => {
+		const h = await synced({ ...DRAFTS, ".gitignore": gitignore() });
+		// The rule that makes the files match was written on this device,
+		// with other changes beside it.
+		h.vault.put(".gitignore", RULES);
+		h.vault.put("notes/a.md", "A2");
+		h.vault.put("notes/unsent.md", "U");
+		const head = h.backend.revision;
+		const before = h.backend.revisionCount;
+
+		const result = await h.untrack(shown);
+
+		expect(result).toMatchObject({ outcome: "untracked", untracked: shown, revision: h.backend.revision });
+		expect(h.backend.revisionCount).toBe(before + 1);
+		expect(h.backend.untracks).toEqual([true]);
+		expect(h.backend.revision).not.toBe(head);
+		// The deletions and the rules, and nothing else of the vault.
+		expect(await h.remote()).toEqual([".gitignore", "notes/a.md"]);
+		expect(new TextDecoder().decode(h.backend.read(".gitignore"))).toBe(RULES);
+		expect(new TextDecoder().decode(h.backend.read("notes/a.md"))).toBe("A");
+		expect(await h.records()).toEqual({ ".gitignore": blobHash(RULES), "notes/a.md": blobHash("A") });
+		expect(h.vault.text("drafts/b.md")).toBe("B");
+
+		// The pull right after finds nothing, and the push sends the rest alone.
+		expect(await h.pull()).toMatchObject({ outcome: "completed", counts: { fetched: 0, deleted: 0, conflicts: 0 } });
+		expect(await h.push()).toMatchObject({ outcome: "pushed", counts: { added: 1, modified: 1, deleted: 0 } });
+		expect(await h.remote()).toEqual([".gitignore", "notes/a.md", "notes/unsent.md"]);
+	});
+
+	test("a .gitignore the remote does not hold at all is added in the commit", async () => {
+		const h = await synced({ "notes/a.md": "A", "drafts/b.md": "B", "drafts/c.md": "C" });
+		h.vault.put(".gitignore", RULES);
+		expect(await h.untrack(shown)).toMatchObject({ outcome: "untracked", untracked: shown });
+		expect(await h.remote()).toEqual([".gitignore", "notes/a.md"]);
+		expect(await h.records()).toEqual({ ".gitignore": blobHash(RULES), "notes/a.md": blobHash("A") });
+		expect(await h.pull()).toMatchObject({ outcome: "completed", counts: { fetched: 0, deleted: 0, conflicts: 0 } });
+		expect(await h.push()).toMatchObject({ outcome: "nothing-to-push" });
+	});
+
+	test("remembered with the record of the .gitignore, and recorded so by the sync that finds it went through", async () => {
+		const h = await synced({ ...DRAFTS, ".gitignore": gitignore() });
+		h.vault.put(".gitignore", RULES);
+		h.backend.publishFault = "lost-answer";
+		await expect(h.untrack(shown)).rejects.toMatchObject({ kind: "unreachable" });
+		h.backend.publishFault = null;
+		expect(await readPendingPush(h.store)).toMatchObject({
+			untrack: true,
+			records: [{ path: ".gitignore", hash: blobHash(RULES) }],
+			counts: { added: 0, modified: 1, deleted: 2 },
+		});
+		expect(await h.pull()).toMatchObject({ outcome: "completed", recoveredUntrack: 2, counts: { fetched: 0, deleted: 0 } });
+		expect(await h.records()).toEqual({ ".gitignore": blobHash(RULES), "notes/a.md": blobHash("A") });
+		expect(h.vault.text("drafts/b.md")).toBe("B");
+	});
+
+	test("another device takes the rules and the deletions in together, and keeps its files, edited ones too", async () => {
+		const files = { ...DRAFTS, ".gitignore": gitignore() };
+		const a = harness();
+		a.backend.commit(files);
+		const b = harness(a.backend);
+		expect((await a.pull()).outcome).toBe("completed");
+		expect((await b.pull()).outcome).toBe("completed");
+		// The other device has edited one of the files meanwhile.
+		b.vault.put("drafts/b.md", "B on the other device");
+		a.vault.put(".gitignore", RULES);
+
+		expect((await a.untrackSync(shown)).untrack).toMatchObject({ outcome: "untracked", untracked: shown });
+
+		const pulled = await b.pull();
+		expect(pulled).toMatchObject({ outcome: "completed", counts: { deleted: 0, conflicts: 0 } });
+		expect(b.vault.text(".gitignore")).toBe(RULES);
+		expect(b.vault.text("drafts/b.md")).toBe("B on the other device");
+		expect(b.vault.text("drafts/c.md")).toBe("C");
+		// Nor are they sent back: they are excluded there as well now.
+		await b.store.setMeta(FIRST_PUSH_CONFIRMED_KEY, true);
+		expect(await b.push()).toMatchObject({ outcome: "nothing-to-push" });
+		expect(await a.remote()).toEqual([".gitignore", "notes/a.md"]);
 	});
 });
 
@@ -578,9 +665,9 @@ describe("an untracking that does not get to its end", () => {
 		expect(pulled).toMatchObject({ outcome: "completed", counts: { fetched: 0, deleted: 0 } });
 		expect(pulled.recoveredUntrack).toBeUndefined();
 		await expectUntouched(h, DRAFTS);
-		// The files are synced as before.
+		// The files are excluded as before: an edit is not sent.
 		h.vault.put("drafts/b.md", "B2");
-		expect(await h.push()).toMatchObject({ outcome: "pushed", counts: { modified: 1 } });
+		expect(await h.push()).toMatchObject({ outcome: "nothing-to-push" });
 	});
 
 	test.each(["pull", "push", "untrack"] as const)(
@@ -773,7 +860,7 @@ describe("what is remembered of a push that untracks", () => {
 	});
 });
 
-describe("untracking after the sync it needs", () => {
+describe("untracking after the download it needs", () => {
 	const shown = ["drafts/b.md", "drafts/c.md"];
 
 	test("rules that are on the remote already: the pull, and no push; what the vault has changed is not sent", async () => {
@@ -787,7 +874,6 @@ describe("untracking after the sync it needs", () => {
 		expect(result.steps).toEqual(["pull", "untrack"]);
 		expect(result.told).toEqual(["pull:completed"]);
 		expect(result.pull).toMatchObject({ outcome: "completed", counts: { fetched: 1 } });
-		expect(result.push).toBeNull();
 		expect(result.untrack).toMatchObject({ outcome: "untracked", untracked: shown });
 		expect(result.skipped).toBeUndefined();
 		expect(h.backend.untracks).toEqual([true]);
@@ -803,39 +889,35 @@ describe("untracking after the sync it needs", () => {
 		expect(pushed).toMatchObject({ outcome: "pushed", counts: { added: 1, modified: 0, deleted: 0 } });
 	});
 
-	test("rules written on this device: the push sends the .gitignore first, and the untracking is a commit of its own after it", async () => {
+	test("rules written on this device: the pull, then one commit of the .gitignore and the deletions, and no push", async () => {
 		const h = await synced({ ...DRAFTS, ".gitignore": gitignore() });
 		h.vault.put(".gitignore", RULES);
 		h.vault.put("notes/unsent.md", "U");
-		const head = h.backend.revision;
+		const before = h.backend.revisionCount;
 
 		const result = await h.untrackSync(shown);
 
-		expect(result.steps).toEqual(["pull", "untrack", "push", "untrack"]);
-		expect(result.told).toEqual(["pull:completed", "push:pushed"]);
-		expect(result.push).toMatchObject({ outcome: "pushed", counts: { added: 1, modified: 1, deleted: 0 } });
+		expect(result.steps).toEqual(["pull", "untrack"]);
+		expect(result.told).toEqual(["pull:completed"]);
 		expect(result.untrack).toMatchObject({ outcome: "untracked", untracked: shown, revision: h.backend.revision });
-		expect(h.backend.untracks).toEqual([false, true]);
-		expect(h.backend.revisionCount).toBe(3);
-		expect(result.push?.revision).not.toBe(head);
-		expect(result.untrack?.revision).not.toBe(result.push?.revision);
-		expect(await h.remote()).toEqual([".gitignore", "notes/a.md", "notes/unsent.md"]);
+		expect(h.backend.untracks).toEqual([true]);
+		expect(h.backend.revisionCount).toBe(before + 1);
+		expect(await h.remote()).toEqual([".gitignore", "notes/a.md"]);
 		expect(new TextDecoder().decode(h.backend.read(".gitignore"))).toBe(RULES);
+		expect(h.asked).toEqual([]);
 		expect(h.vault.text("drafts/b.md")).toBe("B");
-		expect(Object.keys(await h.records()).sort()).toEqual([".gitignore", "notes/a.md", "notes/unsent.md"]);
+		expect(h.vault.text("notes/unsent.md")).toBe("U");
 		expect(await h.pull()).toMatchObject({ outcome: "completed", counts: { fetched: 0, deleted: 0 } });
 	});
 
-	test("a .gitignore without a section: the push adds it and sends it, and then the files are untracked", async () => {
+	test("a .gitignore without a section: nothing is untracked, and nothing sent to add it", async () => {
 		const files = { "notes/a.md": "A", ".obsidian/workspace.json": "{}", ".trash/old.md": "O" };
 		const h = await synced(files);
 		const result = await h.untrackSync([".obsidian/workspace.json", ".trash/old.md"]);
-		expect(result.steps).toEqual(["pull", "untrack", "push", "untrack"]);
-		expect(result.push).toMatchObject({ outcome: "pushed", counts: { added: 1 } });
-		expect(result.untrack).toMatchObject({ outcome: "untracked", untracked: [".obsidian/workspace.json", ".trash/old.md"] });
-		expect(await h.remote()).toEqual([".gitignore", "notes/a.md"]);
-		expect(h.vault.text(".obsidian/workspace.json")).toBe("{}");
-		expect(h.vault.text(".trash/old.md")).toBe("O");
+		expect(result.steps).toEqual(["pull", "untrack"]);
+		expect(result.untrack).toMatchObject({ outcome: "sync-first", reason: "no-section" });
+		expect(h.backend.pushes).toBe(0);
+		expect(await h.remote()).toEqual(Object.keys(files).sort());
 	});
 
 	test("the pull is declined: no push, and nothing is untracked", async () => {
@@ -850,7 +932,7 @@ describe("untracking after the sync it needs", () => {
 		expect(h.pullAsked).toHaveLength(1);
 		expect(result.steps).toEqual(["pull"]);
 		expect(result.told).toEqual(["pull:declined"]);
-		expect(result).toMatchObject({ pull: { outcome: "declined" }, push: null, untrack: null, skipped: "pull-declined" });
+		expect(result).toMatchObject({ pull: { outcome: "declined" }, untrack: null, skipped: "pull-declined" });
 		expect(h.backend.pushes).toBe(0);
 		expect(h.backend.revision).toBe(head);
 		expect(h.vault.text("drafts/b.md")).toBe("B");
@@ -862,10 +944,9 @@ describe("untracking after the sync it needs", () => {
 		stopped.abort();
 		const result = await h.untrackSync(shown, {
 			pull: { signal: stopped.signal },
-			push: { signal: stopped.signal },
 			untrack: { signal: stopped.signal },
 		});
-		expect(result).toMatchObject({ pull: { outcome: "cancelled" }, push: null, untrack: null, skipped: "pull-cancelled" });
+		expect(result).toMatchObject({ pull: { outcome: "cancelled" }, untrack: null, skipped: "pull-cancelled" });
 		expect(h.backend.pushes).toBe(0);
 		expect(await h.remote()).toEqual(Object.keys(DRAFTS).sort());
 	});
@@ -884,68 +965,15 @@ describe("untracking after the sync it needs", () => {
 				now: () => Date.UTC(2026, 9, 10, 13, 0, 0),
 				confirm: async () => "proceed",
 			},
-			push: {
-				store: again.store,
-				backend: again.backend,
-				vault: again.vault,
-				paths,
-				deviceName: "iPhone",
-				now: () => Date.UTC(2026, 9, 10, 13, 0, 0),
-				confirm: async () => "proceed",
-				askEmptyVault: async () => "delete",
-				signal: controller.signal,
-			},
 			untrack: { store: again.store, backend: again.backend, vault: again.vault, paths, deviceName: "iPhone", signal: controller.signal },
 			shown,
 			onPulled: () => controller.abort(),
 		});
-		expect(await pulled).toMatchObject({ pull: { outcome: "completed" }, push: null, untrack: null, skipped: "cancelled" });
+		expect(await pulled).toMatchObject({ pull: { outcome: "completed" }, untrack: null, skipped: "cancelled" });
 		expect(again.backend.pushes).toBe(0);
 	});
 
-	test("the push is declined: nothing is untracked, and the rules stay on this device", async () => {
-		const h = await synced({ ...DRAFTS, ".gitignore": gitignore() }, { firstPush: true });
-		h.vault.put(".gitignore", RULES);
-		const head = h.backend.revision;
-		h.answer = "cancel";
-
-		const result = await h.untrackSync(shown);
-
-		expect(h.asked).toHaveLength(1);
-		expect(result.steps).toEqual(["pull", "untrack", "push"]);
-		expect(result.told).toEqual(["pull:completed", "push:declined"]);
-		expect(result).toMatchObject({ push: { outcome: "declined" }, untrack: null, skipped: "push-not-done" });
-		expect(h.backend.pushes).toBe(0);
-		expect(h.backend.revision).toBe(head);
-		expect(h.vault.text(".gitignore")).toBe(RULES);
-		// The files stay synced.
-		expect(Object.keys(await h.records()).sort()).toEqual(Object.keys(DRAFTS).sort());
-	});
-
-	test("a push that ends asking for a pull: nothing is untracked", async () => {
-		const h = await synced({ ...DRAFTS, ".gitignore": gitignore() });
-		h.vault.put(".gitignore", RULES);
-		// Another device pushes while this push sends.
-		h.backend.beforeMove = () => {
-			h.backend.beforeMove = undefined;
-			h.backend.commit({ "notes/other.md": "from a Mac" });
-		};
-		const result = await h.untrackSync(shown);
-		expect(result).toMatchObject({ push: { outcome: "pull-first", reason: "remote-moved" }, untrack: null, skipped: "push-not-done" });
-		expect(h.backend.untracks).toEqual([false]);
-		expect(await h.remote()).toContain("drafts/b.md");
-	});
-
-	test("only a missing section and a .gitignore that is not the remote's are for a push to put right", () => {
-		expect(pushCanSettle("no-section")).toBe(true);
-		expect(pushCanSettle("gitignore-not-sent")).toBe(true);
-		for (const reason of ["remote-empty", "pull-unfinished", "gitignore-unsettled", "gitignore-unreadable", "section-broken"] as const) {
-			expect(pushCanSettle(reason), reason).toBe(false);
-		}
-		expect(pushCanSettle(undefined)).toBe(false);
-	});
-
-	test("a broken section, which no push mends: no push is made, and the untracking says why", async () => {
+	test("a broken section: nothing is sent, and the untracking says why", async () => {
 		const broken = `${SECTION_START}\n/drafts/\n`;
 		const h = await synced({ ...DRAFTS, ".gitignore": broken }, { firstPush: true });
 		// What a push would have sent, and asked about.
@@ -954,7 +982,6 @@ describe("untracking after the sync it needs", () => {
 		const result = await h.untrackSync(shown);
 		expect(result.steps).toEqual(["pull", "untrack"]);
 		expect(result.told).toEqual(["pull:completed"]);
-		expect(result.push).toBeNull();
 		expect(result.untrack).toMatchObject({ outcome: "sync-first", reason: "section-broken" });
 		expect(result.skipped).toBeUndefined();
 		expect(h.asked).toEqual([]);
@@ -963,7 +990,7 @@ describe("untracking after the sync it needs", () => {
 		expect(await readPushFailure(h.store)).toBeNull();
 	});
 
-	test("a pull that left files for later: no push is made, and nothing is untracked", async () => {
+	test("a pull that left files for later: nothing is untracked", async () => {
 		const h = await synced({ ...DRAFTS, ".gitignore": gitignore() });
 		h.backend.commit({ ".gitignore": RULES, "notes/a.md": "A2" });
 		// An editor that cannot save keeps the pull from that file.
@@ -973,19 +1000,18 @@ describe("untracking after the sync it needs", () => {
 		const result = await h.untrackSync(shown);
 		expect(result.pull.outcome).toBe("incomplete");
 		expect(result.steps).toEqual(["pull", "untrack"]);
-		expect(result.push).toBeNull();
 		expect(result.untrack).toMatchObject({ outcome: "sync-first", reason: "pull-unfinished" });
 		expect(h.backend.pushes).toBe(0);
 		expect(h.backend.revision).toBe(head);
 		expect(await h.remote()).toContain("drafts/b.md");
 	});
 
-	test("a .gitignore that cannot be read, and one an editor cannot save: no push is made", async () => {
+	test("a .gitignore that cannot be read, and one an editor cannot save: nothing is sent", async () => {
 		const unreadable = await synced(DRAFTS);
 		unreadable.vault.put("notes/unsent.md", "U");
 		const first = await unreadable.untrackSync(shown, { untrack: { sizeLimit: 10 } });
 		expect(first.steps).toEqual(["pull", "untrack"]);
-		expect(first).toMatchObject({ push: null, untrack: { outcome: "sync-first", reason: "gitignore-unreadable" } });
+		expect(first).toMatchObject({ untrack: { outcome: "sync-first", reason: "gitignore-unreadable" } });
 		expect(unreadable.backend.pushes).toBe(0);
 
 		const unsaved = await synced(DRAFTS);
@@ -993,7 +1019,7 @@ describe("untracking after the sync it needs", () => {
 		unsaved.vault.openFailing(".gitignore");
 		const second = await unsaved.untrackSync(shown);
 		expect(second.steps).toEqual(["pull", "untrack"]);
-		expect(second).toMatchObject({ push: null, untrack: { outcome: "sync-first", reason: "gitignore-unsettled" } });
+		expect(second).toMatchObject({ untrack: { outcome: "sync-first", reason: "gitignore-unsettled" } });
 		expect(unsaved.backend.pushes).toBe(0);
 	});
 
@@ -1014,13 +1040,12 @@ describe("untracking after the sync it needs", () => {
 				confirm: async () => "proceed",
 				signal: controller.signal,
 			},
-			push: { store: h.store, backend: h.backend, vault: h.vault, paths, deviceName: "iPhone", now: at, confirm: async () => "proceed", askEmptyVault: async () => "delete" },
 			untrack: { store: h.store, backend: h.backend, vault: h.vault, paths, deviceName: "iPhone" },
 			shown,
 			onStep: (step) => steps.push(step),
 			onPulled: () => controller.abort(),
 		});
-		expect(result).toMatchObject({ pull: { outcome: "completed" }, push: null, untrack: null, skipped: "cancelled" });
+		expect(result).toMatchObject({ pull: { outcome: "completed" }, untrack: null, skipped: "cancelled" });
 		expect(steps).toEqual(["pull"]);
 		expect(h.backend.pushes).toBe(0);
 	});
@@ -1047,16 +1072,6 @@ describe("untracking after the sync it needs", () => {
 				deviceName: "iPhone",
 				now: () => Date.UTC(2026, 9, 10, 13, 0, 0),
 				confirm: async () => "proceed",
-			},
-			push: {
-				store: h.store,
-				backend: h.backend,
-				vault: h.vault,
-				paths,
-				deviceName: "iPhone",
-				now: () => Date.UTC(2026, 9, 10, 13, 0, 0),
-				confirm: async () => "proceed",
-				askEmptyVault: async () => "delete",
 			},
 			untrack: { store: h.store, backend: h.backend, vault: h.vault, paths, deviceName: "iPhone" },
 			shown,

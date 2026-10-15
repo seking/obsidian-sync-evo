@@ -59,7 +59,10 @@ export class SyncEvoSettingTab extends PluginSettingTab {
 	private drawn = 0;
 	/** The part about what is synced, while the screen is shown. */
 	private exclusion: ExclusionSettings | null = null;
-	/** The groups that are open, for as long as the plugin is loaded: closing the settings does not close them. */
+	/**
+	 * The groups that are open, for as long as the plugin is loaded: closing
+	 * the settings does not close them, but for what this device leaves out.
+	 */
 	private readonly folds: Folds = new Set();
 
 	constructor(app: App, plugin: Plugin, host: SettingsHost) {
@@ -74,6 +77,9 @@ export class SyncEvoSettingTab extends PluginSettingTab {
 		this.commits = [];
 		this.dropExclusion();
 		this.drawn += 1;
+		// Closed each time the settings are opened: what is in it is told
+		// beside its name.
+		this.folds.delete("device");
 
 		const stored = host.deviceSettings;
 		if (stored === null) {
@@ -219,9 +225,10 @@ export class SyncEvoSettingTab extends PluginSettingTab {
 
 		this.showHowItSyncs(grouped(containerEl, t("settings.howItSyncs.heading"), null).listEl, stored);
 
-		// What is synced: the switches for the root `.gitignore`, and the
-		// file. Read from the vault and the sync state, so filled in later,
-		// like the list below it. Nothing while there is no connection.
+		// What is not synced: the switches for the root `.gitignore`, what
+		// this device alone leaves out, and the file. Read from the vault and
+		// the sync state, so filled in later, like the list below it.
+		// Nothing while there is no connection.
 		this.exclusion = new ExclusionSettings(this.app, containerEl.createDiv("sync-evo-part"), host, this.folds);
 		void this.exclusion.draw();
 

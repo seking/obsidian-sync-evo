@@ -208,14 +208,16 @@ describe("new paths that differ from others only in case", () => {
 	});
 
 	test("a rename whose new spelling a rule excludes sends neither the deletion nor the file", () => {
+		// The rule matches the old spelling too: the deletion is not even planned.
 		const made = plan({
 			synced: { "drafts/a.md": "A", "keep.md": "K" },
 			gitignore: "/drafts/\n",
 			local: { "drafts/a.md": null, "Drafts/a.md": "A", "keep.md": "K2" },
 		});
 		expect(changes(made)).toEqual(["M keep.md"]);
-		expect(made.heldRenames).toEqual([{ from: "drafts/a.md", to: "Drafts/a.md" }]);
+		expect(made.heldRenames).toEqual([]);
 		expect(made.countedDeletions).toEqual([]);
+		expect(made.skipped.map((skip) => `${skip.reason} ${skip.key}`)).toEqual(["excluded Drafts/a.md", "excluded drafts/a.md"]);
 	});
 
 	test("without the rule, the same rename is sent", () => {
@@ -238,16 +240,17 @@ describe("new paths that differ from others only in case", () => {
 		expect(made.heldRenames).toEqual([{ from: "notes/a.md", to: "Notes/a.md" }]);
 	});
 
-	test("a deletion that is held back can be in the way of another new path", () => {
-		// `Docs/a.md` is not sent (a rule), so `docs/a.md` stays, and with it
-		// the folder `docs`: the new `Docs/b.md` would make a pair of folders.
+	test("a path a rule excludes in either spelling keeps the remote's folder, which a new path can then collide with", () => {
+		// The rule matches `docs/a.md` in any case: its record stays and
+		// nothing is deleted, so the folder `docs` stays on the remote, and
+		// the new `Docs/b.md` would make a pair of folders.
 		const made = plan({
 			synced: { "docs/a.md": "A" },
 			gitignore: "/docs/a.md\n",
 			local: { "docs/a.md": null, "Docs/a.md": "A", "Docs/b.md": "B" },
 		});
 		expect(changes(made)).toEqual([]);
-		expect(made.heldRenames).toEqual([{ from: "docs/a.md", to: "Docs/a.md" }]);
+		expect(made.heldRenames).toEqual([]);
 		expect(made.refused).toEqual([{ path: "Docs/b.md", reason: "case-collision" }]);
 	});
 });
@@ -375,6 +378,20 @@ describe("what counts as a deletion", () => {
 		expect(made.deletes).toEqual([]);
 		expect(made.countedDeletions).toEqual([]);
 	});
+
+	test("the records of what a rule excludes are not part of everything the share is taken of", () => {
+		const notes = many(30, (i) => `note ${i}`);
+		const drafts = many(300, (i) => `draft ${i}`, "drafts");
+		const six = Object.fromEntries(Object.keys(notes).slice(0, 6).map((path) => [path, null]));
+		const ruled = plan({ synced: { ...notes, ...drafts }, gitignore: "/drafts/\n", local: { ...six, ...none(drafts) } });
+		expect(ruled.recordCount).toBe(30);
+		// The drafts gone from the vault are no deletion either.
+		expect(ruled.countedDeletions).toHaveLength(6);
+		expect(needsPushConfirmation(ruled)).toBe(true);
+		const open = plan({ synced: { ...notes, ...drafts }, local: six });
+		expect(open.recordCount).toBe(330);
+		expect(needsPushConfirmation(open)).toBe(false);
+	});
 });
 
 describe("a vault with none of the files that have a record", () => {
@@ -442,6 +459,29 @@ describe("a vault with none of the files that have a record", () => {
 		expect(missingRecordedFiles(made, ".obsidian")).toEqual([copy, "a.md"]);
 	});
 
+	test("records of what a rule excludes do not count: the vault side of those is not looked at", () => {
+		const synced = { "a.md": "A", "drafts/b.md": "B", "drafts/c.md": "C" };
+		// The drafts are not scanned, and so not in the vault's list.
+		expect(missing({ synced, gitignore: "/drafts/\n", local: gone("a.md", "drafts/b.md", "drafts/c.md") })).toEqual(["a.md"]);
+		expect(missing({ synced, gitignore: "/drafts/\n", local: gone("drafts/b.md", "drafts/c.md") })).toBeNull();
+	});
+
+	test("records a rule excluded at the last sync, of files the vault lost meanwhile, do not count: they are no deletion", () => {
+		const records: SyncRecord[] = [
+			{ path: "a.md", kind: "file", hash: blobHash("A") },
+			{ path: "old/b.md", kind: "file", hash: blobHash("B"), wasExcluded: true },
+		];
+		const made = planPush({
+			remote: records.map(({ path, hash }) => ({ path, kind: "file", hash })),
+			local: [],
+			records,
+			exclusion: createExclusion({ configDir: ".obsidian", pluginDir: ownFolder, gitignore: null }),
+		});
+		expect(changes(made)).toEqual(["D a.md"]);
+		expect(made.drops.map((record) => record.path)).toEqual(["old/b.md"]);
+		expect(missingRecordedFiles(made, ".obsidian")).toEqual(["a.md"]);
+	});
+
 	test("records of what is no file do not count, and nothing is told where the push deletes nothing", () => {
 		expect(missing({ synced: { link: "target", "a.md": "A" }, kinds: { link: "symlink" }, local: gone("a.md") })).toEqual([
 			"a.md",
@@ -450,6 +490,42 @@ describe("a vault with none of the files that have a record", () => {
 		// The deletions wait (`withoutDeletions`): there is nothing to ask about.
 		const made = plan({ synced: { "a.md": "A" }, local: gone("a.md") });
 		expect(missingRecordedFiles(withoutDeletions(made), ".obsidian")).toBeNull();
+	});
+});
+
+describe("the marks of an exclusion", () => {
+	test("set on the records of what a rule excludes, and nothing of those is sent or deleted", () => {
+		const made = plan({
+			synced: { "drafts/gone.md": "G", "drafts/edited.md": "E", "notes/a.md": "A" },
+			remoteOnly: { "drafts/new-there.md": "N" },
+			gitignore: "/drafts/\n",
+			local: { "drafts/gone.md": null, "drafts/edited.md": "E2", "drafts/new-here.md": "H" },
+		});
+		expect(changes(made)).toEqual([]);
+		expect(made.marks.map((mark) => `${mark.key} ${mark.wasExcluded}`)).toEqual(["drafts/edited.md true", "drafts/gone.md true"]);
+		expect(made.drops).toEqual([]);
+	});
+
+	test("taken away once no rule excludes the path and both sides have it; dropped with the record where one does not", () => {
+		const marked = (path: string, content: string): SyncRecord => ({ path, kind: "file", hash: blobHash(content), wasExcluded: true });
+		const made = planPush({
+			remote: [
+				{ path: "both.md", kind: "file", hash: blobHash("A") },
+				{ path: "edited.md", kind: "file", hash: blobHash("E") },
+				{ path: "remote-only.md", kind: "file", hash: blobHash("R") },
+			],
+			local: [
+				{ path: "both.md", hash: blobHash("A") },
+				{ path: "edited.md", hash: blobHash("E2") },
+				{ path: "vault-only.md", hash: blobHash("V") },
+			],
+			records: [marked("both.md", "A"), marked("edited.md", "E"), marked("remote-only.md", "R"), marked("vault-only.md", "V")],
+			exclusion: createExclusion({ configDir: ".obsidian", pluginDir: ownFolder, gitignore: null }),
+		});
+		// The edit made while it was excluded is sent like any edit; nothing is deleted.
+		expect(changes(made)).toEqual(["M edited.md"]);
+		expect(made.marks.map((mark) => `${mark.key} ${mark.wasExcluded}`)).toEqual(["both.md false", "edited.md false"]);
+		expect(made.drops.map((record) => record.path)).toEqual(["remote-only.md", "vault-only.md"]);
 	});
 });
 

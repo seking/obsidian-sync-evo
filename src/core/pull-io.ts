@@ -16,6 +16,7 @@
 
 import type { ArchiveDownload, ArchiveGate } from "./archive-fetch";
 import type { Backend, FetchedFile, RemoteEntry } from "./backend";
+import type { DeviceExclusion } from "./device-exclusion";
 import type { ExclusionPaths } from "./exclusion";
 import type { FirstFetchFiles } from "./first-fetch";
 import type { VaultIndex } from "./light-scan";
@@ -255,6 +256,8 @@ export interface PullDeps {
 	readonly vault: PullVault;
 	/** The configuration folder and the plugin's own folder. */
 	readonly paths: ExclusionPaths;
+	/** What this device alone does not sync (`device-exclusion.ts`). Absent: nothing. */
+	readonly device?: Pick<DeviceExclusion, "kinds" | "folders">;
 	/** The id of this plugin, as `community-plugins.json` lists it. */
 	readonly pluginId: string;
 	/** The name of this device, for the names of conflict copies. */
@@ -587,11 +590,6 @@ export interface PullResult {
 	readonly unwritable: readonly UnwritablePath[];
 	/** Files the user chose to keep when the history was rewritten. */
 	readonly keptLocal: readonly string[];
-	/**
-	 * Those of `keptLocal` that no push sends back: the remote no longer
-	 * holds the path and a rule excludes it. They stay on this device only.
-	 */
-	readonly keptUnsent: readonly string[];
 	/**
 	 * Conflict copies this pull moved to the `.trash/` of the vault because
 	 * they were made 30 days ago or more (`conflict-tidy.ts`), as they were

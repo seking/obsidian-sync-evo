@@ -21,7 +21,13 @@ import {
 	saveGitignoreText,
 	type UntrackList,
 } from "./core/exclusion-settings";
-import { settleGitignoreWrite } from "./core/gitignore-file";
+import {
+	type DeviceExclusion,
+	type DeviceExclusionEdit,
+	editedDeviceExclusion,
+	kindsFromSection,
+} from "./core/device-exclusion";
+import { readRootGitignore, settleGitignoreWrite } from "./core/gitignore-file";
 import { GitHubClient } from "./core/github/client";
 import { type Translate, translatorFor } from "./core/i18n";
 import { DEFAULT_SIZE_LIMIT } from "./core/plan";
@@ -252,6 +258,36 @@ export default class SyncEvoPlugin extends Plugin implements SettingsHost, SyncH
 	}
 
 	/**
+	 * Copies the kinds of file the section of the root `.gitignore` leaves
+	 * out, as an earlier version wrote them there, to what this device alone
+	 * does not sync (`kindsFromSection`): once, the first time a section is
+	 * read. Asked before a sync and before the settings show the section.
+	 * Never rejects: a file that cannot be read is looked at the next time.
+	 */
+	async adoptSectionKinds(): Promise<void> {
+		if (this.deviceSettings === null || this.deviceSettings.deviceExclusion.sectionChecked) return;
+		let text: string;
+		try {
+			const read = await readRootGitignore(pullVaultOf(this.app), DEFAULT_SIZE_LIMIT);
+			if (read.kind !== "text") return;
+			text = read.text;
+		} catch {
+			return;
+		}
+		// As they are now: they may have changed while the file was read.
+		const settings = this.deviceSettings;
+		if (settings === null) return;
+		const next = kindsFromSection(text, exclusionPathsOf(this.app, this.manifest), settings.deviceExclusion);
+		if (next !== null) this.updateSettings({ ...settings, deviceExclusion: next });
+	}
+
+	exclusionChangeTold(): void {
+		const settings = this.deviceSettings;
+		if (settings === null || settings.exclusionChangeTold) return;
+		this.updateSettings({ ...settings, exclusionChangeTold: true });
+	}
+
+	/**
 	 * The symlinks of the remote that are skipped, as of the last pull.
 	 * Empty while there is no connection: there is then no sync state, and
 	 * asking for one would make one. Never rejects.
@@ -291,6 +327,7 @@ export default class SyncEvoPlugin extends Plugin implements SettingsHost, SyncH
 	async exclusionScreen(): Promise<ExclusionLoad> {
 		const settings = this.deviceSettings;
 		if (settings === null || connectionOf(settings) === null) return { status: "no-connection" };
+		await this.adoptSectionKinds();
 		try {
 			const deps = await this.exclusionDeps();
 			if (deps === null) return { status: "no-state" };
@@ -310,18 +347,32 @@ export default class SyncEvoPlugin extends Plugin implements SettingsHost, SyncH
 		return this.changeGitignore((deps) => saveGitignoreText(deps, text, opened));
 	}
 
+	deviceExclusion(): DeviceExclusion | null {
+		return this.deviceSettings?.deviceExclusion ?? null;
+	}
+
+	/**
+	 * Saved like any other setting, and not a change of the connection: the
+	 * sync state stays. A sync that is running goes by what it read when it
+	 * began; the next one by this.
+	 */
+	editDeviceExclusion(edit: DeviceExclusionEdit): void {
+		const settings = this.deviceSettings;
+		if (settings === null) return;
+		const next = editedDeviceExclusion(settings.deviceExclusion, edit);
+		if (next !== settings.deviceExclusion) this.updateSettings({ ...settings, deviceExclusion: next });
+	}
+
 	/**
 	 * What the question before untracking is drawn from: which of the files
-	 * this device holds, and how many records there are. Only read. `null`
-	 * when the sync state cannot be used. Never rejects.
+	 * this device holds. Only read. `null` while there is no connection.
+	 * Never rejects.
 	 */
 	async untrackRequest(list: UntrackList): Promise<UntrackConfirmRequest | null> {
 		const settings = this.deviceSettings;
 		if (settings === null || connectionOf(settings) === null) return null;
 		try {
-			const opened = await this.syncState.open();
-			if (opened.status !== "ok") return null;
-			return await untrackConfirmRequest({ store: opened.store, vault: pullVaultOf(this.app) }, list);
+			return await untrackConfirmRequest({ vault: pullVaultOf(this.app) }, list);
 		} catch {
 			return null;
 		}

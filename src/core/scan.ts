@@ -69,9 +69,9 @@ export interface ScanInput {
 	readonly exclusion: Exclusion;
 	/**
 	 * The remote listing and the records, the same two the sync decision is
-	 * given. A path a rule matches is still synced when it is in either, so
-	 * the scan has to look for it; and the records say which paths are
-	 * symlinks.
+	 * given. The records say which paths are symlinks; and a copy of the
+	 * earlier form inside the configuration folder is looked for when either
+	 * knows it (`Exclusion.excludes`).
 	 */
 	readonly remote: readonly RemoteEntry[];
 	readonly records: readonly SyncRecord[];
@@ -119,12 +119,12 @@ export function placeholderTarget(path: string): string | null {
  *   (`FolderLister.linksIn`). Its target can be outside the vault, or
  *   another path of it, or the folder it is in. It is returned in `links`,
  *   unless a rule excludes it;
- * - a folder a rule matches that has nothing known below it, and a file a
- *   rule matches that is not known. (What "known" means for a copy kept
- *   from a conflict is the exclusion's to say, and so is the folder of the
- *   copies, which is entered whatever the rules say.) The sync decision
- *   would turn each of them away as excluded; this only saves listing them,
- *   and a `.obsidian/plugins/` with thousands of files is the usual case.
+ * - a folder and a file the exclusion leaves out (`Exclusion.excludes`),
+ *   whatever the remote holds and whatever has a record. (The folder of the
+ *   copies is entered whatever the rules say.) The sync decision turns each
+ *   of them away as excluded before it compares anything, so the vault side
+ *   of such a path is not needed; this only saves listing them, and a
+ *   `.obsidian/plugins/` with thousands of files is the usual case.
  *
  * A placeholder of a cloud drive (`.<name>.icloud`) is listed as the file
  * it stands for, in the state "placeholder", unless the folder lists that

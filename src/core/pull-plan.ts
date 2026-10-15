@@ -26,10 +26,12 @@
 
 import type { RemoteEntry } from "./backend";
 import { exceedsDeletionThreshold } from "./deletion-threshold";
-import { foldedKey, pathKey } from "./paths";
+import { knownPaths } from "./exclusion";
+import { foldedKey, isPathFromRoot, pathKey } from "./paths";
 import {
 	type CaseCollision,
 	caseCollisions,
+	excludedRecordCount,
 	type LocalEntry,
 	type PlanInput,
 	planSync,
@@ -44,7 +46,9 @@ export type PullInput = PlanInput;
 
 /**
  * A change to the records that touches no file. `local` is the vault file
- * the record is about, when there is one, for its time and size.
+ * the record is about, when there is one, for its time and size. A "mark"
+ * sets or takes away the mark of an exclusion (`SyncPlan.marks`) and leaves
+ * the rest of the record as it is, the time and the size included.
  */
 export type RecordChange =
 	| {
@@ -53,7 +57,8 @@ export type RecordChange =
 			readonly record: SyncRecord;
 			readonly local?: LocalEntry;
 	  }
-	| { readonly type: "drop"; readonly key: string; readonly record: SyncRecord };
+	| { readonly type: "drop"; readonly key: string; readonly record: SyncRecord }
+	| { readonly type: "mark"; readonly key: string; readonly record: SyncRecord; readonly wasExcluded: boolean };
 
 /**
  * A vault file to delete: the remote no longer holds it and the vault did
@@ -282,7 +287,11 @@ export interface PullSkip extends Omit<SkippedPath, "reason"> {
  */
 export interface PullPlan {
 	readonly input: PullInput;
-	/** The number of records, of every kind, before the pull: what the share of deletions is taken of. */
+	/**
+	 * The number of records, of every kind, before the pull: what the share
+	 * of deletions is taken of. Not those of paths a rule excludes, which
+	 * the pull leaves alone.
+	 */
 	readonly recordCount: number;
 	readonly records: readonly RecordChange[];
 	readonly deletes: readonly PullDelete[];
@@ -320,12 +329,18 @@ export function planPull(input: PullInput): PullPlan {
 	// as far as files go. It is dropped first, and the path and everything
 	// below it is decided as if it had never been recorded: a file that took
 	// the place of the symlink is fetched, or compared with a vault file
-	// that is already there.
+	// that is already there. Not where a rule excludes the path: its record
+	// stays as it is, like every record of such a path.
+	const known = knownPaths(input.remote, input.records);
 	const stale: SyncRecord[] = [];
 	const records: SyncRecord[] = [];
 	for (const record of input.records) {
-		const onRemote = remoteByKey.get(pathKey(record.path)) ?? [];
-		const gone = record.kind === "symlink" && !onRemote.some((entry) => entry.kind === "symlink");
+		const key = pathKey(record.path);
+		const onRemote = remoteByKey.get(key) ?? [];
+		const gone =
+			record.kind === "symlink" &&
+			!onRemote.some((entry) => entry.kind === "symlink") &&
+			!(isPathFromRoot(key) && input.exclusion.excludes(key, "file", known));
 		(gone ? stale : records).push(record);
 	}
 
@@ -333,6 +348,9 @@ export function planPull(input: PullInput): PullPlan {
 	const state = new Draft(input, sync.skipped);
 	for (const record of stale) {
 		state.changes.push({ type: "drop", key: pathKey(record.path), record });
+	}
+	for (const { key, record, wasExcluded } of sync.marks) {
+		state.changes.push({ type: "mark", key, record, wasExcluded });
 	}
 
 	const symlinkRecords = new Set<string>();
@@ -969,7 +987,7 @@ class Draft {
 
 		return {
 			input: this.input,
-			recordCount: this.input.records.length,
+			recordCount: this.input.records.length - excludedRecordCount(this.skips),
 			records: [...this.changes, ...sorted(this.settled)],
 			deletes,
 			asides,

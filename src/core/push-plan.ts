@@ -24,7 +24,15 @@ import { isCopyInConflictFolder } from "./conflict-name";
 import { exceedsDeletionThreshold } from "./deletion-threshold";
 import { isInConfigDir } from "./exclusion";
 import { foldedKey, pathKey } from "./paths";
-import { type LocalEntry, type PlanInput, planSync, type SkippedPath } from "./plan";
+import {
+	excludedRecordCount,
+	type LocalEntry,
+	type PlanInput,
+	planSync,
+	type RecordMark,
+	type SkippedPath,
+	type SyncRecord,
+} from "./plan";
 
 /** A vault file to send. */
 export interface PushSend {
@@ -79,7 +87,11 @@ export interface HeldRename {
 
 export interface PushPlan {
 	readonly input: PlanInput;
-	/** The number of records, of every kind, before the push: what the share of deletions is taken of. */
+	/**
+	 * The number of records, of every kind, before the push: what the share
+	 * of deletions is taken of. Not those of paths a rule excludes, which
+	 * the push leaves alone.
+	 */
 	readonly recordCount: number;
 	/** Sorted by key. */
 	readonly sends: readonly PushSend[];
@@ -97,6 +109,15 @@ export interface PushPlan {
 	readonly heldRenames: readonly HeldRename[];
 	/** What the sync decision turned away, on every side. */
 	readonly skipped: readonly SkippedPath[];
+	/**
+	 * The marks of an exclusion to set or take away (`SyncPlan.marks`), and
+	 * the records of paths no rule excludes any more that one side lost
+	 * while one did (`SyncRecord.wasExcluded`), which go. Both are stored
+	 * with the records of a push that went through, or that found nothing
+	 * to send, and by no other: they change no file, on either side.
+	 */
+	readonly marks: readonly RecordMark[];
+	readonly drops: readonly SyncRecord[];
 }
 
 export function planPush(input: PlanInput): PushPlan {
@@ -105,8 +126,11 @@ export function planPush(input: PlanInput): PushPlan {
 
 	const candidates: PushSend[] = [];
 	let deletes: PushDelete[] = [];
+	const drops: SyncRecord[] = [];
 	for (const action of sync.actions) {
-		if (action.type === "upload") {
+		if (action.type === "drop-record" && action.record.wasExcluded === true) {
+			drops.push(action.record);
+		} else if (action.type === "upload") {
 			const { key, local, remote } = action;
 			candidates.push(
 				remote === undefined ? { key, local, path: spell(local.path) } : { key, local, path: remote.path, replaces: remote },
@@ -174,7 +198,7 @@ export function planPush(input: PlanInput): PushPlan {
 
 	return {
 		input,
-		recordCount: input.records.length,
+		recordCount: input.records.length - excludedRecordCount(sync.skipped),
 		sends,
 		deletes,
 		countedDeletions: counted,
@@ -184,6 +208,8 @@ export function planPush(input: PlanInput): PushPlan {
 		}),
 		heldRenames: heldRenames.sort((a, b) => compare(a.to, b.to)),
 		skipped: sync.skipped,
+		marks: sync.marks,
+		drops,
 	};
 }
 
@@ -255,6 +281,10 @@ export function needsPushConfirmation(plan: PushPlan): boolean {
  * - A file a cloud drive has taken off the device is there, and so is
  *   every other file the plan is told of without a hash (`LocalRead`).
  * - A file under another case is there.
+ * - The record of a path a rule excludes is not looked at: the vault side
+ *   of such a path is not looked at either. Nor is one of a path that a
+ *   rule excluded at the last sync and that the vault does not have
+ *   (`PushPlan.drops`): it is no deletion.
  *
  * A file the push takes for moved (`PushPlan.countedDeletions`) is not
  * among the files that are gone: the one note of a vault that was renamed
@@ -272,12 +302,16 @@ export function missingRecordedFiles(plan: PushPlan, configDir: string): readonl
 	const inVault = new Set(plan.input.local.map((entry) => foldedKey(entry.path)));
 	const counted = new Set(plan.countedDeletions.map(pathKey));
 	const moved = new Set(plan.deletes.filter((entry) => !counted.has(pathKey(entry.remote.path))).map((entry) => entry.key));
-	// Not in the vault's scan, and not missing: a link of the vault stands there.
-	const linked = new Set(plan.skipped.filter((skip) => skip.reason === "local-link").map((skip) => skip.key));
+	// Not in the vault's scan, and not missing: a link of the vault stands
+	// there, or a rule excludes the path, or excluded it until now.
+	const passed = new Set([
+		...plan.skipped.filter((skip) => skip.reason === "local-link" || skip.reason === "excluded").map((skip) => skip.key),
+		...plan.drops.map((record) => pathKey(record.path)),
+	]);
 	const missing: string[] = [];
 	for (const record of plan.input.records) {
 		if (record.kind !== "file" || isInConfigDir(record.path, configDir) || foldedKey(record.path) === ".gitignore") continue;
-		if (linked.has(pathKey(record.path))) continue;
+		if (passed.has(pathKey(record.path))) continue;
 		if (inVault.has(foldedKey(record.path))) return null;
 		if (moved.has(pathKey(record.path))) continue;
 		missing.push(record.path);

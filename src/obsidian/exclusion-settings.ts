@@ -9,11 +9,13 @@
  * Source: https://github.com/seking/obsidian-sync-evo
  */
 
-// The part of the settings screen about what is synced: the switches that
-// write the section of the root `.gitignore`, the file itself, and the way
-// in to untracking what the rules match. Nothing is decided here. What is
-// shown is worked out in `core/exclusion-settings.ts` from the file as it
-// is, and every change is made there, from the file as it is read again.
+// The part of the settings screen about what is not synced: the switches
+// that write the section of the root `.gitignore`, the way in to untracking
+// what its rules match, what this device alone leaves out, and the file
+// itself. Nothing is decided here. What is shown of the file is worked out
+// in `core/exclusion-settings.ts` from the file as it is, and every change of
+// it is made there, from the file as it is read again. What this device
+// leaves out is its settings' (`core/device-exclusion.ts`).
 //
 // Also the groups the whole screen is laid out in (`grouped`), and how
 // some of them fold.
@@ -30,6 +32,12 @@ import {
 	type TextComponent,
 } from "obsidian";
 import {
+	type DeviceExclusion,
+	type DeviceExclusionEdit,
+	deviceExclusionSummary,
+	FILE_KINDS,
+} from "../core/device-exclusion";
+import {
 	editorText,
 	type ExclusionChanged,
 	type ExclusionEdit,
@@ -38,7 +46,6 @@ import {
 	exclusionWriteText,
 	folderToExclude,
 	SHOWN_CONFIG_ITEMS,
-	SHOWN_FILE_KINDS,
 	textFromEditor,
 	type UntrackList,
 	unreadableGitignoreText,
@@ -59,9 +66,9 @@ export type ExclusionLoad =
 	| { readonly status: "ok"; readonly screen: ExclusionScreen; readonly syncing: boolean };
 
 /**
- * How a change ended. Beside what the core answers (how the write went, and
- * what it left to ask about untracking): a sync was running, the sync state
- * could not be used, or something failed, with what it said.
+ * How a change ended. Beside what the core answers (how the write went): a
+ * sync was running, the sync state could not be used, or something failed,
+ * with what it said.
  */
 export type ExclusionChange = ExclusionChanged | "syncing" | "no-state" | { readonly failed: string };
 
@@ -74,9 +81,13 @@ export interface ExclusionHost {
 	editExclusion(edit: ExclusionEdit): Promise<ExclusionChange>;
 	/** Saves the whole file. `opened` is the text it was shown with, or `null` when there was no file. */
 	saveGitignore(text: string, opened: string | null): Promise<ExclusionChange>;
+	/** What this device alone leaves out, as the settings have it now. `null` when they are not this version's. */
+	deviceExclusion(): DeviceExclusion | null;
+	/** Changes one thing in what this device alone leaves out, in the settings as they are now. Keeps the sync state. */
+	editDeviceExclusion(edit: DeviceExclusionEdit): void;
 	/**
 	 * What the question before untracking is drawn from, for a list of this
-	 * screen. `null` when the sync state cannot be used.
+	 * screen. `null` when it cannot be asked.
 	 */
 	untrackRequest(list: UntrackList): Promise<UntrackConfirmRequest | null>;
 	/**
@@ -260,6 +271,9 @@ export class ExclusionSettings {
 		const synced = grouped(el, t("settings.exclusion.heading"), t("settings.exclusion.desc"));
 		if (load.status === "no-state") {
 			warning(synced.textEl, t("settings.exclusion.noState"));
+			// What this device leaves out is no part of the file, and can
+			// be changed all the same.
+			this.showDevice(null, false);
 			return;
 		}
 		const { view, untrack, notices, addSection } = load.screen;
@@ -269,13 +283,16 @@ export class ExclusionSettings {
 		switch (view.kind) {
 			case "unreadable":
 				warning(synced.textEl, unreadableGitignoreText(t, view.reason, DEFAULT_SIZE_LIMIT));
+				this.showDevice(null, locked);
 				break;
 			case "unsettled":
 				warning(synced.textEl, t("settings.exclusion.unsettled"));
+				this.showDevice(null, locked);
 				break;
 			case "broken":
 				warning(synced.textEl, t("settings.exclusion.broken"));
 				this.showFixedOff(synced.listEl, view, locked);
+				this.showDevice(null, locked);
 				this.showEditor(view, locked);
 				break;
 			case "none": {
@@ -296,26 +313,27 @@ export class ExclusionSettings {
 					note(add).setText(t("settings.exclusion.noSection.overLimit", { limit }));
 				}
 				this.showFixedOff(synced.listEl, view, locked);
+				this.showDevice(null, locked);
 				this.showEditor(view, locked);
 				break;
 			}
 			case "section": {
 				if (view.handEdited) warning(synced.textEl, t("settings.exclusion.handEdited"));
-				this.showFileKinds(synced, view.state, locked);
-				// Cards of their own, with no heading: what is said above
-				// the switches for the kinds of file is about those alone.
-				const rest = grouped(el, null, null).listEl;
-				// Still what is synced: closer to the cards above than a
-				// group of its own would be (`styles.css`).
-				rest.parentElement?.addClass("sync-evo-group-continued");
-				this.showFolders(rest, view.state, locked);
+				this.showFolders(
+					synced.listEl,
+					view.state.folders,
+					locked,
+					(folder) => void this.change(host.editExclusion({ kind: "add-folder", folder })),
+					(folder) => void this.change(host.editExclusion({ kind: "remove-folder", folder })),
+				);
 				// As of the last listing of the remote. Without one there is
-				// nothing to count. The count is of every rule, and right
-				// below the folders is where it is looked for after one was
-				// added.
-				if (untrack !== null) this.showUntrack(rest, untrack, locked);
-				this.showFixedOff(rest, view, locked);
+				// nothing to count. The count is of every rule of the file,
+				// and right below the folders is where it is looked for after
+				// one was added.
+				if (untrack !== null) this.showUntrack(synced.listEl, untrack, locked);
+				this.showFixedOff(synced.listEl, view, locked);
 				this.showConfig(view.state, locked);
+				this.showDevice(view.state, locked);
 				this.showEditor(view, locked);
 				break;
 			}
@@ -351,7 +369,7 @@ export class ExclusionSettings {
 			setting.descEl.createDiv({ text: t("settings.exclusion.tracked", { count: files.length }) });
 			setting.descEl.createDiv({ text: t("settings.exclusion.untrack.desc") });
 			setting.addButton((button) => {
-				button.setButtonText(t("untrack.confirm.proceed")).onClick(() => void this.askUntrack(list));
+				button.setButtonText(t("settings.exclusion.untrack.button")).onClick(() => void this.askUntrack(list));
 				this.untrackButton = { button, locked };
 				this.enableUntrackButton();
 			});
@@ -391,7 +409,7 @@ export class ExclusionSettings {
 		this.asking = null;
 		this.enableUntrackButton();
 		if (request === null) {
-			if (!this.disposed) new Notice(t("settings.exclusion.write.noState"), 0);
+			if (!this.disposed) new Notice(t("settings.exclusion.untrack.noState"), 0);
 			return;
 		}
 		// The settings were closed while the vault was looked at: a question
@@ -418,29 +436,69 @@ export class ExclusionSettings {
 	}
 
 	/**
-	 * The switches for the kinds of file, as the settings of a group, under a
-	 * heading of their own in what the group says above them: as a setting,
-	 * that heading would be a card with nothing to switch.
+	 * What this device alone leaves out: folded, with what it is beside the
+	 * heading, to be read while it is. The switches for the kinds of file,
+	 * under a heading of their own in what the group says above them (as a
+	 * setting, that heading would be a card with nothing to switch), and the
+	 * folders.
+	 *
+	 * `section` is the state of the section of the file, where there is
+	 * one. A kind of file it leaves out was written there by an earlier
+	 * version, and a switch of a kind here takes those lines out of it: left
+	 * there, they would go on keeping out a kind this switch puts back.
 	 */
-	private showFileKinds(group: Group, state: SectionState, locked: boolean): void {
+	private showDevice(section: SectionState | null, locked: boolean): void {
 		const host = this.host;
 		const t = host.t;
+		const device = host.deviceExclusion();
+		if (device === null) return;
+		const group = grouped(this.el, t("settings.deviceExclusion.heading"), t("settings.deviceExclusion.desc"), {
+			folds: this.folds,
+			id: "device",
+			summary: deviceExclusionSummary(t, device),
+		});
+		const sectionKinds = section !== null && FILE_KINDS.some((kind) => !section.kinds[kind]);
+		const edit = (change: DeviceExclusionEdit): void => {
+			host.editDeviceExclusion(change);
+			void this.draw();
+		};
+
 		group.textEl.createDiv({ cls: "sync-evo-subheading", text: t("settings.exclusion.fileKinds.name") });
 		described(group.textEl, t("settings.exclusion.fileKinds.desc"));
-		for (const item of SHOWN_FILE_KINDS) {
+		for (const item of FILE_KINDS) {
 			new Setting(group.listEl).setName(t(KIND_NAMES[item])).addToggle((toggle) => {
 				toggle
-					.setValue(state.kinds[item])
+					.setValue(!device.kinds.includes(item))
 					.setDisabled(locked)
-					.onChange((synced) => void this.change(host.editExclusion({ kind: "file-kind", item, synced })));
+					.onChange((synced) => {
+						host.editDeviceExclusion({ kind: "file-kind", item, synced });
+						if (sectionKinds) void this.change(host.editExclusion({ kind: "drop-kinds" }));
+						else void this.draw();
+					});
 			});
 		}
+		this.showFolders(
+			group.listEl,
+			device.folders,
+			locked,
+			(folder) => edit({ kind: "add-folder", folder }),
+			(folder) => edit({ kind: "remove-folder", folder }),
+		);
 	}
 
-	/** The field a folder to leave out is added with, and the folders that are left out. */
-	private showFolders(el: HTMLElement, state: SectionState, locked: boolean): void {
-		const host = this.host;
-		const t = host.t;
+	/**
+	 * The field a folder to leave out is added with, and the folders that are
+	 * left out, for every device or for this one: `add` and `remove` make the
+	 * change.
+	 */
+	private showFolders(
+		el: HTMLElement,
+		listed: readonly string[],
+		locked: boolean,
+		add: (folder: string) => void,
+		remove: (folder: string) => void,
+	): void {
+		const t = this.host.t;
 		const folders = new Setting(el)
 			.setName(t("settings.exclusion.folders.name"))
 			.setDesc(t("settings.exclusion.folders.desc"));
@@ -450,7 +508,7 @@ export class ExclusionSettings {
 			text.setPlaceholder(t("settings.exclusion.folders.placeholder")).setDisabled(locked);
 			// Takes the folder that is picked into the field. It is added by
 			// the button, like one that was typed.
-			const suggest = new FolderSuggest(this.app, text.inputEl, state.folders);
+			const suggest = new FolderSuggest(this.app, text.inputEl, listed);
 			suggest.onSelect((folder) => {
 				suggest.setValue(folder);
 				suggest.close();
@@ -467,10 +525,10 @@ export class ExclusionSettings {
 						foldersNote.setText(t("settings.exclusion.folders.invalid"));
 						return;
 					}
-					void this.change(host.editExclusion({ kind: "add-folder", folder }));
+					add(folder);
 				});
 		});
-		for (const folder of state.folders) {
+		for (const folder of listed) {
 			// A button with a cross, beside the name also on a phone (styles.css).
 			// The tooltip is also what a screen reader says of it.
 			const row = new Setting(el).setName(folder).addButton((button) => {
@@ -478,7 +536,7 @@ export class ExclusionSettings {
 					.setIcon("cross")
 					.setTooltip(t("settings.exclusion.folders.remove"))
 					.setDisabled(locked)
-					.onClick(() => void this.change(host.editExclusion({ kind: "remove-folder", folder })));
+					.onClick(() => remove(folder));
 			});
 			row.settingEl.addClass("sync-evo-folder-row");
 		}
@@ -589,15 +647,13 @@ export class ExclusionSettings {
 	 * tell, and draws this part again from the file as it is now, whichever
 	 * way it went: a switch that wrote nothing must not stay flipped.
 	 *
-	 * A change that made a rule match files the remote holds is followed by
-	 * the question about untracking those files, and no others. The rule is
-	 * written by then, and stays whatever the answer. Where it matches only
-	 * submodules, which are not untracked here, that is told and not asked.
+	 * Nothing is asked after it. What a new rule excludes is no longer
+	 * synced from the next sync on, and is listed below the folders, where
+	 * it can be removed from the remote.
 	 */
 	private async change(change: Promise<ExclusionChange>, written?: string): Promise<void> {
 		const t = this.host.t;
 		const result = await change;
-		let matched: UntrackList | null = null;
 		if (result === "syncing") new Notice(t("settings.exclusion.write.syncing"));
 		else if (result === "no-state") new Notice(t("settings.exclusion.write.noState"), 0);
 		else if ("failed" in result) new Notice(t("settings.exclusion.write.failed", { detail: result.failed }), 0);
@@ -606,12 +662,8 @@ export class ExclusionSettings {
 			// Until it is dismissed: nothing was written, and why is not short.
 			if (problem !== null) new Notice(problem, 0);
 			else if (result.write === "written" && written !== undefined) new Notice(written);
-			matched = result.matched;
 		}
 		await this.draw();
-		if (matched === null) return;
-		if (matched.files.length > 0) await this.askUntrack(matched);
-		else if (matched.submodules.length > 0) new Notice(untrackSubmodulesText(t, matched.submodules, true), 0);
 	}
 }
 
@@ -623,12 +675,15 @@ function warning(el: HTMLElement, text: string): void {
 type FileView = Extract<ExclusionView, { fixedOff: readonly string[] }>;
 
 /** The groups of the screen that fold. */
-export type FoldId = "config" | "gitignore" | "symlinks";
+export type FoldId = "config" | "device" | "gitignore" | "symlinks";
 
 /**
  * The groups the user has opened; every one starts closed. Kept by the
  * settings tab, and so until the plugin is loaded anew, and saved nowhere:
  * closing the settings, or drawing a part again, does not close a group.
+ * Except what this device leaves out, which is closed each time the
+ * settings are opened (`SyncEvoSettingTab.display`), and stays as it is
+ * while a part is drawn again.
  */
 export type Folds = Set<FoldId>;
 

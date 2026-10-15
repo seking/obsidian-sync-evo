@@ -450,8 +450,11 @@ export class GitHubBackend implements Backend {
 		const { baseRevision, writes, deletes } = request;
 		const untrack = request.untrack === true;
 		if (writes.length === 0 && deletes.length === 0) return { status: "unchanged" };
-		// Its commit is described as one that only takes files out.
-		if (untrack && writes.length > 0) throw new BackendError("other", "push: an untrack carries no writes");
+		// Its commit is described as one that takes files out. The rules
+		// that leave them out may go with them, and nothing else.
+		if (untrack && writes.some((file) => file.path !== ".gitignore")) {
+			throw new BackendError("other", "push: an untrack carries no writes but the root .gitignore");
+		}
 		if (baseRevision === null) {
 			// The Git Data API refuses a repository without commits.
 			throw new BackendError("other", "push: a repository without commits cannot be pushed to yet");
@@ -673,12 +676,7 @@ export class GitHubBackend implements Backend {
 
 		this.throwIfStopped();
 		const revision = await this.client.createCommit({
-			message: untrack
-				? untrackMessage(
-						request.deviceName ?? "",
-						removals.map((removal) => removal.path),
-					)
-				: commitMessage(request.deviceName ?? "", changes),
+			message: untrack ? untrackMessage(request.deviceName ?? "", changes) : commitMessage(request.deviceName ?? "", changes),
 			tree: current,
 			parents: [baseRevision],
 		});

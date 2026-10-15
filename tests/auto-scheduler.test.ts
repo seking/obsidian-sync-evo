@@ -10,6 +10,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { NO_DEVICE_EXCLUSION } from "../src/core/device-exclusion";
 import { type AutoCheck, FullCheckDebt, TICK_MS } from "../src/core/auto-sync";
 import { type AutoSyncSettings, DEFAULT_AUTO_SYNC, type DeviceSettings } from "../src/core/settings";
 import { AutoScheduler } from "../src/obsidian/auto-scheduler";
@@ -82,6 +83,8 @@ function setup(auto: Partial<AutoSyncSettings>, over: Partial<DeviceSettings> = 
 			deviceName: "iPhone",
 			autoSync: { ...DEFAULT_AUTO_SYNC, ...auto },
 			onConflict: "copy",
+			deviceExclusion: NO_DEVICE_EXCLUSION,
+			exclusionChangeTold: true,
 			...over,
 		},
 	};

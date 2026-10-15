@@ -201,7 +201,9 @@ export interface PushRequest {
 	 * because a rule leaves them out, and stay on the device that asks. A
 	 * remote that keeps a description of each change says so in it. Only
 	 * such a push may name a symlink among its deletes; a submodule never.
-	 * It carries no writes.
+	 * It carries no write but one of the root `.gitignore`: the rules that
+	 * leave the files out, which go in the same commit where the remote
+	 * does not hold them yet.
 	 */
 	readonly untrack?: boolean;
 	/**

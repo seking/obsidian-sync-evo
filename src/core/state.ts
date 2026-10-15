@@ -103,8 +103,10 @@ export function makeRecord(entry: SyncRecord, stat: FileStat | undefined, syncSt
  * every sync from now on. The same rule about recent times applies.
  */
 export function refreshStat(record: StoredRecord, stat: FileStat, syncStartedAt: number): StoredRecord | null {
-	const next = makeRecord(record, stat, syncStartedAt);
-	return next.mtime === record.mtime && next.size === record.size ? null : next;
+	const made = makeRecord(record, stat, syncStartedAt);
+	if (made.mtime === record.mtime && made.size === record.size) return null;
+	// The mark of an exclusion is no part of what the file holds, and stays.
+	return record.wasExcluded === true ? { ...made, wasExcluded: true } : made;
 }
 
 /**
@@ -117,7 +119,10 @@ export function refreshStat(record: StoredRecord, stat: FileStat, syncStartedAt:
  *   update was made, and the update describes content that is gone;
  * - `path`, to the character: the same key with another spelling means a
  *   pull has taken over a new spelling from the remote since, which the
- *   update would undo.
+ *   update would undo;
+ * - `wasExcluded`: the mark is set and taken away by a sync alone, at the
+ *   point it stores its records (`SyncPlan.marks`), and an update made
+ *   before that must not put the old one back.
  *
  * The time and the size are not compared; they are what changes. The key
  * follows from the path.
@@ -127,7 +132,8 @@ export function isStatUpdateOf(stored: StoredRecord, update: StoredRecord): bool
 		stored.kind === "file" &&
 		update.kind === "file" &&
 		stored.hash === update.hash &&
-		stored.path === update.path
+		stored.path === update.path &&
+		(stored.wasExcluded === true) === (update.wasExcluded === true)
 	);
 }
 
@@ -135,9 +141,33 @@ export function isStatUpdateOf(stored: StoredRecord, update: StoredRecord): bool
 export function plainRecord(record: StoredRecord): StoredRecord {
 	// The key is taken from the path again: a record can then never be stored
 	// under a key that is not its own.
-	const base = { key: pathKey(record.path), path: record.path, kind: record.kind, hash: record.hash };
+	const key = pathKey(record.path);
+	const base = {
+		key,
+		path: record.path,
+		kind: record.kind,
+		hash: record.hash,
+		...(record.wasExcluded === true ? { wasExcluded: true as const } : {}),
+	};
 	if (record.kind !== "file" || record.mtime === undefined || record.size === undefined) return base;
 	return { ...base, mtime: record.mtime, size: record.size };
+}
+
+/**
+ * The record with the mark of an exclusion set or taken away
+ * (`SyncRecord.wasExcluded`), and everything else as it was: the content
+ * it names, and the time and the size it was stored with.
+ */
+export function markedRecord(record: SyncRecord, wasExcluded: boolean): StoredRecord {
+	const { mtime, size } = record as Partial<StoredRecord>;
+	return plainRecord({
+		key: pathKey(record.path),
+		path: record.path,
+		kind: record.kind,
+		hash: record.hash,
+		...(mtime === undefined || size === undefined ? {} : { mtime, size }),
+		...(wasExcluded ? { wasExcluded: true } : {}),
+	});
 }
 
 /**

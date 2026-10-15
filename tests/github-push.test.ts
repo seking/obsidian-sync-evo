@@ -11,7 +11,7 @@
 
 import { describe, expect, test } from "vitest";
 import { BackendError, type BackendErrorKind, type PushFile, type RemoteEntry } from "../src/core/backend";
-import { COMMIT_BODY_LIMIT, commitMessage, untrackMessage } from "../src/core/commit-message";
+import { COMMIT_BODY_LIMIT, type CommitChange, commitMessage, untrackMessage } from "../src/core/commit-message";
 import {
 	GitHubBackend,
 	INLINE_FILE_BYTES,
@@ -153,19 +153,21 @@ describe("the message of the commit", () => {
 });
 
 describe("the message of a commit that untracks", () => {
+	const deleted = (paths: readonly string[]): CommitChange[] => paths.map((path) => ({ kind: "deleted", path }));
+
 	test("one file", () => {
-		expect(untrackMessage("iPhone", ["drafts/a.md"])).toBe("Sync Evo: iPhone untrack 1 file\n\nD  drafts/a.md");
+		expect(untrackMessage("iPhone", deleted(["drafts/a.md"]))).toBe("Sync Evo: iPhone untrack 1 file\n\nD  drafts/a.md");
 	});
 
 	test("several: the count, and a D line per path in order, written as it is", () => {
-		expect(untrackMessage("iPhone", ["z.md", "日記/メモ.md", ".obsidian/workspace.json"])).toBe(
+		expect(untrackMessage("iPhone", deleted(["z.md", "日記/メモ.md", ".obsidian/workspace.json"]))).toBe(
 			["Sync Evo: iPhone untrack 3 files", "", "D  .obsidian/workspace.json", "D  z.md", "D  日記/メモ.md"].join("\n"),
 		);
 	});
 
 	test("fifty-one: the body stops at fifty paths and counts the rest", () => {
 		const paths = Array.from({ length: 51 }, (_, i) => `n${String(i).padStart(2, "0")}.md`);
-		const lines = untrackMessage("iPhone", [...paths].reverse()).split("\n");
+		const lines = untrackMessage("iPhone", deleted([...paths].reverse())).split("\n");
 		expect(lines[0]).toBe("Sync Evo: iPhone untrack 51 files");
 		expect(lines[1]).toBe("");
 		expect(lines.length).toBe(2 + COMMIT_BODY_LIMIT + 1);
@@ -174,9 +176,18 @@ describe("the message of a commit that untracks", () => {
 		expect(lines[52]).toBe("... and 1 more");
 	});
 
+	test("the .gitignore that goes with the files has its line, and is not counted", () => {
+		expect(untrackMessage("iPhone", [...deleted(["drafts/a.md"]), { kind: "modified", path: ".gitignore" }])).toBe(
+			["Sync Evo: iPhone untrack 1 file", "", "M  .gitignore", "D  drafts/a.md"].join("\n"),
+		);
+		expect(untrackMessage("iPhone", [{ kind: "added", path: ".gitignore" }, ...deleted(["a.md", "b.md"])])).toBe(
+			["Sync Evo: iPhone untrack 2 files", "", "A  .gitignore", "D  a.md", "D  b.md"].join("\n"),
+		);
+	});
+
 	test("the device name is treated as in any commit", () => {
-		expect(untrackMessage("my\nphone", ["a.md"]).split("\n")[0]).toBe("Sync Evo: my phone untrack 1 file");
-		expect(untrackMessage(" ", ["a.md", "b.md"]).split("\n")[0]).toBe("Sync Evo: unnamed device untrack 2 files");
+		expect(untrackMessage("my\nphone", deleted(["a.md"])).split("\n")[0]).toBe("Sync Evo: my phone untrack 1 file");
+		expect(untrackMessage(" ", deleted(["a.md", "b.md"])).split("\n")[0]).toBe("Sync Evo: unnamed device untrack 2 files");
 	});
 });
 
@@ -262,7 +273,7 @@ describe("a push to GitHub that untracks", () => {
 		await refused(() => [{ path: "gone.md", kind: "file", hash: "d".repeat(40) }]);
 	});
 
-	test("carries no writes", async () => {
+	test("carries no writes but the root .gitignore", async () => {
 		const { github, backend } = setup();
 		github.commit({ "a.md": "A" });
 		const head = github.head;
@@ -276,6 +287,27 @@ describe("a push to GitHub that untracks", () => {
 		expect(await kindOf(push)).toBe("other");
 		expect(github.head).toBe(head);
 		expect(github.writes()).toEqual([]);
+	});
+
+	test("takes the root .gitignore into the same commit, with its line in the description", async () => {
+		const { github, backend } = setup();
+		github.commit({ "keep.md": "K", "drafts/a.md": "A", ".gitignore": "*.tmp\n" });
+		const base = github.head;
+		const entries = await entriesOf(backend);
+		const pushed = await backend.push({
+			baseRevision: base,
+			writes: [file(".gitignore", "*.tmp\n/drafts/\n", listed(entries, ".gitignore"))],
+			deletes: [listed(entries, "drafts/a.md")],
+			deviceName: "iPhone",
+			untrack: true,
+		});
+		if (pushed.status !== "pushed") throw new Error("expected a push");
+		expect(github.headCommit()?.parents).toEqual([base]);
+		expect(github.headCommit()?.message).toBe(
+			["Sync Evo: iPhone untrack 1 file", "", "M  .gitignore", "D  drafts/a.md"].join("\n"),
+		);
+		expect(pushed.written).toEqual([{ path: ".gitignore", kind: "file", hash: blobHash("*.tmp\n/drafts/\n"), size: 15 }]);
+		expect([...github.files().keys()].sort()).toEqual([".gitignore", "keep.md"]);
 	});
 
 	test("on a head that has moved, nothing is sent", async () => {

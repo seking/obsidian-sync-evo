@@ -11,36 +11,45 @@
 
 // Untracking: files the remote holds and a rule of `.gitignore` matches are
 // taken out of the remote, and stay on this device, as `git rm --cached`
-// does. One commit that only deletes, apart from any push of the vault's
-// changes, and nothing in the vault is read for it but the root `.gitignore`.
+// does. A tidying up, and nothing more: no device of Sync Evo syncs those
+// files anyway, and none deletes its own when the remote does, since a rule
+// cuts a path off from the remote both ways (`exclusion.ts`). What it
+// changes is that git on a computer stops sending them, and deletes them
+// from its working tree at its next pull.
+//
+// One commit, apart from any push of the vault's changes: the deletions, and
+// the root `.gitignore` of this device where the remote does not hold that
+// one yet. Nothing else in the vault is read for it. The rules go in the
+// same commit as the deletions: a deletion that reached another device
+// without them would be one of a file that is not excluded there, and that
+// device would delete its own. A pull takes in the deletions by the
+// `.gitignore` the same pull brings (`pull.ts`), so the two arrive together.
+// A download comes first (`runUntrackSync`), and the commit is only made
+// where this device has pulled the head to its end (`runUntrack`, which
+// looks for itself).
 //
 // The user is asked before any of this runs, with the list of the files
 // (`untrack-report.ts`). What is deleted is never more than that list.
 //
-// The rules have to be on the remote first. A commit that takes a file out
-// while the remote's `.gitignore` does not leave it out would have another
-// device, which has edited that file, send it again: to that device the file
-// is one the remote deleted and the vault changed, and nothing says it is to
-// be left out. So the sync runs first (`runUntrackSync`), and the commit is
-// only made where the `.gitignore` of this device is the remote's
-// (`runUntrack`, which looks for itself).
-//
-// The records are taken away the way a push takes them away: remembered
-// before the branch is moved (`push-pending.ts`), and settled by whoever
-// looks at the remote next when this was stopped in between. A record that
-// stayed would have the next pull read "the remote deleted it", and delete
-// the file on this device.
+// The records of the files are taken away, and that of a `.gitignore` that
+// was sent moved on, the way a push does it: remembered before the branch is
+// moved (`push-pending.ts`), and settled by whoever looks at the remote next
+// when this was stopped in between. The records are taken away right after
+// the commit, and not left to the next sync, which would drop them too for a
+// path a rule excludes (`SyncRecord.wasExcluded`): with no sync in between, a
+// record that stayed would have a sync after the rule was taken away read
+// "the remote deleted it", and delete the file on this device.
 
 import { untilAborted } from "./archive-fetch";
-import { type Backend, BackendError, type RemoteEntry } from "./backend";
+import { type Backend, BackendError, type PushFile, type RemoteEntry } from "./backend";
 import { createExclusion, type ExclusionPaths, untrackableFiles } from "./exclusion";
-import { readRootGitignore, ROOT_GITIGNORE, settleGitignoreWrite } from "./gitignore-file";
+import { isGitignoreAsRecorded, readRootGitignore, ROOT_GITIGNORE, settleGitignoreWrite } from "./gitignore-file";
 import { findSection } from "./gitignore-section";
 import { saved } from "./local-read";
 import { foldedKey, pathKey } from "./paths";
 import { DEFAULT_SIZE_LIMIT } from "./plan";
 import { type PullDeps, type PullResult, runPull } from "./pull";
-import { type PushDeps, type PushRunResult, type PushVault, runPush } from "./push";
+import type { PushVault } from "./push";
 import { clearPushFailure } from "./push-failure";
 import {
 	finishPush,
@@ -50,14 +59,18 @@ import {
 	rememberPendingPush,
 	settlePendingPush,
 } from "./push-pending";
-import { copiedPathOf, currentListing, readBaseRevision, type StateStore } from "./state";
-import { pathsToHold, pushFollows } from "./sync";
+import { copiedPathOf, currentListing, makeRecord, readBaseRevision, type StateStore } from "./state";
+import { pushFollows } from "./sync";
 
 export interface UntrackDeps {
 	/** The sync state, opened. */
 	readonly store: StateStore;
 	readonly backend: Pick<Backend, "hashContent" | "list" | "checkBase" | "push">;
-	/** Only the root `.gitignore` is read, and written only to finish a write of Sync Evo's own. */
+	/**
+	 * Only the root `.gitignore` is read, and sent with the deletions where
+	 * the remote does not hold it. Written only to finish a write of Sync
+	 * Evo's own.
+	 */
 	readonly vault: PushVault;
 	/** The configuration folder and the plugin's own folder. */
 	readonly paths: ExclusionPaths;
@@ -78,9 +91,10 @@ export interface UntrackDeps {
 /**
  * - "untracked": one commit was made and the branch points at it. The files
  *   are out of the remote, on this device as they were, and without records.
+ *   The root `.gitignore` is on the remote as this device has it.
  * - "nothing-to-untrack": none of the files that were shown is on the remote
  *   and matched by a rule any more. No commit was made.
- * - "sync-first": nothing was sent, and a sync has to come first
+ * - "sync-first": nothing was sent, and something has to be put right first
  *   (`UntrackRefusal`).
  * - "remote-moved": another device has pushed since the remote was listed.
  *   Nothing was changed.
@@ -90,7 +104,7 @@ export interface UntrackDeps {
 export type UntrackOutcome = "untracked" | "nothing-to-untrack" | "sync-first" | "remote-moved" | "cancelled";
 
 /**
- * Why nothing was untracked, and a sync has to come first.
+ * Why nothing was untracked.
  *
  * - "remote-empty": the remote has no commit.
  * - "pull-unfinished": this device has not pulled the head of the remote to
@@ -103,14 +117,15 @@ export type UntrackOutcome = "untracked" | "nothing-to-untrack" | "sync-first" |
  *   read as the file it is.
  * - "no-section": the root `.gitignore` has no section, or the vault has no
  *   such file. The lines of the default section are then applied without
- *   being in the file, and so are not on the remote. A sync that sends adds
- *   the section; one that cannot (the file would be over the size limit)
- *   leaves this as it is.
+ *   being in the file, and would not reach the remote with the deletions.
+ *   The settings screen, or a sync that sends, adds the section.
  * - "section-broken": the file has markers that enclose no one section.
  *   What its lines are meant to say is the user's to put right first.
- * - "gitignore-not-sent": the remote holds no root `.gitignore`, or another
- *   one than this device has: the rules that were shown are not there yet,
- *   or the remote's are not here yet.
+ * - "gitignore-differs": the remote's root `.gitignore` is not the one this
+ *   device last synced (`isGitignoreAsRecorded`), and not this device's
+ *   either: sent as it is, it would undo a change of another device that
+ *   the pull did not take in. Also where the remote holds it as anything
+ *   but one file of that very name.
  */
 export type UntrackRefusal =
 	| "remote-empty"
@@ -119,29 +134,7 @@ export type UntrackRefusal =
 	| "gitignore-unreadable"
 	| "no-section"
 	| "section-broken"
-	| "gitignore-not-sent";
-
-/**
- * Whether a push can put right what untracking was refused for. It can send
- * the `.gitignore` of this device, and add the section to one that has none.
- * It cannot get a pull to its end, settle or read a `.gitignore` it leaves
- * alone itself, or mend a section that is the user's to mend; and a remote
- * without commits holds nothing to untrack, whatever is sent to it.
- */
-export function pushCanSettle(reason: UntrackRefusal | undefined): boolean {
-	switch (reason) {
-		case "no-section":
-		case "gitignore-not-sent":
-			return true;
-		case "remote-empty":
-		case "pull-unfinished":
-		case "gitignore-unsettled":
-		case "gitignore-unreadable":
-		case "section-broken":
-		case undefined:
-			return false;
-	}
-}
+	| "gitignore-differs";
 
 /** What happened, without a word of text: wording it is the caller's (`untrack-report.ts`). */
 export interface UntrackRunResult {
@@ -171,11 +164,12 @@ export interface UntrackRunResult {
  * the one it holds.
  *
  * Nothing is sent unless this device has pulled the head to the end and its
- * root `.gitignore` is the remote's, with a section in it (`UntrackRefusal`).
- * No push of the vault's changes is made here, and the note of a push that
- * did not get to its end (`push-failure.ts`) is not touched by what this
- * sends, which is nothing of the vault. It is taken away only where this
- * finds that very push to have gone through after all, as a pull does.
+ * root `.gitignore` has a section in it (`UntrackRefusal`). Where that file
+ * is not the remote's, it goes in the same commit, and its record is moved
+ * on to what was sent. No other change of the vault is sent here, and the
+ * note of a push that did not get to its end (`push-failure.ts`) is not
+ * touched by this. It is taken away only where this finds that very push to
+ * have gone through after all, as a pull does.
  *
  * Resolves with what happened. Rejects when the remote or the sync state
  * failed; nothing shows on the remote then, but for a failure of the very
@@ -302,39 +296,57 @@ class UntrackRun {
 		// lines the user means is not known until it is put right.
 		const section = findSection(gitignore.text).kind;
 		if (section !== "found") return this.refused(section === "none" ? "no-section" : "section-broken");
-		// The remote's file is this one, byte for byte: one entry of that
-		// very name, and a file.
+		// The rules the files were listed by go with them, where the remote
+		// does not hold them yet. Only over the file this device last
+		// synced: the remote's own, changed since, is not written over.
 		const named = listing.entries.filter((entry) => foldedKey(entry.path) === ROOT_GITIGNORE);
 		const [remote] = named;
-		if (
-			named.length !== 1 ||
-			remote === undefined ||
-			remote.path !== ROOT_GITIGNORE ||
-			remote.kind !== "file" ||
-			remote.hash !== (await backend.hashContent(gitignore.content))
-		) {
-			return this.refused("gitignore-not-sent");
+		const hash = await backend.hashContent(gitignore.content);
+		const unchanged = named.length === 1 && remote?.path === ROOT_GITIGNORE && remote.kind === "file" && remote.hash === hash;
+		if (!unchanged && !isGitignoreAsRecorded(listing.entries, await store.readRecords())) {
+			return this.refused("gitignore-differs");
 		}
+		const content = gitignore.content;
+		const writes: PushFile[] = unchanged
+			? []
+			: [
+					{
+						path: ROOT_GITIGNORE,
+						hash,
+						size: content.length,
+						...(remote === undefined ? {} : { replaces: remote }),
+						read: () => Promise.resolve(content),
+					},
+				];
 
 		const deletes = this.targets(listing.entries, gitignore.text);
 		if (deletes.length === 0) return this.result("nothing-to-untrack");
 		if (this.aborted()) return this.result("cancelled");
 
+		// The record of the `.gitignore` is of what was sent, without the
+		// time and the size of the file: the next sync hashes it once, and
+		// finds it unchanged unless it was edited since.
+		let sent: readonly RemoteEntry[] = [];
 		const pendingOf = (revision: string): PendingPushState => ({
 			revision,
 			parent: head,
-			records: [],
+			records: sent.map((entry) => makeRecord({ path: entry.path, kind: "file", hash: entry.hash }, undefined, 0)),
 			deleted: [...new Set(deletes.map((entry) => pathKey(entry.path)))],
-			counts: { added: 0, modified: 0, deleted: deletes.length },
+			counts: {
+				added: sent.length > 0 && remote === undefined ? 1 : 0,
+				modified: sent.length > 0 && remote !== undefined ? 1 : 0,
+				deleted: deletes.length,
+			},
 			untrack: true,
 		});
 		const pushed = await backend.push({
 			baseRevision: head,
-			writes: [],
+			writes,
 			deletes,
 			deviceName: deps.deviceName,
 			untrack: true,
-			beforePublish: async ({ revision }) => {
+			beforePublish: async ({ revision, written }) => {
+				sent = written;
 				await rememberPendingPush(store, pendingOf(revision));
 				this.remembered = true;
 			},
@@ -355,6 +367,7 @@ class UntrackRun {
 		}
 		const { revision } = pushed;
 		if (revision === null) throw new Error("The remote answered a push without a revision.");
+		sent = pushed.written;
 
 		// From here on it has happened, and is recorded whatever the signal
 		// says. Stopped in between, the next push or pull does it. The
@@ -392,42 +405,32 @@ class UntrackRun {
 }
 
 // ---------------------------------------------------------------------------
-// With the sync that comes first
+// With the download that comes first
 
 /**
  * - "pull-declined", "pull-cancelled": the pull ended on a "no" or a stop.
- * - "push-not-done": the rules were not on the remote, and the push that
- *   would have sent them ended otherwise than by sending, or by finding
- *   nothing to send (`UntrackSyncResult.push`).
  * - "cancelled": stopped between the steps.
  */
-export type UntrackSkip = "pull-declined" | "pull-cancelled" | "push-not-done" | "cancelled";
+export type UntrackSkip = "pull-declined" | "pull-cancelled" | "cancelled";
 
-export type UntrackStep = "pull" | "push" | "untrack";
+export type UntrackStep = "pull" | "untrack";
 
 export interface UntrackSyncDeps {
 	readonly pull: PullDeps;
-	/** `hold` is filled in from the pull. */
-	readonly push: Omit<PushDeps, "hold">;
 	readonly untrack: UntrackDeps;
 	/** The paths the confirmation listed (`runUntrack`). */
 	readonly shown: readonly string[];
 	/**
-	 * Called when each step begins: the pull, the untracking (twice where
-	 * a push is made in between), and the push. For a line of progress, and
-	 * for telling which of them it was that rejected.
+	 * Called when each step begins: the pull, and the untracking. For a line
+	 * of progress, and for telling which of them it was that rejected.
 	 */
 	readonly onStep?: (step: UntrackStep) => void;
 	/** Called with what the pull answered, before anything else begins. */
 	readonly onPulled?: (result: PullResult) => void;
-	/** Called with what the push answered, when one was made, before the untracking begins. */
-	readonly onPushed?: (result: PushRunResult) => void;
 }
 
 export interface UntrackSyncResult {
 	readonly pull: PullResult;
-	/** `null` when no push was made. */
-	readonly push: PushRunResult | null;
 	/** `null` when the untracking was not got to (`skipped`). */
 	readonly untrack: UntrackRunResult | null;
 	/** Why the untracking was not got to. Set exactly when `untrack` is `null`. */
@@ -435,29 +438,20 @@ export interface UntrackSyncResult {
 }
 
 /**
- * Untracks after the sync it needs: a pull, and then, only where the rules
- * of this device are not on the remote yet, a push. Rules that came from
- * another device are there already, and are untracked by without a scan of
- * the vault or a question of a push. No push is made either where one would
- * not put the rules there (`pushCanSettle`): the untracking is answered as
- * refused, with the reason, and nothing of the vault is sent for it.
+ * Untracks after the download it needs: a pull, and then the one commit of
+ * the untracking (`runUntrack`), which takes the rules of this device along
+ * where the remote does not hold them. No push of the vault's changes is
+ * made: nothing but the deletions and the `.gitignore` is sent for it.
  *
- * Whether the push follows the pull, and what it keeps away from, is as in
- * a sync (`pushFollows`, `pathsToHold`). It is a push like any other: it
- * sends what the vault has changed, asks what a push asks, and adds the
- * section to a `.gitignore` that has none.
+ * Nothing is untracked after a pull that was declined or stopped. The files
+ * can be untracked later.
  *
- * Nothing is untracked after a pull that was declined or stopped, or after
- * a push that neither sent nor found nothing to send. The rules stay, and
- * the files can be untracked later.
- *
- * Rejects as the pull, the push, or the untracking does. A pull that rejects
- * is followed by nothing; unlike in a sync, no push is noted as not made
+ * Rejects as the pull or the untracking does. A pull that rejects is
+ * followed by nothing; unlike in a sync, no push is noted as not made
  * (`push-failure.ts`): none was asked for.
  */
 export async function runUntrackSync(deps: UntrackSyncDeps): Promise<UntrackSyncResult> {
-	const stopped = (): boolean =>
-		deps.pull.signal?.aborted === true || deps.push.signal?.aborted === true || deps.untrack.signal?.aborted === true;
+	const stopped = (): boolean => deps.pull.signal?.aborted === true || deps.untrack.signal?.aborted === true;
 
 	deps.onStep?.("pull");
 	const pull = await runPull(deps.pull);
@@ -465,22 +459,10 @@ export async function runUntrackSync(deps: UntrackSyncDeps): Promise<UntrackSync
 	if (!pushFollows(pull)) {
 		// A question left for later is one nobody said yes to, like a "no".
 		const skipped = pull.outcome === "cancelled" ? "pull-cancelled" : "pull-declined";
-		return { pull, push: null, untrack: null, skipped };
+		return { pull, untrack: null, skipped };
 	}
-	if (stopped()) return { pull, push: null, untrack: null, skipped: "cancelled" };
+	if (stopped()) return { pull, untrack: null, skipped: "cancelled" };
 
 	deps.onStep?.("untrack");
-	const first = await runUntrack(deps.untrack, deps.shown);
-	if (first.outcome !== "sync-first" || !pushCanSettle(first.reason)) return { pull, push: null, untrack: first };
-	if (stopped()) return { pull, push: null, untrack: null, skipped: "cancelled" };
-
-	deps.onStep?.("push");
-	const push = await runPush({ ...deps.push, hold: pathsToHold(pull) });
-	deps.onPushed?.(push);
-	if (push.outcome !== "pushed" && push.outcome !== "nothing-to-push") {
-		return { pull, push, untrack: null, skipped: "push-not-done" };
-	}
-	if (stopped()) return { pull, push, untrack: null, skipped: "cancelled" };
-	deps.onStep?.("untrack");
-	return { pull, push, untrack: await runUntrack(deps.untrack, deps.shown) };
+	return { pull, untrack: await runUntrack(deps.untrack, deps.shown) };
 }

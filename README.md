@@ -16,7 +16,7 @@ A file that was changed both in the vault and in the repository is not overwritt
 
 To read that copy or to put it back, use the file manager of the device, and move the copy into a folder of the vault that Obsidian shows. In Finder on a Mac, `⌘⇧.` shows the folders whose names start with a dot. In the file manager of Android, "Show hidden files" in the menu does. The Files app of an iPhone or iPad does not list them, but its search finds the copy by the name of the note: hold the result and choose "Move".
 
-A file that does not merge that way is kept twice instead: when both sides changed the same lines, when it is no text, a `.canvas` or a `.base`, and always on a device where "On a conflict", under "How it syncs" in the settings, is set to create a conflict file. The repository's version takes the name, and the vault's version is kept as a conflict file in the folder `_conflicts/` at the root of the vault, as `<date> <name> (<device>).<extension>`: the conflict file of `notes/a.md` is `_conflicts/2026-10-12 a (iPhone).md`, and a second one of the same note on the same day is `_conflicts/2026-10-12 a (iPhone) (1).md`. The notice of the sync names both files. A conflict file is synced like any other file, whatever `.gitignore` says. A file in the configuration folder gets none: the vault's version goes to `.trash/` in the vault.
+A file that does not merge that way is kept twice instead: when both sides changed the same lines, when it is no text, a `.canvas` or a `.base`, and always on a device where "On a conflict", under "How it syncs" in the settings, is set to create a conflict file. The repository's version takes the name, and the vault's version is kept as a conflict file in the folder `_conflicts/` at the root of the vault, as `<date> <name> (<device>).<extension>`: the conflict file of `notes/a.md` is `_conflicts/2026-10-12 a (iPhone).md`, and a second one of the same note on the same day is `_conflicts/2026-10-12 a (iPhone) (1).md`. The notice of the sync names both files. A conflict file is synced like any other file, whatever is excluded. A file in the configuration folder gets none: the vault's version goes to `.trash/` in the vault.
 
 A conflict file is kept for 30 days from the end of the day in its name. After that a sync moves it to `.trash/` in the vault, and tells how many it moved; the next upload deletes it in the repository, and the other devices then remove it as they remove any deleted file. To keep a conflict file, move it out of `_conflicts/` or rename it. Up to 0.2.0 a conflict file was made beside its file, as `<name>.conflict-from-<device>-<date>-<time>.<extension>`. Conflict files of that form stay where they are, are synced as before, and are never moved to `.trash/`.
 
@@ -28,7 +28,7 @@ Sync Evo stops and asks before it goes on when
 - a device uploads for the first time,
 - the history of the repository was rewritten (a force upload).
 
-What is synced is decided by the `.gitignore` at the root of the vault, so that Sync Evo and git on a computer leave out the same files. The settings screen writes that file for you.
+What is not synced is decided in two places: the `.gitignore` at the root of the vault, for all your devices and for git on a computer, and the settings of each device, for that device alone. The settings screen writes both for you. The rules of `.gitignore` are read the way git reads them, and applied differently: what they exclude is not synced even when the repository already holds it, while git keeps tracking a file it tracks already. So when `.obsidian/plugins/` is in the repository and you add it to `.gitignore`, your devices with Sync Evo stop syncing it, and git on a computer keeps uploading it.
 
 ### Submodules
 
@@ -85,16 +85,21 @@ Sync Evo is not in the community plugin directory yet. Until it is, it can be in
 3. Press **Test** under "Connection test". It tells you whether the token reaches the repository and the branch.
 4. Run **Sync** from the ribbon or the command palette. The first download asks when files in the vault differ from the repository's, and the first upload shows what it is about to upload and asks.
 
-### What is synced
+### What is not synced
 
-The settings under "What is synced" are written into the `.gitignore` at the root of the vault, between two lines that start with `# >>> Sync Evo` and `# <<< Sync Evo`. They apply alike to all your devices and to git on a computer.
+The settings under "Not synced (all devices)" are written into the `.gitignore` at the root of the vault, between two lines that start with `# >>> Sync Evo` and `# <<< Sync Evo`. They apply alike to all your devices and to git on a computer.
 
-- **File types**: images, audio, videos, PDFs, and all other types. Notes, canvases and bases are always synced.
 - **Excluded folders**: folders that are not synced, as paths from the root of the vault.
 - **Vault configuration sync**: which parts of the configuration folder (`.obsidian/`) are synced, under the names Obsidian Sync uses for them.
-- **Write rules directly (.gitignore)**: the whole file, for rules of your own. Write them outside the lines Sync Evo manages.
 
-Excluding something deletes nothing. A file the repository already holds stays synced until it is removed from GitHub: "Excluded files still on GitHub" lists those files and can remove them, which removes them from the repository and leaves them on the device.
+The settings under "Not synced (this device only)" are kept with the other settings of the device, and reach no other device and no git. The group is closed until you open it, and says beside its name what it leaves out.
+
+- **File types**: images, audio, videos, PDFs, and all other types. Notes, canvases and bases are always synced.
+- **Excluded folders**: as above, for this device alone.
+
+**Write rules directly (.gitignore)** shows the whole file, for rules of your own. Write them outside the lines Sync Evo manages.
+
+Excluding something deletes nothing, on a device or on GitHub. What is excluded is not synced even when the repository already holds it: it is neither uploaded nor downloaded, and a deletion on either side is not carried over. "Excluded files still on GitHub" lists the files the repository holds that are excluded for all devices, and "Remove from GitHub" tidies them away: it removes them from the repository and leaves them on every device with Sync Evo, while git on a computer deletes them from its working tree at its next `git pull`. What is deleted while it is excluded is not deleted on the other side when you stop excluding it: a file deleted on the device is downloaded again, and one removed from GitHub is uploaded again. So a file you deleted on purpose with git on a computer may be uploaded again from a device that excluded it.
 
 The trash, the layout of the workspace, Sync Evo's own folder, and files an operating system leaves behind are left out by default.
 
@@ -139,8 +144,8 @@ Sync Evo makes network requests only when you press "Test" in its settings, run 
 
 - **Connection test** asks for the branch you entered, and for the repository when the branch is not found, to tell you whether the token can reach them.
 - **Download** asks for the branch (and, like the test, for the repository when the branch is not found), for the list of files in its latest commit, and for the content of each file that is new or changed. For a symbolic link, which is not written to the vault, it reads where the link points: one small request per link that is new or changed. When the branch has moved since the last download, it also asks whether the new commit builds on the old one. When more than 1,000 files are new or changed (a first download of a large repository, for one) and the zip is not expected to be too large for the device, it asks for the zip of that commit in one request instead of for each file (not on Android: see "Tested on"), and then only for the files the zip does not hold as they are listed. The zip is kept in memory and never saved. When the repository has submodules, a download reads its `.gitmodules` and asks the repository each submodule points to, on GitHub and with the same token, for the list of files of the commit the submodule points to, for the content of the files that are new or changed (or for the zip of that commit, as above), and, when the list cannot be had, whether the token sees that repository at all. A download sends nothing from the vault: no file, no file name, and no content.
-- **Upload** asks for the branch and the list of files as a download does, then sends the content of each file that was added or changed in the vault, the paths of the files that were added, changed, or deleted, and a commit whose message holds the device name and those paths. It then moves the branch to that commit and asks for the list of files of the new commit. When it is not known whether an earlier upload went through, it first asks whether the commit on the branch builds on the one this device last synced with. For a repository that has no commits yet, it asks for the repository to learn its default branch, and the `.gitignore` is sent first, as a commit of its own. Files that `.gitignore` excludes are not sent.
-- **Removing files from GitHub** asks for the branch and the list of files as a download does, then sends the paths of the files to remove from the repository, and a commit whose message holds the device name and those paths, and moves the branch to that commit. A download runs before it, and an upload when the exclusions are not in the repository yet.
+- **Upload** asks for the branch and the list of files as a download does, then sends the content of each file that was added or changed in the vault, the paths of the files that were added, changed, or deleted, and a commit whose message holds the device name and those paths. It then moves the branch to that commit and asks for the list of files of the new commit. When it is not known whether an earlier upload went through, it first asks whether the commit on the branch builds on the one this device last synced with. For a repository that has no commits yet, it asks for the repository to learn its default branch, and the `.gitignore` is sent first, as a commit of its own. Files that are excluded are not sent.
+- **Removing files from GitHub** asks for the branch and the list of files as a download does, then sends the paths of the files to remove from the repository, the `.gitignore` of the vault when the repository does not hold it as the device has it, and a commit whose message holds the device name and those paths, and moves the branch to that commit. A download runs before it. No other change of the vault is sent with it.
 
 Nothing is sent anywhere else. Sync Evo collects no usage data and contacts no server of its developer.
 

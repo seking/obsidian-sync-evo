@@ -366,9 +366,6 @@ export function pullDetails(t: Translate, result: PullResult, options: PullRepor
 	if (result.keptLocal.length > 0) {
 		happened(t("pull.keptLocal", { count: result.keptLocal.length, list: listText(t, result.keptLocal) }));
 	}
-	if (result.keptUnsent.length > 0) {
-		happened(t("pull.keptUnsent", { count: result.keptUnsent.length, list: listText(t, result.keptUnsent) }));
-	}
 	if (result.recoveredPush !== undefined) happened(recoveredPushText(t, result.recoveredPush));
 	if (result.recoveredUntrack !== undefined) happened(recoveredUntrackText(t, result.recoveredUntrack));
 	// Not after a "no": that pull left nothing for later, it did not begin.

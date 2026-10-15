@@ -88,7 +88,7 @@ export interface LightScanResult extends ScanResult {
  * of its index (seen on a Mac).
  *
  * From the disk: every path that is known, on the remote or in a record,
- * and that the index does not list. That is every known path with a `.`
+ * that the index does not list, and that the exclusion does not leave out. That is every known path with a `.`
  * name, and a file the index has lost or not found yet. Each is looked for
  * at its path, and when nothing is there, the placeholder a cloud drive
  * leaves is (`.<name>.icloud`), so that a file that was taken off the

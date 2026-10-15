@@ -18,14 +18,15 @@
 // What the section holds is `gitignore-section.ts`; how the file is read and
 // written is `gitignore-file.ts`.
 
-import type { EntryKind, RemoteEntry } from "./backend";
+import type { EntryKind } from "./backend";
+import { type DeviceExclusion, withoutKinds } from "./device-exclusion";
 import {
 	createExclusion,
 	defaultSectionLines,
 	type ExclusionPaths,
 	fixedExclusionsOff,
+	remoteFilesExcluded,
 	type Untrackable,
-	untrackableByAddedLines,
 	untrackableFiles,
 } from "./exclusion";
 import {
@@ -40,7 +41,6 @@ import {
 } from "./gitignore-file";
 import {
 	type ConfigItem,
-	type FileKind,
 	findSection,
 	isHandEdited,
 	readSectionState,
@@ -52,12 +52,9 @@ import {
 } from "./gitignore-section";
 import type { Translate } from "./i18n";
 import { type NoticeKind, type NoticeRef, readNotices } from "./notices";
-import { isPathFromRoot, pathKey } from "./paths";
+import { isPathFromRoot } from "./paths";
 import { megabytes } from "./pull-report";
-import type { StateStore } from "./state";
-
-/** The switches for the kinds of file, in the order they are shown. */
-export const SHOWN_FILE_KINDS: readonly FileKind[] = ["image", "audio", "video", "pdf", "other"];
+import { readBaseRevision, type StateStore } from "./state";
 
 /** The switches for the parts of the configuration folder, in the order they are shown. */
 export const SHOWN_CONFIG_ITEMS: readonly ConfigItem[] = [
@@ -137,7 +134,6 @@ export function exclusionView(gitignore: RootGitignore, paths: ExclusionPaths, s
 
 /** One thing the screen changes in the section. `synced` is what the switch was set to. */
 export type ExclusionEdit =
-	| { readonly kind: "file-kind"; readonly item: FileKind; readonly synced: boolean }
 	| { readonly kind: "config-item"; readonly item: ConfigItem; readonly synced: boolean }
 	/** `folder` is one `folderToExclude` answered. */
 	| { readonly kind: "add-folder"; readonly folder: string }
@@ -145,7 +141,17 @@ export type ExclusionEdit =
 	/** Puts back the lines of the fixed exclusions the section lacks. */
 	| { readonly kind: "restore-fixed" }
 	/** Puts the default section at the top of a file that has none. */
-	| { readonly kind: "add-section" };
+	| { readonly kind: "add-section" }
+	/**
+	 * Takes the lines of the kinds of file out of the section, which an
+	 * earlier version wrote there, and the line that kept them out of the
+	 * configuration folder (`withoutKinds`). For a switch of a kind on this
+	 * device, which is this device's own now: a line left in the section
+	 * would keep a kind out that the switch puts back. Nothing else takes
+	 * them out, so that another device which has not copied them to its own
+	 * exclusion yet (`kindsFromSection`) still finds them.
+	 */
+	| { readonly kind: "drop-kinds" };
 
 /**
  * The folder to leave out for what was typed into the field, as a path from
@@ -166,7 +172,9 @@ export function folderToExclude(typed: string): string | null {
  * The state is read from the lines, one item of it is changed, and the lines
  * of that state are written back in place (`withSection`): nothing outside
  * the section changes, and a line of a fixed exclusion the user deleted does
- * not come back unless that is what was asked for.
+ * not come back unless that is what was asked for. Nor do the lines of the
+ * kinds of file an earlier version wrote go, unless that is what was asked
+ * for ("drop-kinds"): the state has them, and they are written back.
  */
 export function editedGitignore(text: string | null, edit: ExclusionEdit, paths: ExclusionPaths): string | null {
 	const found = findSection(text ?? "");
@@ -184,8 +192,8 @@ function editedState(
 	paths: ExclusionPaths,
 ): SectionState {
 	switch (edit.kind) {
-		case "file-kind":
-			return { ...state, kinds: { ...state.kinds, [edit.item]: edit.synced } };
+		case "drop-kinds":
+			return withoutKinds(state);
 		case "config-item":
 			return { ...state, config: { ...state.config, [edit.item]: edit.synced } };
 		case "add-folder":
@@ -273,61 +281,18 @@ function untrackList(found: Untrackable<{ readonly path: string; readonly kind: 
 	return { files: files.sort((a, b) => byPath(a.path, b.path)), submodules: [...found.submodules].sort(byPath) };
 }
 
-/** How a change of the settings ended, and what it leaves to ask. */
+/** How a change of the settings ended. */
 export interface ExclusionChanged {
 	readonly write: ExclusionWrite;
-	/**
-	 * Set when the file was written, has a section now, and the remote was
-	 * listed: the files of that listing the change made a rule match
-	 * (`newlyMatched`), which the user is asked about untracking. Empty
-	 * lists when there are none. `null` in every other case: nothing to ask.
-	 */
-	readonly matched: UntrackList | null;
-}
-
-/**
- * What a change of the file made a rule match, of the files the remote held
- * when it was last listed: matched by `after` and not by `before` (`null`:
- * there was no file). `null` unless `after` has a section, since only then
- * can anything be untracked (`ExclusionScreen.untrack`).
- *
- * A file that had no section before is the one case with more to it. Its
- * `before` counts the lines of the default section as there, so adding that
- * very section changes nothing by the comparison, though the lines are only
- * now rules of the file. What the lines of the new section match, and the
- * file as it is now matches too, is listed as well (`untrackableByAddedLines`).
- */
-export function newlyMatched(
-	paths: ExclusionPaths,
-	before: string | null,
-	after: string,
-	entries: readonly RemoteEntry[],
-): UntrackList | null {
-	const section = findSection(after);
-	if (section.kind !== "found") return null;
-	const was = createExclusion({ ...paths, gitignore: before });
-	const now = untrackableFiles(createExclusion({ ...paths, gitignore: after }), entries);
-	const files = new Set(now.files.filter((file) => !was.matchesRule(pathKey(file.entry.path), "file")));
-	const submodules = new Set(
-		now.submodules.filter((path) => !was.matchesRule(pathKey(path), "file") && !was.matchesRule(pathKey(path), "folder")),
-	);
-	if (findSection(before ?? "").kind === "none") {
-		const added = untrackableByAddedLines(paths, section.lines, after, entries);
-		const sectionMatches = new Set(added.files.map((file) => file.entry));
-		for (const file of now.files) if (sectionMatches.has(file.entry)) files.add(file);
-		for (const path of added.submodules) submodules.add(path);
-	}
-	return untrackList({
-		files: now.files.filter((file) => files.has(file)),
-		submodules: now.submodules.filter((path) => submodules.has(path)),
-	});
 }
 
 /**
  * Makes one change of the screen in the file: what is remembered of a write
  * is settled, the file is read again, the change is made in what was read,
- * and that is written, guarded (`writeRootGitignore`). Answers with what the
- * change left to ask (`ExclusionChanged.matched`).
+ * and that is written, guarded (`writeRootGitignore`). Nothing is asked of
+ * the remote, and nothing is untracked: what a new rule excludes is no
+ * longer synced from the next sync on, and is listed among the excluded
+ * files still on the remote (`ExclusionScreen.untrack`).
  *
  * The caller sees to it that no sync runs meanwhile (`GitignoreGate`). A
  * failure of the sync state is thrown.
@@ -360,26 +325,15 @@ export async function saveGitignoreText(
 }
 
 function unwritten(write: ExclusionWrite): ExclusionChanged {
-	return { write, matched: null };
+	return { write };
 }
 
 // An empty text where there is no file is no change either: no file is made
-// to hold nothing. What the change made a rule match is asked of the remote
-// as it was last listed, like everything the screen shows. When that
-// listing cannot be read, the file is written all the same: the answer is
-// "written" with nothing to ask, and not a failure of the write.
+// to hold nothing.
 async function writeChecked(deps: ExclusionScreenDeps, text: string, before: string | null): Promise<ExclusionChanged> {
 	if (text === (before ?? "")) return unwritten("unchanged");
 	if (byteLength(text) > deps.sizeLimit) return unwritten("over-limit");
-	const write = await writeRootGitignore(deps, text, before);
-	if (write !== "written") return unwritten(write);
-	let listing: Awaited<ReturnType<typeof deps.store.getListing>>;
-	try {
-		listing = await deps.store.getListing();
-	} catch {
-		return { write, matched: null };
-	}
-	return { write, matched: listing === null ? null : newlyMatched(deps.paths, before, text, listing.entries) };
+	return { write: await writeRootGitignore(deps, text, before) };
 }
 
 function byteLength(text: string): number {
@@ -408,9 +362,10 @@ export interface ExclusionScreen {
 	readonly view: ExclusionView;
 	/**
 	 * How many files of the remote, as it was last listed, a rule of the
-	 * file matches now (`untrackableFiles`): the ones in Sync Evo's own
-	 * folder, which are not synced, and the rest, which stay synced. `null`
-	 * without a listing, or without rules to ask.
+	 * file matches now (`untrackableFiles`). No device of Sync Evo syncs
+	 * them, and git on a computer still does. What only this device leaves
+	 * out is not among them. `null` without a listing, or without rules to
+	 * ask.
 	 */
 	readonly tracked: number | null;
 	/**
@@ -477,6 +432,41 @@ export async function readExclusionScreen(
 	if (view.kind !== "none") return { view, tracked, untrack, notices, addSection: null };
 	const addSection: SectionOffer = listing === null ? "sync-first" : view.addable ? "offer" : "over-limit";
 	return { view, tracked, untrack, notices, addSection };
+}
+
+/**
+ * How many files of the remote this device no longer syncs since what an
+ * exclusion does was changed: what a rule excludes now, though the remote
+ * holds it (`remoteFilesExcluded`). An earlier version synced those, and
+ * stopped without a word when it was upgraded; this is told once, after the
+ * first sync (`DeviceSettings.exclusionChangeTold`).
+ *
+ * The rules are those of the root `.gitignore`, and the kinds of file this
+ * device leaves out, which an earlier version wrote into the section
+ * (`kindsFromSection`). Not the folders of this device, which no earlier
+ * version had.
+ *
+ * `null` while it cannot be told yet: the remote was not listed, this device
+ * has not pulled its head to the end, or the `.gitignore` cannot be read.
+ * Only read. A failure of the sync state is thrown.
+ */
+export async function excludedOnRemoteCount(
+	deps: {
+		readonly store: StateStore;
+		readonly vault: Parameters<typeof readRootGitignore>[0];
+		readonly paths: ExclusionPaths;
+		readonly sizeLimit: number;
+	},
+	kinds: DeviceExclusion["kinds"],
+): Promise<number | null> {
+	const listing = await deps.store.getListing();
+	if (listing === null || listing.revision === null) return null;
+	if ((await readBaseRevision(deps.store)) !== listing.revision) return null;
+	const gitignore = await readRootGitignore(deps.vault, deps.sizeLimit);
+	if (gitignore.kind === "unreadable") return null;
+	const text = gitignore.kind === "text" ? gitignore.text : null;
+	const exclusion = createExclusion({ ...deps.paths, gitignore: text, device: { kinds, folders: [] } });
+	return remoteFilesExcluded(exclusion, listing.entries).length;
 }
 
 /** Why the file is not shown, for a `.gitignore` that is there and is not read. */

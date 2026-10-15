@@ -10,6 +10,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { NO_DEVICE_EXCLUSION } from "../src/core/device-exclusion";
 import { AUTO_SYNC_KEY, readAutoSyncMemory } from "../src/core/auto-sync";
 import { MAX_CONCURRENT_FETCH_BYTES } from "../src/core/concurrent-fetch";
 import { translatorFor } from "../src/core/i18n";
@@ -39,6 +40,8 @@ const app = vi.hoisted(() => ({
 	pulls: [] as (boolean | undefined)[],
 	/** What every pull was given of `mergeConflicts`, in order. */
 	merges: [] as (boolean | undefined)[],
+	/** What every pull was given of `device`, in order. */
+	devices: [] as unknown[],
 }));
 
 vi.mock("obsidian", () => {
@@ -86,6 +89,7 @@ vi.mock("../src/core/pull", async (importOriginal) => {
 	const runPull: typeof original.runPull = (deps) => {
 		app.pulls.push(deps.archiveAllowed);
 		app.merges.push(deps.mergeConflicts);
+		app.devices.push(deps.device);
 		return original.runPull(deps);
 	};
 	return { ...original, runPull };
@@ -128,6 +132,8 @@ function setup(over: Partial<DeviceSettings> = {}, files: Record<string, string>
 		deviceName: "iPhone",
 		autoSync: { ...DEFAULT_AUTO_SYNC, onStartup: true, atInterval: true },
 		onConflict: "copy",
+		deviceExclusion: NO_DEVICE_EXCLUSION,
+		exclusionChangeTold: true,
 		...over,
 	};
 	const tokens: Record<string, string | null> = { "github-token": "github_pat_SECRET" };
@@ -208,6 +214,7 @@ beforeEach(() => {
 	app.backends.length = 0;
 	app.pulls.length = 0;
 	app.merges.length = 0;
+	app.devices.length = 0;
 	app.request = () => Promise.reject(new Error("net::ERR_INTERNET_DISCONNECTED"));
 	vi.stubGlobal("window", { setTimeout, clearTimeout });
 	vi.stubGlobal("document", { visibilityState: "visible", addEventListener: () => {}, removeEventListener: () => {} });
@@ -640,6 +647,25 @@ describe("what becomes of a conflict", () => {
 		await setup({ onConflict: "merge" }).runner.runAuto("light");
 
 		expect(app.merges).toEqual([false, true]);
+	});
+});
+
+describe("what this device alone does not sync", () => {
+	test("is what the pull goes by, as the settings have it once the kinds of the section were copied", async () => {
+		const own = { kinds: ["image"] as const, folders: ["Attachments"], sectionChecked: false };
+		const { runner, host } = setup({ deviceExclusion: own });
+		const adopted = { calls: 0 };
+		Object.assign(host, {
+			adoptSectionKinds: async () => {
+				adopted.calls += 1;
+				host.deviceSettings = { ...host.deviceSettings, deviceExclusion: { ...own, kinds: ["image", "video"], sectionChecked: true } };
+			},
+		});
+
+		await runner.runAuto("light");
+
+		expect(adopted.calls).toBe(1);
+		expect(app.devices).toEqual([{ kinds: ["image", "video"], folders: ["Attachments"], sectionChecked: true }]);
 	});
 });
 

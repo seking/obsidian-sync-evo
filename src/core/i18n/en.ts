@@ -98,21 +98,26 @@ export const en = baseCatalog({
 		"Symbolic links on {remote} are not written to this device. Each is listed with where it points, as of the last download.",
 	"settings.symlinks.item": "{path} → {target}",
 
-	// The part of the settings screen about what is synced: the switches that
-	// write the lines Sync Evo manages in .gitignore, and the file itself.
-	"settings.exclusion.heading": "What is synced",
+	// The part of the settings screen about what is not synced: the switches
+	// that write the lines Sync Evo manages in .gitignore, the file itself,
+	// and what this device alone leaves out.
+	"settings.exclusion.heading": "Not synced (all devices)",
 	"settings.exclusion.desc":
-		"Choose what is not synced. It applies alike to all your devices. Excluding something deletes nothing. What is already on {remote} stays synced until it is removed from {remote}. These settings are written into the .gitignore at the root of this vault, so git on a computer follows them too.",
+		"What you choose here is not synced on any of your devices. Nothing is deleted, neither the files on your devices nor what is on {remote}.",
 	"settings.exclusion.tracked": {
 		one: "{count} excluded file is still on {remote}, as of the last sync.",
 		other: "{count} excluded files are still on {remote}, as of the last sync.",
 	},
 	"settings.exclusion.untrack.name": "Excluded files still on {remote}",
-	"settings.exclusion.untrack.desc": "Removing them from {remote} stops syncing them. The files on this device stay.",
+	"settings.exclusion.untrack.desc":
+		"Sync Evo does not sync them on any device. Removing them from {remote} leaves the files on your devices with Sync Evo as they are.",
+	"settings.exclusion.untrack.button": "Remove from {remote}",
+	"settings.exclusion.untrack.noState":
+		"The files cannot be removed from {remote} at the moment, and nothing was changed. Run a sync to see why.",
 	"settings.exclusion.handEdited":
 		"The lines Sync Evo manages in .gitignore were edited by hand. The switches show them as Sync Evo reads them. The next change made with a switch rewrites these lines in Sync Evo's own form. Lines it does not know are kept.",
 	"settings.exclusion.noState":
-		"What is synced cannot be shown or changed here at the moment. Run a sync to see why.",
+		"What is not synced cannot be shown or changed here at the moment. Run a sync to see why.",
 	"settings.exclusion.syncRunning":
 		"A sync is running, so nothing can be changed here until it has ended, and what is shown may be out of date. Open the settings again afterwards.",
 	"settings.exclusion.unsettled":
@@ -169,10 +174,20 @@ export const en = baseCatalog({
 		"A line of .gitignore that starts with ! undoes each of them. Change those lines under \"Write rules directly (.gitignore)\".",
 	"settings.exclusion.editor.name": "Write rules directly (.gitignore)",
 	"settings.exclusion.editor.desc":
-		"The whole .gitignore at the root of this vault. Write your own rules outside the lines Sync Evo manages (between \"# >>> Sync Evo\" and \"# <<< Sync Evo\"). Nothing is saved until you press Save, and using a switch discards what is typed here and not saved.",
+		"What is not synced on all devices is written into the .gitignore at the root of this vault, shown here whole. Git on a computer follows it too, but git keeps uploading what is already on {remote}. Write your own rules outside the lines Sync Evo manages (between \"# >>> Sync Evo\" and \"# <<< Sync Evo\"). Nothing is saved until you press Save, and using a switch discards what is typed here and not saved.",
 	"settings.exclusion.editor.absent": "This vault has no .gitignore yet. Saving creates it.",
 	"settings.exclusion.editor.save": "Save",
 	"settings.exclusion.editor.saved": "Saved .gitignore. The next sync uploads it to {remote}.",
+	"settings.deviceExclusion.heading": "Not synced (this device only)",
+	"settings.deviceExclusion.desc":
+		"What you choose here is not synced on this device only. Nothing is deleted, neither the files on this device nor what is on {remote}.",
+	"settings.deviceExclusion.summary.none": "None",
+	"settings.deviceExclusion.summary.folders": { one: "{count} folder", other: "{count} folders" },
+	"settings.deviceExclusion.kind.image": "Images",
+	"settings.deviceExclusion.kind.audio": "Audio",
+	"settings.deviceExclusion.kind.video": "Videos",
+	"settings.deviceExclusion.kind.pdf": "PDFs",
+	"settings.deviceExclusion.kind.other": "Other types",
 	"settings.exclusion.notices.name": "Found by the last sync",
 	"settings.exclusion.notices.desc": "What applies to this vault, as of the last sync.",
 	"settings.exclusion.write.syncing": "A sync is running. .gitignore cannot be changed until it has ended.",
@@ -251,6 +266,10 @@ export const en = baseCatalog({
 	// The lines Sync Evo manages in .gitignore, added by a push without
 	// asking. In the question before a first push, and else in a message of
 	// its own.
+	"notice.exclusionChange": {
+		one: "From this version of Sync Evo on, what is excluded is not synced, also where it is on {remote}. {count} file on {remote} is no longer synced on this device. What is excluded on all devices is listed in the settings of Sync Evo, under \"Excluded files still on {remote}\".",
+		other: "From this version of Sync Evo on, what is excluded is not synced, also where it is on {remote}. {count} files on {remote} are no longer synced on this device. What is excluded on all devices is listed in the settings of Sync Evo, under \"Excluded files still on {remote}\".",
+	},
 	"notice.localLink":
 		"This vault has links in it (symbolic links, or junctions). Sync Evo does not sync a link or what is in it, and leaves it as it is, on {remote} and on this device, where it points to. Everything else is synced as usual:\n{list}",
 
@@ -267,11 +286,11 @@ export const en = baseCatalog({
 	"section.added.howTo":
 		"You can change these lines in the settings of Sync Evo. If you do not want them, delete the lines in between and keep the first and the last line (the two that start with #): if those two are deleted as well, the next sync adds the lines again.",
 	"section.added.tracked": {
-		one: "{count} file that these lines exclude is already on {remote}, so it stays synced:",
-		other: "{count} files that these lines exclude are already on {remote}, so they stay synced:",
+		one: "{count} file that these lines exclude is on {remote}. Sync Evo no longer syncs it on any device:",
+		other: "{count} files that these lines exclude are on {remote}. Sync Evo no longer syncs them on any device:",
 	},
 	"section.added.untrackHint":
-		"To stop syncing them, use \"Remove from {remote}\" in the settings of Sync Evo. That removes them from {remote} and leaves them on this device.",
+		"To remove them from {remote}, use \"Remove from {remote}\" in the settings of Sync Evo. The files on your devices with Sync Evo stay.",
 
 	// Lists inside a message.
 	"list.separator": ", ",
@@ -422,10 +441,6 @@ export const en = baseCatalog({
 		one: "{count} file was left as it is on this device, as you chose. It differs from what is on {remote}:\n{list}",
 		other: "{count} files were left as they are on this device, as you chose. They differ from what is on {remote}:\n{list}",
 	},
-	"pull.keptUnsent": {
-		one: "{count} of the files you chose to keep on this device is not uploaded back to {remote}, because it is excluded. It stays on this device only:\n{list}",
-		other: "{count} of the files you chose to keep on this device are not uploaded back to {remote}, because they are excluded. They stay on this device only:\n{list}",
-	},
 	"pull.symlinks": {
 		one: "There is {count} symbolic link on {remote}. Sync Evo does not write it to this device and leaves it as it is on {remote}. The settings list the links that are skipped:\n{list}",
 		other: "There are {count} symbolic links on {remote}. Sync Evo does not write them to this device and leaves them as they are on {remote}. The settings list the links that are skipped:\n{list}",
@@ -511,21 +526,12 @@ export const en = baseCatalog({
 
 	// Untracking: the question before it, and how it ended.
 	"untrack.confirm.title": "Remove files from {remote}",
-	"untrack.confirm.proceed": "Remove from {remote}",
-	"untrack.confirm.cancel": "Not now",
+	"untrack.confirm.proceed": "Remove",
+	"untrack.confirm.cancel": "Cancel",
 	"untrack.confirm.body": {
-		one: "{count} excluded file is on {remote}. Removing it from {remote} stops syncing it:",
-		other: "{count} excluded files are on {remote}. Removing them from {remote} stops syncing them:",
+		one: "This removes the {count} file below from {remote}. The files on your devices with Sync Evo stay (git on a computer deletes it at the next git pull).",
+		other: "This removes the {count} files below from {remote}. The files on your devices with Sync Evo stay (git on a computer deletes them at the next git pull).",
 	},
-	"untrack.confirm.threshold":
-		"This removes {count} files from {remote} at once. Check the list before you go on.",
-	"untrack.confirm.keeps": "The files on this device are not deleted. They stay as they are.",
-	"untrack.confirm.otherDevices":
-		"On your other devices, the next download deletes these files, except files that were changed on that device.",
-	"untrack.confirm.mac":
-		"To keep the files where you use git on a computer, do not remove them here: run git rm --cached on that computer, and push from there. The next download then deletes these files from this device.",
-	"untrack.confirm.syncFirst":
-		"A download runs first. If the exclusions have not been uploaded yet, an upload runs too, and the other changes of this device are uploaded with them.",
 	"untrack.confirm.missing": {
 		one: "{count} of these files is not on this device. If it is in the list, it is marked there. After it is removed, its content is only in the history on {remote}.",
 		other: "{count} of these files are not on this device. Those in the list are marked there. After they are removed, their content is only in the history on {remote}.",
@@ -534,8 +540,6 @@ export const en = baseCatalog({
 		one: "{count} submodule is excluded as well. It is not removed here. Remove it with git on a computer:",
 		other: "{count} submodules are excluded as well. They are not removed here. Remove them with git on a computer:",
 	},
-	"untrack.confirm.note":
-		"If you choose \"Not now\", the exclusions stay, and these files stay synced. You can remove them later in the settings of Sync Evo.",
 	"untrack.item.tagged": "{path} ({tags})",
 	"untrack.tag.symlink": "symbolic link",
 	"untrack.tag.ownFolder": "Sync Evo's own folder",
@@ -567,17 +571,15 @@ export const en = baseCatalog({
 	"untrack.syncFirst.gitignoreUnreadable":
 		"Nothing was removed from {remote}. The .gitignore of this vault cannot be read on this device. The settings of Sync Evo say why. Put that right, then try again.",
 	"untrack.syncFirst.noSection":
-		"Nothing was removed from {remote}. The .gitignore of this vault has no lines managed by Sync Evo, so the exclusions are not in the file. Add the lines in the settings of Sync Evo and sync, then try again.",
+		"Nothing was removed from {remote}. The .gitignore of this vault has no lines managed by Sync Evo, so the exclusions are not in the file. Add the lines in the settings of Sync Evo, then try again.",
 	"untrack.syncFirst.sectionBroken":
-		"Nothing was removed from {remote}. The two lines that mark the lines Sync Evo manages in .gitignore do not form one pair. Correct the file in the settings of Sync Evo and sync, then try again.",
-	"untrack.syncFirst.gitignoreNotSent":
-		"Nothing was removed from {remote}. The exclusions have not been uploaded yet. Sync, then try again in the settings of Sync Evo.",
+		"Nothing was removed from {remote}. The two lines that mark the lines Sync Evo manages in .gitignore do not form one pair. Correct the file in the settings of Sync Evo, then try again.",
+	"untrack.syncFirst.gitignoreDiffers":
+		"Nothing was removed from {remote}. The .gitignore on {remote} is not the one this device last synced. Sync, then try again in the settings of Sync Evo.",
 	"untrack.skipped.pullDeclined":
 		"Nothing was removed from {remote}, because the download was cancelled. The exclusions stay. You can remove the files later in the settings of Sync Evo.",
 	"untrack.skipped.pullCancelled":
 		"Nothing was removed from {remote}, because the download was stopped. The exclusions stay. You can remove the files later in the settings of Sync Evo.",
-	"untrack.skipped.pushNotDone":
-		"Nothing was removed from {remote}, because the upload did not go through. They stay on this device. You can remove the files later in the settings of Sync Evo.",
 
 	// Why there is no sync state to work with.
 	"state.waiting": "Preparing…",

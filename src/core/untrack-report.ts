@@ -14,7 +14,6 @@
 // (`untrack.ts`).
 
 import { BackendError } from "./backend";
-import { exceedsDeletionThreshold } from "./deletion-threshold";
 import type { UntrackableFile, UntrackList } from "./exclusion-settings";
 import type { Translate } from "./i18n";
 import { pathKey } from "./paths";
@@ -25,13 +24,11 @@ import {
 	failureReason,
 	listText,
 	type PullReport,
-	type Question,
 	type QuestionPart,
 	recoveredPushText,
 	recoveredUntrackText,
 } from "./pull-report";
 import type { DeviceSettings } from "./settings";
-import type { StateStore } from "./state";
 import type { UntrackRefusal, UntrackRunResult, UntrackSyncResult } from "./untrack";
 
 /** What the user is shown before anything is untracked. */
@@ -47,22 +44,19 @@ export interface UntrackConfirmRequest {
 	 * says nothing of these.
 	 */
 	readonly missing: readonly string[];
-	/** The number of records when the question is drawn, of every kind: what the deletions are a share of. */
-	readonly recordCount: number;
 }
 
 /** What drawing the question reads: nothing is written, and the remote is not asked. */
 export interface UntrackConfirmDeps {
-	readonly store: Pick<StateStore, "readRecords">;
 	readonly vault: Pick<PullVault, "stat">;
 }
 
 /**
  * What the question is drawn from, for a list of the screen: with the files
- * of it this device holds no file for, and the number of records, as they
- * are now. A path that cannot be looked at counts as not held: the user is
- * then told that its content may be left in the history of the remote alone,
- * which is the more careful of the two. A failure of the sync state is thrown.
+ * of it this device holds no file for, as they are now. A path that cannot
+ * be looked at counts as not held: the user is then told that its content
+ * may be left in the history of the remote alone, which is the more careful
+ * of the two.
  */
 export async function untrackConfirmRequest(deps: UntrackConfirmDeps, list: UntrackList): Promise<UntrackConfirmRequest> {
 	const missing: string[] = [];
@@ -75,8 +69,7 @@ export async function untrackConfirmRequest(deps: UntrackConfirmDeps, list: Untr
 		}
 		if (!held) missing.push(file.path);
 	}
-	const recordCount = (await deps.store.readRecords()).length;
-	return { files: list.files, submodules: list.submodules, missing, recordCount };
+	return { files: list.files, submodules: list.submodules, missing };
 }
 
 /**
@@ -89,22 +82,32 @@ export function untrackSubmodulesText(t: Translate, submodules: readonly string[
 	return list ? `${text}\n${listText(t, submodules)}` : text;
 }
 
-/** The words of the question before untracking. Closing it without an answer counts as `cancel`. */
-export interface UntrackQuestion extends Question {
+/**
+ * The words of the question before untracking. Closing it without an answer
+ * counts as `cancel`. Unlike the questions of a sync, it ends with its
+ * buttons: what "cancel" does is that nothing changes.
+ */
+export interface UntrackQuestion {
+	readonly title: string;
+	readonly parts: readonly QuestionPart[];
 	/** The button that untracks. */
 	readonly proceed: string;
-	/** The button that does not untrack: the rules stay, and the files stay synced. */
+	/** The button that does not untrack: nothing changes. */
 	readonly cancel: string;
 	/** The paths to hand to `runUntrackSync` when the answer is yes: every file of the question, also past the ones listed. */
 	readonly shown: readonly string[];
 }
 
 /**
- * The words of the question before untracking: asked once, before the sync
- * that comes first. The files are listed up to `CONFIRM_LIST_LIMIT`, each
- * with what is to be known of it: a symbolic link, in Sync Evo's own folder,
- * not on this device. Past the threshold of deletions the count is warned
- * of, first, in the same question (`exceedsDeletionThreshold`).
+ * The words of the question before untracking: asked once, before the
+ * download that comes first. Short: how many files go, that the files of
+ * every device of Sync Evo stay, and what git on a computer does. The files
+ * are listed up to `CONFIRM_LIST_LIMIT`, each with what is to be known of
+ * it: a symbolic link, in Sync Evo's own folder, not on this device.
+ *
+ * It is the question about the deletions as well, and no threshold of them
+ * is warned of: the count is in its first sentence, and no device loses a
+ * file by it.
  */
 export function untrackQuestion(t: Translate, request: UntrackConfirmRequest): UntrackQuestion {
 	const { files, submodules } = request;
@@ -119,16 +122,9 @@ export function untrackQuestion(t: Translate, request: UntrackConfirmRequest): U
 		return t("untrack.item.tagged", { path: file.path, tags: tags.join(t("list.separator")) });
 	};
 
-	const parts: QuestionPart[] = [];
-	if (exceedsDeletionThreshold(files.length, request.recordCount)) {
-		parts.push({ text: t("untrack.confirm.threshold", { count: files.length }) });
-	}
-	parts.push({
-		text: t("untrack.confirm.body", { count: files.length }),
-		paths: capList(files.map(line), CONFIRM_LIST_LIMIT),
-	});
-	parts.push({ text: t("untrack.confirm.keeps") });
-	parts.push({ text: t("untrack.confirm.otherDevices") });
+	const parts: QuestionPart[] = [
+		{ text: t("untrack.confirm.body", { count: files.length }), paths: capList(files.map(line), CONFIRM_LIST_LIMIT) },
+	];
 	if (absent.size > 0) parts.push({ text: t("untrack.confirm.missing", { count: absent.size }) });
 	if (submodules.length > 0) {
 		parts.push({
@@ -136,13 +132,9 @@ export function untrackQuestion(t: Translate, request: UntrackConfirmRequest): U
 			paths: capList(submodules, CONFIRM_LIST_LIMIT),
 		});
 	}
-	parts.push({ text: t("untrack.confirm.syncFirst") });
-	// Last of these: few keep the files on a computer with git as well.
-	parts.push({ text: t("untrack.confirm.mac") });
 	return {
 		title: t("untrack.confirm.title"),
 		parts,
-		note: t("untrack.confirm.note"),
 		proceed: t("untrack.confirm.proceed"),
 		cancel: t("untrack.confirm.cancel"),
 		shown: files.map((file) => file.path),
@@ -161,8 +153,8 @@ function refusalText(t: Translate, reason: UntrackRefusal | undefined): string {
 			return t("untrack.syncFirst.noSection");
 		case "section-broken":
 			return t("untrack.syncFirst.sectionBroken");
-		case "gitignore-not-sent":
-			return t("untrack.syncFirst.gitignoreNotSent");
+		case "gitignore-differs":
+			return t("untrack.syncFirst.gitignoreDiffers");
 		case "pull-unfinished":
 		case undefined:
 			return t("untrack.syncFirst.pullUnfinished");
@@ -208,8 +200,8 @@ function summaryText(t: Translate, result: UntrackRunResult, connectionChanged: 
 
 /**
  * Words the untracking of `runUntrackSync`, also where it was not got to.
- * The pull and the push before it are worded by their own reports
- * (`pullReport`, `pushReport`), as they come in.
+ * The pull before it is worded by its own report (`pullReport`), as it
+ * comes in.
  *
  * Stopped because the connection was changed, it says that and nothing of
  * the step it was stopped in: a question that was open then is closed as a
@@ -228,8 +220,6 @@ export function untrackSyncReport(
 			return { summary: t("untrack.skipped.pullDeclined"), details: [] };
 		case "pull-cancelled":
 			return { summary: t("untrack.skipped.pullCancelled"), details: [] };
-		case "push-not-done":
-			return { summary: t("untrack.skipped.pushNotDone"), details: [] };
 		case "cancelled":
 		case undefined:
 			return { summary: untrackStoppedText(t, false), details: [] };
@@ -258,8 +248,7 @@ export function untrackedSome(result: UntrackSyncResult): boolean {
 
 /**
  * The text for an untracking that ended by throwing: of `runUntrack` itself.
- * A pull or a push before it that threw is told as that
- * (`pullFailureText`, `pushFailureText`).
+ * A pull before it that threw is told as that (`pullFailureText`).
  */
 export function untrackFailureText(
 	t: Translate,

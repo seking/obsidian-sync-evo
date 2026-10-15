@@ -10,6 +10,7 @@
  */
 
 import { describe, expect, test } from "vitest";
+import { NO_DEVICE_EXCLUSION } from "../src/core/device-exclusion";
 import { ARCHIVE_ATTEMPT_KEY, ARCHIVE_DISABLED_KEY } from "../src/core/archive-fetch";
 import {
 	type ArchiveContents,
@@ -32,7 +33,8 @@ import { applyPlan, type Seen, Tally } from "../src/core/pull-apply";
 import { planPull } from "../src/core/pull-plan";
 import { pullAutoReport } from "../src/core/auto-report";
 import { pullReport } from "../src/core/pull-report";
-import { createExclusion } from "../src/core/exclusion";
+import { createExclusion, defaultSectionLines } from "../src/core/exclusion";
+import { withSection } from "../src/core/gitignore-section";
 import {
 	AWAITED_CONFLICTS_KEY,
 	HALF_WRITTEN_KEY,
@@ -65,6 +67,8 @@ const reportOptions = {
 		deviceName: "iPhone",
 		autoSync: DEFAULT_AUTO_SYNC,
 		onConflict: "copy",
+		deviceExclusion: NO_DEVICE_EXCLUSION,
+		exclusionChangeTold: true,
 	},
 	sizeLimit: 50 * 1024 * 1024,
 } as const;
@@ -1945,7 +1949,8 @@ describe("a conflict inside the configuration folder", () => {
 		expect(await h.records()).toEqual(hashes({ [file]: "theirs" }));
 	});
 
-	test("a copy an earlier version sent, edited here and deleted on the remote: it stays, and only its record goes", async () => {
+	test("a copy an earlier version sent, edited here and deleted on the remote: it stays, with its record, for a push to send", async () => {
+		// Known by its record, it is a file like any other: not left out.
 		const file = ".obsidian/app.json";
 		const copy = ".obsidian/app.conflict-from-Mac-20260101-090000.json";
 		const h = await synced({ [file]: "theirs", [copy]: "old" });
@@ -1959,16 +1964,8 @@ describe("a conflict inside the configuration folder", () => {
 		expect(h.vault.snapshot()).toEqual({ [file]: "theirs", [copy]: "edited" });
 		expect(h.vault.trashed).toEqual([]);
 		expect(result.counts).toEqual({ fetched: 0, deleted: 0, renamed: 0, conflicts: 0 });
-		expect(await h.records()).toEqual(hashes({ [file]: "theirs" }));
+		expect(await h.records()).toEqual(hashes({ [file]: "theirs", [copy]: "old" }));
 		expect(await h.base()).toBe(head);
-
-		// Left out from then on, like a copy that never had a record.
-		h.vault.log.length = 0;
-		const again = await h.pull();
-		expect(again.outcome).toBe("completed");
-		expect(h.vault.log).toEqual([]);
-		expect(h.vault.text(copy)).toBe("edited");
-		expect(await h.records()).toEqual(hashes({ [file]: "theirs" }));
 	});
 });
 
@@ -3212,6 +3209,149 @@ describe(".gitignore", () => {
 	});
 });
 
+/** A `.gitignore` whose section syncs the list of community plugins, which the default one leaves out. */
+const LISTED_PLUGINS = withSection(
+	null,
+	defaultSectionLines(paths).filter((line) => !line.endsWith("/community-plugins.json")),
+);
+
+describe("a path a rule cuts off from the remote", () => {
+	/** Path → whether the record has the mark of an exclusion. */
+	async function marks(h: Harness): Promise<Record<string, boolean>> {
+		const out: Record<string, boolean> = {};
+		for (const record of await h.store.readRecords()) out[record.path] = record.wasExcluded === true;
+		return out;
+	}
+
+	/** In sync on a draft and a note, and then the Mac adds a rule for the drafts. */
+	async function excluded(): Promise<Harness> {
+		const h = await synced({ ".gitignore": "", "drafts/a.md": "A", "notes/n.md": "N" });
+		h.backend.commit({ ".gitignore": "/drafts/\n" });
+		expect(await h.pull()).toMatchObject({ outcome: "completed", counts: { fetched: 1 } });
+		return h;
+	}
+
+	test("a first fetch does not fetch what a rule matches, though the remote holds it", async () => {
+		// As stock-research has it: the plugins are in the repository.
+		const h = harness();
+		const files = {
+			".gitignore": withSection(null, defaultSectionLines(paths)),
+			".obsidian/plugins/dataview/main.js": "D",
+			".obsidian/plugins/dataview/data.json": "{}",
+			".obsidian/app.json": "{}",
+			"a.md": "A",
+		};
+		h.backend.commit(files);
+
+		const result = await h.pull();
+
+		expect(result).toMatchObject({ outcome: "completed", counts: { fetched: 3 } });
+		expect(h.vault.snapshot()).toEqual({ ".gitignore": files[".gitignore"], ".obsidian/app.json": "{}", "a.md": "A" });
+		// No record is made for it.
+		expect(Object.keys(await h.records()).sort()).toEqual([".gitignore", ".obsidian/app.json", "a.md"]);
+	});
+
+	test("what changes on the remote is not fetched, and what is deleted there is not deleted here; the record stays, marked", async () => {
+		const h = await excluded();
+		expect(await marks(h)).toEqual({ ".gitignore": false, "drafts/a.md": true, "notes/n.md": false });
+		h.backend.commit({ "drafts/a.md": "A from the Mac" });
+		expect(await h.pull()).toMatchObject({ outcome: "completed", counts: { fetched: 0 } });
+		h.backend.commit({ "drafts/a.md": null });
+		expect(await h.pull()).toMatchObject({ outcome: "completed", counts: { fetched: 0, deleted: 0 } });
+		expect(h.vault.text("drafts/a.md")).toBe("A");
+		expect(h.vault.trashed).toEqual([]);
+		expect(await h.records()).toEqual(hashes({ ".gitignore": "/drafts/\n", "drafts/a.md": "A", "notes/n.md": "N" }));
+	});
+
+	test("taken back, what changed on one side meanwhile goes the usual way, and the mark goes", async () => {
+		const h = await excluded();
+		h.backend.commit({ "drafts/a.md": "A from the Mac", ".gitignore": "" });
+		expect(await h.pull()).toMatchObject({ outcome: "completed", counts: { fetched: 2, conflicts: 0 } });
+		expect(h.vault.text("drafts/a.md")).toBe("A from the Mac");
+		expect(await marks(h)).toEqual({ ".gitignore": false, "drafts/a.md": false, "notes/n.md": false });
+	});
+
+	test("taken back, what changed on both sides meanwhile is a conflict", async () => {
+		const h = await excluded();
+		h.vault.put("drafts/a.md", "A from here");
+		h.backend.commit({ "drafts/a.md": "A from the Mac", ".gitignore": "" });
+		const result = await h.pull();
+		expect(result).toMatchObject({ outcome: "completed", counts: { conflicts: 1 } });
+		expect(h.vault.text("drafts/a.md")).toBe("A from the Mac");
+		expect(h.vault.text(result.conflicts[0]?.copyPath ?? "")).toBe("A from here");
+	});
+
+	test("deleted here while excluded, and the rule taken back with no sync in between: not deleted on the remote, and fetched again", async () => {
+		const h = await excluded();
+		h.vault.remove("drafts/a.md");
+		h.backend.commit({ ".gitignore": "" });
+
+		const first = await h.pull();
+
+		expect(first).toMatchObject({ outcome: "completed", counts: { deleted: 0 } });
+		// Only the record went; the file is fetched by the pull after it.
+		expect(Object.keys(await h.records()).sort()).toEqual([".gitignore", "notes/n.md"]);
+		expect(await h.pull()).toMatchObject({ outcome: "completed", counts: { fetched: 1 } });
+		expect(h.vault.text("drafts/a.md")).toBe("A");
+	});
+
+	test("taken out of the remote while excluded, and the rule taken back: not deleted here, and left for a push to send", async () => {
+		const h = await excluded();
+		h.backend.commit({ "drafts/a.md": null });
+		await h.pull();
+		h.backend.commit({ ".gitignore": "" });
+
+		expect(await h.pull()).toMatchObject({ outcome: "completed", counts: { deleted: 0 } });
+		expect(h.vault.text("drafts/a.md")).toBe("A");
+		expect(h.vault.trashed).toEqual([]);
+		expect(Object.keys(await h.records()).sort()).toEqual([".gitignore", "notes/n.md"]);
+	});
+
+	test("taken back while a cloud drive holds the file off the device: it is there, and nothing is decided about it", async () => {
+		const h = await excluded();
+		h.vault.remove("drafts/a.md");
+		h.vault.put("drafts/.a.md.icloud", "a placeholder");
+		h.backend.commit({ ".gitignore": "" });
+
+		await h.pull();
+
+		expect(await marks(h)).toMatchObject({ "drafts/a.md": true });
+		expect(h.vault.text("drafts/.a.md.icloud")).toBe("a placeholder");
+	});
+
+	test("a pull that waits for an answer, is declined, or fails stores no mark and drops no record", async () => {
+		const notes = Object.fromEntries(Array.from({ length: 10 }, (_, index) => [`notes/${index}.md`, String(index)]));
+		for (const ending of ["later", "cancel", "throws"] as const) {
+			const h = await synced({ ".gitignore": "", "drafts/a.md": "A", ...notes });
+			// The time and the size of a record may be stored by any pull that hashes.
+			const said = async (): Promise<string[]> =>
+				(await h.store.readRecords()).map((record) => `${record.path} ${record.hash} ${record.wasExcluded === true}`).sort();
+			const before = await said();
+			// The rule, and enough deleted to ask about.
+			h.backend.commit({ ".gitignore": "/drafts/\n", ...Object.fromEntries(Object.keys(notes).map((path) => [path, null])) });
+			h.answer = () => {
+				if (ending === "throws") throw new Error("the question failed");
+				return ending;
+			};
+			if (ending === "throws") await expect(h.pull()).rejects.toThrow("the question failed");
+			else expect((await h.pull()).outcome).toBe(ending === "later" ? "waiting" : "declined");
+			expect(await said()).toEqual(before);
+		}
+	});
+
+	test("what this device alone leaves out is cut off the same way", async () => {
+		const h = await synced({ "img/a.png": "P", "notes/n.md": "N" });
+		const device = { device: { kinds: ["image"] as const, folders: [] } };
+		h.backend.commit({ "img/a.png": "P from the Mac", "img/b.png": "B" });
+		expect(await h.pull(device)).toMatchObject({ outcome: "completed", counts: { fetched: 0 } });
+		expect(h.vault.text("img/a.png")).toBe("P");
+		expect(await marks(h)).toEqual({ "img/a.png": true, "notes/n.md": false });
+		// Switched on again, nothing of the sync state was lost: compared as usual.
+		expect(await h.pull()).toMatchObject({ outcome: "completed", counts: { fetched: 2, conflicts: 0 } });
+		expect(h.vault.text("img/a.png")).toBe("P from the Mac");
+	});
+});
+
 describe("what is skipped, and what the user is told once", () => {
 	test("a file over the size limit is not fetched, has no record, and is told once", async () => {
 		const h = harness();
@@ -3359,7 +3499,8 @@ describe("what is skipped, and what the user is told once", () => {
 	test("a community-plugins.json that does not list this plugin is told, and not changed", async () => {
 		const h = harness();
 		const file = ".obsidian/community-plugins.json";
-		h.backend.commit({ [file]: '["dataview"]' });
+		// A section that does not leave the file out, as the default lines do.
+		h.backend.commit({ [file]: '["dataview"]', ".gitignore": LISTED_PLUGINS });
 
 		const first = await h.pull();
 
@@ -3379,7 +3520,7 @@ describe("what is skipped, and what the user is told once", () => {
 	test("it is told every time such a file is written, also by the pull right after", async () => {
 		const h = harness();
 		const file = ".obsidian/community-plugins.json";
-		h.backend.commit({ [file]: '["dataview"]' });
+		h.backend.commit({ [file]: '["dataview"]', ".gitignore": LISTED_PLUGINS });
 		expect((await h.pull()).notices).toEqual([{ kind: "plugin-not-listed", path: file }]);
 
 		h.backend.commit({ [file]: '["dataview", "templater"]' });

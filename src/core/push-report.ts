@@ -202,8 +202,8 @@ export type SectionDelivery = "sends" | "sent" | "unsent" | "unknown";
  * The text for the section a push added to `.gitignore` without asking: the
  * lines, that nothing else in the file changed, whether they are on the
  * remote, where to change them, and how to say that they are not wanted.
- * With the files of the remote the lines match, which stay synced, and where
- * they can be untracked. Every added line is shown, however many: they are
+ * With the files of the remote the lines match, which no device syncs from
+ * now on and which stay on the remote, and where they can be untracked. Every added line is shown, however many: they are
  * what was written.
  */
 export function sectionAddedText(t: Translate, section: SectionAdded, delivery: SectionDelivery): string {

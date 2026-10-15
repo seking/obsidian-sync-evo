@@ -18,13 +18,13 @@ import { keyboardOn, renderPathList } from "./pull-confirm";
 const PHONE_LIST_START = 10;
 
 /**
- * Asks in a dialog whether to untrack, before the sync that comes first.
+ * Asks in a dialog whether to untrack, before the download that comes first.
  * `proceed` is called with the paths to untrack, from the handler of the
  * button itself and with nothing awaited before: what it starts keeps the
  * screen on, which a phone only grants so (`SyncRunner.run`). That is why
  * this answers through a call and not, like the questions of a sync, through
  * a promise. Closing the dialog in any way but that button does not call
- * it: the rules stay, and the files stay synced.
+ * it, and nothing changes.
  *
  * `closed` is called once the dialog is gone, whichever way it was answered,
  * and after `proceed` where that is called. Answers what closes the dialog
@@ -42,7 +42,7 @@ export function askUntrackIn(
 	return () => modal.close();
 }
 
-/** The dialog before untracking: the files, what becomes of them here and elsewhere, and the two answers. */
+/** The dialog before untracking: the files, what becomes of them, and the two answers. */
 class UntrackConfirmModal extends Modal {
 	private readonly t: Translate;
 	private readonly question: UntrackQuestion;
@@ -72,7 +72,6 @@ class UntrackConfirmModal extends Modal {
 			contentEl.createEl("p", { text: part.text });
 			if (part.paths !== undefined) renderPathList(contentEl, t, part.paths, PHONE_LIST_START);
 		}
-		contentEl.createEl("p", { text: question.note });
 
 		const buttons = contentEl.createDiv({ cls: "modal-button-container" });
 		new ButtonComponent(buttons)

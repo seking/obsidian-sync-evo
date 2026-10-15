@@ -9,11 +9,6 @@
 	margin-top: var(--size-4-6);
 }
 
-/* A group that goes on with the one above it, under the same heading. */
-.sync-evo-group + .sync-evo-group.sync-evo-group-continued {
-	margin-top: var(--size-4-3);
-}
-
 /* What a group says under its heading: in line with the heading, and closer to it than the settings are. */
 .sync-evo-group-text {
 	margin: calc(-1 * var(--size-4-2)) 0 var(--size-4-4);

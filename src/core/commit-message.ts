@@ -46,16 +46,16 @@ export function commitMessage(deviceName: string, changes: readonly CommitChange
 
 /**
  * The message of the commit that untracks files: `Sync Evo: <device> untrack
- * <n> files`, a blank line, and a `D` line per path, as in any other commit
- * of a push. Told apart by its first line, since the files it takes out of
- * the remote were not deleted on the device.
+ * <n> files`, a blank line, and a line per path, as in any other commit of a
+ * push: a `D` for each file it takes out of the remote, and an `M` or an `A`
+ * for the root `.gitignore` where that goes in the same commit. Told apart by
+ * its first line, which counts the files taken out alone: they were not
+ * deleted on the device.
  */
-export function untrackMessage(deviceName: string, paths: readonly string[]): string {
-	const files = paths.length === 1 ? "1 file" : `${paths.length} files`;
-	return message(
-		`Sync Evo: ${deviceOf(deviceName)} untrack ${files}`,
-		paths.map((path): CommitChange => ({ kind: "deleted", path })),
-	);
+export function untrackMessage(deviceName: string, changes: readonly CommitChange[]): string {
+	const count = changes.filter((change) => change.kind === "deleted").length;
+	const files = count === 1 ? "1 file" : `${count} files`;
+	return message(`Sync Evo: ${deviceOf(deviceName)} untrack ${files}`, changes);
 }
 
 // A line break in the name would end the first line early.

@@ -78,7 +78,11 @@ function pull(scenario: Scenario): PullPlan {
 function steps(plan: PullPlan): string[] {
 	return [
 		...plan.records.map((change) =>
-			change.type === "set" ? `record ${change.record.path}` : `drop ${change.record.path}`,
+			change.type === "set"
+				? `record ${change.record.path}`
+				: change.type === "mark"
+					? `mark ${change.record.path} ${change.wasExcluded}`
+					: `drop ${change.record.path}`,
 		),
 		...plan.deletes.map((entry) => `delete ${entry.local.path} (${entry.cause})`),
 		...plan.asides.map((entry) => `aside ${entry.local.path} (${entry.cause})`),
@@ -140,14 +144,56 @@ describe("the half of the decision a pull acts on", () => {
 		expect(counted(plan)).toEqual([]);
 	});
 
-	test("deleted on the remote, edited in the vault, and matched by a rule: only the record goes", () => {
+	test("deleted on the remote, edited in the vault, and matched by a rule: nothing is done, and the record is marked", () => {
 		const plan = pull({
 			records: { "drafts/a.md": "A" },
 			local: { "drafts/a.md": "A2" },
 			exclusion: rules("/drafts/\n"),
 		});
-		expect(steps(plan)).toEqual(["drop drafts/a.md"]);
+		expect(steps(plan)).toEqual(["mark drafts/a.md true"]);
 		expect(plan.deletes).toEqual([]);
+		expect(plan.pushOnly).toEqual([]);
+	});
+
+	test("deleted on the remote, unchanged in the vault, and matched by a rule: not deleted in the vault", () => {
+		const plan = pull({ records: { "drafts/a.md": "A" }, local: { "drafts/a.md": "A" }, exclusion: rules("/drafts/\n") });
+		expect(steps(plan)).toEqual(["mark drafts/a.md true"]);
+		expect(counted(plan)).toEqual([]);
+	});
+
+	test("the records of what a rule excludes are not counted toward the share of deletions", () => {
+		const records: Files = Object.fromEntries([
+			...Array.from({ length: 6 }, (_, index) => [`notes/${index}.md`, "N"]),
+			...Array.from({ length: 100 }, (_, index) => [`drafts/${index}.md`, "D"]),
+		]);
+		const remote: Files = Object.fromEntries(Object.entries(records).filter(([path]) => path.startsWith("drafts/")));
+		const local = { ...records };
+		const plan = pull({ records, remote, local, exclusion: rules("/drafts/\n") });
+		// The six notes deleted on the remote are all there is, not six of 106.
+		expect(plan.recordCount).toBe(6);
+		expect(counted(plan)).toHaveLength(6);
+		expect(needsConfirmation(pullLosses(plan, false), plan.recordCount)).toBe(true);
+		// Without the rule, they are a small share of everything.
+		const ruleless = pull({ records, remote, local, exclusion: rules(null) });
+		expect(ruleless.recordCount).toBe(106);
+		expect(needsConfirmation(pullLosses(ruleless, false), ruleless.recordCount)).toBe(false);
+	});
+
+	test("a record a rule excluded at the last sync, and none does now: the side that lost it is no deletion", () => {
+		const marked = (path: string): SyncRecord => ({ path, kind: "file", hash: blobHash("A"), wasExcluded: true });
+		const plan = planPull({
+			remote: remoteOf({ "kept-here.md": "A", "both.md": "A" }),
+			local: [
+				{ path: "gone-there.md", hash: blobHash("A") },
+				{ path: "both.md", hash: blobHash("A") },
+			],
+			records: [marked("kept-here.md"), marked("gone-there.md"), marked("both.md")],
+			exclusion: rules(null),
+		});
+		expect(steps(plan)).toEqual(["mark both.md false", "drop gone-there.md", "drop kept-here.md"]);
+		expect(plan.deletes).toEqual([]);
+		expect(plan.pushOnly).toEqual([]);
+		expect(counted(plan)).toEqual([]);
 	});
 
 	test("what is fetched is a list of remote entries, one per write", () => {
@@ -799,16 +845,15 @@ describe("a vault file under another case than the path about to be written", ()
 	// T020 item n. The record and the remote agree on `drafts/a.md`; the
 	// vault spells it `Drafts/a.md`.
 	test("record and remote agree and nothing changed: a pull does nothing, with or without a rule", () => {
-		for (const exclusion of [rules(null), rules("/drafts/\n")]) {
-			const plan = pull({
-				remote: { "drafts/a.md": "A" },
-				records: { "drafts/a.md": "A" },
-				local: { "Drafts/a.md": "A" },
-				exclusion,
-			});
-			expect(steps(plan)).toEqual([]);
-			expect(plan.pushOnly.map((action) => `${action.type} ${action.key}`)).toContain("delete-remote drafts/a.md");
-		}
+		const sides = { remote: { "drafts/a.md": "A" }, records: { "drafts/a.md": "A" }, local: { "Drafts/a.md": "A" } };
+		const plan = pull({ ...sides, exclusion: rules(null) });
+		expect(steps(plan)).toEqual([]);
+		expect(plan.pushOnly.map((action) => `${action.type} ${action.key}`)).toContain("delete-remote drafts/a.md");
+		// A rule matches both spellings: nothing is left to a push either,
+		// and only the mark of the record is set.
+		const ruled = pull({ ...sides, exclusion: rules("/drafts/\n") });
+		expect(steps(ruled)).toEqual(["mark drafts/a.md true"]);
+		expect(ruled.pushOnly).toEqual([]);
 	});
 });
 

@@ -13,6 +13,13 @@
 // need no screen: what is stored, which values are accepted, and whether a
 // change of them is a change of where the vault syncs to.
 
+import {
+	type DeviceExclusion,
+	NO_DEVICE_EXCLUSION,
+	parseDeviceExclusion,
+	serializeDeviceExclusion,
+} from "./device-exclusion";
+
 /** The remotes there are. Only one for now; the field is kept so that adding one is not a change of format. */
 export type BackendId = "github";
 
@@ -30,6 +37,21 @@ export interface DeviceSettings {
 	readonly deviceName: string;
 	readonly autoSync: AutoSyncSettings;
 	readonly onConflict: ConflictHandling;
+	/**
+	 * What this device alone does not sync. Kept here and not in the sync
+	 * state, so that discarding that state does not start fetching what was
+	 * left out; and not in the vault, which every device and git share.
+	 */
+	readonly deviceExclusion: DeviceExclusion;
+	/**
+	 * Whether this device was told, after a sync, that what is excluded is
+	 * no longer synced where the remote holds it either: the version that
+	 * made it so changed what an upgraded device does, without a word
+	 * otherwise. Settings that a version from before stored are read as not
+	 * told; new ones have nothing to be told. Kept here, so that discarding
+	 * the sync state does not tell it again.
+	 */
+	readonly exclusionChangeTold: boolean;
 }
 
 /**
@@ -143,7 +165,11 @@ export function withSendsChanges(auto: AutoSyncSettings, sendsChanges: boolean):
  * version from before them drops them when it saves, and reads them as
  * absent: automatic sync is then off, which is where it starts and the safe
  * side. The handling of conflicts was added the same way: read as absent,
- * it is "copy".
+ * it is "copy". So was what this device alone does not sync: read as
+ * absent, nothing is left out, and the section of `.gitignore` is looked at
+ * again for the kinds an earlier version wrote there (`kindsFromSection`).
+ * And whether the change of what an exclusion does was told: read as
+ * absent, it was not, and is told once more.
  */
 export const SETTINGS_VERSION = 1;
 
@@ -169,6 +195,9 @@ export function defaultSettings(defaultDeviceName: string): DeviceSettings {
 		deviceName: defaultDeviceName,
 		autoSync: DEFAULT_AUTO_SYNC,
 		onConflict: DEFAULT_ON_CONFLICT,
+		deviceExclusion: NO_DEVICE_EXCLUSION,
+		// Nothing changed for a device that starts with this version.
+		exclusionChangeTold: true,
 	};
 }
 
@@ -203,6 +232,8 @@ export function parseSettings(raw: unknown, defaultDeviceName: string): ParsedSe
 			deviceName: deviceNameProblem(deviceName) === null ? deviceName : defaults.deviceName,
 			autoSync: parseAutoSync(raw.autoSync),
 			onConflict: conflictHandlingOf(raw.onConflict),
+			deviceExclusion: parseDeviceExclusion(raw.deviceExclusion),
+			exclusionChangeTold: raw.exclusionChangeTold === true,
 		},
 	};
 }
@@ -237,6 +268,8 @@ export function serializeSettings(settings: DeviceSettings): StoredSettings {
 			sendsChanges: settings.autoSync.sendsChanges,
 		},
 		onConflict: settings.onConflict,
+		deviceExclusion: serializeDeviceExclusion(settings.deviceExclusion),
+		exclusionChangeTold: settings.exclusionChangeTold,
 	};
 }
 

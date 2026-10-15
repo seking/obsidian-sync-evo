@@ -87,15 +87,16 @@ export const ja = completeTranslation(en, {
 		"{remote} のシンボリックリンクは、このデバイスに書き込みません。最後にダウンロードした時点のリンクと、リンク先です。",
 	"settings.symlinks.item": "{path} → {target}",
 
-	"settings.exclusion.heading": "同期する物",
-	"settings.exclusion.desc":
-		"同期しない物を選びます。全デバイスに同じに効きます。除外しても、何も削除しません。すでに {remote} にある物は、{remote} から削除するまで同期を続けます。ここの設定は保管庫のルートの .gitignore に書かれるので、パソコンの git にも効きます。",
+	"settings.exclusion.heading": "同期しない物（全デバイス）",
+	"settings.exclusion.desc": "ここで選んだ物は、全デバイスで同期しません。どのデバイスのファイルも、{remote} の物も削除しません。",
 	"settings.exclusion.tracked": "除外しているファイルが、{remote} に {count} 件残っています（最後の同期の時点）。",
 	"settings.exclusion.untrack.name": "除外していて、{remote} に残っているファイル",
-	"settings.exclusion.untrack.desc": "{remote} から削除すると、同期しなくなります。このデバイスのファイルは残ります。",
+	"settings.exclusion.untrack.desc": "どのデバイスの Sync Evo も、これらを同期しません。{remote} から削除しても、Sync Evo のデバイスのファイルは残ります。",
+	"settings.exclusion.untrack.button": "{remote} から削除",
+	"settings.exclusion.untrack.noState": "今は、{remote} から削除できません。何も変更していません。同期を実行すると、理由が表示されます。",
 	"settings.exclusion.handEdited":
 		".gitignore の Sync Evo が管理する行が、手で直されています。切り替えには、Sync Evo が読み取った状態を出しています。次に切り替えると、これらの行を Sync Evo の決まった形に書き直します。Sync Evo が知らない行は残します。",
-	"settings.exclusion.noState": "今は、ここで同期する物の表示と変更ができません。同期を実行すると、理由が表示されます。",
+	"settings.exclusion.noState": "今は、ここで同期しない物の表示と変更ができません。同期を実行すると、理由が表示されます。",
 	"settings.exclusion.syncRunning":
 		"同期中のため、終わるまでここでは何も変えられません。表示が古いことがあります。終わってから、設定画面を開き直してください。",
 	"settings.exclusion.unsettled":
@@ -150,10 +151,20 @@ export const ja = completeTranslation(en, {
 		"どの行も、.gitignore の ! で始まる行で打ち消されています。「規則を直接書く（.gitignore）」の欄で、打ち消している行を直してください。",
 	"settings.exclusion.editor.name": "規則を直接書く（.gitignore）",
 	"settings.exclusion.editor.desc":
-		"保管庫のルートの .gitignore の全体です。自分の規則は、Sync Evo が管理する行（「# >>> Sync Evo」と「# <<< Sync Evo」の間）の外に書きます。「保存」を押すまで保存されず、切り替えを使うと、保存していない入力は消えます。",
+		"全デバイスの除外は、保管庫のルートの .gitignore に書きます。パソコンの git にも効きますが、git は、すでに {remote} にある物をアップロードし続けます。自分の規則は、Sync Evo が管理する行（「# >>> Sync Evo」と「# <<< Sync Evo」の間）の外に書きます。「保存」を押すまで保存されず、切り替えを使うと、保存していない入力は消えます。",
 	"settings.exclusion.editor.absent": "この保管庫には、まだ .gitignore がありません。保存すると作ります。",
 	"settings.exclusion.editor.save": "保存",
 	"settings.exclusion.editor.saved": ".gitignore を保存しました。次の同期で {remote} にアップロードします。",
+	"settings.deviceExclusion.heading": "同期しない物（このデバイスのみ）",
+	"settings.deviceExclusion.desc":
+		"ここで選んだ物は、このデバイスでだけ同期しません。このデバイスのファイルも、{remote} の物も削除しません。",
+	"settings.deviceExclusion.summary.none": "なし",
+	"settings.deviceExclusion.summary.folders": "フォルダ {count} 件",
+	"settings.deviceExclusion.kind.image": "画像",
+	"settings.deviceExclusion.kind.audio": "音声",
+	"settings.deviceExclusion.kind.video": "動画",
+	"settings.deviceExclusion.kind.pdf": "PDF",
+	"settings.deviceExclusion.kind.other": "その他",
 	"settings.exclusion.notices.name": "最後の同期で分かったこと",
 	"settings.exclusion.notices.desc": "最後の同期の時点で、この保管庫に当てはまっていることです。",
 	"settings.exclusion.write.syncing": "同期中は変えられません。同期が終わってから、もう一度行ってください。",
@@ -226,6 +237,8 @@ export const ja = completeTranslation(en, {
 	"notice.submoduleNotSent":
 		"サブモジュールの中は、読むだけです。このデバイスで変えた、足した、または消した次のファイルはアップロードされず、その変更はこのデバイスにだけ残ります。サブモジュールの中の変更は、パソコンの git で行ってください：\n{list}",
 
+	"notice.exclusionChange":
+		"このバージョンの Sync Evo から、除外している物は、{remote} にあっても同期しません。{remote} にある {count} 件のファイルを、このデバイスでは同期しなくなりました。全デバイスで除外している物は、Sync Evo の設定画面の「除外していて、{remote} に残っているファイル」で見られます。",
 	"notice.localLink":
 		"保管庫の中に、リンク（シンボリックリンク、ジャンクション）があります。Sync Evo は、リンクとその中を同期しません。{remote} でも、このデバイス（リンクの先）でも、そのままにします。ほかは通常どおり同期します：\n{list}",
 
@@ -240,8 +253,8 @@ export const ja = completeTranslation(en, {
 	"section.added.unknown": "この変更は、今回アップロードできなかったかもしれません。次の同期で確かめて、まだならアップロードします。",
 	"section.added.howTo":
 		"これらの行は、Sync Evo の設定画面で変えられます。要らない時は、最初と最後の行（# で始まる2行）だけを残して、間の行を消してください。その2行も消すと、次の同期でまた足します。",
-	"section.added.tracked": "これらの行で除外しているファイルが、{remote} に {count} 件あります。これらは同期を続けます：",
-	"section.added.untrackHint": "同期をやめるには、Sync Evo の設定画面で「{remote} から削除」を行います。{remote} からは消え、このデバイスのファイルは残ります。",
+	"section.added.tracked": "これらの行で除外しているファイルが、{remote} に {count} 件あります。どのデバイスの Sync Evo も、これらを同期しなくなります：",
+	"section.added.untrackHint": "{remote} から消すには、Sync Evo の設定画面で「{remote} から削除」を行います。Sync Evo のデバイスのファイルは残ります。",
 
 	"list.separator": "、",
 	"list.showRest": "残り {count} 件を表示",
@@ -345,7 +358,6 @@ export const ja = completeTranslation(en, {
 		"作ってから30日たった競合ファイル {count} 件を、_conflicts/ からこの保管庫の .trash/ へ移しました。残したい競合ファイルは、_conflicts/ の外へ移すか、名前を変えてください。",
 	"pull.keptLocal":
 		"選んだとおり、このデバイスのファイル {count} 件をそのまま残しました。{remote} の内容とは異なります：\n{list}",
-	"pull.keptUnsent": "選んだとおりに残したファイルのうち {count} 件は、除外しているため、{remote} へはアップロードしません。このデバイスにだけ残ります：\n{list}",
 	"pull.symlinks":
 		"{remote} にシンボリックリンクが {count} 件あります。Sync Evo は、このデバイスに書き込まず、{remote} でもそのままにします。スキップしているリンクは、設定画面で確認できます：\n{list}",
 
@@ -407,20 +419,13 @@ export const ja = completeTranslation(en, {
 		"{count} 件のファイルを、アップロードしていません。アップロードの途中で変わったか、読めなかったか、開いているファイルを保存できませんでした。次のアップロードで、もう一度確かめます：\n{list}",
 
 	"untrack.confirm.title": "{remote} から削除する確認",
-	"untrack.confirm.proceed": "{remote} から削除",
-	"untrack.confirm.cancel": "今は削除しない",
-	"untrack.confirm.body": "{remote} に、除外しているファイルが {count} 件あります。{remote} から削除すると、同期しなくなります：",
-	"untrack.confirm.threshold": "一度に {count} 件のファイルを、{remote} から削除します。一覧を確かめてから進めてください。",
-	"untrack.confirm.keeps": "このデバイスのファイルは削除しません。そのまま残ります。",
-	"untrack.confirm.otherDevices":
-		"ほかのデバイスでは、次のダウンロードで削除されます。そのデバイスで変更していたファイルは残ります。",
-	"untrack.confirm.mac":
-		"パソコンの git の側にファイルを残したい時は、ここでは削除せず、そのパソコンで git rm --cached をして push してください。その時は、このデバイスのファイルが、次のダウンロードで削除されます。",
-	"untrack.confirm.syncFirst": "先にダウンロードします。除外の設定をまだアップロードしていない時は、アップロードもするので、このデバイスのほかの変更も一緒にアップロードされます。",
+	"untrack.confirm.proceed": "削除",
+	"untrack.confirm.cancel": "やめる",
+	"untrack.confirm.body":
+		"次の {count} 件を {remote} から削除します。Sync Evo のデバイスのファイルは残ります（パソコンの git では、次の git pull で消えます）。",
 	"untrack.confirm.missing":
 		"このうち {count} 件は、このデバイスにありません。一覧に出した物には、印を付けています。{remote} から削除すると、中身は {remote} の履歴にだけ残ります。",
 	"untrack.confirm.submodules": "除外しているサブモジュールも {count} 件あります。ここでは削除しません。パソコンの git で行ってください：",
-	"untrack.confirm.note": "「今は削除しない」を選ぶと、除外の設定は残り、これらのファイルは同期を続けます。後から、Sync Evo の設定画面で削除できます。",
 	"untrack.item.tagged": "{path}（{tags}）",
 	"untrack.tag.symlink": "シンボリックリンク",
 	"untrack.tag.ownFolder": "Sync Evo 自身のフォルダ",
@@ -443,15 +448,13 @@ export const ja = completeTranslation(en, {
 	"untrack.syncFirst.gitignoreUnreadable":
 		"{remote} から削除していません。この保管庫の .gitignore を、このデバイスで読めません。理由は、Sync Evo の設定画面に出ます。直してから、もう一度行ってください。",
 	"untrack.syncFirst.noSection":
-		"{remote} から削除していません。この保管庫の .gitignore に Sync Evo が管理する行が無く、除外の設定がファイルに書かれていません。Sync Evo の設定画面で行を足して同期してから、もう一度行ってください。",
+		"{remote} から削除していません。この保管庫の .gitignore に Sync Evo が管理する行が無く、除外の設定がファイルに書かれていません。Sync Evo の設定画面で行を足してから、もう一度行ってください。",
 	"untrack.syncFirst.sectionBroken":
-		"{remote} から削除していません。.gitignore の、Sync Evo が管理する行を囲む2つの印の行が、1組になっていません。Sync Evo の設定画面で直して同期してから、もう一度行ってください。",
-	"untrack.syncFirst.gitignoreNotSent":
-		"{remote} から削除していません。除外の設定を、まだアップロードしていません。同期してから、Sync Evo の設定画面で、もう一度行ってください。",
+		"{remote} から削除していません。.gitignore の、Sync Evo が管理する行を囲む2つの印の行が、1組になっていません。Sync Evo の設定画面で直してから、もう一度行ってください。",
+	"untrack.syncFirst.gitignoreDiffers":
+		"{remote} から削除していません。{remote} の .gitignore が、このデバイスが最後に同期した物と違います。同期してから、Sync Evo の設定画面で、もう一度行ってください。",
 	"untrack.skipped.pullDeclined": "ダウンロードをやめたため、{remote} から削除していません。除外の設定は残っています。後から、Sync Evo の設定画面で削除できます。",
 	"untrack.skipped.pullCancelled": "ダウンロードを中止したため、{remote} から削除していません。除外の設定は残っています。後から、Sync Evo の設定画面で削除できます。",
-	"untrack.skipped.pushNotDone":
-		"アップロードが済まなかったため、{remote} から削除していません。除外の設定は、このデバイスに残っています。後から、Sync Evo の設定画面で削除できます。",
 
 	"state.waiting": "準備中…",
 	"state.newerVersion": "この保管庫は、新しいバージョンの Sync Evo で同期されています。同期するには、プラグインを更新してください。何も変更していません。",

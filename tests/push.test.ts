@@ -13,7 +13,7 @@ import { describe, expect, test } from "vitest";
 import { BackendError, type EntryKind, type ListResult, type PushRefusal } from "../src/core/backend";
 import { conflictCopyPath, mergedCopyPath } from "../src/core/conflict-name";
 import { readTidiedCopies, TIDIED_COPIES_KEY } from "../src/core/conflict-tidy";
-import { defaultSectionLines } from "../src/core/exclusion";
+import { createExclusion, defaultSectionLines } from "../src/core/exclusion";
 import { GITIGNORE_WRITE_KEY } from "../src/core/gitignore-file";
 import { SECTION_END, SECTION_START, withSection } from "../src/core/gitignore-section";
 import { readNotices } from "../src/core/notices";
@@ -293,8 +293,18 @@ async function synced(
 	options: { caseSensitive?: boolean; firstPush?: boolean; kinds?: Record<string, EntryKind> } = {},
 ): Promise<Harness> {
 	const h = harness(options);
-	h.backend.commit(files);
 	for (const [path, kind] of Object.entries(options.kinds ?? {})) h.backend.kinds.set(path, kind);
+	// What the rules leave out was synced before they were there: a first
+	// fetch under them would not fetch it. Its record is kept, as the record
+	// of an excluded path is.
+	const rules = createExclusion({ ...paths, gitignore: typeof files[".gitignore"] === "string" ? files[".gitignore"] : null });
+	if (Object.keys(files).some((path) => rules.excludes(path, "file", { has: () => true }))) {
+		h.backend.commit({ ...files, ".gitignore": withSection(null, []) });
+		expect((await h.pull()).outcome).toBe("completed");
+		h.backend.commit({ ".gitignore": null, ...files });
+	} else {
+		h.backend.commit(files);
+	}
 	const result = await h.pull();
 	expect(result.outcome).toBe("completed");
 	if (options.firstPush !== true) await h.store.setMeta(FIRST_PUSH_CONFIRMED_KEY, true);
@@ -1590,8 +1600,8 @@ describe("paths that differ only in case, on a device that tells them apart", ()
 	});
 });
 
-describe("a rename in case alone whose new spelling a rule excludes", () => {
-	test("sends neither the deletion nor the file, and tells it", async () => {
+describe("a rename in case alone of a file a rule excludes", () => {
+	test("sends neither the deletion nor the file: the rule matches both spellings", async () => {
 		// As on a Mac: one file, spelled otherwise than the remote and the record.
 		const h = await synced({ "drafts/a.md": "A", ".gitignore": "/drafts/\n", "keep.md": "K" });
 		await h.vault.rename("drafts", "Drafts");
@@ -1604,11 +1614,69 @@ describe("a rename in case alone whose new spelling a rule excludes", () => {
 		expect(result).toMatchObject({
 			outcome: "pushed",
 			counts: { added: 0, modified: 1, deleted: 0 },
-			heldRenames: [{ from: "drafts/a.md", to: "Drafts/a.md" }],
-			notices: [{ kind: "rename-not-sent", path: "Drafts/a.md" }],
+			heldRenames: [],
+			notices: [],
 		});
 		expect(await h.remote()).toEqual({ "drafts/a.md": "A", ".gitignore": "/drafts/\n", "keep.md": "K2" });
 		expect((await h.records())["drafts/a.md"]).toBe(blobHash("A"));
+	});
+});
+
+describe("the marks of an exclusion, as a push stores them", () => {
+	const said = async (h: Harness): Promise<string[]> =>
+		(await h.store.readRecords()).map((record) => `${record.path} ${record.wasExcluded === true}`).sort();
+
+	/** In sync on a draft and a note; then this device adds a rule for the drafts, and edits the note. */
+	async function ruled(): Promise<Harness> {
+		const h = await synced({ ".gitignore": "", "drafts/a.md": "A", "n.md": "N" }, { firstPush: true });
+		h.vault.put(".gitignore", "/drafts/\n");
+		h.vault.put("n.md", "N2");
+		return h;
+	}
+
+	test("set by a push that went through, and nothing of the excluded file is sent", async () => {
+		const h = await ruled();
+		h.vault.remove("drafts/a.md");
+		expect(await h.push()).toMatchObject({ outcome: "pushed", counts: { added: 0, modified: 2, deleted: 0 } });
+		expect(await said(h)).toEqual([".gitignore false", "drafts/a.md true", "n.md false"]);
+		expect(Object.keys(await h.remote())).toContain("drafts/a.md");
+	});
+
+	test("set by a push that found nothing to send", async () => {
+		const h = await synced({ ".gitignore": "/drafts/\n", "drafts/a.md": "A" });
+		await h.store.commitWrite({ key: "drafts/a.md", path: "drafts/a.md", kind: "file", hash: blobHash("A") });
+		expect(await h.push()).toMatchObject({ outcome: "nothing-to-push" });
+		expect(await said(h)).toEqual([".gitignore false", "drafts/a.md true"]);
+	});
+
+	test("not by a push that is declined, that waits for an answer, or that fails", async () => {
+		for (const ending of ["cancel", "later", "fails"] as const) {
+			const h = await ruled();
+			const before = await said(h);
+			h.answer = ending === "fails" ? "proceed" : ending;
+			if (ending === "fails") {
+				const backend = Object.create(h.backend) as TestBackend;
+				backend.push = async () => {
+					throw new BackendError("unreachable", "offline");
+				};
+				await expect(h.push({ backend })).rejects.toMatchObject({ kind: "unreachable" });
+			} else {
+				expect((await h.push()).outcome).toBe(ending === "cancel" ? "declined" : "waiting");
+			}
+			expect(await said(h)).toEqual(before);
+		}
+	});
+
+	test("taken back, a record of a file the vault lost meanwhile goes, and the remote keeps the file", async () => {
+		const h = await synced({ ".gitignore": "/drafts/\n", "drafts/a.md": "A", "n.md": "N" });
+		await h.store.commitWrite({ key: "drafts/a.md", path: "drafts/a.md", kind: "file", hash: blobHash("A"), wasExcluded: true });
+		h.vault.remove("drafts/a.md");
+		h.vault.put(".gitignore", "");
+
+		expect(await h.push()).toMatchObject({ outcome: "pushed", counts: { modified: 1, deleted: 0 } });
+
+		expect(await h.remote()).toEqual({ ".gitignore": "", "drafts/a.md": "A", "n.md": "N" });
+		expect(await said(h)).toEqual([".gitignore false", "n.md false"]);
 	});
 });
 
@@ -2101,7 +2169,7 @@ describe("what a pull leaves for the push that follows", () => {
 		expect((await h.sync()).push).toMatchObject({ outcome: "nothing-to-push" });
 	});
 
-	test("the copy of a file a rule matches is sent while the file is on the remote; a new file beside it is not", async () => {
+	test("a file a rule matches, changed on both sides: neither is fetched or sent, and no copy is made", async () => {
 		const rules = "/drafts/\n*.png\n";
 		const h = await synced({ "drafts/a.md": "A", "img.png": "P", ".gitignore": rules });
 		h.backend.commit({ "drafts/a.md": "A from the Mac", "img.png": "P from the Mac" });
@@ -2111,17 +2179,18 @@ describe("what a pull leaves for the push that follows", () => {
 
 		const { pull, push } = await h.sync();
 
-		expect(pull).toMatchObject({ outcome: "completed", counts: { conflicts: 2 } });
-		const copies = Object.fromEntries(pull.conflicts.map((conflict) => [conflict.path, conflict.copyPath]));
-		expect(push).toMatchObject({ outcome: "pushed", counts: { added: 2, modified: 0, deleted: 0 } });
-		expect(await h.remote()).toEqual({
-			"drafts/a.md": "A from the Mac",
-			[copies["drafts/a.md"] ?? ""]: "A from here",
-			"img.png": "P from the Mac",
-			[copies["img.png"] ?? ""]: "P from here",
-			".gitignore": rules,
-		});
+		expect(pull).toMatchObject({ outcome: "completed", counts: { fetched: 0, conflicts: 0 } });
+		expect(push).toMatchObject({ outcome: "nothing-to-push" });
+		expect(await h.remote()).toEqual({ "drafts/a.md": "A from the Mac", "img.png": "P from the Mac", ".gitignore": rules });
+		expect(h.vault.text("drafts/a.md")).toBe("A from here");
+		expect(h.vault.text("img.png")).toBe("P from here");
 		expect(h.vault.text("drafts/new.md")).toBe("N");
+		// The records stay as they were, marked.
+		const records = await h.store.readRecords();
+		expect(records.filter((record) => record.wasExcluded === true).map((record) => `${record.path} ${record.hash}`).sort()).toEqual([
+			`drafts/a.md ${blobHash("A")}`,
+			`img.png ${blobHash("P")}`,
+		]);
 	});
 
 	test("the copies that gathered before this device ever pushed are listed by the first question, and sent", async () => {
@@ -2173,19 +2242,21 @@ describe("what a pull leaves for the push that follows", () => {
 		await expectNothingToPull(h);
 	});
 
-	test("the copy of a file a rule matches is sent also once the remote has deleted the file", async () => {
+	test("the copy in the folder of the copies is sent though a rule matches the file it is a copy of, which the remote has deleted", async () => {
 		const rules = "*.png\n";
-		const h = await synced({ "img.png": "P", ".gitignore": rules });
+		const h = await synced({ "img.png": "P", ".gitignore": "" });
 		h.backend.commit({ "img.png": "P from the Mac" });
 		h.vault.put("img.png", "P from here");
 		const pull = await h.pull();
 		const copy = pull.conflicts[0]?.copyPath ?? "";
 		expect(copy).toBe(conflictCopyPath("img.png", "iPhone", new Date(h.now())));
-		// The Mac deletes the image between the pull and the push.
+		// The Mac deletes the image between the pull and the push, and the
+		// rule comes to this device.
 		h.backend.commit({ "img.png": null });
+		h.vault.put(".gitignore", rules);
 
 		// Nothing is asked about the file a copy in the folder is of.
-		expect(await h.push()).toMatchObject({ outcome: "pushed", counts: { added: 1, modified: 0, deleted: 0 } });
+		expect(await h.push()).toMatchObject({ outcome: "pushed", counts: { added: 1, modified: 1, deleted: 0 } });
 
 		expect(await h.remote()).toEqual({ ".gitignore": rules, [copy]: "P from here" });
 		expect(h.vault.text(copy)).toBe("P from here");
@@ -2220,7 +2291,8 @@ describe("what a pull leaves for the push that follows", () => {
 		expect(h.backend.revision).toBe(head);
 		expect(h.vault.text("drafts/a.md")).toBe("A edited here");
 		expect(h.vault.trashed).toEqual([]);
-		expect(await h.records()).toEqual(hashes({ "b.md": "B", ".gitignore": "/drafts/\n" }));
+		// Its record stays as it was, marked, and nothing is made of it.
+		expect(await h.records()).toEqual(hashes({ "b.md": "B", ".gitignore": "/drafts/\n", "drafts/a.md": "A" }));
 
 		// And it stays that way: the file is excluded like any other in the folder.
 		h.vault.put("drafts/a.md", "A edited again");
@@ -2616,14 +2688,16 @@ describe("a push that did not get to its end is remembered", () => {
 describe("a copy that is itself in conflict", () => {
 	test("its content goes to a new copy in the folder, and both are sent though the first file is gone from the remote", async () => {
 		const rules = "*.png\n";
-		const h = await synced({ "img.png": "P", ".gitignore": rules });
+		const h = await synced({ "img.png": "P", ".gitignore": "" });
 		h.backend.commit({ "img.png": "P from the Mac" });
 		h.vault.put("img.png", "P from here");
 		const first = (await h.sync()).pull.conflicts[0]?.copyPath ?? "";
 		expect(await h.remote()).toMatchObject({ [first]: "P from here" });
 
-		// The Mac deletes the image and edits the copy; so does this device.
-		h.backend.commit({ "img.png": null, [first]: "copy edited on the Mac" });
+		// The Mac deletes the image, edits the copy, and adds a rule for
+		// images; this device edits the copy too. A copy in the folder is
+		// fetched and sent whatever the rules say.
+		h.backend.commit({ "img.png": null, [first]: "copy edited on the Mac", ".gitignore": rules });
 		h.vault.put(first, "copy edited here");
 
 		const { pull, push } = await h.sync();
@@ -2638,11 +2712,13 @@ describe("a copy that is itself in conflict", () => {
 			[second]: "copy edited here",
 			".gitignore": rules,
 		});
-		await expectNothingToPull(h);
+		// The image stays here, cut off by the rule: its record with it.
+		expect(await h.pull()).toMatchObject({ outcome: "completed", counts: { fetched: 0, deleted: 0, conflicts: 0 } });
+		expect(h.vault.text("img.png")).toBe("P from the Mac");
 	});
 
 	test("a copy of the earlier form: its content goes to the folder too, and no name with a number is made", async () => {
-		const rules = "*.png\n";
+		const rules = "*.md\n";
 		const earlier = earlierCopyPath("img.png", "iPhone", new Date(2026, 9, 3, 22, 15, 0));
 		const h = await synced({ "img.png": "P", [earlier]: "P from here", ".gitignore": rules });
 		h.backend.commit({ "img.png": null, [earlier]: "copy edited on the Mac" });
@@ -2664,43 +2740,41 @@ describe("a copy that is itself in conflict", () => {
 	});
 });
 
-describe("a kept file that a rule excludes", () => {
-	test("dropped by a rewritten history: it stays here, the pull says that it is not sent back, and no push sends it", async () => {
+describe("a file a rule excludes and a rewritten history", () => {
+	test("one the remote got and lost again is never fetched, and so is not among what is kept", async () => {
 		const rules = "/drafts/\n";
 		const h = await synced({ "a.md": "A1", ".gitignore": rules });
 		// Tracked though the rule matches it, as after a `git add -f`.
 		h.backend.commit({ "a.md": "A2", "drafts/c.md": "C", "c.md": "C" });
 		await h.pull();
-		const head = h.backend.rewriteHistory({ "a.md": "A1", ".gitignore": rules });
+		expect(h.vault.text("drafts/c.md")).toBeUndefined();
+		h.backend.rewriteHistory({ "a.md": "A1", ".gitignore": rules });
 		h.pullAnswer = "keep-local";
 
 		const { pull, push } = await h.sync();
 
-		expect(pull).toMatchObject({ outcome: "completed", rewritten: true, keptUnsent: ["drafts/c.md"] });
-		expect([...pull.keptLocal].sort()).toEqual(["a.md", "c.md", "drafts/c.md"]);
+		expect(pull).toMatchObject({ outcome: "completed", rewritten: true });
+		expect([...pull.keptLocal].sort()).toEqual(["a.md", "c.md"]);
 		expect(push).toMatchObject({ outcome: "pushed", counts: { added: 1, modified: 1, deleted: 0 } });
 		expect(await h.remote()).toEqual({ "a.md": "A2", "c.md": "C", ".gitignore": rules });
-		expect(h.vault.text("drafts/c.md")).toBe("C");
-		expect(h.vault.trashed).toEqual([]);
-
-		expect((await h.sync()).push).toMatchObject({ outcome: "nothing-to-push" });
-		expect(h.backend.revision).not.toBe(head);
-		expect(h.vault.text("drafts/c.md")).toBe("C");
 	});
 
-	test("written back by a rewritten history: the remote still holds the path, so it is sent as any edit", async () => {
+	test("one this device has is left as it is, whatever the history writes there, and nothing is asked about it", async () => {
 		const rules = "/drafts/\n";
 		const h = await synced({ "drafts/c.md": "C1", ".gitignore": rules });
 		h.backend.commit({ "drafts/c.md": "C2" });
 		await h.pull();
+		expect(h.vault.text("drafts/c.md")).toBe("C1");
 		h.backend.rewriteHistory({ "drafts/c.md": "C1", ".gitignore": rules });
 		h.pullAnswer = "keep-local";
 
 		const { pull, push } = await h.sync();
 
-		expect(pull).toMatchObject({ outcome: "completed", keptLocal: ["drafts/c.md"], keptUnsent: [] });
-		expect(push).toMatchObject({ outcome: "pushed", counts: { added: 0, modified: 1, deleted: 0 } });
-		expect(await h.remote()).toEqual({ "drafts/c.md": "C2", ".gitignore": rules });
+		expect(h.pullAsked).toEqual([]);
+		expect(pull).toMatchObject({ outcome: "completed", keptLocal: [] });
+		expect(push).toMatchObject({ outcome: "nothing-to-push" });
+		expect(await h.remote()).toEqual({ "drafts/c.md": "C1", ".gitignore": rules });
+		expect(h.vault.text("drafts/c.md")).toBe("C1");
 	});
 });
 
@@ -2907,7 +2981,9 @@ describe("a file a cloud drive has taken off the device", () => {
 	});
 
 	test("a file whose name only ends in .icloud, or only starts with a dot, is a file like any other", async () => {
-		const others = { "notes/x.icloud": "I", ".hidden": "H", "notes/.dot.md": "D", "keep.md": "K" };
+		// With a section that leaves nothing out: the default lines leave out `*.icloud`.
+		const empty = withSection(null, []);
+		const others = { ".gitignore": empty, "notes/x.icloud": "I", ".hidden": "H", "notes/.dot.md": "D", "keep.md": "K" };
 		const h = await synced(others);
 		expect(h.vault.snapshot()).toEqual(others);
 		h.vault.put("notes/x.icloud", "I2");
@@ -2917,7 +2993,7 @@ describe("a file a cloud drive has taken off the device", () => {
 		const result = await h.push();
 
 		expect(result).toMatchObject({ outcome: "pushed", counts: { added: 0, modified: 1, deleted: 2 }, held: [] });
-		expect(await h.remote()).toEqual({ "notes/x.icloud": "I2", "keep.md": "K" });
+		expect(await h.remote()).toEqual({ ".gitignore": empty, "notes/x.icloud": "I2", "keep.md": "K" });
 	});
 });
 
@@ -3304,20 +3380,19 @@ describe("what a push never turns into a deletion or an upload", () => {
 		expect(await fresh.remote()).toEqual({ "Case.md": "C", "case.md": "c", "ok.md": "O" });
 	});
 
-	test("a file in .trash/ is not sent, while one the remote holds there stays synced", async () => {
+	test("a file in .trash/ is not sent, also one the remote holds there, and its deletion is not sent either", async () => {
 		const h = await synced({ ".trash/kept.md": "K", "a.md": "A" });
 		expect(h.vault.text(".trash/kept.md")).toBe("K");
 		h.vault.put(".trash/kept.md", "K2");
 		h.vault.put(".trash/x.md", "X");
 
-		const result = await h.push();
-
-		expect(result).toMatchObject({ outcome: "pushed", counts: { added: 0, modified: 1, deleted: 0 } });
-		expect(await h.remote()).toEqual({ ".trash/kept.md": "K2", "a.md": "A" });
-		// And deleted here, it is deleted there.
+		expect(await h.push()).toMatchObject({ outcome: "nothing-to-push" });
+		expect(await h.remote()).toEqual({ ".trash/kept.md": "K", "a.md": "A" });
 		h.vault.remove(".trash/kept.md");
-		expect(await h.push()).toMatchObject({ outcome: "pushed", counts: { deleted: 1 } });
-		expect(await h.remote()).toEqual({ "a.md": "A" });
+		expect(await h.push()).toMatchObject({ outcome: "nothing-to-push" });
+		expect(await h.remote()).toEqual({ ".trash/kept.md": "K", "a.md": "A" });
+		// Its record stays, marked.
+		expect((await h.store.readRecords()).find((record) => record.path === ".trash/kept.md")?.wasExcluded).toBe(true);
 	});
 });
 
@@ -3742,13 +3817,14 @@ describe("the section a push adds to a .gitignore that has none", () => {
 					firstPush: { added: ["new.md"], modified: [".gitignore"], deleted: [] },
 					remoteEmpty: false,
 					deletions: null,
-					recordCount: 5,
+					// Not the two the default lines left out before the section was there.
+					recordCount: 3,
 					sectionAdded: added,
 				},
 			]);
 			expect(result.outcome).toBe("pushed");
 			expect(result.sectionAdded).toEqual({ ...added, asked: true, sent: true });
-			// They stay synced.
+			// They stay on the remote.
 			expect(Object.keys(await h.remote()).sort()).toEqual(
 				[".DS_Store", ".gitignore", ".obsidian/workspace.json", ".trash/old.md", "a.md", "new.md"].sort(),
 			);

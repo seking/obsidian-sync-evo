@@ -10,6 +10,7 @@
  */
 
 import { describe, expect, test } from "vitest";
+import { NO_DEVICE_EXCLUSION } from "../src/core/device-exclusion";
 import {
 	type AutoReport,
 	autoTexts,
@@ -42,6 +43,8 @@ const settings: DeviceSettings = {
 	deviceName: "iPhone",
 	autoSync: DEFAULT_AUTO_SYNC,
 	onConflict: "copy",
+	deviceExclusion: NO_DEVICE_EXCLUSION,
+	exclusionChangeTold: true,
 };
 const options = { settings, sizeLimit: 50 * 1024 * 1024 };
 
@@ -62,7 +65,6 @@ const pulled = (over: Partial<PullResult> = {}): PullResult => ({
 	unwritable: [],
 	keptLocal: [],
 	tidiedCopies: [],
-	keptUnsent: [],
 	newSymlinks: [],
 	notices: [],
 	closedViews: false,

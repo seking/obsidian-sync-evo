@@ -14,10 +14,13 @@
 // pull, and a push can never disagree about a path.
 //
 // There are two layers. The rules are the user's: the `.gitignore` at the
-// vault root, read the way git reads it, and applied only to paths the
-// remote does not hold. Below them is a floor of two things no rule can
-// change. Nothing here reads or writes a file; the text of `.gitignore` is
-// handed in.
+// vault root, read the way git reads it, and this device's own exclusion
+// (`device-exclusion.ts`), read the same way and apart from it. Unlike git,
+// a rule cuts a path off from the sync also where the remote holds it or it
+// has a record: it is neither sent nor fetched, and its deletion on either
+// side is not carried over. Below the rules is a floor of two things no
+// rule can change. Nothing here reads or writes a file; the text of
+// `.gitignore` is handed in.
 //
 // Only the root `.gitignore` is read. One in a subfolder is an ordinary file
 // and its rules have no effect. Reading those too would change the input of
@@ -26,7 +29,6 @@
 
 import ignore from "ignore";
 import type { EntryKind } from "./backend";
-import { copyFamilyOf } from "./conflict-copies";
 import { isConflictFolder, isCopyInConflictFolder, originalPathOfConflictCopy } from "./conflict-name";
 import {
 	defaultSectionState,
@@ -36,6 +38,7 @@ import {
 	trimSlashes,
 	withSection,
 } from "./gitignore-section";
+import { type DeviceExclusion, deviceExclusionLines } from "./device-exclusion";
 import { foldedKey, isPathFromRoot, pathKey } from "./paths";
 
 /**
@@ -66,6 +69,8 @@ export interface ExclusionPaths {
 export interface ExclusionInput extends ExclusionPaths {
 	/** The text of the `.gitignore` at the vault root, or `null` when there is none. */
 	readonly gitignore: string | null;
+	/** What this device alone leaves out. Absent: nothing. */
+	readonly device?: Pick<DeviceExclusion, "kinds" | "folders">;
 }
 
 export interface Exclusion {
@@ -73,9 +78,11 @@ export interface Exclusion {
 	hardExclusionOf(path: string): HardExclusion | undefined;
 
 	/**
-	 * Whether a rule matches `path`, as `git check-ignore` would answer for
-	 * a path git does not track. This alone does not exclude anything; see
-	 * `excludes`.
+	 * Whether a rule matches `path`: one of the root `.gitignore`, as
+	 * `git check-ignore` would answer for a path git does not track, or one
+	 * of this device's own exclusion. The two are asked apart, so a `!` of
+	 * one does not undo a line of the other. This alone does not exclude
+	 * anything; see `excludes`.
 	 *
 	 * - A copy kept from a conflict in the folder of the copies never
 	 *   matches: it is always synced (`excludes`).
@@ -87,61 +94,47 @@ export interface Exclusion {
 	matchesRule(path: string, type: PathType): boolean;
 
 	/**
-	 * Whether `path` is left out of the sync. A path that is known (on the
-	 * remote, or with a record) is synced even when a rule matches it, the
-	 * way git keeps tracking a file that is added to `.gitignore` later.
-	 * Only the two fixed exclusions do not care.
-	 *
-	 * A copy kept from a conflict is new by nature, and is to reach the
-	 * other devices whatever the rules say: otherwise the copy of a tracked
-	 * file that a rule matches (`drafts/a.md` after `/drafts/` was added, a
-	 * tracked `img.png` under `*.png`) would stay on this device.
+	 * `matchesRule`, by the root `.gitignore` alone: what every device
+	 * leaves out, and git on a computer too. What can be taken out of the
+	 * remote is chosen by this (`untrackableFiles`): a path that only this
+	 * device leaves out is synced by the others.
+	 */
+	matchesGitignore(path: string, type: PathType): boolean;
+
+	/**
+	 * Whether `path` is left out of the sync: one of the two fixed
+	 * exclusions, or a rule matches it (`matchesRule`). What the remote holds
+	 * and what has a record does not change that: a rule cuts the path off
+	 * from the remote, and nothing is sent, fetched, or deleted for it on
+	 * either side.
 	 *
 	 * A copy in the folder of the copies (`isCopyInConflictFolder`) is
 	 * never left out by a rule, also not by one the user wrote for the
-	 * folder. Its name does not tell the file it is a copy of, so nothing is
-	 * asked about that file: a copy is only made in a conflict with a file
-	 * the remote holds. The folder itself is not left out either, so that
-	 * whoever lists the vault goes into it under a rule that matches it.
-	 * Everything else in it, a folder or a file that is not named like a
-	 * copy, goes by the rules like any other path.
+	 * folder: it is sent and fetched whatever the rules say, so that the
+	 * content it keeps reaches the other devices. Its name does not tell the
+	 * file it is a copy of, so nothing is asked about that file. The folder
+	 * itself is not left out either, so that whoever lists the vault goes
+	 * into it under a rule that matches it. Everything else in it, a folder
+	 * or a file that is not named like a copy, goes by the rules like any
+	 * other path.
 	 *
-	 * A copy of the earlier form, beside its file, is synced when the file
-	 * it is a copy of is on the remote. A record of that file is not enough.
-	 * Once the remote has deleted it, the file is on its way out, and its
-	 * copy is like any other new file a rule matches. For a copy of a copy
-	 * it is the first file that is asked about, as for the rule.
-	 *
-	 * Such a copy that was itself in conflict used to leave its content
-	 * under its own name with another number. That one is synced while the
-	 * remote holds a copy of that name, the one it was in conflict with,
-	 * though the first file may be gone from the remote by then.
-	 *
-	 * A copy of the earlier form of a file inside the configuration folder
-	 * is left out, unless it is known itself. No pull makes a copy of such a
-	 * file (`isInConfigDir`); one that an earlier version made stays on the
-	 * device, and is not sent.
+	 * A copy of the earlier form, beside its file, goes by the rules as the
+	 * file it is a copy of (`matchesRule`). Of a file inside the
+	 * configuration folder it is left out, unless it is known itself
+	 * (`known`): no pull makes a copy of such a file (`isInConfigDir`); one
+	 * that an earlier version made stays on the device, and is not sent.
 	 */
 	excludes(path: string, type: PathType, known: KnownPaths): boolean;
 }
 
 /**
  * What the remote holds and what has a record, as far as the exclusion
- * needs to ask. Both questions take NFC keys.
+ * needs to ask: only for a copy of the earlier form inside the
+ * configuration folder (`Exclusion.excludes`).
  */
 export interface KnownPaths {
-	/**
-	 * For a file: whether it is on the remote or has a record. For a folder:
-	 * whether any path below it is or has.
-	 */
-	has: (key: string, type: PathType) => boolean;
-	/** Whether the remote holds this file. A record does not count. */
-	onRemote: (key: string) => boolean;
-	/**
-	 * For a path named like a copy of the earlier form: whether the remote
-	 * holds another copy of the same name but for the number at its end.
-	 */
-	copyOnRemote: (key: string) => boolean;
+	/** Whether the remote holds this file, or it has a record. Takes an NFC key. */
+	has: (key: string) => boolean;
 }
 
 /**
@@ -149,53 +142,18 @@ export interface KnownPaths {
  * sync decision both get theirs from here, and from both lists at once, so
  * that neither can go by the remote alone or by the records alone.
  *
- * Asked without regard to case, so that a folder the vault spells `Drafts`
- * counts as holding the remote's `drafts/a.md`. Taking a path for known by
- * mistake only means it is looked at; leaving out a file that is synced
- * would look like the user deleting it.
+ * Asked without regard to case, so that a copy the vault spells
+ * `.Obsidian/...` counts as the one the remote holds.
  */
 export function knownPaths(
 	remote: readonly { readonly path: string }[],
 	records: readonly { readonly path: string }[],
 ): KnownPaths {
-	const onRemote = new Set<string>();
-	// The name the copies of one conflict share → the copies the remote holds.
-	const copies = new Map<string, Set<string>>();
 	const files = new Set<string>();
-	const folders = new Set<string>();
-	for (const [entries, isRemote] of [
-		[remote, true],
-		[records, false],
-	] as const) {
-		for (const entry of entries) {
-			const key = foldedKey(entry.path);
-			if (isRemote) {
-				onRemote.add(key);
-				const family = copyFamilyOf(entry.path);
-				if (family !== null) {
-					const group = copies.get(family);
-					if (group === undefined) copies.set(family, new Set([key]));
-					else group.add(key);
-				}
-			}
-			files.add(key);
-			for (let slash = key.indexOf("/"); slash !== -1; slash = key.indexOf("/", slash + 1)) {
-				folders.add(key.slice(0, slash));
-			}
-		}
+	for (const entries of [remote, records]) {
+		for (const entry of entries) files.add(foldedKey(entry.path));
 	}
-	return {
-		has: (key, type) => (type === "folder" ? folders : files).has(foldedKey(key)),
-		onRemote: (key) => onRemote.has(foldedKey(key)),
-		copyOnRemote: (key) => {
-			const family = copyFamilyOf(key);
-			const group = family === null ? undefined : copies.get(family);
-			if (group === undefined) return false;
-			// Itself does not count: the remote may hold the very name
-			// in another case, and no other copy.
-			return group.size > 1 || !group.has(foldedKey(key));
-		},
-	};
+	return { has: (key) => files.has(foldedKey(key)) };
 }
 
 /**
@@ -208,6 +166,10 @@ export function createExclusion(input: ExclusionInput): Exclusion {
 	// The case is stated rather than left to the default of the library:
 	// `*.png` has to match `IMG_1.PNG`, as it does for git on a Mac.
 	const rules = ignore({ ignorecase: true }).add(effectiveRules(input));
+	// Apart from the rules of the file, so that a `!` of either undoes
+	// nothing of the other. Without lines it matches nothing.
+	const deviceLines = input.device === undefined ? [] : deviceExclusionLines(input.device, input);
+	const deviceRules = deviceLines.length === 0 ? null : ignore({ ignorecase: true }).add(deviceLines);
 	const ownFolder = foldedKey(checkedKey(trimSlashes(input.pluginDir)));
 
 	// Compared without case, unlike the keys of the three sides. On a file
@@ -220,30 +182,36 @@ export function createExclusion(input: ExclusionInput): Exclusion {
 		return undefined;
 	};
 
-	const matchesRule = (path: string, type: PathType): boolean => {
+	// What `ignore` is asked, or `null` for a path no rule can match.
+	const subjectOf = (path: string, type: PathType): string | null => {
 		const key = checkedKey(path);
-		if (type === "file" && isCopyInConflictFolder(key)) return false;
+		if (type === "file" && isCopyInConflictFolder(key)) return null;
 		const subject = type === "file" ? withoutConflictNames(key) : key;
-		if (subject === ROOT_GITIGNORE) return false;
+		if (subject === ROOT_GITIGNORE) return null;
 		// `ignore` looks at no disk. The slash at the end is what tells it
 		// that this is a folder.
-		return rules.ignores(type === "folder" ? `${subject}/` : subject);
+		return type === "folder" ? `${subject}/` : subject;
+	};
+	const matchesGitignore = (path: string, type: PathType): boolean => {
+		const subject = subjectOf(path, type);
+		return subject !== null && rules.ignores(subject);
+	};
+	const matchesRule = (path: string, type: PathType): boolean => {
+		const subject = subjectOf(path, type);
+		return subject !== null && (rules.ignores(subject) || deviceRules?.ignores(subject) === true);
 	};
 
 	return {
 		hardExclusionOf,
 		matchesRule,
+		matchesGitignore,
 		excludes: (path, type, known) => {
 			if (hardExclusionOf(path) !== undefined) return true;
 			const key = checkedKey(path);
 			if (type === "folder" ? isConflictFolder(key) : isCopyInConflictFolder(key)) return false;
-			if (known.has(key, type)) return false;
 			if (type === "file") {
 				const original = withoutConflictNames(key);
-				if (original !== key) {
-					if (isInConfigDir(original, input.configDir)) return true;
-					if (known.onRemote(original) || known.copyOnRemote(key)) return false;
-				}
+				if (original !== key && isInConfigDir(original, input.configDir) && !known.has(key)) return true;
 			}
 			return matchesRule(path, type);
 		},
@@ -283,7 +251,9 @@ export function defaultSectionLines(paths: ExclusionPaths): string[] {
  *
  * Each line is judged by the rules alone, on a path it is there to leave
  * out. Whether a line is there is not looked at: the same rule written
- * another way, or outside the section, is as good. `excludes` is not asked.
+ * another way, or outside the section, is as good. Only the root
+ * `.gitignore` is asked (`matchesGitignore`): what this device leaves out of
+ * its own does not reach git on a Mac. `excludes` is not asked.
  * It would call the trash of a remote that tracks `.trash/` synced, and warn
  * forever about a line that works; and it would never warn about Sync Evo's
  * own folder, which the code leaves out, while a `git add -A` on a Mac
@@ -292,16 +262,17 @@ export function defaultSectionLines(paths: ExclusionPaths): string[] {
  * While the file has no section, the lines of the default section count as
  * there, so nothing is off but what a `!` of the file undoes.
  */
-export function fixedExclusionsOff(exclusion: Exclusion, paths: ExclusionPaths): string[] {
+export function fixedExclusionsOff(exclusion: Pick<Exclusion, "matchesGitignore">, paths: ExclusionPaths): string[] {
 	return fixedExclusions(paths)
-		.filter((fixed) => !exclusion.matchesRule(fixed.path, fixed.type))
+		.filter((fixed) => !exclusion.matchesGitignore(fixed.path, fixed.type))
 		.map((fixed) => fixed.line);
 }
 
 /**
- * The files of a remote listing that a rule matches now. They stay synced
- * (`excludes`), the way git keeps tracking a file that is added to
- * `.gitignore` later; this is the list to show for that.
+ * The files of a remote listing that a rule of the root `.gitignore`
+ * matches now. No device of Sync Evo syncs them any more (`excludes`), and
+ * git on a computer still does, the way git keeps tracking a file that is
+ * added to `.gitignore` later; this is the list to show for that.
  *
  * Not in it: what the two fixed exclusions cover, which are not synced
  * whatever the remote holds; a submodule and what lies below one, which is
@@ -316,6 +287,20 @@ export function remoteFilesMatchingRules<T extends { readonly path: string; read
 	return untrackableFiles(exclusion, entries)
 		.files.filter((file) => !file.ownFolder)
 		.map((file) => file.entry);
+}
+
+/**
+ * The files of a remote listing that a rule excludes now, this device's own
+ * exclusion among the rules (`matchesRule`), and otherwise as
+ * `remoteFilesMatchingRules`: what a device of Sync Evo does not sync,
+ * though the remote holds it.
+ */
+export function remoteFilesExcluded<T extends { readonly path: string; readonly kind: EntryKind }>(
+	exclusion: Exclusion,
+	entries: readonly T[],
+): T[] {
+	const byEveryRule = { ...exclusion, matchesGitignore: (path: string, type: PathType) => exclusion.matchesRule(path, type) };
+	return remoteFilesMatchingRules(byEveryRule, entries);
 }
 
 /** A file of the remote that can be taken out of it, and stays on the device (`untrackableFiles`). */
@@ -342,10 +327,13 @@ export interface Untrackable<T> {
 /**
  * The files of a remote listing that can be untracked: taken out of the
  * remote and left on the device, as `git rm --cached` does. Every file and
- * symlink a rule matches now, also in Sync Evo's own folder: no sync reads
+ * symlink a rule of the root `.gitignore` matches now (`matchesGitignore`),
+ * also in Sync Evo's own folder: no sync reads
  * or writes there, and the files of another device's plugin stay on the
  * remote until someone takes them out. Without a rule that matches them they
- * are not listed, like any other file.
+ * are not listed, like any other file. Nor is what only this device leaves
+ * out: the other devices sync it, and would take its deletion from the
+ * remote for one of their own.
  *
  * Not in it: a `.git` and what lies below it, which no tree holds; what lies
  * below a submodule; and a path nothing can be decided about. A submodule
@@ -366,8 +354,8 @@ export function untrackableFiles<T extends { readonly path: string; readonly kin
 		const hard = exclusion.hardExclusionOf(key);
 		if (hard === "dot-git") continue;
 		if (entry.kind === "submodule") {
-			if (exclusion.matchesRule(key, "file") || exclusion.matchesRule(key, "folder")) submodules.push(entry.path);
-		} else if (exclusion.matchesRule(key, "file")) {
+			if (exclusion.matchesGitignore(key, "file") || exclusion.matchesGitignore(key, "folder")) submodules.push(entry.path);
+		} else if (exclusion.matchesGitignore(key, "file")) {
 			files.push({ entry, ownFolder: hard === "own-folder" });
 		}
 	}
@@ -409,11 +397,11 @@ export function untrackableByAddedLines<T extends { readonly path: string; reado
  *
  * Not in it: one below either of the two fixed exclusions; one below a
  * submodule, whose rules are for the repository it is; and one that a rule
- * matches, itself or a folder above it. That is asked of the rules alone
- * (`matchesRule`), since `excludes` leaves nothing out that the remote
- * holds: a `knowledge/.gitignore` inside a folder the root leaves out would
- * be told on every device for good. `local` is what the scan found, which
- * does not go below a folder a rule matches unless something there is known.
+ * matches, itself or a folder above it: a `knowledge/.gitignore` inside a
+ * folder the root leaves out would otherwise be told on every device for
+ * good. Asked of the rules alone (`matchesRule`), this device's own among
+ * them. `local` is what the scan found, which does not go below a folder a
+ * rule matches.
  */
 export function nestedGitignores(
 	exclusion: Exclusion,
