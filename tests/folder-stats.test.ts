@@ -11,9 +11,9 @@
 
 import type { App } from "obsidian";
 import { beforeEach, describe, expect, test, vi } from "vitest";
-import { folderStatsOf } from "../src/obsidian/folder-stats";
+import { folderStatsOf, folderStatsProbeOf } from "../src/obsidian/folder-stats";
 
-const platform = vi.hoisted(() => ({ isAndroidApp: true }));
+const platform = vi.hoisted(() => ({ isAndroidApp: true, isIosApp: false }));
 vi.mock("obsidian", () => ({ Platform: platform }));
 
 interface Entry {
@@ -39,6 +39,12 @@ function appWith(
 			},
 		},
 		getFullPath: (path: string) => `/vault/${path}`,
+		list(folder: string): Promise<{ files: string[]; folders: string[] }> {
+			const listing = listings[`/vault/${folder === "/" ? "" : folder}`];
+			const files = listing instanceof Error || listing === undefined ? [] : listing.filter((e) => e.type === "file");
+			const prefix = folder === "/" ? "" : `${folder}/`;
+			return Promise.resolve({ files: files.map((e) => `${prefix}${e.name}`), folders: [] });
+		},
 		stat(path: string): Promise<{ type: "file"; mtime: number; size: number } | null> {
 			asked.push(`stat ${path}`);
 			const stat = disk[path];
@@ -53,6 +59,7 @@ const file = (name: string, mtime: number, size: number): Entry => ({ type: "fil
 
 beforeEach(() => {
 	platform.isAndroidApp = true;
+	platform.isIosApp = false;
 });
 
 describe("the stats of a folder from the listing on Android", () => {
@@ -141,5 +148,26 @@ describe("the stats of a folder from the listing on Android", () => {
 		expect(folderStatsOf(appWith({}).app)).toBeUndefined();
 		platform.isAndroidApp = true;
 		expect(folderStatsOf({ vault: { adapter: { stat: () => null } } } as unknown as App)).toBeUndefined();
+	});
+});
+
+describe("the check of the listing on iOS", () => {
+	test("compares the listing with the disk, tells nothing to the sync, and writes what it found to the log", async () => {
+		platform.isAndroidApp = false;
+		platform.isIosApp = true;
+		const { app } = appWith(
+			{ "/vault/": [file("a.md", 10, 1), file("b.md", 20, 2)], "/vault/n": [file("c.md", 30, 3)] },
+			{ "a.md": { mtime: 10, size: 1 }, "b.md": { mtime: 21, size: 2 }, "n/c.md": { mtime: 30, size: 3 } },
+		);
+		const lines: string[] = [];
+		const probe = folderStatsProbeOf(app, (line) => lines.push(line));
+
+		expect(folderStatsOf(app)).toBeUndefined();
+		expect(await probe?.stats("/")).toBeNull();
+		expect(await probe?.stats("n")).toBeNull();
+		probe?.finish();
+
+		expect(lines[0]).toMatch(/^listing probe: 2 folders, 0 not read, 0 files not in the listing, 3 compared, 1 differ, /);
+		expect(lines.slice(1)).toEqual(["listing probe: b.md: listing 20/2, disk 21/2"]);
 	});
 });
