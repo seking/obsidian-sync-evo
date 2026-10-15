@@ -86,6 +86,13 @@ export interface VaultPorts<Handle> {
 	 */
 	readonly linksIn?: (folder: string) => Promise<readonly string[]>;
 	readonly isLink?: (path: string) => Promise<boolean>;
+	/**
+	 * What `list` returns, read from the disk another way, for a folder
+	 * `list` fails at: the app's listing fails at a link whose target
+	 * cannot be reached (seen on a Mac), and this leaves such a link out.
+	 * Absent where links cannot be told.
+	 */
+	readonly listOnDisk?: (folder: string) => Promise<FolderListing>;
 
 	// The index: looked up by the exact spelling.
 	indexed(path: string): IndexedItem<Handle> | null;
@@ -181,8 +188,27 @@ export class RoutedVault<Handle> implements PullVault {
 		throw new Error("The listing of the vault root does not hold the configuration folder.");
 	}
 
+	/**
+	 * A folder the app cannot list is listed from the disk, where that can
+	 * be done (`VaultPorts.listOnDisk`): one link whose target is gone would
+	 * otherwise fail every sync. That listing leaves the link out, as the
+	 * scan expects of a listing (`scanVault`), and tells it with the other
+	 * links. Whole or not at all: when it fails too, what the app's listing
+	 * failed with is passed on.
+	 */
 	private async listed(folder: string): Promise<{ files: string[]; folders: string[] }> {
-		const listing = await this.ports.list(folder);
+		const { listOnDisk } = this.ports;
+		let listing: FolderListing;
+		try {
+			listing = await this.ports.list(folder);
+		} catch (error) {
+			if (listOnDisk === undefined) throw error;
+			try {
+				listing = await listOnDisk(folder);
+			} catch {
+				throw error;
+			}
+		}
 		return { files: listing.files.map(fromRoot), folders: listing.folders.map(fromRoot) };
 	}
 

@@ -63,7 +63,7 @@ import { createExclusion, type Exclusion, type ExclusionPaths, untrackableByAdde
 import { isFirstFetchConfirmed, markFirstFetchConfirmed } from "./first-fetch";
 import { addDefaultSection, isGitignoreAsRecorded, settleGitignoreWrite } from "./gitignore-file";
 import { lightCheckLine, scanLightly, type VaultIndex } from "./light-scan";
-import { readLocal, saved } from "./local-read";
+import { readLocal, saved, withLinksRead } from "./local-read";
 import {
 	type NoticeRef,
 	notSentNotices,
@@ -695,7 +695,7 @@ class PushRun {
 		const began = deps.now();
 		const scanned = { exclusion, remote: listing.entries, records };
 		const light = deps.index === undefined ? null : await scanLightly({ ...scanned, index: deps.index, vault });
-		const scan = light ?? (await scanVault({ ...scanned, lister: vault }));
+		const found = light ?? (await scanVault({ ...scanned, lister: vault }));
 		const local = await readLocal(
 			{
 				vault,
@@ -712,11 +712,12 @@ class PushRun {
 				...(deps.yieldControl === undefined ? {} : { yieldControl: deps.yieldControl }),
 				...(light === null ? {} : { indexed: light.indexed }),
 			},
-			scan,
+			found,
 			records,
 			listing,
 		);
 		if (local === null) return this.result("cancelled");
+		const scan = withLinksRead(found, local);
 		if (light !== null) deps.log?.(`push: ${lightCheckLine(light, local, deps.now() - began)}`);
 		// On disk it may be behind what the user sees.
 		for (const path of local.unsaved) this.held.add(foldedKey(path));

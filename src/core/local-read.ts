@@ -30,7 +30,7 @@ import {
 } from "./state";
 
 export interface LocalReadDeps {
-	readonly vault: Pick<PullVault, "stat" | "read" | "saveOpenEditors">;
+	readonly vault: Pick<PullVault, "stat" | "read" | "saveOpenEditors" | "isLink">;
 	readonly backend: Pick<Backend, "hashContent">;
 	readonly store: Pick<StateStore, "updateStats">;
 	readonly now: () => number;
@@ -108,6 +108,14 @@ export interface LocalRead {
 	 * that way for good.
 	 */
 	readonly placeholders: string[];
+	/**
+	 * The files the scan listed that are links of the vault, found when
+	 * the file was not there or could not be read: one whose target is
+	 * gone, put in the place of a file the app's index still holds (the
+	 * light check does not ask the disk of such a file). Not in `entries`,
+	 * and told with the links of the scan (`withLinksRead`).
+	 */
+	readonly links: string[];
 	/** How many files the disk was asked about: all that were looked at, but for the ones the index settled. */
 	readonly statted: number;
 	/** How many files were read and hashed. */
@@ -139,6 +147,7 @@ export async function readLocal(
 	const beingEdited: string[] = [];
 	const unreadable: string[] = [];
 	const placeholders: string[] = [];
+	const links: string[] = [];
 	const total = scan.paths.length;
 	let hashedBytes = 0;
 	let statted = 0;
@@ -201,7 +210,15 @@ export async function readLocal(
 			deps.onProgress(index + 1, total);
 			continue;
 		}
-		const leave = (): void => {
+		// Asked only of a file that is not there or cannot be read, so that
+		// the disk is asked nothing more of the others.
+		const isLink = async (): Promise<boolean> => {
+			if (deps.vault.isLink === undefined || !(await deps.vault.isLink(path))) return false;
+			links.push(path);
+			return true;
+		};
+		const leave = async (): Promise<void> => {
+			if (await isLink()) return;
 			entries.push({ path, hash: "" });
 			unreadable.push(path);
 		};
@@ -210,11 +227,15 @@ export async function readLocal(
 		try {
 			stat = await deps.vault.stat(path);
 		} catch {
-			leave();
+			await leave();
 			continue;
 		}
-		// Gone since it was listed.
-		if (stat === null || stat.type !== "file") continue;
+		// Gone since it was listed, or a link whose target is gone, which
+		// the disk has nothing to stat at.
+		if (stat === null || stat.type !== "file") {
+			await isLink();
+			continue;
+		}
 		if (stat.size > deps.sizeLimit) {
 			entries.push({ path, hash: "", size: stat.size });
 			continue;
@@ -228,7 +249,7 @@ export async function readLocal(
 			try {
 				({ content, stat } = await readWhole(deps.vault, path, stat));
 			} catch {
-				leave();
+				await leave();
 				continue;
 			}
 			hash = await deps.backend.hashContent(content);
@@ -254,7 +275,22 @@ export async function readLocal(
 		deps.onProgress(index + 1, total);
 	}
 	await batcher.flush();
-	return { entries, seen, lfsPointers, unsaved, beingEdited, unreadable, placeholders, statted, hashed };
+	return { entries, seen, lfsPointers, unsaved, beingEdited, unreadable, placeholders, links, statted, hashed };
+}
+
+/**
+ * The scan with the links that reading found (`LocalRead.links`) moved from
+ * its files to its links, so that the sync decision and what is told go by
+ * one list of links.
+ */
+export function withLinksRead<Scan extends ScanResult>(scan: Scan, local: Pick<LocalRead, "links">): Scan {
+	if (local.links.length === 0) return scan;
+	const linked = new Set(local.links.map(foldedKey));
+	return {
+		...scan,
+		paths: scan.paths.filter((scanned) => !linked.has(foldedKey(scanned.path))),
+		links: [...scan.links, ...local.links],
+	};
 }
 
 /** Whether what the editors hold of the file is on disk: saved, or not open at all. */

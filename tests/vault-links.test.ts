@@ -10,11 +10,15 @@
  */
 
 import * as fs from "node:fs";
-import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readdir, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { createExclusion } from "../src/core/exclusion";
+import { scanVault } from "../src/core/scan";
+import { type FolderListing, RoutedVault } from "../src/core/vault-access";
 import { linkPorts } from "../src/obsidian/vault-links";
+import { FakeVaultPorts } from "./support/fake-vault-ports";
 
 // On a real disk: a vault with a folder, a link to a folder outside it, a
 // link to a file, a link to the vault itself, and a link whose target is
@@ -67,5 +71,90 @@ describe("the links of a vault on disk", () => {
 
 	test("a folder that is not there fails, as its listing would", async () => {
 		await expect(linkPorts(fs, base).linksIn("missing")).rejects.toThrow();
+	});
+});
+
+// The listing of the app on a desktop (`FileSystemAdapter.list` of Obsidian
+// 1.14): each name the folder holds is asked what it points to, so a link
+// whose target is gone fails the whole listing; what comes back is spelled
+// in NFC, with a space for a non-breaking one.
+function appList(base: string): (folder: string) => Promise<FolderListing> {
+	return async (folder) => {
+		const from = folder === "/" ? "" : folder;
+		const files: string[] = [];
+		const folders: string[] = [];
+		for (const name of await readdir(from === "" ? base : join(base, from))) {
+			const path = from === "" ? name : `${from}/${name}`;
+			const found = await stat(join(base, path));
+			const spelled = path.replace(/\u00A0|\u202F/g, " ").normalize("NFC");
+			if (found.isFile()) files.push(spelled);
+			if (found.isDirectory()) folders.push(spelled);
+		}
+		return { files, folders };
+	};
+}
+
+describe("a folder the app cannot list for a link whose target is gone", () => {
+	let root: string;
+	let base: string;
+
+	beforeEach(async () => {
+		root = await mkdtemp(join(tmpdir(), "sync-evo-listing-"));
+		base = join(root, "vault");
+		const outside = join(root, "outside");
+		await mkdir(join(base, ".obsidian"), { recursive: true });
+		await mkdir(join(base, "notes"));
+		await mkdir(outside);
+		await writeFile(join(outside, "x.md"), "outside");
+		await writeFile(join(base, "a.md"), "a");
+		// Spelled in NFD, and with a non-breaking space.
+		await writeFile(join(base, "notes", "Cafe\u0301\u00A0b.md"), "b");
+		await symlink(outside, join(base, "Ext"), "dir");
+		await symlink(join(outside, "x.md"), join(base, "notes", "linked.md"), "file");
+		await symlink(join(root, "nowhere"), join(base, "Gone"), "dir");
+		await symlink(join(root, "nowhere.md"), join(base, "notes", "dang.md"), "file");
+	});
+
+	afterEach(async () => {
+		await rm(root, { recursive: true, force: true });
+	});
+
+	function vaultOf(): RoutedVault<string> {
+		const ports = new FakeVaultPorts({ caseSensitive: false });
+		return new RoutedVault(Object.assign(ports, { list: appList(base) }, linkPorts(fs, base)));
+	}
+
+	test("the app's listing fails, as on a Mac", async () => {
+		await expect(appList(base)("/")).rejects.toThrow(/ENOENT/);
+		await expect(appList(base)("notes")).rejects.toThrow(/ENOENT/);
+	});
+
+	test("it is listed from the disk as the app lists it, without the link whose target is gone", async () => {
+		const sorted = (listing: FolderListing) => ({ files: [...listing.files].sort(), folders: [...listing.folders].sort() });
+		const vault = vaultOf();
+		expect(sorted(await vault.list("/"))).toEqual({ files: ["a.md"], folders: [".obsidian", "Ext", "notes"] });
+		expect(sorted(await vault.list("notes"))).toEqual({ files: ["notes/Café b.md", "notes/linked.md"], folders: [] });
+	});
+
+	test("the scan goes through, and tells every link", async () => {
+		const scan = await scanVault({
+			lister: vaultOf(),
+			exclusion: createExclusion({ configDir: ".obsidian", pluginDir: ".obsidian/plugins/sync-evo", gitignore: null }),
+			remote: [],
+			records: [],
+		});
+		expect(scan.paths.map((scanned) => scanned.path).sort()).toEqual(["a.md", "notes/Café b.md"]);
+		expect([...scan.links].sort()).toEqual(["Ext", "Gone", "notes/dang.md", "notes/linked.md"]);
+	});
+
+	test("a folder that cannot be read from the disk either fails with what the app's listing said", async () => {
+		const ports = new FakeVaultPorts({ caseSensitive: false });
+		const list = async (folder: string): Promise<FolderListing> => {
+			throw new Error(`the app cannot list ${folder}`);
+		};
+		const vault = new RoutedVault(Object.assign(ports, { list }, linkPorts(fs, base)));
+		await expect(vault.list("missing")).rejects.toThrow("the app cannot list missing");
+		// The disk can: it is listed from there.
+		expect((await vault.list("notes")).files).toContain("notes/linked.md");
 	});
 });

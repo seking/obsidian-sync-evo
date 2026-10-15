@@ -52,7 +52,7 @@ import { createExclusion, type Exclusion } from "./exclusion";
 import { GITIGNORE_WRITE_KEY, settleGitignoreWrite } from "./gitignore-file";
 import { firstFetchFiles, hasFirstFetchQuestion, isFirstFetchConfirmed, markFirstFetchConfirmed } from "./first-fetch";
 import { lightCheckLine, scanLightly } from "./light-scan";
-import { type LocalRead, readLocal } from "./local-read";
+import { type LocalRead, readLocal, withLinksRead } from "./local-read";
 import {
 	type NoticeKind,
 	type NoticeRef,
@@ -1072,7 +1072,7 @@ class PullRun {
 		const scanned = { exclusion, remote: listing.entries, records };
 		const light =
 			deps.index === undefined ? null : await scanLightly({ ...scanned, index: deps.index, vault: deps.vault });
-		const scan = light ?? (await scanVault({ ...scanned, lister: deps.vault }));
+		const found = light ?? (await scanVault({ ...scanned, lister: deps.vault }));
 		const local = await readLocal(
 			{
 				vault: deps.vault,
@@ -1087,11 +1087,12 @@ class PullRun {
 				...(deps.yieldControl === undefined ? {} : { yieldControl: deps.yieldControl }),
 				...(light === null ? {} : { indexed: light.indexed }),
 			},
-			scan,
+			found,
 			records,
 			listing,
 		);
 		if (local === null) return null;
+		const scan = withLinksRead(found, local);
 		if (light !== null) deps.log?.(`pull: ${lightCheckLine(light, local, deps.now() - began)}`);
 		this.holdUnread(local, listing, records);
 

@@ -13,6 +13,7 @@
 // the folder of the vault on disk. Kept apart from `pull-vault.ts` so that
 // nothing here imports `obsidian`, and the tests can run it on a real disk.
 
+import { fromRoot } from "../core/scan";
 import type { VaultPorts } from "../core/vault-access";
 
 /**
@@ -21,12 +22,24 @@ import type { VaultPorts } from "../core/vault-access";
  */
 export interface LinkFs {
 	readonly promises: {
-		readdir(
-			path: string,
-			options: { withFileTypes: true },
-		): Promise<readonly { readonly name: string; isSymbolicLink(): boolean }[]>;
+		readdir(path: string, options: { withFileTypes: true }): Promise<readonly LinkFsEntry[]>;
 		lstat(path: string): Promise<{ isSymbolicLink(): boolean }>;
+		stat(path: string): Promise<{ isFile(): boolean; isDirectory(): boolean }>;
 	};
+}
+
+/** One name a folder lists (`Dirent`). */
+export interface LinkFsEntry {
+	readonly name: string;
+	isSymbolicLink(): boolean;
+	isFile(): boolean;
+	isDirectory(): boolean;
+}
+
+// How the app's listing spells a path it returns: its non-breaking spaces as
+// spaces, in NFC.
+function spelledAsListed(path: string): string {
+	return path.replace(/\u00A0|\u202F/g, " ").normalize("NFC");
 }
 
 /**
@@ -38,7 +51,10 @@ export interface LinkFs {
  * `base` is the folder of the vault on disk; the root of the vault is
  * given as `/` or as the empty path.
  */
-export function linkPorts(fs: LinkFs, base: string): Required<Pick<VaultPorts<unknown>, "linksIn" | "isLink">> {
+export function linkPorts(
+	fs: LinkFs,
+	base: string,
+): Required<Pick<VaultPorts<unknown>, "linksIn" | "isLink" | "listOnDisk">> {
 	const isRoot = (path: string): boolean => path === "/" || path === "";
 	const inVault = (path: string): string => (isRoot(path) ? base : `${base}/${path}`);
 	const isLink = async (path: string): Promise<boolean> => (await fs.promises.lstat(inVault(path))).isSymbolicLink();
@@ -54,5 +70,38 @@ export function linkPorts(fs: LinkFs, base: string): Required<Pick<VaultPorts<un
 		},
 		// Nothing at the path is no link.
 		isLink: (path) => isLink(path).catch(() => false),
+		// What the app's listing returns (`FileSystemAdapter.list`), but for
+		// a link whose target cannot be reached, which is left out: that
+		// listing asks each name for what it points to, and fails at such a
+		// link. Each name is taken as the folder lists it, and only a link is
+		// asked what it points to; what is neither a file nor a folder is left
+		// out, as the app's listing leaves it out.
+		listOnDisk: async (folder) => {
+			const files: string[] = [];
+			const folders: string[] = [];
+			const at = inVault(folder);
+			for (const entry of await fs.promises.readdir(at, { withFileTypes: true })) {
+				const path = spelledAsListed(isRoot(folder) ? entry.name : `${fromRoot(folder)}/${entry.name}`);
+				let kind: { isFile(): boolean; isDirectory(): boolean } = entry;
+				if (entry.isSymbolicLink()) {
+					try {
+						kind = await fs.promises.stat(`${at}/${entry.name}`);
+					} catch (error) {
+						// On Windows a listing says "link" of other reparse
+						// points too, such as a file a cloud drive keeps
+						// online only. Only a link is left out.
+						const link = await fs.promises
+							.lstat(`${at}/${entry.name}`)
+							.then((stat) => stat.isSymbolicLink())
+							.catch(() => false);
+						if (link) continue;
+						throw error;
+					}
+				}
+				if (kind.isFile()) files.push(path);
+				else if (kind.isDirectory()) folders.push(path);
+			}
+			return { files, folders };
+		},
 	};
 }

@@ -7801,6 +7801,28 @@ describe("links of the vault", () => {
 		expect(await readNotices(h.store)).toContainEqual({ kind: "local-link", path: "Gone" });
 	});
 
+	test("with the light check, a file the index still holds that is now a link whose target is gone fails nothing, and is not written", async () => {
+		const h = await synced({ "a.md": "A", "dang.md": "D" });
+		const index = new MemoryIndex(h.vault);
+		// Put in the file's place; the index has not heard of it, and what
+		// it holds is not the record's, so the disk is asked, and fails.
+		h.vault.remove("dang.md");
+		h.vault.links = new Set(["dang.md"]);
+		index.set("dang.md", 1, 1);
+		h.vault.before = (op, path) => {
+			if (op === "stat" && path === "dang.md") throw new Error("ENOENT: no such file or directory, stat 'dang.md'");
+		};
+		h.backend.commit({ "a.md": "A2", "dang.md": "D2" });
+
+		const result = await h.pull({ index });
+
+		expect(result.outcome).toBe("completed");
+		expect(result.deferred).toEqual([]);
+		expect(h.vault.snapshot()).toEqual({ "a.md": "A2" });
+		expect(h.vault.trashed).toEqual([]);
+		expect(await readNotices(h.store)).toContainEqual({ kind: "local-link", path: "dang.md" });
+	});
+
 	test("on a phone, where links cannot be told, nothing changes", async () => {
 		const h = await synced({ "Projects/p.md": "P" });
 		h.backend.commit({ "Projects/p.md": "P2" });

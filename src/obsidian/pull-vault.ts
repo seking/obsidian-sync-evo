@@ -65,7 +65,7 @@ function editorOf(view: View): OpenEditor | null {
  * a link. The app itself does not tell them: it lists a link to a folder as
  * a folder.
  */
-function linkPortsOf(adapter: DataAdapter): Pick<VaultPorts<TAbstractFile>, "linksIn" | "isLink"> {
+function linkPortsOf(adapter: DataAdapter): Pick<VaultPorts<TAbstractFile>, "linksIn" | "isLink" | "listOnDisk"> {
 	if (!Platform.isDesktopApp || !(adapter instanceof FileSystemAdapter)) return {};
 	const load = (window as { require?: (id: string) => unknown }).require;
 	if (load === undefined) return {};
