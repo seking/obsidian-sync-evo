@@ -205,6 +205,8 @@ class PullRun {
 	private closedViews = false;
 	/** Whether this is a first fetch: only then are views closed for the writing. */
 	private firstFetch = false;
+	/** Whether the vault was walked and every file looked at (`PullResult.walked`). */
+	private walked = false;
 	/** Set while the archive of the commit is downloaded. */
 	private download: ArchiveDownload | null = null;
 	/** The steps of the plan as last reported, for reporting them again when only `download` changed. */
@@ -1043,6 +1045,7 @@ class PullRun {
 			...(tally.fetchError === undefined ? {} : { fetchError: tally.fetchError }),
 			...(this.recoveredPush === null ? {} : { recoveredPush: this.recoveredPush }),
 			...(this.recoveredUntrack === null ? {} : { recoveredUntrack: this.recoveredUntrack }),
+			...(this.walked ? { walked: true } : {}),
 			...extra,
 		};
 	}
@@ -1108,6 +1111,7 @@ class PullRun {
 			listing,
 		);
 		if (local === null) return null;
+		if (light === null) this.walked = true;
 		const scan = withLinksRead(found, local);
 		const checkMs = deps.now() - began;
 		const checkLine =
