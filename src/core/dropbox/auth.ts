@@ -240,12 +240,20 @@ export async function revokeToken(http: HttpFunction, accessToken: string): Prom
 	const what = "revoke the token";
 	let response: HttpResponse;
 	try {
-		response = await http({ url: REVOKE_URL, method: "POST", headers: { Authorization: `Bearer ${accessToken}` } });
+		// A call that takes no argument is sent one of JSON `null`: a POST
+		// without a body goes out with a type of content Dropbox turns down.
+		response = await http({
+			url: REVOKE_URL,
+			method: "POST",
+			headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+			body: "null",
+		});
 	} catch (error) {
 		throw new BackendError("unreachable", `${what}: the request failed: ${error instanceof Error ? error.message : String(error)}`);
 	}
 	if (response.status === 200 || response.status === 401) return;
-	throw new BackendError(response.status >= 500 ? "unreachable" : "other", `${what}: HTTP ${response.status}`, response.status);
+	const detail = new TextDecoder().decode(response.body).slice(0, 200);
+	throw new BackendError(response.status >= 500 ? "unreachable" : "other", `${what}: HTTP ${response.status} ${detail}`.trim(), response.status);
 }
 
 /** The account the tokens are of, for the settings to show. */

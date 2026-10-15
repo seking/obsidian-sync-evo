@@ -59,7 +59,7 @@ import { EditingWatch } from "./obsidian/editing-watch";
 import { exclusionPathsOf } from "./obsidian/exclusion-paths";
 import type { ExclusionChange, ExclusionLoad } from "./obsidian/exclusion-settings";
 import { deviceNetwork } from "./obsidian/http";
-import { showLog } from "./obsidian/log";
+import { log, showLog } from "./obsidian/log";
 import { pullVaultOf } from "./obsidian/pull-vault";
 import { type SyncHost, SyncRunner } from "./obsidian/sync-runner";
 import { SettingsStore } from "./obsidian/settings-store";
@@ -565,6 +565,7 @@ export default class SyncEvoPlugin extends Plugin implements SettingsHost, SyncH
 		} catch (error) {
 			// Ended on Dropbox's side already: nothing to tell.
 			if (error instanceof BackendError && error.kind === "unauthorized") return;
+			log(`dropbox: the token could not be revoked: ${error instanceof Error ? error.message : String(error)}`);
 			if (!this.unloaded) new Notice(this.t("dropbox.revokeFailed"), 0);
 		}
 	}

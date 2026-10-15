@@ -198,7 +198,7 @@ export const ja = completeTranslation(en, {
 		"この保管庫が待っていない接続が、Dropbox から戻りました。「接続する」を押した保管庫を開き、そこでもう一度押してください。",
 	"dropbox.signInFailed": "Dropbox に接続できませんでした。もう一度「接続する」を押してください。（{detail}）",
 	"dropbox.revokeFailed":
-		"このデバイスの接続は解除しましたが、Dropbox に伝えられませんでした。Dropbox の設定の「連携アプリ」から、Sync Evo を外してください。",
+		"このデバイスの接続は解除しましたが、Dropbox に伝えられませんでした。Dropbox の設定の「リンク済みアプリ」から、Sync Evo を外してください。",
 	"check.dropbox.connected": "Dropbox に接続できました。アプリ/Sync Evo/{folder} フォルダがあります。",
 	"check.dropbox.empty": "Dropbox に接続できました。アプリ/Sync Evo/{folder} フォルダは、まだありません。最初のアップロードで作ります。",
 	"check.dropbox.noFolder": "先に、Dropbox のフォルダの名前を入れてください。",

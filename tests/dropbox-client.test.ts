@@ -238,7 +238,7 @@ describe("connecting to Dropbox", () => {
 		const { http, requests } = scripted(response(200, "null"), response(401));
 		await revokeToken(http, "sl.a");
 		await revokeToken(http, "sl.a");
-		expect(requests[0]?.headers.Authorization).toBe("Bearer sl.a");
+		expect(requests[0]).toMatchObject({ headers: { Authorization: "Bearer sl.a", "Content-Type": "application/json" }, body: "null" });
 		await expect(revokeToken(scripted(response(500)).http, "sl.a")).rejects.toMatchObject({ kind: "unreachable" });
 	});
 });
