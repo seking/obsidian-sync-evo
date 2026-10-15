@@ -446,17 +446,29 @@ describe("pushing to Dropbox", () => {
 		await dropbox.put("/Vault/x.md", "X");
 		const listed = await listing(backend);
 		let now = 0;
-		const most: number[] = [];
-		dropbox.beforeCall = async (endpoint) => {
+		const most: Record<string, number> = {};
+		// The first content waits until the second is on its way too, or for
+		// a while when it does not come: so that both are seen at once
+		// however long the hashing between them takes.
+		let second = (): void => {};
+		const both = new Promise<void>((resolve) => {
+			second = resolve;
+			setTimeout(resolve, 1000);
+		});
+		dropbox.beforeCall = async (endpoint, arg) => {
 			if (endpoint !== "files/upload_session/start") return;
 			now += 1;
-			most.push(now);
-			await new Promise((resolve) => setTimeout(resolve, 1));
+			const name = String(arg.content_hash);
+			most[name] = now;
+			if (now === 2) second();
+			if (Object.keys(most).length === 1) await both;
+			else await new Promise((resolve) => setTimeout(resolve, 1));
 			now -= 1;
 		};
 		await backend.push({ baseRevision: listed.revision, writes: [write("a.md", "A"), write("b.md", "B"), write("big.md", "BIG"), write("c.md", "C")], deletes: [] });
 		// a and b together (2 bytes), big alone, then c.
-		expect(most).toEqual([1, 2, 1, 1]);
+		const at = async (text: string): Promise<number | undefined> => most[await dropboxContentHash(bytes(text))];
+		expect([await at("A"), await at("B"), await at("BIG"), await at("C")]).toEqual([1, 2, 1, 1]);
 		expect(dropbox.tree(ROOT)).toEqual({ "a.md": "A", "b.md": "B", "big.md": "BIG", "c.md": "C", "x.md": "X" });
 	});
 
