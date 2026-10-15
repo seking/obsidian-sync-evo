@@ -525,6 +525,11 @@ export interface UnwritablePath {
 /** What happened, without a word of text: wording it is the caller's. */
 export interface PullResult {
 	readonly outcome: PullOutcome;
+	/**
+	 * Set when the pull walked the vault and looked at every file it found
+	 * (a check that is not the light one). Absent otherwise.
+	 */
+	readonly walked?: true;
 	/** The head that was pulled; `null` for a remote without content. */
 	readonly revision: string | null;
 	readonly remoteEmpty: boolean;

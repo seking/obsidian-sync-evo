@@ -735,6 +735,7 @@ export class SyncRunner {
 						this.direction = "push";
 					},
 					automatic: auto !== null,
+					indexAfterWalk: vaultIndexOf(host.app),
 				});
 				sectionAdded = null;
 				if (push !== null) this.reportPush(push);

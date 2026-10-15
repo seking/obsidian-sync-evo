@@ -42,6 +42,7 @@ import { type FileStat, makeMarker, readBaseRevision, type StateStore } from "..
 import { pathsToHold, pathsToHoldQuietly, pushFollows, runSync, type SyncResult } from "../src/core/sync";
 import { blobHash, type FileContent, MemoryBackend } from "./support/memory-backend";
 import { MemoryIndex } from "./support/memory-index";
+import type { VaultIndex } from "../src/core/light-scan";
 import { MemoryPullVault, type VaultOp } from "./support/memory-pull-vault";
 import { MemoryStateStore } from "./support/memory-state-store";
 import { listSubmodules, type TestSubmodule } from "./support/submodule-listing";
@@ -202,7 +203,11 @@ interface Harness {
 	/** Each runs one minute later, so that files written before are no longer recent. */
 	pull(overrides?: Partial<PullDeps>): Promise<PullResult>;
 	push(overrides?: Partial<PushDeps>): Promise<PushRunResult>;
-	sync(overrides?: { pull?: Partial<PullDeps>; push?: Partial<PushDeps> }): Promise<SyncResult>;
+	sync(overrides?: {
+		pull?: Partial<PullDeps>;
+		push?: Partial<PushDeps>;
+		indexAfterWalk?: VaultIndex;
+	}): Promise<SyncResult>;
 	/** Path → hash of every record. */
 	records(): Promise<Record<string, string>>;
 	base(): Promise<string | null>;
@@ -280,7 +285,11 @@ function harness(options: { caseSensitive?: boolean } = {}): Harness {
 		},
 		sync(overrides = {}) {
 			time += 60_000;
-			return runSync({ pull: { ...pullDeps(), ...overrides.pull }, push: { ...pushDeps(), ...overrides.push } });
+			return runSync({
+				pull: { ...pullDeps(), ...overrides.pull },
+				push: { ...pushDeps(), ...overrides.push },
+				...(overrides.indexAfterWalk === undefined ? {} : { indexAfterWalk: overrides.indexAfterWalk }),
+			});
 		},
 		async records() {
 			const out: Record<string, string> = {};
@@ -4948,5 +4957,70 @@ describe("a push that walks the vault with the stats of the listing", () => {
 		expect(ops.filter((op) => op === "stat notes/b.md" || op === "read notes/b.md")).toEqual([]);
 		expect(ops).toContain("read a.md");
 		await expectNothingToPull(h);
+	});
+});
+
+describe("the push of a sync after a pull that walked the vault", () => {
+	test("makes the light check with the app's index, and lists no folder again", async () => {
+		const h = await synced({ "a.md": "A", "notes/b.md": "B", "gone.md": "G" });
+		// Records the times of the files the first pull wrote.
+		await h.pull();
+		h.vault.put("a.md", "A2");
+		h.vault.put("notes/new.md", "N");
+		h.vault.remove("gone.md");
+		const index = new MemoryIndex(h.vault);
+		const ops: string[] = [];
+		h.vault.before = (op, path) => {
+			ops.push(`${op} ${path}`);
+		};
+		const lines: string[] = [];
+		const log = (line: string): void => {
+			lines.push(line);
+		};
+
+		const { pull, push } = await h.sync({ pull: { log }, push: { log }, indexAfterWalk: index });
+
+		expect(pull.walked).toBe(true);
+		expect(push).toMatchObject({ outcome: "pushed", counts: { added: 1, modified: 1, deleted: 1 } });
+		expect(await h.remote()).toEqual({ "a.md": "A2", "notes/b.md": "B", "notes/new.md": "N" });
+		const pushedFrom = lines.findIndex((line) => line.startsWith("pull: completed"));
+		expect(lines.slice(pushedFrom).some((line) => line.startsWith("push: light check"))).toBe(true);
+		expect(lines.some((line) => line.startsWith("push: full check"))).toBe(false);
+		// The root is listed by the pull, for the rules, and by its walk; nothing by the push.
+		expect(ops.filter((op) => op === "list notes")).toEqual(["list notes"]);
+		await expectNothingToPull(h);
+	});
+
+	test("after a pull that made the light check, the index for after a walk is not given to the push", async () => {
+		const h = await synced({ "a.md": "A" });
+		await h.pull();
+		const index = new MemoryIndex(h.vault);
+		h.vault.put("a.md", "A2");
+		const lines: string[] = [];
+
+		const { pull, push } = await h.sync({
+			pull: { index },
+			push: { log: (line) => lines.push(line) },
+			indexAfterWalk: new MemoryIndex(h.vault),
+		});
+
+		expect(pull.walked).toBeUndefined();
+		expect(push?.outcome).toBe("pushed");
+		// This push was given no index of its own, and walks the vault.
+		expect(lines.some((line) => line.startsWith("push: full check"))).toBe(true);
+	});
+
+	test("without the app's index, the push walks the vault as before", async () => {
+		const h = await synced({ "a.md": "A", "notes/b.md": "B" });
+		await h.pull();
+		const ops: string[] = [];
+		h.vault.before = (op, path) => {
+			ops.push(`${op} ${path}`);
+		};
+
+		const { pull } = await h.sync();
+
+		expect(pull.walked).toBe(true);
+		expect(ops.filter((op) => op === "list notes")).toEqual(["list notes", "list notes"]);
 	});
 });

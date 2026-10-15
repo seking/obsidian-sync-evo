@@ -14,6 +14,7 @@
 // of it.
 
 import { BackendError } from "./backend";
+import type { VaultIndex } from "./light-scan";
 import { type PullDeps, type PullResult, runPull } from "./pull";
 import { type PushDeps, type PushRunResult, runPush } from "./push";
 import { markPushFailure } from "./push-failure";
@@ -82,6 +83,14 @@ export interface SyncDeps {
 	readonly automatic?: boolean;
 	/** Called with what the pull answered, before the push begins. */
 	readonly onPulled?: (result: PullResult) => void;
+	/**
+	 * The app's index of the vault, for the push after a pull that walked
+	 * it (`PullResult.walked`): that push makes the light check
+	 * (`PushDeps.index`) and does not walk the vault again. What another app
+	 * makes in the vault between the two, and the app's index does not hold
+	 * yet, is found by the next check that walks it.
+	 */
+	readonly indexAfterWalk?: VaultIndex;
 }
 
 export interface SyncResult {
@@ -103,7 +112,13 @@ export async function runSync(deps: SyncDeps): Promise<SyncResult> {
 	}
 	deps.onPulled?.(pull);
 	if (!pushFollows(pull) || deps.push.signal?.aborted === true) return { pull, push: null };
-	const push = await runPush({ ...deps.push, hold: pathsToHold(pull), holdQuietly: pathsToHoldQuietly(pull) });
+	const index = deps.push.index ?? (pull.walked === true ? deps.indexAfterWalk : undefined);
+	const push = await runPush({
+		...deps.push,
+		...(index === undefined ? {} : { index }),
+		hold: pathsToHold(pull),
+		holdQuietly: pathsToHoldQuietly(pull),
+	});
 	return { pull, push };
 }
 
