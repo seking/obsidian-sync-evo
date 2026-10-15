@@ -7739,6 +7739,26 @@ describe("links of the vault", () => {
 		expect(await h.records()).toEqual(hashes({ "a.md": "A", "Projects/q.md": "Q" }));
 	});
 
+	test("once the link is taken away, what the remote changed meanwhile is fetched, and what both changed is a conflict", async () => {
+		const h = await synced({ "a.md": "A", "Projects/p.md": "P", "Projects/q.md": "Q" });
+		h.vault.links = new Set(["Projects"]);
+		h.backend.commit({ "Projects/p.md": "P2", "Projects/q.md": "Q2" });
+		h.vault.put("Projects/q.md", "mine");
+		expect((await h.pull()).counts).toMatchObject({ fetched: 0, deleted: 0, conflicts: 0 });
+		// Put in the place of the link: a folder with the same files.
+		h.vault.links = null;
+
+		const result = await h.pull();
+
+		const copy = h.copyName("Projects/q.md");
+		expect(result.counts).toMatchObject({ fetched: 2, deleted: 0, conflicts: 1 });
+		expect(result.conflicts).toEqual([{ path: "Projects/q.md", copyPath: copy, cause: "conflict" }]);
+		expect(h.asked).toEqual([]);
+		expect(h.vault.snapshot()).toEqual({ "a.md": "A", "Projects/p.md": "P2", "Projects/q.md": "Q2", [copy]: "mine" });
+		expect(h.vault.trashed).toEqual([]);
+		expect(await h.records()).toEqual(hashes({ "a.md": "A", "Projects/p.md": "P2", "Projects/q.md": "Q2" }));
+	});
+
 	test("with the light check, what the remote changed below a link is not written or deleted", async () => {
 		const h = await synced({ "a.md": "A", "Projects/p.md": "P", "Projects/q.md": "Q" });
 		h.vault.links = new Set(["Projects"]);

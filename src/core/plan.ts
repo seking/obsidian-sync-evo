@@ -237,14 +237,16 @@ export interface RecordMark {
 }
 
 /**
- * How many of the records are of paths a rule excludes now. They are left
- * out of what the share of deletions is taken of (`recordCount` of a pull
- * and of a push), as they are left out of the sync.
+ * How many of the records are of paths a rule excludes now, or that are at
+ * a link of the vault or below one. They are left out of what the share of
+ * deletions is taken of (`recordCount` of a pull and of a push), as they
+ * are left out of the sync: none of them can be deleted, and counted they
+ * would make a share of deletions look smaller than it is.
  */
 export function excludedRecordCount(skipped: readonly SkippedPath[]): number {
 	let count = 0;
 	for (const skip of skipped) {
-		if (skip.reason === "excluded") count += skip.records.length;
+		if (skip.reason === "excluded" || skip.reason === "local-link") count += skip.records.length;
 	}
 	return count;
 }

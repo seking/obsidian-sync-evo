@@ -41,6 +41,8 @@ interface Scenario {
 	gitignore?: string;
 	held?: string[];
 	sizeLimit?: number;
+	/** The links of the vault the scan found. */
+	links?: string[];
 }
 
 function plan(scenario: Scenario): PushPlan {
@@ -68,6 +70,7 @@ function plan(scenario: Scenario): PushPlan {
 		exclusion: createExclusion({ configDir: ".obsidian", pluginDir: ownFolder, gitignore: scenario.gitignore ?? null }),
 		...(scenario.held === undefined ? {} : { held: new Set(scenario.held.map(foldedKey)) }),
 		...(scenario.sizeLimit === undefined ? {} : { sizeLimit: scenario.sizeLimit }),
+		...(scenario.links === undefined ? {} : { links: scenario.links }),
 	});
 }
 
@@ -391,6 +394,17 @@ describe("what counts as a deletion", () => {
 		const open = plan({ synced: { ...notes, ...drafts }, local: six });
 		expect(open.recordCount).toBe(330);
 		expect(needsPushConfirmation(open)).toBe(false);
+	});
+
+	test("the records below a link of the vault are not part of everything the share is taken of", () => {
+		const notes = many(10, (i) => `note ${i}`);
+		const linked = many(90, (i) => `linked ${i}`, "Ext");
+		const nine = Object.fromEntries(Object.keys(notes).slice(0, 9).map((path) => [path, null]));
+		// What the link shows is no file of the scan: none of it can be deleted.
+		const made = plan({ synced: { ...notes, ...linked }, links: ["Ext"], local: { ...nine, ...none(linked) } });
+		expect(made.recordCount).toBe(10);
+		expect(made.countedDeletions).toHaveLength(9);
+		expect(needsPushConfirmation(made)).toBe(true);
 	});
 });
 

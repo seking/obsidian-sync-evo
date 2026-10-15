@@ -516,4 +516,13 @@ describe("links of the vault", () => {
 		expect(result.paths.map((entry) => entry.path)).toEqual(["a.md"]);
 		expect(result.links).toEqual(["Inner"]);
 	});
+
+	test("a known path that is a link whose target is gone is told as a link, and not as gone", async () => {
+		const s = setup({ "a.md": "A" });
+		// The disk has nothing to stat at a link that points nowhere.
+		s.vault.links = new Set(["note.md"]);
+		const result = await light(s, { recorded: ["note.md"] });
+		expect(found(result)).toEqual(["a.md"]);
+		expect(result.links).toEqual(["note.md"]);
+	});
 });

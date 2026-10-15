@@ -61,6 +61,8 @@ interface Scenario {
 	records?: Files | SyncRecord[];
 	exclusion?: Exclusion;
 	sizeLimit?: number;
+	/** The links of the vault the scan found. */
+	links?: string[];
 }
 
 function pull(scenario: Scenario): PullPlan {
@@ -71,6 +73,7 @@ function pull(scenario: Scenario): PullPlan {
 		records: Array.isArray(records) ? records : recordsOf(records),
 		exclusion: scenario.exclusion ?? rules(null),
 		...(scenario.sizeLimit === undefined ? {} : { sizeLimit: scenario.sizeLimit }),
+		...(scenario.links === undefined ? {} : { links: scenario.links }),
 	});
 }
 
@@ -177,6 +180,20 @@ describe("the half of the decision a pull acts on", () => {
 		const ruleless = pull({ records, remote, local, exclusion: rules(null) });
 		expect(ruleless.recordCount).toBe(106);
 		expect(needsConfirmation(pullLosses(ruleless, false), ruleless.recordCount)).toBe(false);
+	});
+
+	test("the records below a link of the vault are not counted toward the share of deletions", () => {
+		const records: Files = Object.fromEntries([
+			...Array.from({ length: 10 }, (_, index) => [`notes/${index}.md`, "N"]),
+			...Array.from({ length: 90 }, (_, index) => [`Ext/${index}.md`, "E"]),
+		]);
+		// Nine of the ten notes deleted on the remote; what the link shows is not of the scan.
+		const remote: Files = Object.fromEntries(Object.entries(records).filter(([path]) => !/^notes\/[0-8]\.md$/.test(path)));
+		const local: Files = Object.fromEntries(Object.entries(records).filter(([path]) => path.startsWith("notes/")));
+		const plan = pull({ records, remote, local, links: ["Ext"] });
+		expect(plan.recordCount).toBe(10);
+		expect(counted(plan)).toHaveLength(9);
+		expect(needsConfirmation(pullLosses(plan, false), plan.recordCount)).toBe(true);
 	});
 
 	test("a record a rule excluded at the last sync, and none does now: the side that lost it is no deletion", () => {

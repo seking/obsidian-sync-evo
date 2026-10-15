@@ -4859,6 +4859,21 @@ describe("links of the vault", () => {
 		expect(await readNotices(h.store)).toContainEqual({ kind: "local-link", path: "Gone" });
 	});
 
+	test("with the light check, a recorded file that is now a link whose target is gone is not deleted on the remote", async () => {
+		const h = await synced({ "a.md": "A", "note.md": "N" });
+		// The disk has nothing to stat at a link that points nowhere, and the index does not list it.
+		h.vault.remove("note.md");
+		h.vault.links = new Set(["note.md"]);
+		const index = new MemoryIndex(h.vault);
+
+		const result = await h.push({ index });
+
+		expect(result.outcome).toBe("nothing-to-push");
+		expect(h.emptyAsked).toEqual([]);
+		expect(await h.remote()).toEqual({ "a.md": "A", "note.md": "N" });
+		expect(await readNotices(h.store)).toContainEqual({ kind: "local-link", path: "note.md" });
+	});
+
 	test("with the light check, what is below a link is not sent, and nothing is deleted", async () => {
 		const h = await synced({ "a.md": "A", "Projects/p.md": "P", "Projects/gone.md": "G" });
 		await h.pull();

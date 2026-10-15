@@ -100,7 +100,8 @@ export interface LightScanResult extends ScanResult {
  * A path the disk has nothing at is left out, like a file the scan does
  * not find. So is a path that is a link, or below one: the app leaves out
  * of its index what lies below a link to a folder of the vault itself, and
- * a link to a file, but the disk answers for them. What that means is the sync decision's to say.
+ * a link to a file, but the disk answers for them. A link whose target is
+ * gone, which the disk does not stat, is told as a link too. What that means is the sync decision's to say.
  *
  * Such a path is listed as the record spells it, or the remote: the disk
  * is asked whether something is there, and not how it is spelled. A change
@@ -178,7 +179,14 @@ export async function scanLightly(input: LightScanInput): Promise<LightScanResul
 		let found: ScannedPath | "folder" | "link" | null = null;
 		for (const spelled of spellings) {
 			const stat = await vault.stat(spelled);
-			if (stat === null) continue;
+			if (stat === null) {
+				// A link whose target is gone: the disk has nothing to stat there.
+				if (await isLink(spelled, "file")) {
+					found = "link";
+					break;
+				}
+				continue;
+			}
 			// A folder at the path is no file there, as for the scan.
 			if (await isLink(spelled, stat.type)) found = "link";
 			else found = stat.type === "file" ? { path: spelled, key, state: "present" } : "folder";
