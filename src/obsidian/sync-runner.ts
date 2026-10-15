@@ -85,6 +85,7 @@ import { pullVaultOf } from "./pull-vault";
 import { confirmPushIn } from "./push-confirm";
 import type { SyncState } from "./sync-state";
 import { vaultIndexOf } from "./vault-index";
+import { folderStatsOf } from "./folder-stats";
 import { ScreenWakeLock } from "./wake-lock";
 import { windowSleep } from "./window-sleep";
 
@@ -573,6 +574,8 @@ export class SyncRunner {
 			}
 			this.limitWatch = limitWatch;
 			const fetchContents = limitWatch.watch((revision, entries) => backend.fetch(revision, entries));
+			// For a check that walks the vault, on Android (`folder-stats.ts`).
+			const listedStats = folderStatsOf(host.app);
 			const pullDeps: PullDeps = {
 				store: opened.store,
 				backend,
@@ -617,6 +620,7 @@ export class SyncRunner {
 				...beingEdited,
 				// At an interval the vault is not walked.
 				...(auto === "light" ? { index: vaultIndexOf(host.app) } : {}),
+				...(listedStats === undefined ? {} : { listedStats }),
 				beginBulkWrite: graphViewPause(host.app),
 				// Only the files that are fetched one at a time come through
 				// here: the pull takes many files from the zip of the commit
@@ -677,6 +681,7 @@ export class SyncRunner {
 					sectionAdded = added;
 				},
 				...(pullDeps.index === undefined ? {} : { index: pullDeps.index }),
+				...(listedStats === undefined ? {} : { listedStats }),
 				// A sync that started by itself writes nothing to the vault
 				// that the remote did not send. Without the section its lines
 				// are applied all the same (`effectiveRules`), so what is

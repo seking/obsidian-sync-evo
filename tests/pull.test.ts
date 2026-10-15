@@ -49,7 +49,8 @@ import {
 	runPull,
 } from "../src/core/pull";
 import { DEFAULT_AUTO_SYNC } from "../src/core/settings";
-import { makeMarker, makeMergeMarker, readBaseRevision, type StateStore } from "../src/core/state";
+import type { ListedStats } from "../src/core/listed-stats";
+import { type FileStat, makeMarker, makeMergeMarker, readBaseRevision, type StateStore } from "../src/core/state";
 import { blobHash, bytes, type FileContent, MemoryBackend } from "./support/memory-backend";
 import { MemoryIndex } from "./support/memory-index";
 import { MemoryPullVault, type VaultOp } from "./support/memory-pull-vault";
@@ -7831,5 +7832,85 @@ describe("links of the vault", () => {
 		h.backend.commit({ "Projects/p.md": "P2" });
 		await h.pull();
 		expect(h.vault.text("Projects/p.md")).toBe("P2");
+	});
+});
+
+describe("a pull that walks the vault with the stats of the listing", () => {
+	/**
+	 * What the listing of each folder holds of its files: what the disk says
+	 * now, with `changed` laid over it. Asked of the vault without counting
+	 * among the calls the test looks at.
+	 */
+	function listedStatsOf(vault: MemoryPullVault, changed: Record<string, FileStat> = {}): ListedStats {
+		return async (folder) => {
+			const before = vault.before;
+			vault.before = undefined;
+			try {
+				const { files } = await vault.list(folder);
+				const held = new Map<string, FileStat>();
+				for (const path of files) {
+					const stat = await vault.stat(path);
+					if (stat !== null) held.set(path, changed[path] ?? { mtime: stat.mtime, size: stat.size });
+				}
+				return held;
+			} finally {
+				vault.before = before;
+			}
+		};
+	}
+
+	async function walked(files: Record<string, FileContent>): Promise<{ h: Harness; ops: string[] }> {
+		const h = await synced(files);
+		// Records the times of the files the first pull wrote.
+		await h.pull();
+		const ops: string[] = [];
+		h.vault.before = (op, path) => {
+			ops.push(`${op} ${path}`);
+		};
+		return { h, ops };
+	}
+	const files = { "a.md": "A", "notes/b.md": "B", "notes/deep/c.md": "C" };
+
+	test("with nothing changed, every folder is listed and no file is asked of the disk", async () => {
+		const { h, ops } = await walked(files);
+		const lines: string[] = [];
+
+		const result = await h.pull({ listedStats: listedStatsOf(h.vault), log: (line) => lines.push(line) });
+
+		expect(result.outcome).toBe("completed");
+		expect(new Set(ops.filter((op) => op.startsWith("list")))).toEqual(new Set(["list /", "list notes", "list notes/deep"]));
+		expect(ops.filter((op) => op.startsWith("stat") && op.endsWith(".md"))).toEqual([]);
+		expect(lines.find((line) => line.includes("full check"))).toContain("0 asked of the disk, 0 hashed");
+	});
+
+	test("a file the listing tells otherwise of than its record is asked of the disk, and its record keeps what the disk says", async () => {
+		const { h, ops } = await walked(files);
+		const recorded = (await h.store.readRecords()).find((record) => record.path === "notes/b.md");
+
+		const listedStats = listedStatsOf(h.vault, { "notes/b.md": { mtime: 1, size: 1 } });
+		expect((await h.pull({ listedStats })).outcome).toBe("completed");
+
+		expect(ops.filter((op) => op.startsWith("stat") && op.endsWith(".md"))).toEqual(["stat notes/b.md"]);
+		expect((await h.store.readRecords()).find((record) => record.path === "notes/b.md")).toEqual(recorded);
+	});
+
+	test("a file changed on disk is read, as without the listing", async () => {
+		const { h, ops } = await walked(files);
+		await h.vault.write("notes/b.md", bytes("B2"));
+		ops.length = 0;
+
+		expect((await h.pull({ listedStats: listedStatsOf(h.vault) })).outcome).toBe("completed");
+
+		expect(ops.filter((op) => op.endsWith(".md"))).toEqual(["stat notes/b.md", "read notes/b.md"]);
+	});
+
+	test("a folder the listing tells nothing of has its files asked of the disk", async () => {
+		const { h, ops } = await walked(files);
+		const all = listedStatsOf(h.vault);
+
+		const listedStats: ListedStats = (folder) => (folder === "notes" ? Promise.resolve(null) : all(folder));
+		expect((await h.pull({ listedStats })).outcome).toBe("completed");
+
+		expect(ops.filter((op) => op.startsWith("stat") && op.endsWith(".md"))).toEqual(["stat notes/b.md"]);
 	});
 });

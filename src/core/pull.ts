@@ -112,6 +112,7 @@ import {
 	writeBaseRevision,
 } from "./state";
 import { countingLister, diskTimes, fullCheckLine, PhaseClock } from "./timing";
+import { withListedStats } from "./listed-stats";
 
 export type * from "./pull-io";
 
@@ -1079,7 +1080,8 @@ class PullRun {
 		const scanned = { exclusion, remote: listing.entries, records };
 		const light =
 			deps.index === undefined ? null : await scanLightly({ ...scanned, index: deps.index, vault: deps.vault });
-		const lister = countingLister(deps.vault);
+		const statsLister = deps.listedStats === undefined ? null : withListedStats(deps.vault, deps.listedStats);
+		const lister = countingLister(statsLister ?? deps.vault);
 		const found = light ?? (await scanVault({ ...scanned, lister }));
 		const scanMs = deps.now() - began;
 		const local = await readLocal(
@@ -1094,7 +1096,11 @@ class PullRun {
 				aborted: () => this.aborted(),
 				onProgress: (done, total) => this.progress("hashing", done, total),
 				...(deps.yieldControl === undefined ? {} : { yieldControl: deps.yieldControl }),
-				...(light === null ? {} : { indexed: light.indexed }),
+				...(light !== null
+					? { indexed: light.indexed }
+					: statsLister === null
+						? {}
+						: { indexed: statsLister.indexed() }),
 			},
 			found,
 			records,
