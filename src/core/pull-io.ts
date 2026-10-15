@@ -20,6 +20,7 @@ import type { DeviceExclusion } from "./device-exclusion";
 import type { ExclusionPaths } from "./exclusion";
 import type { FirstFetchFiles } from "./first-fetch";
 import type { VaultIndex } from "./light-scan";
+import type { ListedStats } from "./listed-stats";
 import type { NoticeRef } from "./notices";
 import type { PullLosses } from "./pull-plan";
 import type { PushCounts } from "./push-pending";
@@ -311,6 +312,13 @@ export interface PullDeps {
 	 * path with a `.` name, and forgets no notice (`updateNotices`).
 	 */
 	readonly index?: VaultIndex;
+	/**
+	 * For a check that walks the vault: the time and the size of the files
+	 * as the listing of each folder holds them (`listed-stats.ts`). A file
+	 * whose time and size there are its record's is not asked of the disk.
+	 * Absent where the listing holds none of that.
+	 */
+	readonly listedStats?: ListedStats;
 	readonly beginBulkWrite?: BeginBulkWrite;
 	/**
 	 * Yields files one at a time; `backend.fetch` when absent. The pull uses

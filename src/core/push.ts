@@ -112,6 +112,7 @@ import {
 	writeBaseRevision,
 } from "./state";
 import { countingLister, diskTimes, fullCheckLine, PhaseClock } from "./timing";
+import { type ListedStats, withListedStats } from "./listed-stats";
 
 /**
  * The vault, as far as a push needs it: it reads. The one file it ever
@@ -273,6 +274,8 @@ export interface PushDeps {
 	 * not found, and not sent, until a push that scans.
 	 */
 	readonly index?: VaultIndex;
+	/** As for a pull (`PullDeps.listedStats`). */
+	readonly listedStats?: ListedStats;
 	/**
 	 * Whether the file at a path is being typed in right now (`editing.ts`).
 	 * Set for a push that started by itself, and only for that: such a file
@@ -702,7 +705,8 @@ class PushRun {
 		const began = deps.now();
 		const scanned = { exclusion, remote: listing.entries, records };
 		const light = deps.index === undefined ? null : await scanLightly({ ...scanned, index: deps.index, vault });
-		const lister = countingLister(vault);
+		const statsLister = deps.listedStats === undefined ? null : withListedStats(vault, deps.listedStats);
+		const lister = countingLister(statsLister ?? vault);
 		const found = light ?? (await scanVault({ ...scanned, lister }));
 		const scanMs = deps.now() - began;
 		const local = await readLocal(
@@ -719,7 +723,11 @@ class PushRun {
 				saveEditors: true,
 				...(deps.beingEdited === undefined ? {} : { beingEdited: deps.beingEdited }),
 				...(deps.yieldControl === undefined ? {} : { yieldControl: deps.yieldControl }),
-				...(light === null ? {} : { indexed: light.indexed }),
+				...(light !== null
+					? { indexed: light.indexed }
+					: statsLister === null
+						? {}
+						: { indexed: statsLister.indexed() }),
 				...(deps.log === undefined ? {} : { log: deps.log }),
 			},
 			found,
