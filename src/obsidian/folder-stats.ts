@@ -93,7 +93,12 @@ export function folderStatsOf(app: App): ListedStats | undefined {
 		const [first] = held;
 		if (first !== undefined) {
 			const [path, listed] = first;
-			const stat = await adapter.stat(path);
+			let stat: Awaited<ReturnType<typeof adapter.stat>>;
+			try {
+				stat = await adapter.stat(path);
+			} catch {
+				stat = null;
+			}
 			if (stat === null || stat.mtime !== listed.mtime || stat.size !== listed.size) {
 				trusted = false;
 				return null;
