@@ -7722,6 +7722,65 @@ describe("links of the vault", () => {
 		expect(notices.filter((notice) => notice.kind === "local-link")).toHaveLength(1);
 	});
 
+	test("once the link is taken away, what the remote deleted meanwhile only loses its record, and nothing is deleted", async () => {
+		const h = await synced({ "a.md": "A", "Projects/p.md": "P", "Projects/q.md": "Q" });
+		h.vault.links = new Set(["Projects"]);
+		h.backend.commit({ "Projects/p.md": null });
+		expect((await h.pull()).counts).toMatchObject({ fetched: 0, deleted: 0 });
+		// Put in the place of the link: a folder with the same files.
+		h.vault.links = null;
+
+		const result = await h.pull();
+
+		expect(result.counts).toMatchObject({ fetched: 0, deleted: 0 });
+		expect(h.asked).toEqual([]);
+		expect(h.vault.snapshot()).toEqual({ "a.md": "A", "Projects/p.md": "P", "Projects/q.md": "Q" });
+		expect(h.vault.trashed).toEqual([]);
+		expect(await h.records()).toEqual(hashes({ "a.md": "A", "Projects/q.md": "Q" }));
+	});
+
+	test("with the light check, what the remote changed below a link is not written or deleted", async () => {
+		const h = await synced({ "a.md": "A", "Projects/p.md": "P", "Projects/q.md": "Q" });
+		h.vault.links = new Set(["Projects"]);
+		h.backend.commit({ "a.md": "A2", "Projects/p.md": null, "Projects/q.md": "Q2", "Projects/new.md": "N" });
+
+		const result = await h.pull({ index: new MemoryIndex(h.vault) });
+
+		expect(result.outcome).toBe("completed");
+		expect(h.vault.snapshot()).toEqual({ "a.md": "A2", "Projects/p.md": "P", "Projects/q.md": "Q" });
+		expect(h.vault.trashed).toEqual([]);
+		expect(await readNotices(h.store)).toContainEqual({ kind: "local-link", path: "Projects" });
+	});
+
+	test("a path of the remote that differs from the link only in case is not written through it", async () => {
+		const h = await synced({ "a.md": "A", "Projects/p.md": "P" });
+		h.vault.links = new Set(["Projects"]);
+		h.backend.commit({ "projects/new.md": "N", "PROJECTS/p.md": "P2" });
+
+		const result = await h.pull();
+
+		expect(result.outcome).toBe("completed");
+		expect(h.vault.snapshot()).toEqual({ "a.md": "A", "Projects/p.md": "P" });
+		expect(h.vault.log).toEqual([]);
+	});
+
+	test("a link whose target is gone: what was recorded below it is not deleted, nor fetched into it", async () => {
+		const h = await synced({ "a.md": "A", "Gone/p.md": "P" });
+		// The listing leaves out a link that points nowhere.
+		h.vault.remove("Gone/p.md");
+		expect(await h.vault.removeFolderIfEmpty("Gone")).toBe(true);
+		h.vault.log.length = 0;
+		h.vault.links = new Set(["Gone"]);
+		h.backend.commit({ "Gone/p.md": "P2" });
+
+		const result = await h.pull();
+
+		expect(result.outcome).toBe("completed");
+		expect(h.vault.snapshot()).toEqual({ "a.md": "A" });
+		expect(h.vault.log).toEqual([]);
+		expect(await readNotices(h.store)).toContainEqual({ kind: "local-link", path: "Gone" });
+	});
+
 	test("on a phone, where links cannot be told, nothing changes", async () => {
 		const h = await synced({ "Projects/p.md": "P" });
 		h.backend.commit({ "Projects/p.md": "P2" });

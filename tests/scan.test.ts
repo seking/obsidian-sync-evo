@@ -12,7 +12,7 @@
 import { describe, expect, test } from "vitest";
 import { createExclusion, type Exclusion } from "../src/core/exclusion";
 import { withSection } from "../src/core/gitignore-section";
-import { planSync } from "../src/core/plan";
+import { planSync, type SyncRecord } from "../src/core/plan";
 import { scanVault, type ScanResult, placeholderTarget } from "../src/core/scan";
 import { blobHash } from "./support/memory-backend";
 import { MemoryVault } from "./support/memory-vault";
@@ -424,6 +424,14 @@ describe("links of the vault", () => {
 		expect(vault.listed).not.toContain("notes/Loop");
 	});
 
+	test("a link whose target is gone, which the listing leaves out, is told all the same", async () => {
+		const result = await scan(new LinkedVault(["a.md", "notes/b.md"], ["Gone", "notes/gone.md", "Hidden"]), {
+			gitignore: "Hidden\n",
+		});
+		expect(found(result)).toEqual(["a.md", "notes/b.md"]);
+		expect([...result.links].sort()).toEqual(["Gone", "notes/gone.md"]);
+	});
+
 	test("a link a rule excludes is not told", async () => {
 		const result = await scan(new LinkedVault(["a.md", "Ext/x.md"], ["Ext"]), { gitignore: "Ext/\n" });
 		expect(found(result)).toEqual(["a.md"]);
@@ -448,5 +456,16 @@ describe("links of the vault", () => {
 			["Projects/p.md", "local-link"],
 			["projects/p.md", "local-link"],
 		]);
+		// Cut off like an excluded path, the record as it was.
+		expect(plan.marks).toEqual([
+			{ key: "Projects/p.md", record: { path: "Projects/p.md", kind: "file", hash }, wasExcluded: true },
+		]);
+	});
+
+	test("a record that has the mark already is left as it is", () => {
+		const record: SyncRecord = { path: "Projects/p.md", kind: "file", hash: blobHash("x"), wasExcluded: true };
+		const plan = planSync({ remote: [], local: [], records: [record], exclusion: rules(null), links: ["Projects"] });
+		expect(plan.actions).toEqual([]);
+		expect(plan.marks).toEqual([]);
 	});
 });

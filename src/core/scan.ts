@@ -117,8 +117,8 @@ export function placeholderTarget(path: string): string | null {
  *   path it points to;
  * - a link of the vault, to a folder or to a file, and what lies below it
  *   (`FolderLister.linksIn`). Its target can be outside the vault, or
- *   another path of it, or the folder it is in. It is returned in `links`,
- *   unless a rule excludes it;
+ *   another path of it, or the folder it is in, or nothing any more. It is
+ *   returned in `links`, unless a rule excludes it;
  * - a folder and a file the exclusion leaves out (`Exclusion.excludes`),
  *   whatever the remote holds and whatever has a record. (The folder of the
  *   copies is entered whatever the rules say.) The sync decision turns each
@@ -157,11 +157,18 @@ export async function scanVault(input: ScanInput): Promise<ScanResult> {
 		const listed = await lister.list(folder);
 		const files = listed.files.map(fromRoot);
 		const there = new Set(files.map(foldedKey));
-		const linked = new Set((lister.linksIn === undefined ? [] : await lister.linksIn(folder)).map((path) => foldedKey(fromRoot(path))));
+		// By folded key, each with the path as the lister of links spelled it.
+		const linked = new Map<string, string>();
+		for (const path of lister.linksIn === undefined ? [] : await lister.linksIn(folder)) {
+			linked.set(foldedKey(fromRoot(path)), fromRoot(path));
+		}
 		// Told unless a rule excludes it, as a file or as a folder: which of
 		// the two the listing took it for depends on what it points to.
+		const listedLinks = new Set<string>();
 		const isLink = (path: string, kind: "file" | "folder"): boolean => {
-			if (!linked.has(foldedKey(path))) return false;
+			const folded = foldedKey(path);
+			if (!linked.has(folded)) return false;
+			listedLinks.add(folded);
 			if (!exclusion.excludes(path, kind, known)) links.push(path);
 			return true;
 		};
@@ -185,6 +192,15 @@ export async function scanVault(input: ScanInput): Promise<ScanResult> {
 			if (exclusion.excludes(path, "folder", known)) continue;
 			if (symlinks.has(folded)) continue;
 			pending.push(path);
+		}
+
+		// A link the listing left out: one whose target is gone. Told all
+		// the same, so that what was recorded below it is not taken for
+		// deleted. Unless a rule excludes it as a file or as a folder: what
+		// it was is not known any more.
+		for (const [folded, path] of linked) {
+			if (listedLinks.has(folded)) continue;
+			if (!exclusion.excludes(path, "file", known) && !exclusion.excludes(path, "folder", known)) links.push(path);
 		}
 	}
 

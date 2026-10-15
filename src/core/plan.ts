@@ -32,7 +32,8 @@ export interface SyncRecord {
 	readonly kind: EntryKind;
 	readonly hash: string;
 	/**
-	 * Set by a sync that found a rule excluding the path (`SyncPlan.marks`).
+	 * Set by a sync that found a rule excluding the path (`SyncPlan.marks`),
+	 * or a link of the vault at it or above it: cut off either way.
 	 * Apart from what the record says of the content, which an excluded path
 	 * keeps as it was. Once no rule excludes the path any more, a side that
 	 * no longer has it is no deletion to carry over: the record is dropped
@@ -215,8 +216,8 @@ export interface SyncPlan {
 	/**
 	 * Records whose mark of an exclusion (`SyncRecord.wasExcluded`) is to be
 	 * set or taken away, sorted by key: set on the record of a path a rule
-	 * excludes, taken away from that of a path none excludes any more that
-	 * both sides still have. Nothing else of the record changes. Stored where
+	 * excludes or a link of the vault cuts off, taken away from that of a
+	 * path cut off no more that both sides still have. Nothing else of the record changes. Stored where
 	 * a pull or a push stores its records, and not by one that stops before
 	 * that: one that waits for an answer, one that is declined, one that
 	 * fails.
@@ -312,9 +313,13 @@ export function planSync(input: PlanInput): SyncPlan {
 		if (reason !== undefined) {
 			skipped.push({ key, reason, remote: onRemote, local: onLocal, records: onRecords });
 			// Its value stays as it is. The mark says that the path was cut
-			// off, should no rule exclude it later.
+			// off, should no rule exclude it later. A path below a link of
+			// the vault is cut off the same way: once the link is taken
+			// away, what one side lost meanwhile is no deletion, and what
+			// the remote has is fetched into the folder that is there now.
 			const [record] = onRecords;
-			if (reason === "excluded" && onRecords.length === 1 && record !== undefined && record.wasExcluded !== true) {
+			const cutOff = reason === "excluded" || reason === "local-link";
+			if (cutOff && onRecords.length === 1 && record !== undefined && record.wasExcluded !== true) {
 				marks.push({ key, record, wasExcluded: true });
 			}
 			continue;
@@ -322,9 +327,9 @@ export function planSync(input: PlanInput): SyncPlan {
 
 		const record = onRecords[0];
 		if (record?.wasExcluded === true) {
-			// Excluded at the last sync, and not any more. A side that does
-			// not have the path lost it while it was cut off, which is no
-			// deletion to carry over. Both sides have it: compared as usual,
+			// Excluded (or below a link) at the last sync, and not any more.
+			// A side that does not have the path lost it while it was cut
+			// off, which is no deletion to carry over. Both sides have it: compared as usual,
 			// from the record as it was.
 			//
 			// The remote is taken not to have it only where its listing

@@ -724,6 +724,19 @@ describe("what the user has to know", () => {
 		]);
 	});
 
+	test("the links of the vault name Dropbox where it is the remote", () => {
+		const dropbox = translatorFor("en", "Dropbox");
+		const [text = ""] = pullReport(dropbox, result({ notices: [{ kind: "local-link", path: "Projects" }] }), options).details;
+		expect(text).toContain("leaves it as it is, on Dropbox and on this device");
+		expect(text).not.toContain("GitHub");
+		const [japanese = ""] = pullReport(
+			translatorFor("ja", "Dropbox"),
+			result({ notices: [{ kind: "local-link", path: "Projects" }] }),
+			options,
+		).details;
+		expect(japanese).toContain("Dropbox でも、このデバイス（リンクの先）でも");
+	});
+
 	test("symlinks seen for the first time", () => {
 		const [text = ""] = pullReport(t, result({ newSymlinks: [".claude/skills", "b"] }), options).details;
 		expect(text).toContain("2 symbolic links");

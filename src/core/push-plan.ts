@@ -112,9 +112,10 @@ export interface PushPlan {
 	/**
 	 * The marks of an exclusion to set or take away (`SyncPlan.marks`), and
 	 * the records of paths no rule excludes any more that one side lost
-	 * while one did (`SyncRecord.wasExcluded`), which go. Both are stored
-	 * with the records of a push that went through, or that found nothing
-	 * to send, and by no other: they change no file, on either side.
+	 * while one did, or below a link that is gone (`SyncRecord.wasExcluded`),
+	 * which go. Both are stored with the records of a push that went
+	 * through, or that found nothing to send, and by no other: they change
+	 * no file, on either side.
 	 */
 	readonly marks: readonly RecordMark[];
 	readonly drops: readonly SyncRecord[];
@@ -303,7 +304,8 @@ export function missingRecordedFiles(plan: PushPlan, configDir: string): readonl
 	const counted = new Set(plan.countedDeletions.map(pathKey));
 	const moved = new Set(plan.deletes.filter((entry) => !counted.has(pathKey(entry.remote.path))).map((entry) => entry.key));
 	// Not in the vault's scan, and not missing: a link of the vault stands
-	// there, or a rule excludes the path, or excluded it until now.
+	// there, or a rule excludes the path, or one of the two cut it off
+	// until now.
 	const passed = new Set([
 		...plan.skipped.filter((skip) => skip.reason === "local-link" || skip.reason === "excluded").map((skip) => skip.key),
 		...plan.drops.map((record) => pathKey(record.path)),

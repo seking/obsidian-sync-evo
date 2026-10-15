@@ -4819,16 +4819,59 @@ describe("links of the vault", () => {
 		expect(await h.remote()).toEqual({ "Projects/p.md": "P", "Projects/q.md": "Q", "b.md": "B" });
 	});
 
-	test("a link that is taken away is a folder that is gone, and is deleted like one", async () => {
-		const h = await synced({ "a.md": "A", "Projects/p.md": "P" });
+	test("a link that is taken away deletes nothing on the remote, and is not asked about; what the remote has is fetched", async () => {
+		const below = Object.fromEntries(Array.from({ length: 6 }, (_, i) => [`Projects/p${i}.md`, `P${i}`]));
+		const h = await synced({ "a.md": "A", ...below });
 		h.vault.links = new Set(["Projects"]);
-		await h.push();
+		expect((await h.push()).outcome).toBe("nothing-to-push");
+		// The link is gone, and with it the files it showed.
 		h.vault.links = null;
-		h.vault.remove("Projects/p.md");
+		for (const path of Object.keys(below)) h.vault.remove(path);
 
 		const result = await h.push();
 
-		expect(result.outcome).toBe("pushed");
-		expect(await h.remote()).toEqual({ "a.md": "A" });
+		// Six of seven records gone would be asked about, were they deletions.
+		expect(result.outcome).toBe("nothing-to-push");
+		expect(h.asked).toEqual([]);
+		expect(h.emptyAsked).toEqual([]);
+		expect(await h.remote()).toEqual({ "a.md": "A", ...below });
+		expect(await h.records()).toEqual(hashes({ "a.md": "A" }));
+
+		expect((await h.pull()).counts).toMatchObject({ fetched: 6, deleted: 0 });
+		expect(h.pullAsked).toEqual([]);
+		expect(h.vault.snapshot()).toEqual({ "a.md": "A", ...below });
+		expect(await h.records()).toEqual(hashes({ "a.md": "A", ...below }));
+	});
+
+	test("a link whose target is gone deletes nothing on the remote", async () => {
+		const h = await synced({ "a.md": "A", "Gone/p.md": "P" });
+		// The listing leaves out a link that points nowhere.
+		h.vault.remove("Gone/p.md");
+		expect(await h.vault.removeFolderIfEmpty("Gone")).toBe(true);
+		h.vault.log.length = 0;
+		h.vault.links = new Set(["Gone"]);
+
+		const result = await h.push();
+
+		expect(result.outcome).toBe("nothing-to-push");
+		expect(h.emptyAsked).toEqual([]);
+		expect(await h.remote()).toEqual({ "a.md": "A", "Gone/p.md": "P" });
+		expect(await readNotices(h.store)).toContainEqual({ kind: "local-link", path: "Gone" });
+	});
+
+	test("with the light check, what is below a link is not sent, and nothing is deleted", async () => {
+		const h = await synced({ "a.md": "A", "Projects/p.md": "P", "Projects/gone.md": "G" });
+		await h.pull();
+		h.vault.links = new Set(["Projects"]);
+		h.vault.putAll({ "a.md": "A2", "Projects/p.md": "P2", "Projects/new.md": "N" });
+		h.vault.remove("Projects/gone.md");
+		// The index holds what is below a link to a folder outside the vault.
+		const index = new MemoryIndex(h.vault);
+
+		const result = await h.push({ index });
+
+		expect(result).toMatchObject({ outcome: "pushed", counts: { added: 0, modified: 1, deleted: 0 } });
+		expect(await h.remote()).toEqual({ "a.md": "A2", "Projects/p.md": "P", "Projects/gone.md": "G" });
+		expect(await readNotices(h.store)).toContainEqual({ kind: "local-link", path: "Projects" });
 	});
 });
