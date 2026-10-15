@@ -29,6 +29,8 @@ interface Setup {
 	readonly store: MemoryStateStore;
 	/** Every call that reached the disk, in order. */
 	readonly ops: string[];
+	/** The milliseconds each kind of call takes on the clock the read is given (none by default). */
+	readonly costs: Record<string, number>;
 	/** Reads the files at `paths`, with what the index says of them when given. */
 	read(paths: readonly string[], indexed?: Record<string, FileStat>, saveEditors?: boolean): Promise<LocalRead>;
 	record(path: string): Promise<StoredRecord | undefined>;
@@ -45,13 +47,17 @@ async function setup(files: Record<string, string>): Promise<Setup> {
 		);
 	}
 	const ops: string[] = [];
+	const costs: Record<string, number> = {};
+	let elapsed = 0;
 	vault.before = (op, path) => {
 		ops.push(`${op} ${path}`);
+		elapsed += costs[op] ?? 0;
 	};
 	return {
 		vault,
 		store,
 		ops,
+		costs,
 		async read(paths, indexed, saveEditors) {
 			const scan: ScanResult = {
 				paths: paths.map((path) => ({ path, key: path, state: "present" })),
@@ -63,7 +69,7 @@ async function setup(files: Record<string, string>): Promise<Setup> {
 					vault,
 					backend: new MemoryBackend(),
 					store,
-					now: () => START,
+					now: () => START + elapsed,
 					startedAt: START,
 					sizeLimit: 1000,
 					held: new Set(),
@@ -99,6 +105,18 @@ describe("without an index", () => {
 			{ path: "b.md", hash: blobHash("B"), size: 1 },
 		]);
 		expect(local).toMatchObject({ statted: 2, hashed: 0 });
+	});
+
+	test("the time spent asking the disk and that spent reading are told apart", async () => {
+		const s = await setup({ "a.md": "A", "b.md": "B" });
+		s.costs.stat = 10;
+		s.costs.read = 3;
+		await s.vault.write("b.md", new TextEncoder().encode("B2"));
+
+		const local = await s.read(["a.md", "b.md"]);
+
+		expect(s.ops.filter((op) => !op.startsWith("write"))).toEqual(["stat a.md", "stat b.md", "read b.md"]);
+		expect(local).toMatchObject({ statted: 2, hashed: 1, statMs: 20, readMs: 3 });
 	});
 });
 

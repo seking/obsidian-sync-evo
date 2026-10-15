@@ -122,6 +122,10 @@ export interface LocalRead {
 	readonly statted: number;
 	/** How many files were read and hashed. */
 	readonly hashed: number;
+	/** Milliseconds spent asking the disk about files (`statted`). */
+	readonly statMs: number;
+	/** Milliseconds spent reading and hashing files (`hashed`). */
+	readonly readMs: number;
 }
 
 /**
@@ -191,6 +195,8 @@ export async function readLocal(
 	let hashedBytes = 0;
 	let statted = 0;
 	let hashed = 0;
+	let statMs = 0;
+	let readMs = 0;
 
 	for (const [index, scanned] of scan.paths.entries()) {
 		if (deps.aborted()) {
@@ -263,11 +269,14 @@ export async function readLocal(
 		};
 		let stat: Awaited<ReturnType<LocalReadDeps["vault"]["stat"]>>;
 		statted += 1;
+		const statBegan = deps.now();
 		try {
 			stat = await deps.vault.stat(path);
 		} catch {
 			await leave();
 			continue;
+		} finally {
+			statMs += deps.now() - statBegan;
 		}
 		// Gone since it was listed, or a link whose target is gone, which
 		// the disk has nothing to stat at.
@@ -284,10 +293,12 @@ export async function readLocal(
 		if (record !== undefined && isUnchangedByStat(record, stat)) {
 			hash = record.hash;
 		} else {
+			const readBegan = deps.now();
 			let content: Uint8Array;
 			try {
 				({ content, stat } = await readWhole(deps.vault, path, stat));
 			} catch (error) {
+				readMs += deps.now() - readBegan;
 				const told = await sizeToldWrong(deps, path, stat, record, error);
 				if (told === null) {
 					await leave();
@@ -301,6 +312,7 @@ export async function readLocal(
 			}
 			hash = await deps.backend.hashContent(content);
 			hashed += 1;
+			readMs += deps.now() - readBegan;
 			// Found here too, and not only when it is written: a pointer
 			// that was already in the vault is one all the same.
 			const remote = remoteByKey.get(key);
@@ -322,7 +334,20 @@ export async function readLocal(
 		deps.onProgress(index + 1, total);
 	}
 	await batcher.flush();
-	return { entries, seen, lfsPointers, unsaved, beingEdited, unreadable, placeholders, links, statted, hashed };
+	return {
+		entries,
+		seen,
+		lfsPointers,
+		unsaved,
+		beingEdited,
+		unreadable,
+		placeholders,
+		links,
+		statted,
+		hashed,
+		statMs,
+		readMs,
+	};
 }
 
 /**

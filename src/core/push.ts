@@ -111,6 +111,7 @@ import {
 	type StoredRecord,
 	writeBaseRevision,
 } from "./state";
+import { countingLister, diskTimes, fullCheckLine, PhaseClock } from "./timing";
 
 /**
  * The vault, as far as a push needs it: it reads. The one file it ever
@@ -515,8 +516,12 @@ class PushRun {
 	/** Whether the `.gitignore` with the section is on the remote. */
 	private sectionSent = false;
 
+	/** How long the push spent in each phase, for the log. */
+	private readonly clock: PhaseClock;
+
 	constructor(private readonly deps: PushDeps) {
 		this.startedAt = deps.now();
+		this.clock = new PhaseClock(deps.now);
 		this.sizeLimit = deps.sizeLimit ?? DEFAULT_SIZE_LIMIT;
 	}
 
@@ -603,10 +608,12 @@ class PushRun {
 	}
 
 	private progress(phase: PushPhase, done = 0, total = 0): void {
+		this.clock.enter(phase);
 		this.deps.onProgress?.({ phase, done, total });
 	}
 
 	private result(outcome: PushOutcome, extra: Partial<PushRunResult> = {}): PushRunResult {
+		this.deps.log?.(`push: ${outcome} in ${this.clock.line()}`);
 		const plan = this.plan;
 		return {
 			outcome,
@@ -695,7 +702,9 @@ class PushRun {
 		const began = deps.now();
 		const scanned = { exclusion, remote: listing.entries, records };
 		const light = deps.index === undefined ? null : await scanLightly({ ...scanned, index: deps.index, vault });
-		const found = light ?? (await scanVault({ ...scanned, lister: vault }));
+		const lister = countingLister(vault);
+		const found = light ?? (await scanVault({ ...scanned, lister }));
+		const scanMs = deps.now() - began;
 		const local = await readLocal(
 			{
 				vault,
@@ -719,7 +728,12 @@ class PushRun {
 		);
 		if (local === null) return this.result("cancelled");
 		const scan = withLinksRead(found, local);
-		if (light !== null) deps.log?.(`push: ${lightCheckLine(light, local, deps.now() - began)}`);
+		const checkMs = deps.now() - began;
+		const checkLine =
+			light === null
+				? fullCheckLine(scan.paths.length, lister.listed(), scanMs, local, checkMs)
+				: `${lightCheckLine(light, local, checkMs)} (${diskTimes(local)})`;
+		deps.log?.(`push: ${checkLine}`);
 		// On disk it may be behind what the user sees.
 		for (const path of local.unsaved) this.held.add(foldedKey(path));
 		// Typed in right now. Held like those, and not told.
