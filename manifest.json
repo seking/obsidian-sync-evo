@@ -6,6 +6,9 @@
 	"description": "Sync a vault with a GitHub repository or a Dropbox folder, without Git on the device. Built for large vaults and for phones.",
 	"author": "seking",
 	"authorUrl": "https://github.com/seking",
-	"fundingUrl": "https://ko-fi.com/gyapllc",
+	"fundingUrl": {
+		"GitHub Sponsors": "https://github.com/sponsors/seking",
+		"Ko-fi": "https://ko-fi.com/gyapllc"
+	},
 	"isDesktopOnly": false
 }
