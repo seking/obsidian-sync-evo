@@ -145,8 +145,7 @@ export async function finishPush(
 	pending: PendingPushState,
 	listing?: RemoteListing | null,
 ): Promise<void> {
-	for (const record of pending.records) await store.commitWrite(record);
-	for (const key of pending.deleted) await store.deleteRecord(key);
+	await store.commitRecords(pending.records, pending.deleted);
 	if (listing === null) await store.clearListing();
 	else if (listing !== undefined) await store.putListing(listing);
 	if ((await readBaseRevision(store)) === pending.parent) await writeBaseRevision(store, pending.revision);

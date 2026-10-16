@@ -241,6 +241,20 @@ export class IdbStateStore implements StateStore {
 		});
 	}
 
+	commitRecords(records: readonly StoredRecord[], deleted: readonly string[]): Promise<void> {
+		if (records.length === 0 && deleted.length === 0) return Promise.resolve();
+		const stored = records.map(plainRecord);
+		return this.write([RECORDS, MARKERS], (transaction) => {
+			const markers = transaction.objectStore(MARKERS);
+			const store = transaction.objectStore(RECORDS);
+			for (const record of stored) {
+				markers.delete(record.key);
+				store.put(record);
+			}
+			for (const key of deleted) store.delete(key);
+		});
+	}
+
 	updateStats(records: readonly StoredRecord[]): Promise<void> {
 		if (records.length === 0) return Promise.resolve();
 		return this.write([RECORDS], (transaction, fail) => {

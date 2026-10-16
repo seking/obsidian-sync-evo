@@ -1082,8 +1082,10 @@ class PushRun {
 	 */
 	private async storeMarks(plan: PushPlan): Promise<void> {
 		const { store } = this.deps;
-		for (const mark of plan.marks) await store.commitWrite(markedRecord(mark.record, mark.wasExcluded));
-		for (const record of plan.drops) await store.deleteRecord(pathKey(record.path));
+		await store.commitRecords(
+			plan.marks.map((mark) => markedRecord(mark.record, mark.wasExcluded)),
+			plan.drops.map((record) => pathKey(record.path)),
+		);
 	}
 
 	/** What is recorded once the commit is the head of the remote. */

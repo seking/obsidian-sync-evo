@@ -84,6 +84,7 @@ import {
 	markedRecord,
 	RACY_MTIME_MARGIN_MS,
 	type StateStore,
+	type StoredRecord,
 } from "./state";
 
 /** What an LFS pointer file starts with. Such a file is written as it is. */
@@ -268,10 +269,16 @@ class Applier {
 		// made even when the signal is already set, so that what they settle
 		// (a symlink that was told, a file the user chose to keep) is not
 		// left half settled.
-		for (const change of plan.records) {
-			await this.applyRecord(change);
-			this.step();
-		}
+		// In one transaction: a vault that already holds what a first fetch
+		// takes has a change for each of its files. The last change of a key
+		// is what stays, as when they were made one after another.
+		const settled = new Map<string, StoredRecord | null>();
+		for (const change of plan.records) settled.set(change.key, this.recordOf(change));
+		const records = [...settled.values()].filter((record) => record !== null);
+		const dropped = [...settled].filter(([, record]) => record === null).map(([key]) => key);
+		await this.store.commitRecords(records, dropped);
+		this.done += plan.records.length;
+		if (plan.records.length > 0) this.env.onStep?.(this.done, this.total);
 
 		const phases: readonly (() => Promise<boolean>)[] = [
 			() => this.each(plan.deletes, (entry) => this.applyDelete(entry)),
@@ -674,19 +681,14 @@ class Applier {
 	// -----------------------------------------------------------------------
 	// The steps before the writes
 
-	private async applyRecord(change: RecordChange): Promise<void> {
-		if (change.type === "drop") {
-			await this.store.deleteRecord(change.key);
-			return;
-		}
-		if (change.type === "mark") {
-			await this.store.commitWrite(markedRecord(change.record, change.wasExcluded));
-			return;
-		}
+	/** The record a change stores, or `null` for one that removes it. */
+	private recordOf(change: RecordChange): StoredRecord | null {
+		if (change.type === "drop") return null;
+		if (change.type === "mark") return markedRecord(change.record, change.wasExcluded);
 		// The time and the size only go with a record of what the file holds.
 		const seen = change.local === undefined ? undefined : this.seen.get(pathKey(change.local.path));
 		const stat = seen !== undefined && seen.hash === change.record.hash ? seen.stat : undefined;
-		await this.store.commitWrite(makeRecord(change.record, stat, this.env.startedAt));
+		return makeRecord(change.record, stat, this.env.startedAt);
 	}
 
 	private async applyDelete(entry: PullDelete): Promise<void> {

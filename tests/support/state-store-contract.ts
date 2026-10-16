@@ -126,6 +126,39 @@ export function describeStateStore(name: string, open: () => Promise<StateStore>
 			expect(await store.readMarkers()).toEqual([marker]);
 		});
 
+		test("many records are stored and others removed at once, each stored one's marker with it", async () => {
+			const store = await open();
+			await seed(store, [fileRecord("a.md", HASH_A), fileRecord("gone.md")]);
+			await store.putMarker(makeMarker("b.md", null, HASH_B, false));
+			await store.putMarker(makeMarker("c.md", HASH_C, HASH_B, false));
+
+			await store.commitRecords([fileRecord("a.md", HASH_B), fileRecord("b.md", HASH_B)], ["gone.md"]);
+
+			expect((await store.readRecords()).sort((x, y) => x.key.localeCompare(y.key))).toEqual([
+				fileRecord("a.md", HASH_B),
+				fileRecord("b.md", HASH_B),
+			]);
+			expect(await store.readMarkers()).toEqual([makeMarker("c.md", HASH_C, HASH_B, false)]);
+		});
+
+		test("when one of many records cannot be stored, none is, and nothing is removed", async () => {
+			const store = await open();
+			await seed(store, [fileRecord("a.md", HASH_A), fileRecord("gone.md")]);
+			const marker = makeMarker("b.md", null, HASH_B, false);
+			await store.putMarker(marker);
+
+			const unstorable = { ...fileRecord("c.md", HASH_B), hash: (() => HASH_B) as unknown as string };
+			await expect(
+				store.commitRecords([fileRecord("b.md", HASH_B), unstorable], ["gone.md"]),
+			).rejects.toMatchObject({ name: "DataCloneError" });
+
+			expect((await store.readRecords()).sort((x, y) => x.key.localeCompare(y.key))).toEqual([
+				fileRecord("a.md", HASH_A),
+				fileRecord("gone.md"),
+			]);
+			expect(await store.readMarkers()).toEqual([marker]);
+		});
+
 		test("when one of many updates cannot be stored, none is", async () => {
 			const store = await open();
 			const before = [fileRecord("a.md"), fileRecord("b.md"), fileRecord("c.md")];

@@ -327,6 +327,14 @@ export interface StateStore {
 	 */
 	updateStats(records: readonly StoredRecord[]): Promise<void>;
 
+	/**
+	 * Stores many records as `commitWrite` does each (with the marker of
+	 * the same key removed), and then removes the records under `deleted`,
+	 * all in one transaction: all of it is done, or none. For the records a
+	 * sync settles at once, of which a large vault may have thousands.
+	 */
+	commitRecords(records: readonly StoredRecord[], deleted: readonly string[]): Promise<void>;
+
 	/** Removes a record, and with `withMarker` the marker of the same key in the same transaction. */
 	deleteRecord(key: string, options?: { readonly withMarker?: boolean }): Promise<void>;
 

@@ -46,6 +46,17 @@ export class MemoryStateStore implements StateStore {
 		this.records.set(stored.key, stored);
 	}
 
+	async commitRecords(records: readonly StoredRecord[], deleted: readonly string[]): Promise<void> {
+		this.expectOpen();
+		// All are copied before any is stored, so that a failure stores none.
+		const stored = records.map((record) => structuredClone(plainRecord(record)));
+		for (const record of stored) {
+			this.markers.delete(record.key);
+			this.records.set(record.key, record);
+		}
+		for (const key of deleted) this.records.delete(key);
+	}
+
 	async updateStats(records: readonly StoredRecord[]): Promise<void> {
 		this.expectOpen();
 		// Like the store on a device: an update that is dropped is never
