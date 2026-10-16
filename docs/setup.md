@@ -10,7 +10,7 @@
 
 Sync Evo is not in the community plugin directory yet. Until it is, install it with [BRAT](https://github.com/TfTHacker/obsidian42-brat) from `seking/obsidian-sync-evo`.
 
-1. In Settings → Community plugins, press **Browse**, search for **BRAT**, then install and enable it.
+1. In Settings → Community plugins, turn off **Restricted mode** if it is on. Press **Browse**, search for **BRAT**, then install and enable it.
 2. In Settings → BRAT, press **Add beta plugin**, and enter `https://github.com/seking/obsidian-sync-evo`. Keep the latest version, and add it.
 3. In Settings → Community plugins, turn on **Sync Evo**. BRAT keeps it up to date.
 

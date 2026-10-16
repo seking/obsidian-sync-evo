@@ -1,5 +1,7 @@
 # Sync Evo
 
+[日本語](https://github.com/seking/obsidian-sync-evo/blob/main/README.ja.md)
+
 Sync your vault across all your devices — free, through your own GitHub or Dropbox.
 
 It works on phones and computers alike, with no Git to install.
@@ -33,7 +35,7 @@ It works on phones and computers alike, with no Git to install.
 
 Sync Evo is not in the community plugin directory yet. Install it with [BRAT](https://github.com/TfTHacker/obsidian42-brat):
 
-1. In Settings → Community plugins, press **Browse**, search for **BRAT**, then install and enable it.
+1. In Settings → Community plugins, turn off **Restricted mode** if it is on. Press **Browse**, search for **BRAT**, then install and enable it.
 2. In Settings → BRAT, press **Add beta plugin**, and enter `https://github.com/seking/obsidian-sync-evo`. Keep the latest version, and add it.
 3. In Settings → Community plugins, turn on **Sync Evo**. BRAT keeps it up to date.
 
