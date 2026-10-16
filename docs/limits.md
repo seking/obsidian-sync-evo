@@ -7,6 +7,7 @@
 - **Line ending conversion.** The `text` and `eol` settings of `.gitattributes` are not applied. Every file is stored and written byte for byte as the repository holds it.
 - **Symbolic links.** See [Symbolic links](#symbolic-links).
 - **Other services** than GitHub and Dropbox.
+- **Files over 38 MB**, and repositories with more than 100,000 files. See [Sizes](#sizes).
 
 ## Sizes
 

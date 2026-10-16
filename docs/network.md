@@ -1,5 +1,33 @@
 # Network use and privacy
 
+Sync Evo connects only when you use it, or when you have switched on automatic sync. Nothing is sent anywhere else. Sync Evo collects no usage data. There is no server of the developer's. Details are in [When Sync Evo connects](#when-sync-evo-connects).
+
+## At a glance
+
+**GitHub** (with the token, and the names of the repository and the branch)
+
+| Action | Host | What is sent | Why |
+| --- | --- | --- | --- |
+| Connection test | `api.github.com` | Requests for the repository and the branch | To check that the token reaches them |
+| Download | `api.github.com`, `codeload.github.com` | Requests for the file list and contents. Nothing from the vault. | To get new and changed files |
+| Upload | `api.github.com` | Added and changed files, the paths of added, changed and deleted files, and a commit | To send your changes |
+| Remove from GitHub | `api.github.com` | The paths to remove, the `.gitignore`, and a commit | To remove excluded files from the repository |
+
+**Dropbox** (with a token Dropbox gave this device, and the vault's folder path)
+
+| Action | Host | What is sent | Why |
+| --- | --- | --- | --- |
+| Connect, Disconnect | `www.dropbox.com`, `api.dropboxapi.com` | The sign-in in the browser, then the code (Connect) or the token (Disconnect) | To connect this device, and to forget it |
+| Connection test | `api.dropboxapi.com` | A request for the vault's folder | To check that it is there |
+| Download | `api.dropboxapi.com`, `content.dropboxapi.com` | Requests for changes, file contents and versions | To get new and changed files, and to merge |
+| Upload | `api.dropboxapi.com`, `content.dropboxapi.com` | Added and changed files, and the paths of deleted files | To send your changes |
+| Remove from Dropbox | `api.dropboxapi.com`, `content.dropboxapi.com` | The `.gitignore`, and the paths to remove | To remove excluded files from Dropbox |
+
+- The token is kept in Obsidian's Keychain. The settings and the sync state stay on the device, outside the vault. Sync Evo writes no `data.json`.
+- Sync Evo never syncs its own folder.
+
+The rest of this page gives every request in detail.
+
 ## When Sync Evo connects
 
 Sync Evo makes network requests only when you:
