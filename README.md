@@ -29,21 +29,27 @@ It works on phones and computers alike, with no Git to install.
 
 ## Get started
 
-Not in the community plugin directory yet: install with [BRAT](https://github.com/TfTHacker/obsidian42-brat) from `seking/obsidian-sync-evo`.
+### Install
+
+Sync Evo is not in the community plugin directory yet. Install it with [BRAT](https://github.com/TfTHacker/obsidian42-brat):
+
+1. In Settings → Community plugins, press **Browse**, search for **BRAT**, then install and enable it.
+2. In Settings → BRAT, press **Add beta plugin**, and enter `https://github.com/seking/obsidian-sync-evo`. Keep the latest version, and add it.
+3. In Settings → Community plugins, turn on **Sync Evo**. BRAT keeps it up to date.
 
 ### GitHub
 
 1. If you have no repository for the vault, [create an empty private one](https://github.com/new) on GitHub. No [GitHub account](https://github.com/signup) yet? Create one first, for free.
 2. [Create a token](https://github.com/settings/personal-access-tokens/new?name=Sync+Evo&description=Obsidian+Sync+Evo&expires_in=90&contents=write), and choose the vault's repository on that page.
 3. In Settings → Community plugins → Sync Evo, enter the repository and the branch, and save the token as a secret.
-4. Press **Test**, then **Sync**.
+4. Press **Test**. Then sync: tap the **Sync** icon (two circling arrows) in the ribbon, or run **Sync Evo: Sync** from the command palette.
 
 ### Dropbox
 
 1. No Dropbox account yet? [Create one](https://www.dropbox.com/register), for free.
 2. In Settings → Community plugins → Sync Evo, set **Service** to **Dropbox**.
 3. Press **Connect**, and allow Sync Evo in the browser.
-4. Press **Test**, then **Sync**.
+4. Press **Test**, then sync as in step 4 for GitHub.
 
 [Step-by-step guide](https://github.com/seking/obsidian-sync-evo/blob/main/docs/setup.md)
 
