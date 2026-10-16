@@ -999,8 +999,9 @@ class PushRun {
 		// The copies that were tidied and are gone from the remote now have
 		// nothing left to be remembered for. The next push forgets them
 		// too, should this fail.
+		const pendingDeleted = new Set(pending.deleted);
 		const deleted = new Set(
-			plan.deletes.filter((entry) => pending.deleted.includes(entry.key)).map((entry) => foldedKey(entry.remote.path)),
+			plan.deletes.filter((entry) => pendingDeleted.has(entry.key)).map((entry) => foldedKey(entry.remote.path)),
 		);
 		if (deleted.size > 0) await this.quietly(() => forgetTidiedCopies(store, (path) => !deleted.has(foldedKey(path))));
 		if (stored === null) deps.log?.("push: the tree of the new commit could not be fetched; the next sync lists the remote again");
