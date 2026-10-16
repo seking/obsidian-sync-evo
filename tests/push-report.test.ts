@@ -684,7 +684,13 @@ describe("how much each thing a push tells matters", () => {
 		// Not where another device only pushed in between: the next sync pulls first by itself.
 		expect(level({ outcome: "pull-first", reason: "remote-moved", revision: null })).toBe("info");
 		expect(level({ outcome: "nothing-to-push", revision: null })).toBe("info");
-		expect(level({ outcome: "nothing-to-push", revision: null, held: ["a.md"] })).toBe("warn");
+		// Files left unsent are seen to by their own details, which stay. A
+		// rename told once already has none, and a summary that stays would
+		// say "as told" on every push.
+		const held = pushPart(t, result({ outcome: "nothing-to-push", revision: null, held: ["a.md"] }), options);
+		expect(held.level).toBe("info");
+		expect(held.details.map((detail) => detail.level)).toEqual(["warn"]);
+		expect(level({ outcome: "nothing-to-push", revision: null, heldRenames: [{ from: "tools", to: "Tools" }] as never })).toBe("info");
 	});
 });
 

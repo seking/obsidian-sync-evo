@@ -316,17 +316,13 @@ export function pushPart(t: Translate, result: PushRunResult, options: PushRepor
 /**
  * How much the way a push ended matters: "warn" where nothing was sent and
  * the user has something to do first. Not where the remote only moved on in
- * between, which the next sync pulls first for by itself.
+ * between, which the next sync pulls first for by itself. Nor where files
+ * were left unsent: what is to be done about them is told by their own
+ * details, which stay; where none is (a rename told once already), a
+ * summary that stays would only say "as told" every time.
  */
 function summaryLevel(result: PushRunResult): NoticeLevel {
-	switch (result.outcome) {
-		case "pull-first":
-			return result.reason === "remote-moved" ? "info" : "warn";
-		case "nothing-to-push":
-			return pushUnsent(result) ? "warn" : "info";
-		default:
-			return "info";
-	}
+	return result.outcome === "pull-first" && result.reason !== "remote-moved" ? "warn" : "info";
 }
 
 /** Whether a push left files unsent. */

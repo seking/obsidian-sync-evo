@@ -138,9 +138,9 @@
 	width: auto;
 }
 
-/* A notice of a sync that could not be carried out: told apart from the others at a glance. */
-.sync-evo-notice-error {
-	border-left: 4px solid var(--text-error);
+/* A notice of a sync that could not be carried out: told apart from the others at a glance. The whole frame: a notice is rounded, and a line on one side is lost in the curve. As specific as the app's own frame of a notice, which wins otherwise. */
+.notice-container .notice.sync-evo-notice-error {
+	border: 2px solid var(--text-error);
 }
 
 /* The screen of the results of the last syncs: one sync to a fold, each thing a paragraph, with its paths one to a line. */
