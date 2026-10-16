@@ -120,6 +120,9 @@ const context = await esbuild.context({
 	// Whitespace and syntax only; identifiers stay readable.
 	minifyWhitespace: production,
 	minifySyntax: production,
+	// The texts of the languages as they are, and not as `\uXXXX`: the
+	// Japanese ones would take six bytes a character.
+	charset: "utf8",
 	legalComments: "inline",
 	outfile: "main.js",
 });
