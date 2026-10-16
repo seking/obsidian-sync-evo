@@ -35,7 +35,7 @@ Under "Connection" in the settings, **Service** chooses between GitHub and Dropb
 
 **Deleted files** stay in the version history of Dropbox for a while (30 days on the free plan). They are not put into a trash of Sync Evo's.
 
-**Automatic merging** finds what a file held at the last sync among its versions on Dropbox. When that version is gone, the file is kept twice instead, as a conflict file.
+**Automatic merging** finds what a file held at the last sync among its versions on Dropbox. Only the latest 100 versions are looked at. When that version is gone, or older than those, the file is kept twice instead, as a conflict file.
 
 **Upper and lower case.** Dropbox does not tell them apart.
 

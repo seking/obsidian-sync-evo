@@ -1,5 +1,6 @@
 # Sync Evo documentation
 
+- [GitHub or Dropbox?](github-or-dropbox.md): which to choose, side by side.
 - [Setting up](setup.md): what you need, and step-by-step setup for GitHub and Dropbox.
 - [How syncing works](syncing.md): when it runs, merging, conflict files, `.trash/`, when it stops and asks, commands.
 - [Settings](settings.md): connection and token, what is not synced, `.gitignore` rules, automatic sync.

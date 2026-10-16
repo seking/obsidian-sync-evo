@@ -20,6 +20,13 @@ It works on phones and computers alike, with no Git to install.
 
 **Quiet automatic sync.** If you turn it on, Sync Evo syncs on startup and at an interval, and says nothing when all is well.
 
+## GitHub or Dropbox?
+
+- **No GitHub account? Use Dropbox.** A free Dropbox account is enough. You sign in, and there is no repository or token to make.
+- **Use GitHub** if you already have an account, use Git on a computer, or want every change kept.
+
+[Compare them](https://github.com/seking/obsidian-sync-evo/blob/main/docs/github-or-dropbox.md)
+
 ## Get started
 
 Not in the community plugin directory yet: install with [BRAT](https://github.com/TfTHacker/obsidian42-brat) from `seking/obsidian-sync-evo`.
@@ -53,6 +60,7 @@ Sync Evo connects only to GitHub (`api.github.com`, `codeload.github.com`) or Dr
 ## Learn more
 
 - [Setting up, step by step](https://github.com/seking/obsidian-sync-evo/blob/main/docs/setup.md)
+- [GitHub or Dropbox?](https://github.com/seking/obsidian-sync-evo/blob/main/docs/github-or-dropbox.md)
 - [How syncing works](https://github.com/seking/obsidian-sync-evo/blob/main/docs/syncing.md), and its [commands](https://github.com/seking/obsidian-sync-evo/blob/main/docs/syncing.md#commands)
 - [Settings](https://github.com/seking/obsidian-sync-evo/blob/main/docs/settings.md)
 - [Dropbox](https://github.com/seking/obsidian-sync-evo/blob/main/docs/dropbox.md)
