@@ -8,9 +8,19 @@ Sync Evo keeps it in `.trash/.sync-evo-merged/` in the vault, as `<date> <name>.
 
 In the folder `_conflicts/` at the root of the vault, as `<date> <name> (<device>).<extension>`. The notice of the sync names them. They are moved to `.trash/` after 30 days, unless you move them out of `_conflicts/` or rename them. See [Conflict files](syncing.md#conflict-files).
 
-## My vault has a .git folder
+## Switching a device from Git to Sync Evo
 
-On a device where the vault has a `.git` at its root, sync with git or with the Obsidian Git plugin. Git does not learn of what Sync Evo sends, and its next pull would stop. Sync Evo is for the devices that have no git.
+Use Git (or the Obsidian Git plugin) or Sync Evo on a device, not both. Git does not learn of what Sync Evo sends, so its next pull on that device would stop. Other devices can keep using Git on the same repository.
+
+To move a device to Sync Evo, for automatic sync on a phone for example:
+
+1. With Git, commit and push everything on that device, then pull, so that it matches the repository.
+2. Turn off the Obsidian Git plugin, or stop the Git app, on that device.
+3. Set up Sync Evo and sync. Files that match the repository are taken as they are.
+
+If the device was behind the repository, every file that changed since is kept twice on the first sync, with the device's version in `_conflicts/`. That is why step 1 matters.
+
+While the vault still has a `.git` folder at its root, Sync Evo tells you once that it found it, and keeps syncing. Delete that folder when you no longer use Git on the device.
 
 ## Can I use a vault in iCloud Drive?
 

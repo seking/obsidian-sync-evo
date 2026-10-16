@@ -57,7 +57,7 @@ Sync Evo は、まだコミュニティプラグインの一覧にありませ�
 
 ## 知っておくこと
 
-- 保管庫に `.git` フォルダがある時は、そのデバイスでは git で同期してください。[理由](https://github.com/seking/obsidian-sync-evo/blob/main/docs/faq.md#my-vault-has-a-git-folder)
+- Git で同期している保管庫は、1台のデバイスでは Git か Sync Evo のどちらかだけを使ってください。パソコンは Git、スマートフォンは Sync Evo のように、1つのリポジトリを分けて使えます。[Git から移る手順](https://github.com/seking/obsidian-sync-evo/blob/main/docs/faq.md#switching-a-device-from-git-to-sync-evo)
 - iCloud Drive の保管庫も使えますが、対応は試験的です。[詳細](https://github.com/seking/obsidian-sync-evo/blob/main/docs/icloud.md)
 - 「インストールされているコミュニティプラグイン」を同期すると、ほかのデバイスから来たプラグインのコードが動きます。[詳細](https://github.com/seking/obsidian-sync-evo/blob/main/docs/settings.md#installed-community-plugins)
 - 「アクティブなコミュニティプラグインのリスト」を同期するなら、全デバイスで Sync Evo を有効にしておいてください。[理由](https://github.com/seking/obsidian-sync-evo/blob/main/docs/settings.md#active-community-plugin-list)

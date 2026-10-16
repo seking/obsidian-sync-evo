@@ -16,7 +16,7 @@ Sync Evo is not in the community plugin directory yet. Until it is, install it w
 
 ## Before you start
 
-- **If the vault has a `.git` folder at its root, sync that device with git or the Obsidian Git plugin.** Sync Evo is for the devices that have no git. [Why](faq.md#my-vault-has-a-git-folder)
+- **Use Git or Sync Evo on a device, not both.** Git on a computer and Sync Evo on a phone can share one repository. To move a device from Git to Sync Evo, see [Switching a device from Git to Sync Evo](faq.md#switching-a-device-from-git-to-sync-evo).
 - **Support for a vault in iCloud Drive is experimental.** Do not sync the same iCloud vault with Sync Evo on two devices. Do not make it a git working tree on the Mac. [Details](icloud.md)
 
 ## GitHub

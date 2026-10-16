@@ -57,7 +57,7 @@ Sync Evo is not in the community plugin directory yet. Install it with [BRAT](ht
 
 ## Good to know
 
-- If the vault has a `.git` folder, sync that device with git instead. [Why](https://github.com/seking/obsidian-sync-evo/blob/main/docs/faq.md#my-vault-has-a-git-folder)
+- Already syncing with Git? Use Git or Sync Evo on a device, not both. Git on a computer and Sync Evo on a phone can share one repository. [Switching from Git](https://github.com/seking/obsidian-sync-evo/blob/main/docs/faq.md#switching-a-device-from-git-to-sync-evo)
 - A vault in iCloud Drive works, but support is experimental. [Details](https://github.com/seking/obsidian-sync-evo/blob/main/docs/icloud.md)
 - Syncing "Installed community plugins" runs plugin code from your other devices. [Details](https://github.com/seking/obsidian-sync-evo/blob/main/docs/settings.md#installed-community-plugins)
 - If you sync the "Active community plugin list", keep Sync Evo enabled on every device. [Why](https://github.com/seking/obsidian-sync-evo/blob/main/docs/settings.md#active-community-plugin-list)
