@@ -127,6 +127,15 @@ export class RoutedVault<Handle> implements PullVault {
 	 */
 	private readonly linkFolders = new Map<string, Promise<boolean>>();
 
+	/**
+	 * The folders with a `.` name a write made or found, as the disk spells
+	 * them, by folded path. Found once instead of on every write below them
+	 * (`ensureFolder`): each look lists every folder from the root. Kept for
+	 * the life of this vault, which is one sync, and forgotten on any rename,
+	 * trash or removal, which may take such a folder away or spell it anew.
+	 */
+	private readonly dotFolders = new Map<string, string>();
+
 	constructor(ports: VaultPorts<Handle>) {
 		this.ports = ports;
 		const { linksIn, isLink } = ports;
@@ -293,6 +302,7 @@ export class RoutedVault<Handle> implements PullVault {
 	 */
 	async rename(from: string, to: string): Promise<void> {
 		const { ports } = this;
+		this.dotFolders.clear();
 		await this.refuseLinks(from);
 		await this.refuseLinks(to);
 		// Asked of the disk first: the listing alone would take a name that
@@ -317,6 +327,7 @@ export class RoutedVault<Handle> implements PullVault {
 
 	async trash(path: string, mode: TrashMode): Promise<void> {
 		const { ports } = this;
+		this.dotFolders.clear();
 		await this.refuseLinks(path);
 		const item = await this.find(path);
 		const route = trashRoute(mode, item !== null, trashOptionOf(ports.trashOption()));
@@ -352,6 +363,7 @@ export class RoutedVault<Handle> implements PullVault {
 	 */
 	async removeFolderIfEmpty(path: string): Promise<boolean> {
 		const { ports } = this;
+		this.dotFolders.clear();
 		await this.refuseLinks(path);
 		const stat = await ports.stat(path);
 		if (stat === null) return true;
@@ -471,9 +483,15 @@ export class RoutedVault<Handle> implements PullVault {
 		if (folder === "") return spelled;
 		for (const wanted of foldersTo(`${folder}/`)) {
 			const path = joinPath(spelled, lastOf(wanted));
-			const indexed = isDotPath(path) ? null : this.indexed(path);
+			const dot = isDotPath(path);
+			const indexed = dot ? null : this.indexed(path);
 			if (indexed?.type === "folder") {
 				spelled = indexed.path;
+				continue;
+			}
+			const known = dot ? this.dotFolders.get(foldedKey(path)) : undefined;
+			if (known !== undefined) {
+				spelled = known;
 				continue;
 			}
 			const stat = await this.ports.stat(path);
@@ -485,6 +503,7 @@ export class RoutedVault<Handle> implements PullVault {
 			} else {
 				throw new Error(`a file is at ${path}`);
 			}
+			if (dot) this.dotFolders.set(foldedKey(path), spelled);
 		}
 		return spelled;
 	}

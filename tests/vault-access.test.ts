@@ -142,6 +142,41 @@ describe("write", () => {
 		expect(ports.text("notes/a.md")).toBe("new");
 	});
 
+	test("the folders with a . name that were there are looked for once in a sync, and again after a rename", async () => {
+		const { ports, vault } = mac();
+		await vault.write(".obsidian/plugins/x/a.js", bytes("a"));
+		// Another vault of the same disk: the folders are there, and not known to it.
+		const again = new RoutedVault(ports);
+		const list = ports.list.bind(ports);
+		const stat = ports.stat.bind(ports);
+		let looks = 0;
+		ports.list = (folder) => {
+			looks += 1;
+			return list(folder);
+		};
+		ports.stat = (path) => {
+			looks += 1;
+			return stat(path);
+		};
+
+		await again.write(".obsidian/plugins/x/b.js", bytes("b"));
+		const first = looks;
+		looks = 0;
+		await again.write(".obsidian/plugins/x/c.js", bytes("c"));
+		const second = looks;
+		looks = 0;
+		await again.rename(".obsidian/plugins/x/c.js", ".obsidian/plugins/x/d.js");
+		const renamed = looks;
+
+		expect(first).toBeGreaterThan(3);
+		// The stat of the file itself only.
+		expect(second).toBeLessThanOrEqual(2);
+		// A rename forgets them, and finds them again for where it goes.
+		expect(renamed).toBeGreaterThan(first);
+		expect(ports.text(".obsidian/plugins/x/c.js")).toBeUndefined();
+		expect(ports.text(".obsidian/plugins/x/d.js")).toBe("c");
+	});
+
 	test("a path with a . name goes to the disk, with its folders", async () => {
 		const { ports, vault } = mac();
 		await vault.write(".github/workflows/a.yml", bytes("new"));
