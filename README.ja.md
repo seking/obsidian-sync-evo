@@ -2,7 +2,7 @@
 
 [English](https://github.com/seking/obsidian-sync-evo/blob/main/README.md)
 
-保管庫を、すべてのデバイスで同期します。自分の GitHub か Dropbox を使い、無料です。
+保管庫を、すべてのデバイスで同期します。使うのは自分の GitHub か Dropbox で、無料です。
 
 スマートフォンでもパソコンでも動きます。Git のインストールは要りません。
 
@@ -25,7 +25,7 @@
 ## GitHub か Dropbox か
 
 - **GitHub のアカウントが無いなら、Dropbox を。** [無料の Dropbox アカウント](https://www.dropbox.com/register)で足ります。ログインするだけで、リポジトリやトークンを作る必要はありません。
-- **GitHub を使う**なら、すでにアカウントがある時、パソコンで Git を使う時、変更をすべて残したい時です。
+- **GitHub が向くのは**、すでにアカウントがある時、パソコンで Git を使う時、変更をすべて残したい時です。
 
 [GitHub と Dropbox の比較](https://github.com/seking/obsidian-sync-evo/blob/main/docs/github-or-dropbox.md)
 
@@ -64,7 +64,7 @@ Sync Evo は、まだコミュニティプラグインの一覧にありませ�
 
 ## 通信とプライバシー
 
-Sync Evo が接続する先は、保管庫を同期するための GitHub（`api.github.com`、`codeload.github.com`）か Dropbox（`api.dropboxapi.com`、`content.dropboxapi.com`、`www.dropbox.com`）だけです。接続するのは、同期する時か、自動同期を有効にしている時だけです。ほかへは何も送りません。利用状況は集めず、開発者のサーバーもありません。GitHub か Dropbox のアカウントが必要です。[詳細](https://github.com/seking/obsidian-sync-evo/blob/main/docs/network.md)
+Sync Evo が接続するのは、GitHub（`api.github.com`、`codeload.github.com`）か Dropbox（`api.dropboxapi.com`、`content.dropboxapi.com`、`www.dropbox.com`）だけです。どちらも保管庫の同期に使い、通信するのは、同期する時と、自動同期を有効にしている時だけです。ほかへは何も送りません。利用状況は集めず、開発者のサーバーもありません。GitHub か Dropbox のアカウントが必要です。[詳細](https://github.com/seking/obsidian-sync-evo/blob/main/docs/network.md)
 
 ## 詳しく知る
 
