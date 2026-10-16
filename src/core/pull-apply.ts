@@ -171,6 +171,8 @@ export interface ApplyEnv {
 	/** When the pull began: see `makeRecord`. */
 	readonly startedAt: number;
 	readonly signal?: AbortSignal;
+	/** Where what is to be read on a device later is written (`writtenStat`). */
+	readonly log?: (message: string) => void;
 	readonly listing: RemoteListing;
 	/**
 	 * Whether a file goes to the `.trash/` of the vault before it is deleted
@@ -505,6 +507,42 @@ class Applier {
 		} catch {
 			return undefined;
 		}
+	}
+
+	/**
+	 * The stat of a file this pull has just written with `content`, to be
+	 * recorded and remembered. Android was seen to answer a size of 0 for a
+	 * file written where a folder had been taken away, to the app and to the
+	 * shell alike and for as long as it was looked at, while the content on
+	 * disk was whole (2026-10-16, twice in five tries, and not since): every
+	 * later look then took the file for one that cannot be read whole
+	 * (`readWhole`). Writing the same content once more put the size right.
+	 *
+	 * So where the size is not that of the content, the file is read back,
+	 * and written once more only when it holds what was written: something
+	 * else may have written it since, which is not to be written over. A
+	 * second write that fails throws, as the first would have. No stat is
+	 * answered where the size is still not right. Logged either way, to
+	 * learn on a device whether the second write helps.
+	 */
+	private async writtenStat(path: string, content: Uint8Array): Promise<FileStat | undefined> {
+		const stat = await this.statOf(path);
+		if (stat === undefined || stat.size === content.length) return stat;
+		const told = `pull: ${path} is ${stat.size} bytes by its stat after ${content.length} were written`;
+		let back: Uint8Array | null;
+		try {
+			back = await this.vault.read(path);
+		} catch {
+			back = null;
+		}
+		if (back === null || !sameBytes(back, content)) {
+			this.env.log?.(`${told}, and holds ${back === null ? "nothing that can be read" : `${back.length} other bytes`}: left as it is`);
+			return undefined;
+		}
+		await this.change(() => this.vault.write(path, content));
+		const again = await this.statOf(path);
+		this.env.log?.(`${told}; written again, ${again === undefined ? "no stat" : `${again.size} bytes`} now`);
+		return again?.size === content.length ? again : undefined;
 	}
 
 	// -----------------------------------------------------------------------
@@ -1132,14 +1170,15 @@ class Applier {
 			await this.store.deleteMarker(key);
 			return false;
 		}
+		let stat: FileStat | undefined;
 		try {
 			await this.change(() => this.vault.write(path, content));
+			stat = await this.writtenStat(path, content);
 		} catch (error) {
 			await this.dropMarkerIfUntouched(path, key, before);
 			this.refuse(path, path, "write-failed", error);
 			return false;
 		}
-		const stat = await this.statOf(path);
 		await this.store.commitWrite(makeRecord(recordOf(remote), stat, this.env.startedAt));
 		if (stat === undefined) this.seen.delete(key);
 		else this.remember(key, remote.hash, stat);
@@ -1485,14 +1524,15 @@ class Applier {
 			await this.store.deleteMarker(key);
 			return;
 		}
+		let stat: FileStat | undefined;
 		try {
 			await this.change(() => this.vault.write(path, merged));
+			stat = await this.writtenStat(path, merged);
 		} catch (error) {
 			await this.dropMarkerIfUntouched(path, key, before);
 			this.refuse(path, path, "write-failed", error);
 			return;
 		}
-		const stat = await this.statOf(path);
 		const same = hash === remote.hash;
 		await this.store.commitWrite(makeRecord(recordOf(remote), same ? stat : undefined, this.env.startedAt));
 		if (stat === undefined) this.seen.delete(key);
@@ -1631,14 +1671,15 @@ class Applier {
 		// With the path the copy is of: the name of the copy does not tell it.
 		await this.store.putMarker(makeMarker(copy, before, mine.hash, true, path));
 		await this.env.beforeWrite();
+		let stat: FileStat | undefined;
 		try {
 			await this.change(() => this.vault.write(copy, mine.content));
+			stat = await this.writtenStat(copy, mine.content);
 		} catch (error) {
 			if (over === null) await this.dropMarkerIfUntouched(copy, copyKey, null);
 			this.refuse(path, path, "copy-unwritable", error);
 			return null;
 		}
-		const stat = await this.statOf(copy);
 		if (stat !== undefined) this.remember(copyKey, mine.hash, stat);
 		return copy;
 	}
@@ -1682,4 +1723,10 @@ function listsPlugin(content: Uint8Array, pluginId: string): boolean {
 	} catch {
 		return false;
 	}
+}
+
+function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
+	if (a.length !== b.length) return false;
+	for (let index = 0; index < a.length; index++) if (a[index] !== b[index]) return false;
+	return true;
 }

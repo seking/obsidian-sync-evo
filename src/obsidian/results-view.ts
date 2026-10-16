@@ -20,9 +20,18 @@ import {
 } from "../core/sync-results";
 import type { ResultsStore } from "./results-store";
 
-/** Shows the results that are kept, as they are at this moment. */
-export async function showResults(app: App, t: Translate, store: ResultsStore): Promise<void> {
-	new ResultsModal(app, t, await store.list()).open();
+/**
+ * Shows the results that are kept, as they are at this moment, with the
+ * notices of the syncs that stay taken off the screen while it is open
+ * (`hideNotices`, as for the log).
+ */
+export async function showResults(
+	app: App,
+	t: Translate,
+	store: ResultsStore,
+	hideNotices?: () => () => void,
+): Promise<void> {
+	new ResultsModal(app, t, await store.list(), hideNotices).open();
 }
 
 /**
@@ -34,16 +43,20 @@ export async function showResults(app: App, t: Translate, store: ResultsStore): 
 class ResultsModal extends Modal {
 	private readonly t: Translate;
 	private readonly results: readonly SyncResult[];
+	private readonly hideNotices: (() => () => void) | undefined;
+	private putBack: (() => void) | null = null;
 
-	constructor(app: App, t: Translate, results: readonly SyncResult[]) {
+	constructor(app: App, t: Translate, results: readonly SyncResult[], hideNotices?: () => () => void) {
 		super(app);
 		this.t = t;
 		this.results = results;
+		this.hideNotices = hideNotices;
 	}
 
 	override onOpen(): void {
 		const { t, contentEl } = this;
 		contentEl.empty();
+		this.putBack = this.hideNotices?.() ?? null;
 		this.setTitle(t("results.title"));
 		contentEl.createEl("p", { text: t("results.desc", { count: RESULTS_KEPT }) });
 
@@ -76,5 +89,7 @@ class ResultsModal extends Modal {
 
 	override onClose(): void {
 		this.contentEl.empty();
+		this.putBack?.();
+		this.putBack = null;
 	}
 }

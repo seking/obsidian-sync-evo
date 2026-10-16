@@ -4907,3 +4907,43 @@ describe("links of the vault", () => {
 		expect(await readNotices(h.store)).toContainEqual({ kind: "local-link", path: "Projects" });
 	});
 });
+
+describe("a file whose stat keeps telling a size of 0", () => {
+	// As Android was seen to do for a file a pull had written where a folder
+	// had just been taken away, while the content on disk was whole.
+	function sizeZero(h: Harness, wrong: string): void {
+		const stat = h.vault.stat.bind(h.vault);
+		h.vault.stat = async (path) => {
+			const real = await stat(path);
+			return real?.type === "file" && path === wrong ? { ...real, size: 0 } : real;
+		};
+	}
+
+	test("with its record's content: a push takes it as unchanged, sends nothing, and logs it", async () => {
+		const h = await synced({ "a.md": "A", "b.md": "B" });
+		sizeZero(h, "a.md");
+		const lines: string[] = [];
+
+		const result = await h.push({ log: (line) => lines.push(line) });
+
+		expect(result).toMatchObject({ outcome: "nothing-to-push" });
+		expect(await h.remote()).toEqual({ "a.md": "A", "b.md": "B" });
+		expect(await h.records()).toEqual(hashes({ "a.md": "A", "b.md": "B" }));
+		expect(lines.some((line) => /^scan: a\.md is 0 bytes by its stat and 1 read, .*taken as unchanged$/.test(line))).toBe(true);
+	});
+
+	test("with other content: a push leaves it out as unreadable, and logs it", async () => {
+		const h = await synced({ "a.md": "A", "b.md": "B" });
+		h.vault.put("a.md", "A2");
+		h.vault.put("b.md", "B2");
+		sizeZero(h, "a.md");
+		const lines: string[] = [];
+
+		const result = await h.push({ log: (line) => lines.push(line) });
+
+		expect(result).toMatchObject({ outcome: "pushed", counts: { modified: 1 }, leftOut: [{ path: "a.md", reason: "unreadable" }] });
+		expect(await h.remote()).toEqual({ "a.md": "A", "b.md": "B2" });
+		expect((await h.records())["a.md"]).toBe(blobHash("A"));
+		expect(lines.some((line) => /^scan: a\.md is 0 bytes .*not its record's content, left alone$/.test(line))).toBe(true);
+	});
+});

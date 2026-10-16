@@ -711,6 +711,7 @@ class PushRun {
 				...(deps.beingEdited === undefined ? {} : { beingEdited: deps.beingEdited }),
 				...(deps.yieldControl === undefined ? {} : { yieldControl: deps.yieldControl }),
 				...(light === null ? {} : { indexed: light.indexed }),
+				...(deps.log === undefined ? {} : { log: deps.log }),
 			},
 			found,
 			records,

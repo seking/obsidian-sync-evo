@@ -23,9 +23,14 @@ export const log = (message: string): void => {
 	console.debug(`Sync Evo: ${message}`);
 };
 
-/** Shows the lines that are kept, as they are at this moment. */
-export function showLog(app: App, t: Translate): void {
-	new LogModal(app, t, ring.lines()).open();
+/**
+ * Shows the lines that are kept, as they are at this moment. `hideNotices`
+ * takes the notices of the syncs that stay off the screen while the dialog
+ * is open, and answers what puts them back (`SyncRunner.hideStaying`): they
+ * would lie over its top.
+ */
+export function showLog(app: App, t: Translate, hideNotices?: () => () => void): void {
+	new LogModal(app, t, ring.lines(), hideNotices).open();
 }
 
 /**
@@ -36,16 +41,20 @@ export function showLog(app: App, t: Translate): void {
 class LogModal extends Modal {
 	private readonly t: Translate;
 	private readonly lines: readonly LogLine[];
+	private readonly hideNotices: (() => () => void) | undefined;
+	private putBack: (() => void) | null = null;
 
-	constructor(app: App, t: Translate, lines: readonly LogLine[]) {
+	constructor(app: App, t: Translate, lines: readonly LogLine[], hideNotices?: () => () => void) {
 		super(app);
 		this.t = t;
 		this.lines = lines;
+		this.hideNotices = hideNotices;
 	}
 
 	override onOpen(): void {
 		const { t, contentEl } = this;
 		contentEl.empty();
+		this.putBack = this.hideNotices?.() ?? null;
 		this.setTitle(t("log.title"));
 		contentEl.createEl("p", { text: t("log.desc") });
 
@@ -76,5 +85,7 @@ class LogModal extends Modal {
 
 	override onClose(): void {
 		this.contentEl.empty();
+		this.putBack?.();
+		this.putBack = null;
 	}
 }

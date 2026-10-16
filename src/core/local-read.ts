@@ -18,7 +18,7 @@ import { HASH_CHUNK_BYTES } from "./hash";
 import { foldedKey, pathKey } from "./paths";
 import type { LocalEntry } from "./plan";
 import { isLfsPointer, type Seen } from "./pull-apply";
-import { type PullVault, readWhole, type SaveResult } from "./pull-io";
+import { type PullVault, readWhole, type SaveResult, ShortReadError, type VaultStat } from "./pull-io";
 import type { ScanResult } from "./scan";
 import {
 	type FileStat,
@@ -71,6 +71,8 @@ export interface LocalReadDeps {
 	 * wrong, and no record would go back and forth between the two.
 	 */
 	readonly indexed?: ReadonlyMap<string, FileStat>;
+	/** Where what is to be read on a device later is written (`sizeToldWrong`). */
+	readonly log?: (message: string) => void;
 }
 
 export interface LocalRead {
@@ -120,6 +122,43 @@ export interface LocalRead {
 	readonly statted: number;
 	/** How many files were read and hashed. */
 	readonly hashed: number;
+}
+
+/**
+ * For a file `readWhole` turned down: the number of bytes it holds, when
+ * that is only because the platform tells another size than the disk
+ * gives, and the content is the very one of its record; else `null`, and
+ * the file is left alone as one that cannot be read.
+ *
+ * Android was seen to tell a size of 0, for as long as it was looked at,
+ * of a file a pull had written where a folder had just been taken away,
+ * while the content on disk was whole (2026-10-16). Turned down, such a
+ * file is "unreadable" on every sync until the user deletes it. Only the
+ * record's content is taken: it is no edit, so a part of a file that is
+ * being written, or that a cloud drive breaks off, is never taken for one.
+ * Logged either way, with what is known of when the size went wrong.
+ */
+async function sizeToldWrong(
+	deps: LocalReadDeps,
+	path: string,
+	stat: VaultStat,
+	record: StoredRecord | undefined,
+	error: unknown,
+): Promise<{ readonly hash: string; readonly size: number } | null> {
+	if (!(error instanceof ShortReadError) || record?.kind !== "file") return null;
+	try {
+		const content = await deps.vault.read(path);
+		// Over the limit, it cannot be the record's content: no file over it has one.
+		if (content.length === stat.size || content.length > deps.sizeLimit) return null;
+		const same = (await deps.backend.hashContent(content)) === record.hash;
+		const age = Math.round((deps.now() - stat.mtime) / 1000);
+		deps.log?.(
+			`scan: ${path} is ${stat.size} bytes by its stat and ${content.length} read, written ${age} s ago; ${same ? "its record's content, taken as unchanged" : "not its record's content, left alone"}`,
+		);
+		return same ? { hash: record.hash, size: content.length } : null;
+	} catch {
+		return null;
+	}
 }
 
 /**
@@ -248,8 +287,16 @@ export async function readLocal(
 			let content: Uint8Array;
 			try {
 				({ content, stat } = await readWhole(deps.vault, path, stat));
-			} catch {
-				await leave();
+			} catch (error) {
+				const told = await sizeToldWrong(deps, path, stat, record, error);
+				if (told === null) {
+					await leave();
+					continue;
+				}
+				// As its record has it: nothing to hash, nor to send.
+				entries.push({ path, hash: told.hash, size: told.size });
+				seen.set(key, { hash: told.hash, stat: { mtime: stat.mtime, size: stat.size } });
+				deps.onProgress(index + 1, total);
 				continue;
 			}
 			hash = await deps.backend.hashContent(content);

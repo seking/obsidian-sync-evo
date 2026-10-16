@@ -7830,3 +7830,201 @@ describe("links of the vault", () => {
 		expect(h.vault.text("Projects/p.md")).toBe("P2");
 	});
 });
+
+describe("a file whose size is told wrong right after it is written", () => {
+	/**
+	 * As Android was seen to do for a file written where a folder had just
+	 * been taken away: a stat of `path` answers a size of 0 from its first
+	 * write on. With `once`, the next write puts the size right again.
+	 */
+	function sizeLies(h: Harness, wrong: (path: string) => boolean, once: boolean): { writes: () => number } {
+		let writes = 0;
+		let lying = false;
+		h.vault.before = (op, path) => {
+			if (op !== "write" || !wrong(path)) return;
+			writes += 1;
+			lying = writes === 1 || !once;
+		};
+		const stat = h.vault.stat.bind(h.vault);
+		h.vault.stat = async (path) => {
+			const real = await stat(path);
+			return lying && real?.type === "file" && wrong(path) ? { ...real, size: 0 } : real;
+		};
+		return { writes: () => writes };
+	}
+
+	// The clock of the sync is ahead of the files, so that a time and a
+	// size handed to a record are stored (`makeRecord`). Only this shift
+	// makes a stat recorded at all: in the app the clocks are alike, and a
+	// file a pull has just written is too recent to keep its stat.
+	const later = (h: Harness): Partial<PullDeps> => ({ now: () => h.now() + 10_000 });
+
+	test("once: the file is written again, the record has its real size, and the next pull finds nothing to do", async () => {
+		const h = await synced({ "b.md": "B" });
+		h.backend.commit({ "a.md": "remote" });
+		const lie = sizeLies(h, (path) => path === "a.md", true);
+
+		const result = await h.pull(later(h));
+
+		expect(result.outcome).toBe("completed");
+		expect(lie.writes()).toBe(2);
+		expect(h.vault.log).toEqual(["write a.md", "write a.md"]);
+		expect(h.vault.text("a.md")).toBe("remote");
+		const record = (await h.store.readRecords()).find((each) => each.path === "a.md");
+		expect(record).toMatchObject({ hash: blobHash("remote"), size: 6 });
+		expect(record?.mtime).toBeTypeOf("number");
+
+		h.vault.log.length = 0;
+		const again = await h.pull(later(h));
+		expect(again.outcome).toBe("completed");
+		expect(again.deferred).toEqual([]);
+		expect(again.unwritable).toEqual([]);
+		expect(again.counts).toEqual({ fetched: 0, deleted: 0, renamed: 0, conflicts: 0 });
+		expect(h.vault.log).toEqual([]);
+	});
+
+	test("always: the pull goes on, the file has the remote's content, and its record holds no time or size", async () => {
+		const h = await synced({ "b.md": "B" });
+		h.backend.commit({ "a.md": "remote" });
+		const lie = sizeLies(h, (path) => path === "a.md", false);
+
+		const result = await h.pull(later(h));
+
+		expect(result.outcome).toBe("completed");
+		expect(result.deferred).toEqual([]);
+		expect(lie.writes()).toBe(2);
+		expect(h.vault.text("a.md")).toBe("remote");
+		const record = (await h.store.readRecords()).find((each) => each.path === "a.md");
+		expect(record).toEqual({ key: "a.md", path: "a.md", kind: "file", hash: blobHash("remote") });
+	});
+
+	test("a conflict copy is written again too, and holds the vault's content", async () => {
+		const h = await synced({ "a.md": "A" });
+		h.backend.commit({ "a.md": "theirs" });
+		h.vault.put("a.md", "mine");
+		const isCopy = (path: string): boolean => isCopyInConflictFolder(path);
+		const lie = sizeLies(h, isCopy, true);
+
+		const result = await h.pull(later(h));
+
+		expect(result.outcome).toBe("completed");
+		expect(lie.writes()).toBe(2);
+		const copy = h.copyName("a.md");
+		expect(result.conflicts).toEqual([{ path: "a.md", copyPath: copy, cause: "conflict" }]);
+		expect(h.vault.log.filter((line) => line === `write ${copy}`)).toHaveLength(2);
+		expect(h.vault.snapshot()).toEqual({ "a.md": "theirs", [copy]: "mine" });
+	});
+
+	test("the size is right after the second write: it is logged", async () => {
+		const h = await synced({ "b.md": "B" });
+		h.backend.commit({ "a.md": "remote" });
+		sizeLies(h, (path) => path === "a.md", true);
+		const lines: string[] = [];
+
+		await h.pull({ ...later(h), log: (line) => lines.push(line) });
+
+		expect(lines).toContain("pull: a.md is 0 bytes by its stat after 6 were written; written again, 6 bytes now");
+	});
+
+	test("something else wrote the file before its stat: it is not written over, and no stat is recorded", async () => {
+		const h = await synced({ "b.md": "B" });
+		h.backend.commit({ "a.md": "remote" });
+		let written = false;
+		let other = false;
+		h.vault.before = (op, path) => {
+			if (path !== "a.md") return;
+			if (op === "write") written = true;
+			else if (op === "stat" && written && !other) {
+				other = true;
+				h.vault.put("a.md", "another writer");
+			}
+		};
+		const lines: string[] = [];
+
+		const result = await h.pull({ ...later(h), log: (line) => lines.push(line) });
+
+		expect(other).toBe(true);
+		expect(result.unwritable).toEqual([]);
+		expect(h.vault.log.filter((line) => line === "write a.md")).toHaveLength(1);
+		expect(h.vault.text("a.md")).toBe("another writer");
+		const record = (await h.store.readRecords()).find((each) => each.path === "a.md");
+		expect(record).toEqual({ key: "a.md", path: "a.md", kind: "file", hash: blobHash("remote") });
+		expect(lines).toContain(
+			"pull: a.md is 14 bytes by its stat after 6 were written, and holds 14 other bytes: left as it is",
+		);
+	});
+
+	test("the second write fails: the path is refused as a failed write, its marker stays, and nothing is recorded", async () => {
+		const h = await synced({ "b.md": "B" });
+		h.backend.commit({ "a.md": "remote" });
+		const lie = sizeLies(h, (path) => path === "a.md", true);
+		const lying = h.vault.before;
+		h.vault.before = async (op, path) => {
+			await lying?.(op, path);
+			if (op === "write" && path === "a.md" && lie.writes() === 2) throw new Error("locked");
+		};
+
+		const result = await h.pull(later(h));
+
+		// As any write the vault refuses: told, and the pull goes on.
+		expect(result.outcome).toBe("completed");
+		expect(result.unwritable.map(({ path, reason }) => ({ path, reason }))).toEqual([
+			{ path: "a.md", reason: "write-failed" },
+		]);
+		expect(result.counts.fetched).toBe(0);
+		// The first write went in: the marker stays for the next pull to settle.
+		expect(h.vault.text("a.md")).toBe("remote");
+		expect((await h.store.readMarkers()).map((marker) => marker.path)).toEqual(["a.md"]);
+		expect(await h.records()).toEqual(hashes({ "b.md": "B" }));
+
+		h.vault.before = undefined;
+		const again = await h.pull(later(h));
+		expect(again.unwritable).toEqual([]);
+		expect(again.deferred).toEqual([]);
+		expect(h.vault.text("a.md")).toBe("remote");
+		expect(await h.store.readMarkers()).toEqual([]);
+		expect(await h.records()).toEqual(hashes({ "a.md": "remote", "b.md": "B" }));
+	});
+
+	describe("a scan of a file whose stat keeps telling a size of 0", () => {
+		function sizeZero(h: Harness, wrong: string): void {
+			const stat = h.vault.stat.bind(h.vault);
+			h.vault.stat = async (path) => {
+				const real = await stat(path);
+				return real?.type === "file" && path === wrong ? { ...real, size: 0 } : real;
+			};
+		}
+
+		test("with its record's content: taken as unchanged, nothing deferred or written, and logged", async () => {
+			const h = await synced({ "a.md": "A", "b.md": "B" });
+			sizeZero(h, "a.md");
+			const lines: string[] = [];
+
+			const result = await h.pull({ log: (line) => lines.push(line) });
+
+			expect(result).toMatchObject({
+				outcome: "completed",
+				counts: { fetched: 0, deleted: 0, renamed: 0, conflicts: 0 },
+				deferred: [],
+				conflicts: [],
+			});
+			expect(h.vault.log).toEqual([]);
+			expect(await h.records()).toEqual(hashes({ "a.md": "A", "b.md": "B" }));
+			expect(lines.some((line) => /^scan: a\.md is 0 bytes by its stat and 1 read, written \d+ s ago; its record's content, taken as unchanged$/.test(line))).toBe(true);
+		});
+
+		test("with other content: it stays unreadable, and is logged", async () => {
+			const h = await synced({ "a.md": "A", "b.md": "B" });
+			h.vault.put("a.md", "X");
+			sizeZero(h, "a.md");
+			const lines: string[] = [];
+
+			const result = await h.pull({ log: (line) => lines.push(line) });
+
+			expect(result.deferred).toEqual([{ path: "a.md", reason: "unreadable" }]);
+			expect(h.vault.text("a.md")).toBe("X");
+			expect(await h.records()).toEqual(hashes({ "a.md": "A", "b.md": "B" }));
+			expect(lines.some((line) => /^scan: a\.md is 0 bytes .*not its record's content, left alone$/.test(line))).toBe(true);
+		});
+	});
+});
