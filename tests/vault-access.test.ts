@@ -177,6 +177,24 @@ describe("write", () => {
 		expect(ports.text(".obsidian/plugins/x/d.js")).toBe("c");
 	});
 
+	test("a folder with a . name that was trashed or removed in the sync is made again for the next write", async () => {
+		for (const removal of ["trash", "remove"] as const) {
+			const { ports, vault } = iphone();
+			await vault.write(".obsidian/plugins/x/a.js", bytes("a"));
+			await vault.trash(".obsidian/plugins/x/a.js", "vault-trash");
+			// Forgotten by the trash itself: the folder may go with what is
+			// trashed, here by another hand.
+			if (removal === "trash") await ports.rmdir(".obsidian/plugins/x");
+			else expect(await vault.removeFolderIfEmpty(".obsidian/plugins/x")).toBe(true);
+			ports.calls.length = 0;
+
+			await vault.write(".obsidian/plugins/x/b.js", bytes("b"));
+
+			expect(ports.calls).toEqual(["mkdir .obsidian/plugins/x", "writeBinary .obsidian/plugins/x/b.js"]);
+			expect(ports.text(".obsidian/plugins/x/b.js")).toBe("b");
+		}
+	});
+
 	test("a path with a . name goes to the disk, with its folders", async () => {
 		const { ports, vault } = mac();
 		await vault.write(".github/workflows/a.yml", bytes("new"));

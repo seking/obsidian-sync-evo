@@ -129,7 +129,8 @@ export class RoutedVault<Handle> implements PullVault {
 
 	/**
 	 * The folders with a `.` name a write made or found, as the disk spells
-	 * them, by folded path. Found once instead of on every write below them
+	 * them, by the path asked for, spelled exactly: a parent spelled anew
+	 * by another app in the meantime is no longer found here. Found once instead of on every write below them
 	 * (`ensureFolder`): each look lists every folder from the root. Kept for
 	 * the life of this vault, which is one sync, and forgotten on any rename,
 	 * trash or removal, which may take such a folder away or spell it anew.
@@ -489,7 +490,7 @@ export class RoutedVault<Handle> implements PullVault {
 				spelled = indexed.path;
 				continue;
 			}
-			const known = dot ? this.dotFolders.get(foldedKey(path)) : undefined;
+			const known = dot ? this.dotFolders.get(path) : undefined;
 			if (known !== undefined) {
 				spelled = known;
 				continue;
@@ -503,7 +504,7 @@ export class RoutedVault<Handle> implements PullVault {
 			} else {
 				throw new Error(`a file is at ${path}`);
 			}
-			if (dot) this.dotFolders.set(foldedKey(path), spelled);
+			if (dot) this.dotFolders.set(path, spelled);
 		}
 		return spelled;
 	}
