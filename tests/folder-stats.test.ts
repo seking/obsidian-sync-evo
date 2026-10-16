@@ -183,18 +183,58 @@ describe("the listing of a folder on a phone", () => {
 				["n/日本語.md", { mtime: 30, size: 3 }],
 			]),
 		);
-		expect(asked).toEqual(["readdir /vault/n", "readdir /vault/n", "stat n/b.md"]);
+		expect(asked).toEqual(["readdir /vault/n", "stat n/b.md"]);
 	});
 
-	test("names with a space at either end, and listings in another form, are left to the app", async () => {
+	test("names with a space at either end or a backslash, and listings in another form, are left to the app", async () => {
 		const { app } = appWith({
 			"/vault/a": [file(" a.md", 1, 1)],
 			"/vault/b": [file("b.md ", 1, 1)],
+			"/vault/e": [file("e\\f.md", 1, 1)],
 			"/vault/c": [file("c.md", 1, 1), { type: "symlink", name: "l" }],
 			"/vault/d": new Error("gone"),
 		});
 		const phone = phoneListingOf(app);
 
-		for (const folder of ["a", "b", "c", "d"]) expect(await phone?.list(folder)).toBeNull();
+		for (const folder of ["a", "b", "c", "d", "e"]) expect(await phone?.list(folder)).toBeNull();
+	});
+
+	test("the read of one folder is used for the stats of that folder alone, once, and the root is one folder however it is spelled", async () => {
+		const { app, asked } = appWith(
+			{ "/vault/": [file("a.md", 10, 1)], "/vault/n": [file("b.md", 20, 2)] },
+			{ "a.md": { mtime: 10, size: 1 }, "n/b.md": { mtime: 20, size: 2 } },
+		);
+		const phone = phoneListingOf(app);
+
+		await phone?.list("");
+		await phone?.stats("n");
+		await phone?.stats("/");
+		await phone?.stats("/");
+		await phone?.list("n");
+		await phone?.list("n");
+
+		expect(asked).toEqual([
+			"readdir /vault/",
+			"readdir /vault/n",
+			"stat n/b.md",
+			"stat a.md",
+			"readdir /vault/",
+			"stat a.md",
+			"readdir /vault/n",
+			"readdir /vault/n",
+		]);
+	});
+
+	test("once the listing is not trusted, its reads are kept for nothing", async () => {
+		const { app, asked } = appWith(
+			{ "/vault/": [file("a.md", 10, 1)], "/vault/n": [file("b.md", 20, 2)] },
+			{ "a.md": { mtime: 11, size: 1 } },
+		);
+		const phone = phoneListingOf(app);
+
+		expect(await phone?.stats("/")).toBeNull();
+		expect(await phone?.list("n")).toEqual({ files: ["n/b.md"], folders: [] });
+		expect(await phone?.stats("n")).toBeNull();
+		expect(asked).toEqual(["readdir /vault/", "stat a.md", "readdir /vault/n"]);
 	});
 });

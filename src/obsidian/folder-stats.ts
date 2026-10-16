@@ -65,13 +65,14 @@ function isListedFolder(entry: unknown): entry is ListedFolder {
 }
 
 /**
- * A name the app's listing spells as it is: printable ASCII, with no space
- * at either end. Where every name of a folder is one, the folder is listed
- * from the same read that tells the times, and not asked of the app's
- * listing again. A folder with any other name is: how the app spells it is
- * the app's to say.
+ * A name the app's listing spells as it is: printable ASCII but `\`, which
+ * the app may take for a separator of the path, with no space at either
+ * end. Where every name of a folder is one, the folder is listed from the
+ * same read that tells the times, and not asked of the app's listing again.
+ * A folder with any other name is: how the app spells it is the app's to
+ * say.
  */
-const PLAIN_NAME = /^[\x21-\x7E](?:[\x20-\x7E]*[\x21-\x7E])?$/;
+const PLAIN_NAME = /^[\x21-\x5B\x5D-\x7E](?:[\x20-\x5B\x5D-\x7E]*[\x21-\x5B\x5D-\x7E])?$/;
 
 /**
  * What a phone's adapter is read for: the listing of a folder
@@ -125,8 +126,10 @@ export function phoneListingOf(app: App): PhoneListing | undefined {
 			const relative = relativeOf(folder);
 			lastRead.delete(relative);
 			const entries = await read(relative);
-			if (entries === null || entries.some((entry) => !PLAIN_NAME.test(entry.name))) return null;
-			lastRead.set(relative, entries);
+			if (entries === null) return null;
+			// Also for a folder the app is asked to list: its stats need not read it again.
+			if (trusted) lastRead.set(relative, entries);
+			if (entries.some((entry) => !PLAIN_NAME.test(entry.name))) return null;
 			const files: string[] = [];
 			const folders: string[] = [];
 			for (const entry of entries) {
@@ -135,10 +138,11 @@ export function phoneListingOf(app: App): PhoneListing | undefined {
 			return { files, folders };
 		},
 		stats: async (folder) => {
-			if (!trusted) return null;
 			const relative = relativeOf(folder);
-			const entries = lastRead.get(relative) ?? (await read(relative));
+			const before = lastRead.get(relative);
 			lastRead.delete(relative);
+			if (!trusted) return null;
+			const entries = before ?? (await read(relative));
 			if (entries === null) return null;
 			const held = new Map<string, FileStat>();
 			const twice = new Set<string>();
