@@ -22,7 +22,7 @@ It works on phones and computers alike, with no Git to install.
 
 ## GitHub or Dropbox?
 
-- **No GitHub account? Use Dropbox.** A free Dropbox account is enough. You sign in, and there is no repository or token to make.
+- **No GitHub account? Use Dropbox.** A [free Dropbox account](https://www.dropbox.com/register) is enough. You sign in, and there is no repository or token to make.
 - **Use GitHub** if you already have an account, use Git on a computer, or want every change kept.
 
 [Compare them](https://github.com/seking/obsidian-sync-evo/blob/main/docs/github-or-dropbox.md)
@@ -33,16 +33,17 @@ Not in the community plugin directory yet: install with [BRAT](https://github.co
 
 ### GitHub
 
-1. If you have no repository for the vault, create an empty private one on GitHub.
+1. If you have no repository for the vault, [create an empty private one](https://github.com/new) on GitHub. No [GitHub account](https://github.com/signup) yet? Create one first, for free.
 2. [Create a token](https://github.com/settings/personal-access-tokens/new?name=Sync+Evo&description=Obsidian+Sync+Evo&expires_in=90&contents=write), and choose the vault's repository on that page.
 3. In Settings → Community plugins → Sync Evo, enter the repository and the branch, and save the token as a secret.
 4. Press **Test**, then **Sync**.
 
 ### Dropbox
 
-1. In Settings → Community plugins → Sync Evo, set **Service** to **Dropbox**.
-2. Press **Connect**, and allow Sync Evo in the browser.
-3. Press **Test**, then **Sync**.
+1. No Dropbox account yet? [Create one](https://www.dropbox.com/register), for free.
+2. In Settings → Community plugins → Sync Evo, set **Service** to **Dropbox**.
+3. Press **Connect**, and allow Sync Evo in the browser.
+4. Press **Test**, then **Sync**.
 
 [Step-by-step guide](https://github.com/seking/obsidian-sync-evo/blob/main/docs/setup.md)
 
