@@ -96,7 +96,7 @@ import { pullVaultOf } from "./pull-vault";
 import { confirmPushIn } from "./push-confirm";
 import type { SyncState } from "./sync-state";
 import { vaultIndexOf } from "./vault-index";
-import { folderStatsOf } from "./folder-stats";
+import { phoneListingOf } from "./folder-stats";
 import { ScreenWakeLock } from "./wake-lock";
 import { windowSleep } from "./window-sleep";
 
@@ -604,11 +604,12 @@ export class SyncRunner {
 			this.limitWatch = limitWatch;
 			const fetchContents = limitWatch.watch((revision, entries) => backend.fetch(revision, entries));
 			// For a check that walks the vault, on a phone (`folder-stats.ts`).
-			const listedStats = folderStatsOf(host.app);
+			const phone = phoneListingOf(host.app);
+			const listedStats = phone?.stats;
 			const pullDeps: PullDeps = {
 				store: opened.store,
 				backend,
-				vault: pullVaultOf(host.app),
+				vault: pullVaultOf(host.app, phone),
 				paths: exclusionPathsOf(host.app, host.manifest),
 				device,
 				pluginId: host.manifest.id,

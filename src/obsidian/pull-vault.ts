@@ -26,6 +26,7 @@ import {
 } from "obsidian";
 import type { PullVault } from "../core/pull-io";
 import { type OpenEditor, RoutedVault, type VaultPorts } from "../core/vault-access";
+import type { PhoneListing } from "./folder-stats";
 import { type LinkFs, linkPorts } from "./vault-links";
 
 /**
@@ -78,13 +79,14 @@ function fileOf(item: TAbstractFile): TFile {
 	throw new Error(`not a file: ${item.path}`);
 }
 
-export function vaultPortsOf(app: App): VaultPorts<TAbstractFile> {
+export function vaultPortsOf(app: App, phone?: PhoneListing): VaultPorts<TAbstractFile> {
 	const { vault, fileManager, workspace } = app;
 	const adapter = vault.adapter;
 	return {
 		configDir: vault.configDir,
 
-		list: (folder) => adapter.list(folder),
+		// On a phone, from the read that also tells the times (`folder-stats.ts`), where it can be.
+		list: async (folder) => (await phone?.list(folder)) ?? adapter.list(folder),
 		stat: async (path) => {
 			const stat = await adapter.stat(path);
 			return stat === null ? null : { type: stat.type, mtime: stat.mtime, size: stat.size };
@@ -130,7 +132,7 @@ export function vaultPortsOf(app: App): VaultPorts<TAbstractFile> {
 	};
 }
 
-/** The vault of the app for a pull. */
-export function pullVaultOf(app: App): PullVault {
-	return new RoutedVault(vaultPortsOf(app));
+/** The vault of the app for a pull; with `phone`, folders are listed through it. */
+export function pullVaultOf(app: App, phone?: PhoneListing): PullVault {
+	return new RoutedVault(vaultPortsOf(app, phone));
 }

@@ -53,12 +53,39 @@ function isListedFile(entry: unknown): entry is ListedFile {
 	return type === "file" && typeof name === "string" && Number.isInteger(mtime) && Number.isInteger(size);
 }
 
-function isListedFolder(entry: unknown): boolean {
-	return typeof entry === "object" && entry !== null && (entry as Record<string, unknown>).type === "directory";
+interface ListedFolder {
+	readonly type: "directory";
+	readonly name: string;
+}
+
+function isListedFolder(entry: unknown): entry is ListedFolder {
+	if (typeof entry !== "object" || entry === null) return false;
+	const { type, name } = entry as Record<string, unknown>;
+	return type === "directory" && typeof name === "string";
+}
+
+/**
+ * A name the app's listing spells as it is: printable ASCII, with no space
+ * at either end. Where every name of a folder is one, the folder is listed
+ * from the same read that tells the times, and not asked of the app's
+ * listing again. A folder with any other name is: how the app spells it is
+ * the app's to say.
+ */
+const PLAIN_NAME = /^[\x21-\x7E](?:[\x20-\x7E]*[\x21-\x7E])?$/;
+
+/**
+ * What a phone's adapter is read for: the listing of a folder
+ * (`VaultPorts.list`), where it can be told without the app, and the time and
+ * the size of its files (`ListedStats`).
+ */
+export interface PhoneListing {
+	/** The files and folders of a folder as the app lists them, or `null` where the app is to be asked. */
+	list(folder: string): Promise<{ files: string[]; folders: string[] } | null>;
+	readonly stats: ListedStats;
 }
 
 /** For a sync on a phone, or `undefined` where the listing cannot be read. */
-export function folderStatsOf(app: App): ListedStats | undefined {
+export function phoneListingOf(app: App): PhoneListing | undefined {
 	if (!Platform.isMobileApp) return undefined;
 	const { adapter } = app.vault;
 	const listing = adapter as unknown as ListingAdapter;
@@ -66,9 +93,12 @@ export function folderStatsOf(app: App): ListedStats | undefined {
 	const fullPath = listing.getFullPath;
 	if (typeof readdir !== "function" || typeof fullPath !== "function") return undefined;
 	let trusted = true;
-	return async (folder) => {
-		if (!trusted) return null;
-		const relative = folder === "/" ? "" : folder;
+	// What `list` read of each folder, for the `stats` of it that comes right
+	// after (`withListedStats`): one read of the folder for both.
+	const lastRead = new Map<string, readonly (ListedFile | ListedFolder)[]>();
+
+	/** The entries of a folder, or `null` where it cannot be read or holds anything else than files and folders. */
+	const read = async (relative: string): Promise<readonly (ListedFile | ListedFolder)[] | null> => {
 		let entries: unknown;
 		try {
 			entries = await (readdir as (path: string) => Promise<unknown>).call(
@@ -79,33 +109,67 @@ export function folderStatsOf(app: App): ListedStats | undefined {
 			return null;
 		}
 		if (!Array.isArray(entries)) return null;
-		const held = new Map<string, FileStat>();
-		const twice = new Set<string>();
+		const known: (ListedFile | ListedFolder)[] = [];
 		for (const entry of entries) {
-			if (isListedFolder(entry)) continue;
 			// A listing in another form than expected: none of it is used.
-			if (!isListedFile(entry)) return null;
-			const path = spelledAsListed(relative === "" ? entry.name : `${relative}/${entry.name}`);
-			if (held.has(path)) twice.add(path);
-			held.set(path, { mtime: entry.mtime, size: entry.size });
+			if (!isListedFile(entry) && !isListedFolder(entry)) return null;
+			known.push(entry);
 		}
-		// Two names that the app spells alike: which one is which is not known.
-		for (const path of twice) held.delete(path);
-		const [first] = held;
-		if (first !== undefined) {
-			const [path, listed] = first;
-			let stat: Awaited<ReturnType<typeof adapter.stat>>;
-			try {
-				stat = await adapter.stat(path);
-			} catch {
-				stat = null;
+		return known;
+	};
+	const relativeOf = (folder: string): string => (folder === "/" ? "" : folder);
+	const pathOf = (relative: string, name: string): string => (relative === "" ? name : `${relative}/${name}`);
+
+	return {
+		async list(folder) {
+			const relative = relativeOf(folder);
+			lastRead.delete(relative);
+			const entries = await read(relative);
+			if (entries === null || entries.some((entry) => !PLAIN_NAME.test(entry.name))) return null;
+			lastRead.set(relative, entries);
+			const files: string[] = [];
+			const folders: string[] = [];
+			for (const entry of entries) {
+				(entry.type === "file" ? files : folders).push(pathOf(relative, entry.name));
 			}
-			if (stat === null || stat.mtime !== listed.mtime || stat.size !== listed.size) {
-				trusted = false;
-				return null;
+			return { files, folders };
+		},
+		stats: async (folder) => {
+			if (!trusted) return null;
+			const relative = relativeOf(folder);
+			const entries = lastRead.get(relative) ?? (await read(relative));
+			lastRead.delete(relative);
+			if (entries === null) return null;
+			const held = new Map<string, FileStat>();
+			const twice = new Set<string>();
+			for (const entry of entries) {
+				if (entry.type !== "file") continue;
+				const path = spelledAsListed(pathOf(relative, entry.name));
+				if (held.has(path)) twice.add(path);
+				held.set(path, { mtime: entry.mtime, size: entry.size });
 			}
-		}
-		return held;
+			// Two names that the app spells alike: which one is which is not known.
+			for (const path of twice) held.delete(path);
+			const [first] = held;
+			if (first !== undefined) {
+				const [path, listed] = first;
+				let stat: Awaited<ReturnType<typeof adapter.stat>>;
+				try {
+					stat = await adapter.stat(path);
+				} catch {
+					stat = null;
+				}
+				if (stat === null || stat.mtime !== listed.mtime || stat.size !== listed.size) {
+					trusted = false;
+					return null;
+				}
+			}
+			return held;
+		},
 	};
 }
 
+/** The time and the size of the files of a folder, on a phone (`PhoneListing.stats`). */
+export function folderStatsOf(app: App): ListedStats | undefined {
+	return phoneListingOf(app)?.stats;
+}

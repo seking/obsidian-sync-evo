@@ -11,7 +11,7 @@
 
 import type { App } from "obsidian";
 import { beforeEach, describe, expect, test, vi } from "vitest";
-import { folderStatsOf } from "../src/obsidian/folder-stats";
+import { folderStatsOf, phoneListingOf } from "../src/obsidian/folder-stats";
 
 const platform = vi.hoisted(() => ({ isMobileApp: true }));
 vi.mock("obsidian", () => ({ Platform: platform }));
@@ -150,3 +150,51 @@ describe("the stats of a folder from the listing on a phone", () => {
 	});
 });
 
+
+describe("the listing of a folder on a phone", () => {
+	test("a folder whose names are all plain is listed from the read, and its stats come from that same read", async () => {
+		const { app, asked } = appWith(
+			{ "/vault/": [file("a.md", 10, 1), { type: "directory", name: ".obsidian" }, file(".gitignore", 5, 5)] },
+			{ "a.md": { mtime: 10, size: 1 } },
+		);
+		const phone = phoneListingOf(app);
+
+		expect(await phone?.list("/")).toEqual({ files: ["a.md", ".gitignore"], folders: [".obsidian"] });
+		expect(await phone?.stats("/")).toEqual(
+			new Map([
+				["a.md", { mtime: 10, size: 1 }],
+				[".gitignore", { mtime: 5, size: 5 }],
+			]),
+		);
+		expect(asked).toEqual(["readdir /vault/", "stat a.md"]);
+	});
+
+	test("a folder with any other name is left to the app's listing, and its stats are read on their own", async () => {
+		const { app, asked } = appWith(
+			{ "/vault/n": [file("b.md", 20, 2), file("日本語.md", 30, 3)] },
+			{ "n/b.md": { mtime: 20, size: 2 } },
+		);
+		const phone = phoneListingOf(app);
+
+		expect(await phone?.list("n")).toBeNull();
+		expect(await phone?.stats("n")).toEqual(
+			new Map([
+				["n/b.md", { mtime: 20, size: 2 }],
+				["n/日本語.md", { mtime: 30, size: 3 }],
+			]),
+		);
+		expect(asked).toEqual(["readdir /vault/n", "readdir /vault/n", "stat n/b.md"]);
+	});
+
+	test("names with a space at either end, and listings in another form, are left to the app", async () => {
+		const { app } = appWith({
+			"/vault/a": [file(" a.md", 1, 1)],
+			"/vault/b": [file("b.md ", 1, 1)],
+			"/vault/c": [file("c.md", 1, 1), { type: "symlink", name: "l" }],
+			"/vault/d": new Error("gone"),
+		});
+		const phone = phoneListingOf(app);
+
+		for (const folder of ["a", "b", "c", "d"]) expect(await phone?.list(folder)).toBeNull();
+	});
+});
