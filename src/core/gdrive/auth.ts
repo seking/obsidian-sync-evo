@@ -76,7 +76,6 @@ export const DEVICE_VERIFICATION_URL = "https://www.google.com/device";
 
 const DEVICE_CODE_URL = "https://oauth2.googleapis.com/device/code";
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
-const REVOKE_URL = "https://oauth2.googleapis.com/revoke";
 const DEVICE_GRANT = "urn:ietf:params:oauth:grant-type:device_code";
 /** An access token is taken again when it has less than this left. */
 const RENEW_BEFORE_MS = 5 * 60 * 1000;
@@ -122,8 +121,9 @@ function clientFields(client: GoogleClient): Record<string, string> {
 /** A failure of the token endpoint, by its status and its `error`. */
 function tokenFailure(what: string, response: HttpResponse, json: Record<string, unknown>): BackendError {
 	const error = typeof json.error === "string" ? json.error : "";
-	// A refresh token Google no longer takes: revoked, or ended (seven days
-	// while the consent screen is in testing).
+	// A refresh token Google no longer takes: Sync Evo was removed in the
+	// Google Account, which ends it for every device, or it ran out (seven
+	// days while the consent screen is in testing).
 	if (error === "invalid_grant") return new BackendError("unauthorized", `${what}: invalid_grant`, response.status);
 	const kind = response.status >= 500 ? "unreachable" : response.status === 401 ? "unauthorized" : "other";
 	return new BackendError(kind, `${what}: HTTP ${response.status} ${error}`.trim(), response.status);
@@ -313,20 +313,6 @@ export class GoogleTokens implements AccessTokens {
 		this.current = { token: access_token, expiresAt: this.now() + expires_in * 1000 };
 		return access_token;
 	}
-}
-
-/**
- * Ends the grant on Google's side, with the refresh token: the access
- * tokens taken from it end with it. A token Google no longer knows is ended
- * already, which is no failure.
- */
-export async function revokeGoogleToken(http: HttpFunction, refreshToken: string): Promise<void> {
-	const what = "revoke the token";
-	const response = await postForm(http, REVOKE_URL, what, { token: refreshToken });
-	if (response.status === 200) return;
-	const json = jsonOf(response);
-	if (response.status === 400 && json.error === "invalid_token") return;
-	throw new BackendError(response.status >= 500 ? "unreachable" : "other", `${what}: HTTP ${response.status} ${typeof json.error === "string" ? json.error : ""}`.trim(), response.status);
 }
 
 /** The account the tokens are of, for the settings to show and to tell accounts apart. */

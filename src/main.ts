@@ -29,7 +29,6 @@ import {
 	GoogleTokens,
 	googleClientOf,
 	requestDeviceCode,
-	revokeGoogleToken,
 	waitForDeviceGrant,
 } from "./core/gdrive/auth";
 import { GDriveBackend } from "./core/gdrive/backend";
@@ -748,23 +747,18 @@ export default class SyncEvoPlugin extends Plugin implements SettingsHost, SyncH
 	}
 
 	/**
-	 * Ends the connection to Google Drive: the grant is revoked on Google's
-	 * side, and the token taken off the device whatever Google answers. The
-	 * account and the folder stay in the settings, as with Dropbox. Never
-	 * rejects.
+	 * Ends the connection of this device to Google Drive: its token is taken
+	 * off the device, and Google is not told. Google's revocation is of
+	 * everything the account allowed the project, and would end the
+	 * connection of every other device as well (measured 2026-10-17, as
+	 * Google's guide for limited-input devices says). The settings say how
+	 * to end it for every device: in the Google Account. The account and
+	 * the folder stay in the settings, as with Dropbox. Never rejects.
 	 */
 	async disconnectGdrive(): Promise<void> {
-		const refreshToken = this.store.readGdriveToken();
 		await this.syncs.interrupt();
 		this.store.saveGdriveToken(null);
 		this.gdriveAccess = null;
-		if (refreshToken === null) return;
-		try {
-			await revokeGoogleToken(deviceNetwork().http, refreshToken);
-		} catch (error) {
-			log(`gdrive: the token could not be revoked: ${error instanceof Error ? error.message : String(error)}`);
-			if (!this.unloaded) new Notice(this.t("gdrive.revokeFailed"), 0);
-		}
 	}
 
 	/**

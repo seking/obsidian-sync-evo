@@ -19,7 +19,6 @@ import {
 	GoogleTokens,
 	googleClientOf,
 	requestDeviceCode,
-	revokeGoogleToken,
 	SYNC_EVO_GOOGLE_CLIENT,
 	waitForDeviceGrant,
 } from "../src/core/gdrive/auth";
@@ -294,14 +293,5 @@ describe("connecting to Google Drive by the device flow", () => {
 	test("a refresh token Google no longer takes is unauthorized", async () => {
 		const { http } = scripted(response(400, { error: "invalid_grant" }));
 		await expect(new GoogleTokens(http, () => 0, CLIENT, "rt").get()).rejects.toMatchObject({ kind: "unauthorized" });
-	});
-
-	test("revoking sends the refresh token; one Google no longer knows is revoked already", async () => {
-		const ok = scripted(response(200));
-		await revokeGoogleToken(ok.http, "rt");
-		expect(ok.requests[0]?.url).toBe("https://oauth2.googleapis.com/revoke");
-		expect(form(ok.requests[0])).toEqual({ token: "rt" });
-		await revokeGoogleToken(scripted(response(400, { error: "invalid_token" })).http, "rt");
-		await expect(revokeGoogleToken(scripted(response(503)).http, "rt")).rejects.toMatchObject({ kind: "unreachable" });
 	});
 });

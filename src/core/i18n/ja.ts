@@ -51,7 +51,8 @@ export const ja = completeTranslation(en, {
 	"settings.gdrive.name": "Google Drive",
 	"settings.gdrive.desc":
 		"「接続する」を押すと、コードが表示され、ブラウザで google.com/device が開きます。そこでコードを入れ、ログインして、Sync Evo を許可してください。その後、Obsidian に戻ります。",
-	"settings.gdrive.connected": "接続中：{email}",
+	"settings.gdrive.connected":
+		"接続中：{email}。「接続を解除」は、このデバイスだけの解除です。全デバイスの接続を取り消す時は、Google アカウントの「サードパーティ製のアプリとサービス」から Sync Evo を外してください（外すと、全デバイスの接続が切れます）。",
 	"settings.gdrive.connect": "接続する",
 	"settings.gdrive.disconnect": "接続を解除",
 	"settings.gdriveFolder.name": "フォルダ",
@@ -229,8 +230,6 @@ export const ja = completeTranslation(en, {
 	"gdrive.signInFailed": "Google Drive に接続できませんでした。もう一度「接続する」を押してください。（{detail}）",
 	"gdrive.noClientSecret":
 		"この版の Sync Evo には Google のクライアントの情報が入っていないため、Google Drive に接続できません。公開されている版の Sync Evo を使ってください。",
-	"gdrive.revokeFailed":
-		"このデバイスの接続は解除しましたが、Google に伝えられませんでした。Google アカウントの「サードパーティ製のアプリとサービス」から、Sync Evo を外してください。",
 	"gdrive.folderGone":
 		"この保管庫が同期していた Google Drive の Sync Evo/{folder} フォルダが、見えなくなりました。削除されたか、ゴミ箱に入ったか、Sync Evo から見えなくなっています。このデバイスでは何も変更していません。次の同期は、最初の同期としてやり直します。",
 	"gdrive.duplicateFolder":
@@ -240,7 +239,7 @@ export const ja = completeTranslation(en, {
 	"check.gdrive.noFolder": "先に、Google Drive のフォルダの名前を入れてください。",
 	"check.gdrive.notConnected": "このデバイスは Google Drive に接続していません。Sync Evo の設定画面で「接続する」を押してください。",
 	"check.gdrive.unauthorized":
-		"Google が、このデバイスの接続を受け付けなくなりました。Google アカウントで連携が外されたか、期限が切れた可能性があります。Sync Evo の設定画面で、接続し直してください。",
+		"Google が Sync Evo の接続を受け付けなくなりました。Google アカウントで Sync Evo を外したか、ほかの理由で取り消された可能性があります。Sync Evo の設定画面で、接続し直してください。",
 	"check.gdrive.forbidden": "Google Drive が、フォルダを読むことを許しませんでした。Sync Evo の設定画面で、接続し直してください。",
 	"check.empty": "{repository} に接続できました。リポジトリは空です。",
 	"check.unauthorized":

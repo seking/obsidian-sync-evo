@@ -58,7 +58,8 @@ export const en = baseCatalog({
 	"settings.gdrive.name": "Google Drive",
 	"settings.gdrive.desc":
 		"\"Connect\" shows a code and opens google.com/device in the browser. Enter the code there, sign in, and allow Sync Evo. Then come back to Obsidian.",
-	"settings.gdrive.connected": "Connected: {email}",
+	"settings.gdrive.connected":
+		"Connected: {email}. \"Disconnect\" ends the connection of this device only. To end it for every device, remove Sync Evo under \"Third-party apps & services\" in your Google Account.",
 	"settings.gdrive.connect": "Connect",
 	"settings.gdrive.disconnect": "Disconnect",
 	"settings.gdriveFolder.name": "Folder",
@@ -254,8 +255,6 @@ export const en = baseCatalog({
 	"gdrive.signInFailed": "Could not connect to Google Drive. Press \"Connect\" again. ({detail})",
 	"gdrive.noClientSecret":
 		"This build of Sync Evo has no Google client credentials, so it cannot connect to Google Drive. Use a released version of Sync Evo.",
-	"gdrive.revokeFailed":
-		"This device is no longer connected to Google Drive, but Google could not be told. Remove Sync Evo under \"Third-party apps & services\" in your Google Account.",
 	"gdrive.folderGone":
 		"The folder Sync Evo/{folder} that this vault synced with is no longer to be seen on Google Drive: it was deleted, put in the trash, or is out of sight of Sync Evo. Nothing on this device was changed. The next sync starts over, as a first sync.",
 	"gdrive.duplicateFolder":
@@ -265,7 +264,7 @@ export const en = baseCatalog({
 	"check.gdrive.noFolder": "Enter the name of the folder on Google Drive first.",
 	"check.gdrive.notConnected": "This device is not connected to Google Drive. Press \"Connect\" in the settings of Sync Evo.",
 	"check.gdrive.unauthorized":
-		"Google no longer accepts the connection of this device. It may have been removed in your Google Account, or it ran out. Connect again in the settings of Sync Evo.",
+		"Google no longer accepts the connection of Sync Evo. Sync Evo may have been removed in your Google Account, or the connection was ended for another reason. Connect again in the settings of Sync Evo.",
 	"check.gdrive.forbidden": "Google Drive did not allow Sync Evo to read the folder. Connect again in the settings of Sync Evo.",
 	"check.empty": "Connected to {repository}. The repository is empty.",
 	"check.unauthorized":
