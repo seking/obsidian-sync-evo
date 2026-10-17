@@ -159,3 +159,12 @@
 	user-select: text;
 	-webkit-user-select: text;
 }
+
+/* The code to type at google.com/device, in the dialog of the connection to Google Drive. */
+.sync-evo-device-code {
+	font-family: var(--font-monospace);
+	font-size: 1.6em;
+	text-align: center;
+	user-select: all;
+	-webkit-user-select: all;
+}

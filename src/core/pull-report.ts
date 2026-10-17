@@ -14,6 +14,7 @@
 // it only puts these texts on the screen.
 
 import { BackendError, type BackendErrorKind } from "./backend";
+import { DriveDuplicateFolderError, DriveFolderGoneError, GoogleClientSecretMissingError } from "./gdrive/errors";
 import { type FetchLimitState, NO_FETCH_LIMIT } from "./fetch-quota";
 import type { Translate } from "./i18n";
 import { NOTICE_KINDS, type NoticeKind, type NoticeRef } from "./notices";
@@ -198,6 +199,14 @@ export function failureReason(t: Translate, settings: DeviceSettings, error: unk
 	const detail = error instanceof Error ? error.message : String(error);
 	const kind: BackendErrorKind = error instanceof BackendError ? error.kind : "other";
 
+	if (settings.backend === "gdrive") {
+		if (error instanceof DriveFolderGoneError) return t("gdrive.folderGone", { folder: settings.gdriveFolder.trim() });
+		if (error instanceof DriveDuplicateFolderError) return t("gdrive.duplicateFolder", { folder: error.folder });
+		if (error instanceof GoogleClientSecretMissingError) return t("gdrive.noClientSecret");
+		if (kind === "unauthorized") return t("check.gdrive.unauthorized");
+		if (kind === "forbidden") return t("check.gdrive.forbidden");
+		if (kind === "not-found" || kind === "branch-not-found") return t("pull.error.other", { detail });
+	}
 	if (settings.backend === "dropbox") {
 		// No token, repository or branch of the user's to name: what is
 		// wrong is the connection, or the network.

@@ -16,6 +16,7 @@ import {
 	type CheckOutcome,
 	type CheckTarget,
 	checkConnection,
+	checkDriveFolder,
 	checkDropboxFolder,
 	connectionCheckText,
 	isSuccess,
@@ -23,6 +24,7 @@ import {
 	runConnectionCheck,
 } from "../src/core/connection-check";
 import { DropboxApiError } from "../src/core/dropbox/client";
+import { DriveDuplicateFolderError, DriveFolderGoneError, GoogleClientSecretMissingError } from "../src/core/gdrive/errors";
 import { GitHubClient, type HeadResult } from "../src/core/github/client";
 import type { HttpRequest, HttpResponse } from "../src/core/github/http";
 import { translatorFor } from "../src/core/i18n";
@@ -38,6 +40,9 @@ const settings = (over: Partial<DeviceSettings> = {}): DeviceSettings => ({
 	tokenSecret: "github-token",
 	dropboxFolder: "",
 	dropboxAccount: null,
+	gdriveFolder: "",
+	gdriveAccount: null,
+	gdriveFolderId: null,
 	deviceName: "Mac",
 	autoSync: DEFAULT_AUTO_SYNC,
 	onConflict: "copy",
@@ -487,5 +492,84 @@ describe("checking the connection to Dropbox", () => {
 				t("check.dropbox.forbidden"),
 			);
 		});
+	});
+});
+
+describe("checking the connection to Google Drive", () => {
+	const ACCOUNT = { id: "perm1", email: "a@example.com" };
+	const REFRESH = "google-refresh-SECRET";
+	const drive = (over: Partial<DeviceSettings> = {}): DeviceSettings =>
+		settings({ backend: "gdrive", gdriveFolder: "Vault", gdriveAccount: ACCOUNT, gdriveFolderId: "f1", ...over });
+	const noSecret = (): string | null => null;
+
+	test("ready with a folder, an account, and a refresh token, with the id of the folder kept", () => {
+		expect(prepareCheck(drive({ gdriveFolder: " Vault " }), noSecret, () => null, () => REFRESH)).toEqual({
+			status: "ready",
+			target: { kind: "gdrive", folder: "Vault", folderId: "f1", refreshToken: REFRESH },
+		});
+	});
+
+	test.each<[string, Partial<DeviceSettings>, string | null, string]>([
+		["no folder", { gdriveFolder: "" }, REFRESH, "gdrive-folder"],
+		["no account", { gdriveAccount: null }, REFRESH, "gdrive-account"],
+		["no refresh token", {}, null, "gdrive-account"],
+	])("not ready with %s", (_what, over, token, reason) => {
+		expect(prepareCheck(drive(over), noSecret, () => REFRESH, () => token)).toEqual({ status: "not-ready", reason });
+	});
+
+	test("the whole check asks Google Drive, and neither GitHub nor Dropbox", async () => {
+		const outcome = await runConnectionCheck(
+			drive(),
+			noSecret,
+			() => {
+				throw new Error("no GitHub client for Google Drive");
+			},
+			{
+				readToken: () => REFRESH,
+				check: () => Promise.reject(new Error("no Dropbox for Google Drive")),
+			},
+			{ readToken: () => REFRESH, check: async () => ({ status: "connected", head: "" }) },
+		);
+		expect(outcome).toEqual({ status: "connected", head: "" });
+	});
+
+	test.each<[string, () => Promise<string | null>, CheckOutcome]>([
+		["a folder that is there", async () => "f1", { status: "connected", head: "" }],
+		["no folder yet", async () => null, { status: "empty" }],
+		["a folder that is gone", () => Promise.reject(new DriveFolderGoneError("f1", "gone")), { status: "failed", kind: "not-found", detail: "the folder of the vault on Google Drive is gone: gone" }],
+		[
+			"two folders of the name",
+			() => Promise.reject(new DriveDuplicateFolderError("Sync Evo/Vault")),
+			{ status: "failed", kind: "other", detail: "more than one folder Sync Evo/Vault on Google Drive", duplicate: "Sync Evo/Vault" },
+		],
+		["a connection Google refuses", () => Promise.reject(new BackendError("unauthorized", "x")), { status: "failed", kind: "unauthorized", detail: "x" }],
+		[
+			"a build without the client secret",
+			() => Promise.reject(new GoogleClientSecretMissingError()),
+			{ status: "failed", kind: "other", detail: "this build of Sync Evo has no client secret of Google", noClientSecret: true },
+		],
+	])("%s", async (_what, find, expected) => {
+		expect(await checkDriveFolder(find)).toEqual(expected);
+	});
+
+	test.each(["en", "ja"])("in %s, every outcome has a text of its own, naming Google Drive and the folder", (language) => {
+		const t = translatorFor(language, "Google Drive");
+		const outcomes: CheckOutcome[] = [
+			{ status: "connected", head: "" },
+			{ status: "empty" },
+			{ status: "failed", kind: "unauthorized", detail: "d" },
+			{ status: "failed", kind: "forbidden", detail: "d" },
+			{ status: "failed", kind: "not-found", detail: "d" },
+			{ status: "failed", kind: "other", detail: "d", duplicate: "Sync Evo/Vault" },
+			{ status: "failed", kind: "other", detail: "d" },
+			{ status: "failed", kind: "other", detail: "d", noClientSecret: true },
+			{ status: "not-ready", reason: "gdrive-folder" },
+			{ status: "not-ready", reason: "gdrive-account" },
+		];
+		const texts = outcomes.map((outcome) => connectionCheckText(t, drive(), outcome));
+		expect(new Set(texts).size).toBe(outcomes.length);
+		for (const text of texts) expect(text).not.toMatch(/[{}]/);
+		expect(texts[0]).toContain("Sync Evo/Vault");
+		expect(texts[5]).toContain("Sync Evo/Vault");
 	});
 });

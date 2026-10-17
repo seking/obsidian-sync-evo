@@ -457,13 +457,14 @@ function isSource(value: unknown): boolean {
 
 function isRemoteEntry(value: unknown): value is RemoteEntry {
 	if (typeof value !== "object" || value === null) return false;
-	const { path, kind, hash, size, contents, source, version } = value as Record<string, unknown>;
+	const { path, kind, hash, size, contents, source, version, id } = value as Record<string, unknown>;
 	return (
 		typeof path === "string" &&
 		ENTRY_KINDS.some((known) => known === kind) &&
 		typeof hash === "string" &&
 		(size === undefined || typeof size === "number") &&
 		(version === undefined || typeof version === "string") &&
+		(id === undefined || typeof id === "string") &&
 		(contents === undefined || (kind === "submodule" && isContents(contents))) &&
 		(source === undefined || (kind !== "submodule" && isSource(source)))
 	);

@@ -71,6 +71,12 @@ export interface RemoteEntry {
 	 * `rev`). Absent on a remote whose revision names every file at once.
 	 */
 	readonly version?: string;
+	/**
+	 * The remote's own id of the file, on a remote that addresses files by
+	 * id rather than by path (Google Drive), where one name can be there more
+	 * than once. Absent elsewhere.
+	 */
+	readonly id?: string;
 }
 
 export interface RemoteListing {

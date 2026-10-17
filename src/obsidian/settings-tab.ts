@@ -12,6 +12,7 @@
 import { type App, Notice, type Plugin, PluginSettingTab, SecretComponent, Setting } from "obsidian";
 import { type CheckOutcome, connectionCheckText, isSuccess } from "../core/connection-check";
 import { newSignIn, type SignIn } from "../core/dropbox/auth";
+import type { DeviceCode } from "../core/gdrive/auth";
 import type { Translate } from "../core/i18n";
 import type { SymlinkTarget } from "../core/pull";
 import type { PushFailure } from "../core/push-failure";
@@ -48,6 +49,14 @@ export interface SettingsHost extends ExclusionHost {
 	startDropboxSignIn(sign: SignIn): void;
 	/** Never rejects. */
 	disconnectDropbox(): Promise<void>;
+	/** The account this device is connected to Google Drive with, or `null` while it is not. */
+	gdriveConnection(): { readonly email: string } | null;
+	/** A code of Google ahead of the press of "Connect", the same one while it lasts. */
+	prepareGdriveCode(): Promise<DeviceCode>;
+	/** Shows the code and opens the browser. Called in the handler of the press, with nothing awaited before. */
+	connectGdrive(prefetched: DeviceCode | null): void;
+	/** Never rejects. */
+	disconnectGdrive(): Promise<void>;
 	/** The symlinks of the remote that are skipped, with where they point. Never rejects. */
 	skippedSymlinks(): Promise<readonly SymlinkTarget[]>;
 	/** The push that did not get to its end, if no sync has sent since. Never rejects. */
@@ -122,15 +131,19 @@ export class SyncEvoSettingTab extends PluginSettingTab {
 				dropdown
 					.addOption("github", "GitHub")
 					.addOption("dropbox", "Dropbox")
+					.addOption("gdrive", "Google Drive")
 					.setValue(stored.backend)
 					.onChange((value) => {
-						const backend = value === "dropbox" ? "dropbox" : "github";
+						const backend = value === "dropbox" || value === "gdrive" ? value : "github";
 						this.change((current) => {
 							if (current.backend === backend) return current;
 							// The folder of the vault starts as the name of the
-							// vault, the first time Dropbox is chosen (R-4).
-							const folder = current.dropboxFolder === "" ? (dropboxFolderToStore(this.app.vault.getName()) ?? "") : current.dropboxFolder;
-							return { ...current, backend, dropboxFolder: folder };
+							// vault, the first time Dropbox or Google Drive is
+							// chosen (R-4, R-1).
+							const vault = dropboxFolderToStore(this.app.vault.getName()) ?? "";
+							const folder = current.dropboxFolder === "" && backend === "dropbox" ? vault : current.dropboxFolder;
+							const gdriveFolder = current.gdriveFolder === "" && backend === "gdrive" ? vault : current.gdriveFolder;
+							return { ...current, backend, dropboxFolder: folder, gdriveFolder };
 						});
 						this.display();
 					});
@@ -142,6 +155,8 @@ export class SyncEvoSettingTab extends PluginSettingTab {
 		let rejected = (): string | null => null;
 		if (stored.backend === "dropbox") {
 			rejected = this.showDropbox(connection, stored);
+		} else if (stored.backend === "gdrive") {
+			rejected = this.showGdrive(connection, stored);
 		} else {
 			// The repository and the branch are taken over when the field is left
 			// or Enter is pressed (the DOM `change` event), not on each key. Every
@@ -350,6 +365,80 @@ export class SyncEvoSettingTab extends PluginSettingTab {
 			this.commits.push(commit);
 		});
 		return () => (folderRejected ? t("check.dropbox.noFolder") : null);
+	}
+
+	/**
+	 * The row of Google Drive, with the button that connects or disconnects,
+	 * and the folder of the vault (R-1). Answers what the test of the
+	 * connection says instead while the folder field holds a name that was
+	 * not taken.
+	 */
+	private showGdrive(el: HTMLElement, stored: DeviceSettings): () => string | null {
+		const { host } = this;
+		const t = host.t;
+		const connected = host.gdriveConnection();
+		const row = new Setting(el)
+			.setName(t("settings.gdrive.name"))
+			.setDesc(connected === null ? t("settings.gdrive.desc") : t("settings.gdrive.connected", { email: connected.email }));
+		if (connected === null) {
+			// Asked for before the press: iOS opens the browser only right
+			// after a tap, and the code takes a request to get. Without one by
+			// then, the dialog asks for it.
+			// The plugin keeps it while it lasts: drawing the screen again
+			// asks for no other.
+			let code: DeviceCode | null = null;
+			host.prepareGdriveCode().then(
+				(made) => {
+					code = made;
+				},
+				() => undefined,
+			);
+			row.addButton((button) => {
+				button
+					.setCta()
+					.setButtonText(t("settings.gdrive.connect"))
+					.onClick(() => {
+						host.connectGdrive(code);
+						// A code is for one press. Without one, the dialog asks.
+						code = null;
+					});
+			});
+		} else {
+			row.addButton((button) => {
+				button.setButtonText(t("settings.gdrive.disconnect")).onClick(async () => {
+					button.setDisabled(true);
+					await host.disconnectGdrive();
+					this.display();
+				});
+			});
+		}
+
+		// Taken over when the field is left, like the repository: every
+		// change of it that is saved discards the sync state, and with it the
+		// id of the folder that was found by the name before.
+		const folder = new Setting(el).setName(t("settings.gdriveFolder.name")).setDesc(t("settings.gdriveFolder.desc"));
+		const folderNote = note(folder);
+		let folderRejected = false;
+		folder.addText((text) => {
+			text.setValue(stored.gdriveFolder);
+			const commit = (): void => {
+				const value = dropboxFolderToStore(text.getValue());
+				if (value === null) {
+					folderNote.setText(t("settings.dropboxFolder.invalid"));
+					folderRejected = true;
+					return;
+				}
+				text.setValue(value);
+				folderNote.setText("");
+				folderRejected = false;
+				this.change((current) =>
+					current.gdriveFolder === value ? current : { ...current, gdriveFolder: value, gdriveFolderId: null },
+				);
+			};
+			text.inputEl.addEventListener("change", commit);
+			this.commits.push(commit);
+		});
+		return () => (folderRejected ? t("check.gdrive.noFolder") : null);
 	}
 
 	/** Draws the screen again, when it is shown: after the connection to Dropbox changed from outside it. */

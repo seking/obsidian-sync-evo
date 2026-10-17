@@ -55,6 +55,15 @@ export const en = baseCatalog({
 	"settings.dropboxFolder.desc":
 		"The name of the folder of this vault inside Apps/Sync Evo on Dropbox. Devices with the same name sync with each other. Changing it starts the sync over.",
 	"settings.dropboxFolder.invalid": "This cannot be the name of a folder, so it was not saved. Do not leave it empty, and do not use / or \\.",
+	"settings.gdrive.name": "Google Drive",
+	"settings.gdrive.desc":
+		"\"Connect\" shows a code and opens google.com/device in the browser. Enter the code there, sign in, and allow Sync Evo. Then come back to Obsidian.",
+	"settings.gdrive.connected": "Connected: {email}",
+	"settings.gdrive.connect": "Connect",
+	"settings.gdrive.disconnect": "Disconnect",
+	"settings.gdriveFolder.name": "Folder",
+	"settings.gdriveFolder.desc":
+		"The name of the folder of this vault inside the folder Sync Evo on Google Drive. Devices with the same name sync with each other. Changing it starts the sync over.",
 	"settings.repository.name": "Repository",
 	"settings.repository.desc":
 		"The GitHub repository to sync this vault with. Enter it as owner/name, or paste its address from the browser.",
@@ -231,6 +240,33 @@ export const en = baseCatalog({
 	"check.dropbox.unauthorized":
 		"Dropbox no longer accepts the connection of this device. It may have been removed in the settings of Dropbox. Connect again in the settings of Sync Evo.",
 	"check.dropbox.forbidden": "Dropbox did not allow Sync Evo to read the folder. Connect again in the settings of Sync Evo.",
+	"gdrive.code.title": "Connect to Google Drive",
+	"gdrive.code.asking": "Asking Google for a code…",
+	"gdrive.code.body":
+		"Enter this code at {url}, sign in with your Google account, and allow Sync Evo. This window closes by itself once you have.",
+	"gdrive.code.copied": "The code was copied.",
+	"gdrive.code.open": "Open the browser",
+	"gdrive.code.copy": "Copy the code",
+	"gdrive.code.cancel": "Cancel",
+	"gdrive.connected": "Connected to Google Drive as {email}.",
+	"gdrive.denied": "Not connected to Google Drive: the access was not allowed.",
+	"gdrive.expired": "Not connected to Google Drive: the code ran out before it was entered. Press \"Connect\" again.",
+	"gdrive.signInFailed": "Could not connect to Google Drive. Press \"Connect\" again. ({detail})",
+	"gdrive.noClientSecret":
+		"This build of Sync Evo has no Google client credentials, so it cannot connect to Google Drive. Use a released version of Sync Evo.",
+	"gdrive.revokeFailed":
+		"This device is no longer connected to Google Drive, but Google could not be told. Remove Sync Evo under \"Third-party apps & services\" in your Google Account.",
+	"gdrive.folderGone":
+		"The folder Sync Evo/{folder} that this vault synced with is no longer to be seen on Google Drive: it was deleted, put in the trash, or is out of sight of Sync Evo. Nothing on this device was changed. The next sync starts over, as a first sync.",
+	"gdrive.duplicateFolder":
+		"There is more than one folder {folder} on Google Drive, and Sync Evo cannot tell which one to sync with. Nothing was changed. Keep only one of them on Google Drive, and sync again.",
+	"check.gdrive.connected": "Connected to Google Drive. The folder Sync Evo/{folder} is there.",
+	"check.gdrive.empty": "Connected to Google Drive. The folder Sync Evo/{folder} is not there yet: the first upload makes it.",
+	"check.gdrive.noFolder": "Enter the name of the folder on Google Drive first.",
+	"check.gdrive.notConnected": "This device is not connected to Google Drive. Press \"Connect\" in the settings of Sync Evo.",
+	"check.gdrive.unauthorized":
+		"Google no longer accepts the connection of this device. It may have been removed in your Google Account, or it ran out. Connect again in the settings of Sync Evo.",
+	"check.gdrive.forbidden": "Google Drive did not allow Sync Evo to read the folder. Connect again in the settings of Sync Evo.",
 	"check.empty": "Connected to {repository}. The repository is empty.",
 	"check.unauthorized":
 		"GitHub did not accept the token. It is wrong, or it was revoked or has expired. Create a new token and save it under the selected secret.",
@@ -707,6 +743,8 @@ export const en = baseCatalog({
 	"place.folder": "the folder Apps/Sync Evo/{folder} on Dropbox",
 	"remotePlace.repository": "{remote} ({repository}, branch {branch})",
 	"remotePlace.folder": "Dropbox, in the folder Apps/Sync Evo/{folder}",
+	"place.gdriveFolder": "the folder Sync Evo/{folder} on Google Drive",
+	"remotePlace.gdriveFolder": "Google Drive, in the folder Sync Evo/{folder}",
 	"confirm.firstFetch.body":
 		"This is the first download from {place}, and this vault already has files.",
 	"confirm.firstFetch.different": {
@@ -803,5 +841,30 @@ export const en = baseCatalog({
 	"pull.reason.hashMismatch.dropbox":
 		"The content Dropbox sent did not match its own listing.",
 	"settings.deviceName.desc.dropbox":
+		"It appears in the names of conflict files.",
+	// What Google Drive has no repository, commit or history for (`GDRIVE_VARIANT`).
+	"check.unreachable.gdrive":
+		"Could not reach Google Drive. Check the network connection and try again.",
+	"check.rateLimited.gdrive":
+		"Google Drive asked to wait before more requests. Try again later.",
+	"confirm.firstPush.remoteEmpty.gdrive":
+		"The folder is not on Google Drive yet. If this vault has no .gitignore, an empty one is created and uploaded.",
+	"confirm.firstPush.remoteEmptyWithGitignore.gdrive":
+		"The folder is not on Google Drive yet.",
+	"pull.remoteEmpty.gdrive":
+		"The folder is not on Google Drive yet. There is nothing to download.",
+	"confirm.rewritten.title.gdrive":
+		"Folder gone from Google Drive",
+	"confirm.rewritten.body.gdrive":
+		"The folder of this vault on Google Drive was deleted or emptied since this device last synced with it. Changes that this device uploaded may be gone from {remote}. Following {remote} takes the files below away from this device.",
+	"auto.waiting.rewritten.gdrive":
+		"The folder of this vault on Google Drive was deleted or emptied, so downloading needs your confirmation. Nothing was changed. Sync manually to be asked.",
+	"push.pullFirst.remoteEmpty.gdrive":
+		"Nothing was uploaded. This device has synced with this folder before, and the folder is not on Google Drive now. Download first to look at that.",
+	"untrack.syncFirst.remoteEmpty.gdrive":
+		"Nothing was removed from {remote}. The folder is not on Google Drive now. Sync first, then try again in the settings of Sync Evo.",
+	"pull.reason.hashMismatch.gdrive":
+		"The content Google Drive sent did not match its own listing.",
+	"settings.deviceName.desc.gdrive":
 		"It appears in the names of conflict files.",
 });

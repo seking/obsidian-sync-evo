@@ -50,6 +50,9 @@ import { type GitignoreEdit, GitignoreGate } from "../core/gitignore-gate";
 import type { Backend } from "../core/backend";
 import { DropboxBackend } from "../core/dropbox/backend";
 import { type AccessTokens, DropboxClient } from "../core/dropbox/client";
+import { GDriveBackend } from "../core/gdrive/backend";
+import { DriveClient } from "../core/gdrive/client";
+import { DriveFolderGoneError } from "../core/gdrive/errors";
 import { GitHubBackend } from "../core/github/backend";
 import { GitHubClient, HeadMemory } from "../core/github/client";
 import type { MessageKey, Translate } from "../core/i18n";
@@ -117,6 +120,14 @@ export interface SyncHost {
 	 * taken again only once it ends.
 	 */
 	dropboxTokens(refreshToken: string): AccessTokens;
+	/** The refresh token of Google Drive this device keeps, or `null` while it is not connected. */
+	readGdriveToken(): string | null;
+	/** Where the access tokens of Google Drive come from, as for Dropbox. */
+	gdriveTokens(refreshToken: string): AccessTokens;
+	/** The id of the folder of the vault on Drive, found or made by a sync, for these settings. */
+	driveFolderFound?(id: string, account: string, folder: string): void;
+	/** The folder of that id is gone from Drive: the sync state is discarded (R-3). */
+	driveFolderGone?(id: string): void;
 	/** What was seen of where the user types (`editing-watch.ts`). Asked by a sync that started by itself. */
 	readonly editing: { facts(): readonly EditingFact[] };
 	/**
@@ -448,6 +459,7 @@ export class SyncRunner {
 			settings,
 			(name) => host.readToken(name),
 			() => host.readDropboxToken(),
+			() => host.readGdriveToken(),
 		);
 		if (prepared.status === "not-ready") {
 			const text = connectionCheckText(t, settings, prepared);
@@ -460,7 +472,12 @@ export class SyncRunner {
 				const connected =
 					prepared.reason === "dropbox-account"
 						? settings.dropboxAccount !== null
-						: prepared.reason !== "repository" && prepared.reason !== "branch" && prepared.reason !== "dropbox-folder";
+						: prepared.reason === "gdrive-account"
+							? settings.gdriveAccount !== null
+							: prepared.reason !== "repository" &&
+								prepared.reason !== "branch" &&
+								prepared.reason !== "dropbox-folder" &&
+								prepared.reason !== "gdrive-folder";
 				this.notReady(notReadyAutoReport(t, prepared.reason, text), connected);
 			}
 			return;
@@ -470,7 +487,9 @@ export class SyncRunner {
 		const target: PullTarget =
 			remote.kind === "dropbox"
 				? { backend: "dropbox", folder: remote.folder }
-				: { backend: "github", repository: `${remote.owner}/${remote.repo}`, branch: remote.branch };
+				: remote.kind === "gdrive"
+					? { backend: "gdrive", folder: remote.folder }
+					: { backend: "github", repository: `${remote.owner}/${remote.repo}`, branch: remote.branch };
 
 		const controller = new AbortController();
 		this.controller = controller;
@@ -499,6 +518,9 @@ export class SyncRunner {
 		let sectionAdded: SectionAdded | null = null;
 		// Whether the first fetch follows this sync (`refetchAsked`).
 		let refetch = false;
+		// The id of the folder on Drive that is no longer to be seen, to let
+		// go of once this sync has ended (`driveFolderGone`).
+		let goneFolder: string | null = null;
 		// What saves the sent blobs when the app goes to the back, while this sync runs.
 		let onHidden: (() => void) | null = null;
 		if (auto === null) {
@@ -554,7 +576,23 @@ export class SyncRunner {
 			// Dropbox tells no quota: a wait it asks for is waited out by its client.
 			let limitWatch = new FetchLimitWatch(() => null, Date.now);
 			let backend: Backend;
-			if (remote.kind === "dropbox") {
+			if (remote.kind === "gdrive") {
+				const client = new DriveClient({
+					http: network.http,
+					now: Date.now,
+					sleep: windowSleep,
+					signal: controller.signal,
+					tokens: host.gdriveTokens(remote.refreshToken),
+				});
+				const account = settings.gdriveAccount?.id ?? "";
+				backend = new GDriveBackend(client, {
+					folder: remote.folder,
+					folderId: remote.folderId,
+					onFolderFound: (id) => host.driveFolderFound?.(id, account, remote.folder),
+					signal: controller.signal,
+					maxConcurrentFetchBytes: network.maxConcurrentFetchBytes,
+				});
+			} else if (remote.kind === "dropbox") {
 				const client = new DropboxClient({
 					http: network.http,
 					now: Date.now,
@@ -778,6 +816,13 @@ export class SyncRunner {
 			// throwing too, and did not fail.
 			const cancelled = error instanceof BackendError && error.kind === "cancelled";
 			if (!this.stopped && !cancelled) console.error(`Sync Evo: the ${this.direction} failed`, error);
+			// The folder on Drive is no longer to be seen: its id is let go
+			// of, and the sync state with it, once this sync has ended (R-3),
+			// and not here: a change of the connection under a running sync
+			// would have it end as stopped, and a sync that started by itself
+			// would tell nothing. Told as the failure it is, with what the
+			// next sync does.
+			if (error instanceof DriveFolderGoneError) goneFolder = error.folderId;
 			const text = this.failureText(settings, error);
 			this.parts.push(failureAutoReport(t, error, text));
 			// A push that failed has no result to tell it with, and the file
@@ -847,6 +892,9 @@ export class SyncRunner {
 			// Last: whoever waited for the sync to end may start the next.
 			end();
 		}
+		// Told and remembered as a failure by now. No sync runs, so the
+		// change of the connection stops none.
+		if (goneFolder !== null && !this.stopped) host.driveFolderGone?.(goneFolder);
 		if (!refetch) return;
 		// What the command for the first fetch does, with its question. Begun
 		// with nothing awaited since the sync ended, so that no other starts

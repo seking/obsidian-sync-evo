@@ -20,6 +20,8 @@ const KEY = "sync-evo-settings";
 const DROPBOX_TOKEN_KEY = "sync-evo-dropbox-token";
 /** The sign-in to Dropbox that waits for the browser to come back (R-4). */
 const DROPBOX_SIGN_IN_KEY = "sync-evo-dropbox-sign-in";
+/** The refresh token of Google Drive, kept like the one of Dropbox (R-1). */
+const GDRIVE_TOKEN_KEY = "sync-evo-gdrive-token";
 
 
 /**
@@ -70,6 +72,16 @@ export class SettingsStore {
 
 	saveDropboxToken(token: string | null): void {
 		this.app.saveLocalStorage(DROPBOX_TOKEN_KEY, token);
+	}
+
+	/** The refresh token of Google Drive, or `null` while this device is not connected. Kept as the one of Dropbox (R-1). */
+	readGdriveToken(): string | null {
+		const value: unknown = this.app.loadLocalStorage(GDRIVE_TOKEN_KEY);
+		return typeof value === "string" && value !== "" ? value : null;
+	}
+
+	saveGdriveToken(token: string | null): void {
+		this.app.saveLocalStorage(GDRIVE_TOKEN_KEY, token);
 	}
 
 	readSignIn(): PendingSignIn | null {

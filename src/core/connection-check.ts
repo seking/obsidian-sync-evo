@@ -14,6 +14,7 @@
 // screen only supplies the token and the client, and shows the text.
 
 import { BackendError, type BackendErrorKind } from "./backend";
+import { DriveDuplicateFolderError, DriveFolderGoneError, GoogleClientSecretMissingError } from "./gdrive/errors";
 import type { GitHubClient } from "./github/client";
 import type { Translate } from "./i18n";
 import { type DeviceSettings, dropboxFolderToStore, parseRepository } from "./settings";
@@ -22,7 +23,15 @@ export type ConnectionCheck =
 	| { readonly status: "connected"; readonly head: string }
 	/** The repository has no commit yet. A new repository starts like this, so it is not a failure. */
 	| { readonly status: "empty" }
-	| { readonly status: "failed"; readonly kind: BackendErrorKind; readonly detail: string };
+	| {
+			readonly status: "failed";
+			readonly kind: BackendErrorKind;
+			readonly detail: string;
+			/** Of Google Drive: the folder there is more than one of (`DriveDuplicateFolderError`). */
+			readonly duplicate?: string;
+			/** Of Google Drive: the build has no client secret (`GoogleClientSecretMissingError`). */
+			readonly noClientSecret?: true;
+	  };
 
 /**
  * Asks for the head of the branch, the one call that tells apart everything
@@ -44,7 +53,15 @@ export async function checkConnection(client: Pick<GitHubClient, "resolveHead">)
  * no folder of the vault on Dropbox is set. "dropbox-account": this device
  * is not connected to Dropbox, or no longer.
  */
-export type NotReadyReason = "repository" | "branch" | "token-secret" | "token-value" | "dropbox-folder" | "dropbox-account";
+export type NotReadyReason =
+	| "repository"
+	| "branch"
+	| "token-secret"
+	| "token-value"
+	| "dropbox-folder"
+	| "dropbox-account"
+	| "gdrive-folder"
+	| "gdrive-account";
 
 export interface GitHubCheckTarget {
 	readonly kind?: "github";
@@ -60,7 +77,17 @@ export interface DropboxCheckTarget {
 	readonly refreshToken: string;
 }
 
-export type CheckTarget = GitHubCheckTarget | DropboxCheckTarget;
+export interface DriveCheckTarget {
+	readonly kind: "gdrive";
+	readonly folder: string;
+	/** The id of the folder this device keeps (`DeviceSettings.gdriveFolderId`). */
+	readonly folderId: string | null;
+	readonly refreshToken: string;
+	/** `DeviceSettings.gdriveClientId`. */
+	readonly clientId?: string;
+}
+
+export type CheckTarget = GitHubCheckTarget | DropboxCheckTarget | DriveCheckTarget;
 
 export type CheckPreparation =
 	| { readonly status: "ready"; readonly target: CheckTarget }
@@ -75,7 +102,24 @@ export function prepareCheck(
 	settings: DeviceSettings,
 	readSecret: (name: string) => string | null,
 	readDropboxToken: () => string | null = () => null,
+	readDriveToken: () => string | null = () => null,
 ): CheckPreparation {
+	if (settings.backend === "gdrive") {
+		const folder = dropboxFolderToStore(settings.gdriveFolder);
+		if (folder === null) return { status: "not-ready", reason: "gdrive-folder" };
+		const refreshToken = settings.gdriveAccount === null ? null : readDriveToken();
+		if (refreshToken === null || refreshToken === "") return { status: "not-ready", reason: "gdrive-account" };
+		return {
+			status: "ready",
+			target: {
+				kind: "gdrive",
+				folder,
+				folderId: settings.gdriveFolderId,
+				refreshToken,
+				...(settings.gdriveClientId === undefined ? {} : { clientId: settings.gdriveClientId }),
+			},
+		};
+	}
 	if (settings.backend === "dropbox") {
 		const folder = dropboxFolderToStore(settings.dropboxFolder);
 		if (folder === null) return { status: "not-ready", reason: "dropbox-folder" };
@@ -109,11 +153,20 @@ export async function runConnectionCheck(
 		/** Asks Dropbox about the folder; never throws. */
 		readonly check: (target: DropboxCheckTarget) => Promise<ConnectionCheck>;
 	},
+	gdrive?: {
+		readonly readToken: () => string | null;
+		/** Asks Google Drive about the folder; never throws. */
+		readonly check: (target: DriveCheckTarget) => Promise<ConnectionCheck>;
+	},
 ): Promise<CheckOutcome> {
 	try {
-		const prepared = prepareCheck(settings, readSecret, dropbox?.readToken);
+		const prepared = prepareCheck(settings, readSecret, dropbox?.readToken, gdrive?.readToken);
 		if (prepared.status === "not-ready") return prepared;
 		const { target } = prepared;
+		if (target.kind === "gdrive") {
+			if (gdrive === undefined) return { status: "failed", kind: "other", detail: "no way to reach Google Drive" };
+			return await gdrive.check(target);
+		}
 		if (target.kind === "dropbox") {
 			if (dropbox === undefined) return { status: "failed", kind: "other", detail: "no way to reach Dropbox" };
 			return await dropbox.check(target);
@@ -149,9 +202,29 @@ export async function checkDropboxFolder(
 	}
 }
 
+/**
+ * Asks Google Drive about the folder of the vault, as a sync would find it
+ * (`GDriveBackend`), with an access token taken again from the refresh token
+ * (R-1): connected when it is there, empty when it is not yet. `find`
+ * answers the id of the folder, or `null`. Never throws.
+ */
+export async function checkDriveFolder(find: () => Promise<string | null>): Promise<ConnectionCheck> {
+	try {
+		const id = await find();
+		return id === null ? { status: "empty" } : { status: "connected", head: "" };
+	} catch (error) {
+		if (error instanceof DriveFolderGoneError) return { status: "failed", kind: "not-found", detail: error.message };
+		if (error instanceof DriveDuplicateFolderError) return { status: "failed", kind: "other", detail: error.message, duplicate: error.folder };
+		if (error instanceof GoogleClientSecretMissingError) return { status: "failed", kind: "other", detail: error.message, noClientSecret: true };
+		if (error instanceof BackendError) return { status: "failed", kind: error.kind, detail: error.message };
+		return { status: "failed", kind: "other", detail: error instanceof Error ? error.message : String(error) };
+	}
+}
+
 /** The text to show for an outcome. `settings` are the ones the test was run with. */
 export function connectionCheckText(t: Translate, settings: DeviceSettings, outcome: CheckOutcome): string {
 	if (settings.backend === "dropbox") return dropboxCheckText(t, settings, outcome);
+	if (settings.backend === "gdrive") return driveCheckText(t, settings, outcome);
 	const parsed = parseRepository(settings.repository);
 	const repository = parsed === null ? settings.repository.trim() : `${parsed.owner}/${parsed.repo}`;
 	const branch = settings.branch.trim();
@@ -173,6 +246,10 @@ export function connectionCheckText(t: Translate, settings: DeviceSettings, outc
 				return t("check.dropbox.noFolder");
 			case "dropbox-account":
 				return t("check.dropbox.notConnected");
+			case "gdrive-folder":
+				return t("check.gdrive.noFolder");
+			case "gdrive-account":
+				return t("check.gdrive.notConnected");
 		}
 	}
 	switch (outcome.kind) {
@@ -216,6 +293,31 @@ function dropboxCheckText(t: Translate, settings: DeviceSettings, outcome: Check
 			return t("check.dropbox.unauthorized");
 		case "forbidden":
 			return t("check.dropbox.forbidden");
+		case "unreachable":
+			return t("check.unreachable");
+		case "rate-limited":
+			return t("check.rateLimited");
+		default:
+			return t("check.other", { detail: outcome.detail });
+	}
+}
+
+function driveCheckText(t: Translate, settings: DeviceSettings, outcome: CheckOutcome): string {
+	const folder = settings.gdriveFolder.trim();
+	if (outcome.status === "connected") return t("check.gdrive.connected", { folder });
+	if (outcome.status === "empty") return t("check.gdrive.empty", { folder });
+	if (outcome.status === "not-ready") {
+		return outcome.reason === "gdrive-folder" ? t("check.gdrive.noFolder") : t("check.gdrive.notConnected");
+	}
+	if (outcome.duplicate !== undefined) return t("gdrive.duplicateFolder", { folder: outcome.duplicate });
+	if (outcome.noClientSecret === true) return t("gdrive.noClientSecret");
+	switch (outcome.kind) {
+		case "unauthorized":
+			return t("check.gdrive.unauthorized");
+		case "forbidden":
+			return t("check.gdrive.forbidden");
+		case "not-found":
+			return t("gdrive.folderGone", { folder });
 		case "unreachable":
 			return t("check.unreachable");
 		case "rate-limited":

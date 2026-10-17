@@ -11,7 +11,7 @@
 
 import { getLanguage, Notice, Platform, Plugin } from "obsidian";
 import { TICK_MS } from "./core/auto-sync";
-import { type CheckOutcome, checkDropboxFolder, runConnectionCheck } from "./core/connection-check";
+import { type CheckOutcome, checkDriveFolder, checkDropboxFolder, runConnectionCheck } from "./core/connection-check";
 import {
 	currentAccount,
 	DROPBOX_REDIRECT_ACTION,
@@ -23,6 +23,18 @@ import {
 } from "./core/dropbox/auth";
 import { type AccessTokens, DropboxClient } from "./core/dropbox/client";
 import { BackendError } from "./core/backend";
+import {
+	currentDriveAccount,
+	type DeviceCode,
+	GoogleTokens,
+	googleClientOf,
+	requestDeviceCode,
+	revokeGoogleToken,
+	waitForDeviceGrant,
+} from "./core/gdrive/auth";
+import { GDriveBackend } from "./core/gdrive/backend";
+import { DriveClient } from "./core/gdrive/client";
+import { GoogleClientSecretMissingError } from "./core/gdrive/errors";
 import {
 	applyExclusionEdit,
 	type ExclusionChanged,
@@ -68,6 +80,15 @@ import { SettingsStore } from "./obsidian/settings-store";
 import { type SettingsHost, SyncEvoSettingTab } from "./obsidian/settings-tab";
 import { SyncState, syncStateDepsOf } from "./obsidian/sync-state";
 import { windowSleep } from "./obsidian/window-sleep";
+import { copyText, DriveCodeModal } from "./obsidian/gdrive-connect";
+
+/** A code fetched before the press is used only while it has this much left. */
+const CODE_MARGIN_MS = 60_000;
+
+/** The name of a service, as texts put it for `{remote}`. */
+function remoteName(backend: DeviceSettings["backend"] | undefined): string {
+	return backend === "dropbox" ? "Dropbox" : backend === "gdrive" ? "Google Drive" : "GitHub";
+}
 
 export default class SyncEvoPlugin extends Plugin implements SettingsHost, SyncHost {
 	/** The language of the app. A change of it takes effect on restart, so reading it once is enough. */
@@ -127,7 +148,7 @@ export default class SyncEvoPlugin extends Plugin implements SettingsHost, SyncH
 	 * the service the settings name where a text has `{remote}`.
 	 */
 	get t(): Translate {
-		const remote = this.deviceSettings?.backend === "dropbox" ? "Dropbox" : "GitHub";
+		const remote = remoteName(this.deviceSettings?.backend);
 		let translate = this.translators.get(remote);
 		if (translate === undefined) {
 			translate = translatorFor(this.language, remote);
@@ -138,6 +159,16 @@ export default class SyncEvoPlugin extends Plugin implements SettingsHost, SyncH
 
 	/** The access tokens of Dropbox, kept while the refresh token they come from is the one in use. */
 	private dropboxAccess: { readonly refreshToken: string; readonly tokens: RefreshingTokens } | null = null;
+
+	/** The access tokens of Google Drive, likewise. */
+	private gdriveAccess: { readonly refreshToken: string; readonly tokens: GoogleTokens } | null = null;
+
+	/**
+	 * The code asked of Google ahead of a press of "Connect", kept while it
+	 * lasts, so that drawing the settings again asks for none. Taken by the
+	 * press it is used for.
+	 */
+	private gdriveCode: { readonly asked: Promise<DeviceCode>; code: DeviceCode | null } | null = null;
 
 	/**
 	 * The settings of this device for this vault. `null` when what is stored
@@ -597,6 +628,169 @@ export default class SyncEvoPlugin extends Plugin implements SettingsHost, SyncH
 		}
 	}
 
+	readGdriveToken(): string | null {
+		return this.store.readGdriveToken();
+	}
+
+	gdriveTokens(refreshToken: string): AccessTokens {
+		const kept = this.gdriveAccess;
+		if (kept !== null && kept.refreshToken === refreshToken) return kept.tokens;
+		const client = googleClientOf(this.deviceSettings?.gdriveClientId);
+		const tokens = new GoogleTokens(deviceNetwork().http, Date.now, client, refreshToken);
+		this.gdriveAccess = { refreshToken, tokens };
+		return tokens;
+	}
+
+	/** The account this device is connected to Google Drive with, or `null` while it is not. */
+	gdriveConnection(): { readonly email: string } | null {
+		const account = this.deviceSettings?.gdriveAccount ?? null;
+		return account !== null && this.store.readGdriveToken() !== null ? { email: account.email } : null;
+	}
+
+	/**
+	 * A code of Google, ahead of the press of "Connect" (R-1): the one asked
+	 * for before while it is on its way or lasts, or a new one.
+	 */
+	prepareGdriveCode(): Promise<DeviceCode> {
+		const kept = this.gdriveCode;
+		if (kept !== null && (kept.code === null || kept.code.expiresAt - Date.now() > CODE_MARGIN_MS)) return kept.asked;
+		const asked = requestDeviceCode(deviceNetwork().http, Date.now, googleClientOf(this.deviceSettings?.gdriveClientId));
+		const entry: { readonly asked: Promise<DeviceCode>; code: DeviceCode | null } = { asked, code: null };
+		this.gdriveCode = entry;
+		asked.then(
+			(code) => {
+				entry.code = code;
+			},
+			() => {
+				// Asked for again by the next drawing of the settings.
+				if (this.gdriveCode === entry) this.gdriveCode = null;
+			},
+		);
+		return asked;
+	}
+
+	/**
+	 * Connects to Google Drive by the device flow (R-1). Called in the
+	 * handler of the press, with nothing awaited before: with a code asked
+	 * for ahead, it is copied and google.com/device opened right away, which
+	 * iOS allows only then. Without one, the dialog asks for it, and the
+	 * browser opens from its button. The dialog shows the code while Sync
+	 * Evo waits for the user to allow; closing it stops the wait.
+	 */
+	connectGdrive(prefetched: DeviceCode | null): void {
+		const http = deviceNetwork().http;
+		const client = googleClientOf(this.deviceSettings?.gdriveClientId);
+		const ready = prefetched !== null && prefetched.expiresAt - Date.now() > CODE_MARGIN_MS ? prefetched : null;
+		// A code is for one press.
+		this.gdriveCode = null;
+		if (ready !== null) {
+			void copyText(ready.userCode);
+			window.open(ready.verificationUrl);
+		}
+		const code = ready === null ? requestDeviceCode(http, Date.now, client) : Promise.resolve(ready);
+		const modal = new DriveCodeModal(this.app, this.t, {
+			code,
+			copied: ready !== null,
+			openBrowser: (shown) => window.open(shown.verificationUrl),
+		});
+		modal.open();
+		void this.finishGdriveSignIn(code, modal);
+	}
+
+	/** Waits for the user to allow, and keeps what Google gives. Never rejects. */
+	private async finishGdriveSignIn(code: Promise<DeviceCode>, modal: DriveCodeModal): Promise<void> {
+		const t = this.t;
+		const http = deviceNetwork().http;
+		const client = googleClientOf(this.deviceSettings?.gdriveClientId);
+		try {
+			const waited = await waitForDeviceGrant(http, Date.now, windowSleep, client, await code, modal.signal);
+			if (this.unloaded || waited.status === "cancelled") return;
+			if (waited.status === "denied") {
+				new Notice(t("gdrive.denied"));
+				return;
+			}
+			if (waited.status === "expired") {
+				new Notice(t("gdrive.expired"), 0);
+				return;
+			}
+			const { grant } = waited;
+			const tokens = new GoogleTokens(http, Date.now, client, grant.refreshToken, grant);
+			const account = await currentDriveAccount(new DriveClient({ http, now: Date.now, sleep: windowSleep, tokens }));
+			if (this.unloaded) return;
+			const settings = this.deviceSettings;
+			if (settings === null) {
+				new Notice(t("settings.unknownVersion"), 0);
+				return;
+			}
+			this.store.saveGdriveToken(grant.refreshToken);
+			this.gdriveAccess = { refreshToken: grant.refreshToken, tokens };
+			// Another account than the one before is a new connection, and its
+			// sync state is discarded, with the folder found for that account;
+			// the same account keeps both (R-1, as R-4).
+			const same = settings.gdriveAccount?.id === account.accountId;
+			this.updateSettings({
+				...settings,
+				gdriveAccount: { id: account.accountId, email: account.email },
+				gdriveFolderId: same ? settings.gdriveFolderId : null,
+			});
+			new Notice(t("gdrive.connected", { email: account.email }));
+			this.settingTab?.redrawIfShown();
+		} catch (error) {
+			if (this.unloaded) return;
+			if (error instanceof GoogleClientSecretMissingError) {
+				new Notice(t("gdrive.noClientSecret"), 0);
+				return;
+			}
+			new Notice(t("gdrive.signInFailed", { detail: error instanceof Error ? error.message : String(error) }), 0);
+		} finally {
+			modal.close();
+		}
+	}
+
+	/**
+	 * Ends the connection to Google Drive: the grant is revoked on Google's
+	 * side, and the token taken off the device whatever Google answers. The
+	 * account and the folder stay in the settings, as with Dropbox. Never
+	 * rejects.
+	 */
+	async disconnectGdrive(): Promise<void> {
+		const refreshToken = this.store.readGdriveToken();
+		await this.syncs.interrupt();
+		this.store.saveGdriveToken(null);
+		this.gdriveAccess = null;
+		if (refreshToken === null) return;
+		try {
+			await revokeGoogleToken(deviceNetwork().http, refreshToken);
+		} catch (error) {
+			log(`gdrive: the token could not be revoked: ${error instanceof Error ? error.message : String(error)}`);
+			if (!this.unloaded) new Notice(this.t("gdrive.revokeFailed"), 0);
+		}
+	}
+
+	/**
+	 * A sync found the folder of the vault on Drive by its name, or made it:
+	 * its id is kept, while the settings still name that folder of that
+	 * account and keep no id. The same connection still: nothing is discarded.
+	 */
+	driveFolderFound(id: string, account: string, folder: string): void {
+		const settings = this.deviceSettings;
+		if (settings === null || settings.backend !== "gdrive" || settings.gdriveFolderId !== null) return;
+		if (settings.gdriveAccount?.id !== account || settings.gdriveFolder !== folder) return;
+		this.updateSettings({ ...settings, gdriveFolderId: id });
+	}
+
+	/**
+	 * The folder of the vault, by the id kept, is gone from Drive (R-3): the
+	 * id is let go of, which is a change of the connection, and the sync
+	 * state is discarded (D-2). The next sync looks for the folder by its
+	 * name again, as a first sync.
+	 */
+	driveFolderGone(id: string): void {
+		const settings = this.deviceSettings;
+		if (settings === null || settings.gdriveFolderId !== id) return;
+		this.updateSettings({ ...settings, gdriveFolderId: null });
+	}
+
 	/** Asks GitHub for the head of the branch with the settings as given. Sends nothing else. */
 	testConnection(settings: DeviceSettings): Promise<CheckOutcome> {
 		return runConnectionCheck(
@@ -624,6 +818,23 @@ export default class SyncEvoPlugin extends Plugin implements SettingsHost, SyncH
 							maxRetries: 1,
 						}),
 						target.folder,
+					),
+			},
+			{
+				readToken: () => this.store.readGdriveToken(),
+				check: (target) =>
+					checkDriveFolder(() =>
+						new GDriveBackend(
+							new DriveClient({
+								http: deviceNetwork().http,
+								now: Date.now,
+								sleep: windowSleep,
+								tokens: this.gdriveTokens(target.refreshToken),
+								// The user is looking at the button.
+								maxRetries: 1,
+							}),
+							{ folder: target.folder, folderId: target.folderId },
+						).locate(),
 					),
 			},
 		);

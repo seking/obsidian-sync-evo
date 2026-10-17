@@ -12,7 +12,7 @@
 import { describe, expect, test } from "vitest";
 import { baseCatalog, completeTranslation, partialTranslation, type Message } from "../src/core/i18n/catalog";
 import { en } from "../src/core/i18n/en";
-import { DROPBOX_VARIANT, resolveLanguage, translations, translatorFor } from "../src/core/i18n/index";
+import { DROPBOX_VARIANT, GDRIVE_VARIANT, resolveLanguage, translations, translatorFor } from "../src/core/i18n/index";
 import { createTranslator } from "../src/core/i18n/translator";
 
 // A catalog of its own, so that the mechanism is tested without adding
@@ -322,12 +322,28 @@ describe("the texts while Dropbox is the service", () => {
 		const placeholders = (message: Message): Set<string> =>
 			new Set([...JSON.stringify(message).matchAll(/\{(\w+)\}/g)].map((match) => match[1] ?? ""));
 		const catalog = en as Record<string, Message>;
-		for (const key of Object.keys(catalog).filter((name) => name.endsWith(DROPBOX_VARIANT))) {
-			const base = catalog[key.slice(0, -DROPBOX_VARIANT.length)];
+		for (const key of Object.keys(catalog).filter((name) => name.endsWith(DROPBOX_VARIANT) || name.endsWith(GDRIVE_VARIANT))) {
+			const suffix = key.endsWith(DROPBOX_VARIANT) ? DROPBOX_VARIANT : GDRIVE_VARIANT;
+			const base = catalog[key.slice(0, -suffix.length)];
 			const variant = catalog[key];
 			expect(base, key).toBeDefined();
 			if (base === undefined || variant === undefined) continue;
 			for (const name of placeholders(variant)) expect(placeholders(base).has(name) || name === "remote", `${key}: {${name}}`).toBe(true);
 		}
+	});
+});
+
+describe("the texts while Google Drive is the service", () => {
+	test("a message with a variant for Google Drive is taken from it, with Google Drive for {remote}", () => {
+		const drive = translatorFor("ja", "Google Drive");
+		expect(drive("pull.remoteEmpty")).toBe("Google Drive に、このフォルダはまだありません。ダウンロードするものはありません。");
+		expect(drive("untrack.done", { count: 2 })).toBe("Google Drive から 2 件を削除しました。このデバイスのファイルは、そのままです。");
+	});
+
+	test("every variant of Dropbox has one of Google Drive, and the other way round", () => {
+		const keys = Object.keys(en);
+		const dropbox = keys.filter((key) => key.endsWith(DROPBOX_VARIANT)).map((key) => key.slice(0, -DROPBOX_VARIANT.length));
+		const drive = keys.filter((key) => key.endsWith(GDRIVE_VARIANT)).map((key) => key.slice(0, -GDRIVE_VARIANT.length));
+		expect(drive.sort()).toEqual(dropbox.sort());
 	});
 });

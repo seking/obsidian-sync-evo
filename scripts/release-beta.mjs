@@ -24,6 +24,7 @@ import { dirname, join, resolve } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { nextBetaVersion } from "./beta-version.mjs";
+import { googleClientSecret, REQUIRE_ENV, SECRET_ENV, SECRET_FILE } from "./google-client-secret.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const dryRun = process.argv.slice(2).includes("--dry-run");
@@ -64,6 +65,11 @@ if (status === null) fail("could not run `git status`.");
 if (status !== "") {
 	fail("the working tree is not clean. Commit or stash the changes first.");
 }
+
+// The client secret of Google goes into main.js (esbuild.config.mjs); a
+// release without it could not connect to Google Drive.
+const secret = googleClientSecret();
+if (secret === null) fail(`no Google client secret. Set ${SECRET_ENV}, or put the value in ${SECRET_FILE}.`);
 
 const branch = capture("git", ["symbolic-ref", "--quiet", "--short", "HEAD"]);
 if (!branch) fail("HEAD is detached. Check out a branch first.");
@@ -107,10 +113,13 @@ const tag = nextBetaVersion(manifest.version, tags);
 
 // 3. Build and test.
 for (const args of [["run", "build"], ["test"]]) {
-	const result = spawnSync("npm", args, { cwd: root, stdio: "inherit" });
+	const result = spawnSync("npm", args, { cwd: root, stdio: "inherit", env: { ...process.env, [REQUIRE_ENV]: "1" } });
 	if (result.status !== 0) fail(`\`npm ${args.join(" ")}\` failed.`);
 }
 if (!existsSync(join(root, "main.js"))) fail("the build did not produce main.js.");
+if (!readFileSync(join(root, "main.js"), "utf8").includes(JSON.stringify(secret.value).slice(1, -1))) {
+	fail("the Google client secret is not in main.js.");
+}
 
 // 4 to 6. The files to attach go into a temporary folder, which is removed
 // whether or not the release is created.

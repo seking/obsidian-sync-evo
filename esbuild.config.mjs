@@ -12,6 +12,7 @@
 import { readFileSync } from "node:fs";
 import process from "node:process";
 import esbuild from "esbuild";
+import { googleClientSecret, REQUIRE_ENV, SECRET_ENV, SECRET_FILE } from "./scripts/google-client-secret.mjs";
 
 // The packages that are bundled into main.js: every entry of `dependencies`
 // in package.json, and nothing else (what the app provides is `external`
@@ -91,6 +92,18 @@ ${thirdParty}`;
 
 const production = process.argv[2] === "production";
 
+// The client secret of Sync Evo's Google client, kept out of the repository
+// (scripts/google-client-secret.mjs). A build without it still runs, for the
+// tests and the checks, and cannot connect to Google Drive; a release
+// (REQUIRE_ENV, set by scripts/release-beta.mjs) fails without it.
+const secret = googleClientSecret();
+if (secret === null) {
+	if (process.env[REQUIRE_ENV] === "1") {
+		throw new Error(`esbuild.config.mjs: no Google client secret for the release. Set ${SECRET_ENV}, or put the value in ${SECRET_FILE}.`);
+	}
+	console.warn(`warning: no Google client secret (${SECRET_ENV} or ${SECRET_FILE}); this build cannot connect to Google Drive.`);
+}
+
 const context = await esbuild.context({
 	banner: { js: banner },
 	entryPoints: ["src/main.ts"],
@@ -125,6 +138,7 @@ const context = await esbuild.context({
 	charset: "utf8",
 	legalComments: "inline",
 	outfile: "main.js",
+	define: { SYNC_EVO_GOOGLE_CLIENT_SECRET: JSON.stringify(secret?.value ?? "") },
 });
 
 if (production) {

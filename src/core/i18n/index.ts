@@ -46,21 +46,28 @@ export function resolveLanguage(appLanguage: string): string {
 
 /** The suffix of a message that takes the place of another while Dropbox is the service. */
 export const DROPBOX_VARIANT = ".dropbox";
+/** The same, while Google Drive is. */
+export const GDRIVE_VARIANT = ".gdrive";
+
+/** The variant of each service that has them, by the name put for `{remote}`. */
+const VARIANTS: { readonly [remote: string]: string } = { Dropbox: DROPBOX_VARIANT, "Google Drive": GDRIVE_VARIANT };
 
 /**
  * `remote` is the name of the service put where a text has `{remote}`:
- * GitHub when absent. With Dropbox, a message that has a variant of its
- * own (the key with `DROPBOX_VARIANT` after it) is taken from that: a text
- * that speaks of a repository, a commit or its history, which Dropbox has
- * none of. A variant has no placeholder its message lacks.
+ * GitHub when absent. With Dropbox or Google Drive, a message that has a
+ * variant of its own (the key with `DROPBOX_VARIANT` or `GDRIVE_VARIANT`
+ * after it) is taken from that: a text that speaks of a repository, a
+ * commit or its history, which those have none of. A variant has no
+ * placeholder its message lacks.
  */
 export function translatorFor(appLanguage: string, remote?: string): Translate {
 	const language = resolveLanguage(appLanguage);
 	const translate = createTranslator(en, translations[language], language, remote);
-	if (remote !== "Dropbox") return translate;
+	const suffix = remote === undefined ? undefined : VARIANTS[remote];
+	if (suffix === undefined) return translate;
 	const loose = translate as (key: string, ...args: unknown[]) => string;
 	return ((key: string, ...args: unknown[]) => {
-		const variant = `${key}${DROPBOX_VARIANT}`;
+		const variant = `${key}${suffix}`;
 		return loose(Object.prototype.hasOwnProperty.call(en, variant) ? variant : key, ...args);
 	});
 }

@@ -82,6 +82,19 @@ describe("which way a request goes", () => {
 		expect(transportFor({ ...download, url: "https://content.dropboxapi.com/2/files/upload", body: "x" }, ANDROID)).toBe("requestUrl");
 	});
 
+	test("on Android a large download from Google Drive goes by fetch, and nothing else of Drive", () => {
+		const download: HttpRequest = {
+			url: "https://www.googleapis.com/drive/v3/files/abc?alt=media",
+			method: "GET",
+			headers: {},
+			expectedBytes: 37_000_000,
+		};
+		expect(transportFor(download, ANDROID)).toBe("fetch");
+		expect(transportFor({ ...download, expectedBytes: FETCH_MIN_BYTES - 1 }, ANDROID)).toBe("requestUrl");
+		expect(transportFor({ ...download, url: "https://www.googleapis.com/drive/v3/files?q=x" }, ANDROID)).toBe("requestUrl");
+		expect(transportFor({ ...download, method: "PUT", body: "x" }, ANDROID)).toBe("requestUrl");
+	});
+
 	test.each<[string, HttpRequest]>([
 		["below the threshold", request({ expectedBytes: FETCH_MIN_BYTES - 1 })],
 		["of a size that is not known", { url: BLOB, method: "GET", headers: {} }],

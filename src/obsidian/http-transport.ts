@@ -59,6 +59,11 @@ const CROSS_ORIGIN_HOST = "https://api.github.com/";
 // it so). Not yet seen through on a device.
 const DROPBOX_DOWNLOAD = "https://content.dropboxapi.com/2/files/download";
 
+// The download of a file from Google Drive (`alt=media`): a GET, which the
+// APIs of Google allow from another origin with a token in the header (their
+// own library for browsers calls them so). Not yet seen through on a device.
+const GDRIVE_FILES = "https://www.googleapis.com/drive/v3/files/";
+
 // The request headers `fetch` sends, in lower case. GitHub's answer to the
 // preflight allows only a fixed set of request headers (looked at
 // 2026-10-12), and one header outside it makes the whole `fetch` fail, which
@@ -77,13 +82,15 @@ const CROSS_ORIGIN_HEADERS: ReadonlySet<string> = new Set([
 /**
  * How a request is sent on a platform. `fetch` only on Android, and only
  * for what it is needed for: a request without a body that is expected to
- * be large, a GET to GitHub's API or the download of a file from Dropbox.
+ * be large, a GET to GitHub's API or the download of a file from Dropbox or
+ * Google Drive.
  */
 export function transportFor(request: HttpRequest, platform: HttpPlatform): HttpTransport {
 	if (!platform.isAndroidApp) return "requestUrl";
 	if (request.body !== undefined) return "requestUrl";
 	if (request.expectedBytes === undefined || request.expectedBytes < FETCH_MIN_BYTES) return "requestUrl";
 	if (request.method === "GET" && request.url.startsWith(CROSS_ORIGIN_HOST)) return "fetch";
+	if (request.method === "GET" && request.url.startsWith(GDRIVE_FILES) && request.url.includes("alt=media")) return "fetch";
 	return request.method === "POST" && request.url === DROPBOX_DOWNLOAD ? "fetch" : "requestUrl";
 }
 

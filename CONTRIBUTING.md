@@ -41,6 +41,10 @@ To add a language, add its file and register it in `index.ts` under the code Obs
 
 The names of the file type and vault configuration options follow the wording of the same options of Obsidian Sync in the app ([obsidian-translations](https://github.com/obsidianmd/obsidian-translations)), so that they read the same in each language.
 
+## The Google client secret
+
+The client secret of Sync Evo's Google client is not in the repository: Google's OAuth 2.0 Policies ask that client credentials not be committed to a public one. The build puts it into `main.js`, taken from the environment variable `SYNC_EVO_GOOGLE_CLIENT_SECRET`, or else from the file `~/.config/sync-evo/google-client-secret` (the value alone). Without either, `npm run build` warns and makes a `main.js` that cannot connect to Google Drive; `npm run release:beta` fails.
+
 ## Installing into a vault
 
 `npm run install:vault` copies `main.js` and `manifest.json` (and `styles.css`, if present) into `<vault>/.obsidian/plugins/sync-evo/`.

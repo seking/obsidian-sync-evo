@@ -48,6 +48,15 @@ export const ja = completeTranslation(en, {
 	"settings.dropboxFolder.desc":
 		"Dropbox の アプリ/Sync Evo の中の、この保管庫のフォルダの名前です。同じ名前にしたデバイスどうしが同期します。変えると、同期を最初からやり直します。",
 	"settings.dropboxFolder.invalid": "フォルダの名前にならないため、保存されていません。空にせず、/ や \\ を入れないでください。",
+	"settings.gdrive.name": "Google Drive",
+	"settings.gdrive.desc":
+		"「接続する」を押すと、コードが表示され、ブラウザで google.com/device が開きます。そこでコードを入れ、ログインして、Sync Evo を許可してください。その後、Obsidian に戻ります。",
+	"settings.gdrive.connected": "接続中：{email}",
+	"settings.gdrive.connect": "接続する",
+	"settings.gdrive.disconnect": "接続を解除",
+	"settings.gdriveFolder.name": "フォルダ",
+	"settings.gdriveFolder.desc":
+		"Google Drive の Sync Evo フォルダの中の、この保管庫のフォルダの名前です。同じ名前にしたデバイスどうしが同期します。変えると、同期を最初からやり直します。",
 	"settings.repository.name": "リポジトリ",
 	"settings.repository.desc": "同期する GitHub のリポジトリです。owner/name の形で入力するか、ブラウザのアドレスを貼り付けます。",
 	"settings.repository.placeholder": "owner/name",
@@ -206,6 +215,33 @@ export const ja = completeTranslation(en, {
 	"check.dropbox.unauthorized":
 		"Dropbox が、このデバイスの接続を受け付けなくなりました。Dropbox の設定で連携が外された可能性があります。Sync Evo の設定画面で、接続し直してください。",
 	"check.dropbox.forbidden": "Dropbox が、フォルダを読むことを許しませんでした。Sync Evo の設定画面で、接続し直してください。",
+	"gdrive.code.title": "Google Drive に接続する",
+	"gdrive.code.asking": "Google にコードを求めています…",
+	"gdrive.code.body":
+		"{url} でこのコードを入れ、Google アカウントでログインして、Sync Evo を許可してください。許可すると、この画面は自動で閉じます。",
+	"gdrive.code.copied": "コードをコピーしました。",
+	"gdrive.code.open": "ブラウザで開く",
+	"gdrive.code.copy": "コードをコピー",
+	"gdrive.code.cancel": "やめる",
+	"gdrive.connected": "Google Drive に接続しました（{email}）。",
+	"gdrive.denied": "Google Drive に接続していません。許可されませんでした。",
+	"gdrive.expired": "Google Drive に接続していません。コードを入れる前に、コードの期限が切れました。もう一度「接続する」を押してください。",
+	"gdrive.signInFailed": "Google Drive に接続できませんでした。もう一度「接続する」を押してください。（{detail}）",
+	"gdrive.noClientSecret":
+		"この版の Sync Evo には Google のクライアントの情報が入っていないため、Google Drive に接続できません。公開されている版の Sync Evo を使ってください。",
+	"gdrive.revokeFailed":
+		"このデバイスの接続は解除しましたが、Google に伝えられませんでした。Google アカウントの「サードパーティ製のアプリとサービス」から、Sync Evo を外してください。",
+	"gdrive.folderGone":
+		"この保管庫が同期していた Google Drive の Sync Evo/{folder} フォルダが、見えなくなりました。削除されたか、ゴミ箱に入ったか、Sync Evo から見えなくなっています。このデバイスでは何も変更していません。次の同期は、最初の同期としてやり直します。",
+	"gdrive.duplicateFolder":
+		"Google Drive に {folder} フォルダが複数あり、どれと同期するかを決められません。何も変更していません。Google Drive で1つだけを残してから、もう一度同期してください。",
+	"check.gdrive.connected": "Google Drive に接続できました。Sync Evo/{folder} フォルダがあります。",
+	"check.gdrive.empty": "Google Drive に接続できました。Sync Evo/{folder} フォルダは、まだありません。最初のアップロードで作ります。",
+	"check.gdrive.noFolder": "先に、Google Drive のフォルダの名前を入れてください。",
+	"check.gdrive.notConnected": "このデバイスは Google Drive に接続していません。Sync Evo の設定画面で「接続する」を押してください。",
+	"check.gdrive.unauthorized":
+		"Google が、このデバイスの接続を受け付けなくなりました。Google アカウントで連携が外されたか、期限が切れた可能性があります。Sync Evo の設定画面で、接続し直してください。",
+	"check.gdrive.forbidden": "Google Drive が、フォルダを読むことを許しませんでした。Sync Evo の設定画面で、接続し直してください。",
 	"check.empty": "{repository} に接続できました。リポジトリは空です。",
 	"check.unauthorized":
 		"GitHub がトークンを受け付けませんでした。トークンが間違っているか、取り消されたか、期限が切れています。新しいトークンを作り、選択中のシークレットに保存してください。",
@@ -536,6 +572,8 @@ export const ja = completeTranslation(en, {
 	"place.folder": "Dropbox の「アプリ/Sync Evo/{folder}」フォルダ",
 	"remotePlace.repository": "{remote}（{repository} のブランチ {branch}）",
 	"remotePlace.folder": "Dropbox の「アプリ/Sync Evo/{folder}」フォルダ",
+	"place.gdriveFolder": "Google Drive の「Sync Evo/{folder}」フォルダ",
+	"remotePlace.gdriveFolder": "Google Drive の「Sync Evo/{folder}」フォルダ",
 	"confirm.firstFetch.body": "{place} から、この保管庫に初めてダウンロードします。この保管庫には、すでにファイルがあります。",
 	"confirm.firstFetch.different":
 		"{remote} と中身が違うファイル：{count} 件。{remote} の内容に書き換えます。このデバイスの内容は、_conflicts/ フォルダに競合ファイルとして残します。",
@@ -609,5 +647,30 @@ export const ja = completeTranslation(en, {
 	"pull.reason.hashMismatch.dropbox":
 		"Dropbox から受け取った内容が、Dropbox の一覧と合いませんでした。",
 	"settings.deviceName.desc.dropbox":
+		"競合ファイルの名前に使われます。",
+	// What Google Drive has no repository, commit or history for (`GDRIVE_VARIANT`).
+	"check.unreachable.gdrive":
+		"Google Drive に接続できませんでした。ネットワーク接続を確かめて、もう一度試してください。",
+	"check.rateLimited.gdrive":
+		"Google Drive が、しばらく待つよう求めています。しばらくしてから、もう一度試してください。",
+	"confirm.firstPush.remoteEmpty.gdrive":
+		"Google Drive に、このフォルダはまだありません。この保管庫に .gitignore が無い時は、空の .gitignore を作ってアップロードします。",
+	"confirm.firstPush.remoteEmptyWithGitignore.gdrive":
+		"Google Drive に、このフォルダはまだありません。",
+	"pull.remoteEmpty.gdrive":
+		"Google Drive に、このフォルダはまだありません。ダウンロードするものはありません。",
+	"confirm.rewritten.title.gdrive":
+		"Google Drive のフォルダが消えています",
+	"confirm.rewritten.body.gdrive":
+		"Google Drive のこの保管庫のフォルダが、このデバイスが最後に同期した後に、消されたか空になっています。このデバイスからアップロードした変更が、{remote} から消えている可能性があります。{remote} に合わせると、下のファイルがこのデバイスから失われます。",
+	"auto.waiting.rewritten.gdrive":
+		"Google Drive のこの保管庫のフォルダが、消されたか空になっているため、ダウンロードする前に確認が必要です。何も変更していません。手動で同期すると、確認が表示されます。",
+	"push.pullFirst.remoteEmpty.gdrive":
+		"何もアップロードしていません。このデバイスは、前にこのフォルダと同期していますが、Google Drive にフォルダがありません。先にダウンロードを実行して確かめてください。",
+	"untrack.syncFirst.remoteEmpty.gdrive":
+		"{remote} から削除していません。Google Drive にフォルダがありません。先に同期してから、Sync Evo の設定画面で、もう一度行ってください。",
+	"pull.reason.hashMismatch.gdrive":
+		"Google Drive から受け取った内容が、Google Drive の一覧と合いませんでした。",
+	"settings.deviceName.desc.gdrive":
 		"競合ファイルの名前に使われます。",
 });

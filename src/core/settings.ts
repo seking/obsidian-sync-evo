@@ -20,12 +20,19 @@ import {
 	serializeDeviceExclusion,
 } from "./device-exclusion";
 
-/** The remotes there are. Only one for now; the field is kept so that adding one is not a change of format. */
-export type BackendId = "github" | "dropbox";
+/** The remotes there are. */
+export type BackendId = "github" | "dropbox" | "gdrive";
 
 /** The Dropbox account this device connected with (R-4), for the screen and for telling a new account from the same one. */
 export interface DropboxAccountSettings {
 	/** Dropbox's `account_id`. */
+	readonly id: string;
+	readonly email: string;
+}
+
+/** The Google account this device connected to Drive with (R-1), like `DropboxAccountSettings`. */
+export interface DriveAccountSettings {
+	/** Google's `permissionId` of the user. */
 	readonly id: string;
 	readonly email: string;
 }
@@ -54,6 +61,31 @@ export interface DeviceSettings {
 	 * here: it is kept apart (`DropboxTokenStore`), and only while connected.
 	 */
 	readonly dropboxAccount: DropboxAccountSettings | null;
+	/**
+	 * The folder of the vault in the folder `Sync Evo` at the top of Google
+	 * Drive, by its name (R-1). Kept while another service is chosen. ""
+	 * until Google Drive is chosen for the first time.
+	 */
+	readonly gdriveFolder: string;
+	/**
+	 * The account the last connection to Google Drive was made with, kept
+	 * when the user disconnects, as with Dropbox. The refresh token is kept
+	 * apart, and only while connected.
+	 */
+	readonly gdriveAccount: DriveAccountSettings | null;
+	/**
+	 * The id of the folder of the vault on Drive, once found or made: `null`
+	 * until then, and again once the folder was renamed here or is no longer
+	 * to be seen. Part of the connection (`connectionOf`): another id than
+	 * the one kept is another folder, and the sync state is discarded (R-3).
+	 */
+	readonly gdriveFolderId: string | null;
+	/**
+	 * The OAuth client of Google to connect with. Absent, which it always is
+	 * for now, the one of Sync Evo (R-1). There to add a client of the user's
+	 * own later without a change of the stored form.
+	 */
+	readonly gdriveClientId?: string;
 	readonly deviceName: string;
 	readonly autoSync: AutoSyncSettings;
 	readonly onConflict: ConflictHandling;
@@ -201,9 +233,16 @@ export function withSendsChanges(auto: AutoSyncSettings, sendsChanges: boolean):
 export const SETTINGS_VERSION = 1;
 /** The version of settings with Dropbox chosen. Read by this version as its own. */
 export const DROPBOX_SETTINGS_VERSION = 2;
+/**
+ * The version of settings with Google Drive chosen, for the same reason:
+ * a version that knows Dropbox and not Drive would read them as GitHub's.
+ */
+export const GDRIVE_SETTINGS_VERSION = 3;
+
+const KNOWN_VERSIONS: readonly number[] = [SETTINGS_VERSION, DROPBOX_SETTINGS_VERSION, GDRIVE_SETTINGS_VERSION];
 
 export interface StoredSettings extends DeviceSettings {
-	readonly version: typeof SETTINGS_VERSION | typeof DROPBOX_SETTINGS_VERSION;
+	readonly version: typeof SETTINGS_VERSION | typeof DROPBOX_SETTINGS_VERSION | typeof GDRIVE_SETTINGS_VERSION;
 }
 
 export type ParsedSettings =
@@ -223,6 +262,9 @@ export function defaultSettings(defaultDeviceName: string): DeviceSettings {
 		tokenSecret: "",
 		dropboxFolder: "",
 		dropboxAccount: null,
+		gdriveFolder: "",
+		gdriveAccount: null,
+		gdriveFolderId: null,
 		deviceName: defaultDeviceName,
 		autoSync: DEFAULT_AUTO_SYNC,
 		onConflict: DEFAULT_ON_CONFLICT,
@@ -242,13 +284,13 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  */
 export function parseSettings(raw: unknown, defaultDeviceName: string): ParsedSettings {
 	const defaults = defaultSettings(defaultDeviceName);
-	if (isRecord(raw) && typeof raw.version === "number" && raw.version > SETTINGS_VERSION && raw.version !== DROPBOX_SETTINGS_VERSION) {
+	if (isRecord(raw) && typeof raw.version === "number" && raw.version > SETTINGS_VERSION && !KNOWN_VERSIONS.includes(raw.version)) {
 		return { status: "newer-version" };
 	}
 	// Nothing stored, or something no version of Sync Evo writes. The second
 	// is taken for the first: none of it can be trusted, and without a
 	// connection nothing syncs until the user has entered one again.
-	if (!isRecord(raw) || (raw.version !== SETTINGS_VERSION && raw.version !== DROPBOX_SETTINGS_VERSION)) {
+	if (!isRecord(raw) || typeof raw.version !== "number" || !KNOWN_VERSIONS.includes(raw.version)) {
 		return { status: "ok", settings: defaults };
 	}
 
@@ -257,13 +299,17 @@ export function parseSettings(raw: unknown, defaultDeviceName: string): ParsedSe
 	return {
 		status: "ok",
 		settings: {
-			backend: raw.backend === "dropbox" ? "dropbox" : defaults.backend,
+			backend: raw.backend === "dropbox" || raw.backend === "gdrive" ? raw.backend : defaults.backend,
 			// Stored in its form or not at all, like the screen does it.
 			repository: normalizeRepository(text(raw.repository, "")) ?? defaults.repository,
 			branch: branchToStore(text(raw.branch, "")) ?? defaults.branch,
 			tokenSecret: text(raw.tokenSecret, defaults.tokenSecret),
 			dropboxFolder: dropboxFolderToStore(text(raw.dropboxFolder, "")) ?? defaults.dropboxFolder,
 			dropboxAccount: parseDropboxAccount(raw.dropboxAccount),
+			gdriveFolder: dropboxFolderToStore(text(raw.gdriveFolder, "")) ?? defaults.gdriveFolder,
+			gdriveAccount: parseDropboxAccount(raw.gdriveAccount),
+			gdriveFolderId: typeof raw.gdriveFolderId === "string" && raw.gdriveFolderId !== "" ? raw.gdriveFolderId : null,
+			...(typeof raw.gdriveClientId === "string" && raw.gdriveClientId !== "" ? { gdriveClientId: raw.gdriveClientId } : {}),
 			deviceName: deviceNameProblem(deviceName) === null ? deviceName : defaults.deviceName,
 			autoSync: parseAutoSync(raw.autoSync),
 			onConflict: conflictHandlingOf(raw.onConflict),
@@ -273,6 +319,7 @@ export function parseSettings(raw: unknown, defaultDeviceName: string): ParsedSe
 	};
 }
 
+/** An account of Dropbox or of Google: an id and an e-mail address. */
 function parseDropboxAccount(raw: unknown): DropboxAccountSettings | null {
 	if (!isRecord(raw) || typeof raw.id !== "string" || raw.id === "" || typeof raw.email !== "string") return null;
 	return { id: raw.id, email: raw.email };
@@ -295,13 +342,18 @@ function parseAutoSync(raw: unknown): AutoSyncSettings {
 export function serializeSettings(settings: DeviceSettings): StoredSettings {
 	// Field by field, so that nothing else an object happens to carry is stored.
 	return {
-		version: settings.backend === "dropbox" ? DROPBOX_SETTINGS_VERSION : SETTINGS_VERSION,
+		version:
+			settings.backend === "gdrive" ? GDRIVE_SETTINGS_VERSION : settings.backend === "dropbox" ? DROPBOX_SETTINGS_VERSION : SETTINGS_VERSION,
 		backend: settings.backend,
 		repository: settings.repository,
 		branch: settings.branch,
 		tokenSecret: settings.tokenSecret,
 		dropboxFolder: settings.dropboxFolder,
 		dropboxAccount: settings.dropboxAccount === null ? null : { id: settings.dropboxAccount.id, email: settings.dropboxAccount.email },
+		gdriveFolder: settings.gdriveFolder,
+		gdriveAccount: settings.gdriveAccount === null ? null : { id: settings.gdriveAccount.id, email: settings.gdriveAccount.email },
+		gdriveFolderId: settings.gdriveFolderId,
+		...(settings.gdriveClientId === undefined ? {} : { gdriveClientId: settings.gdriveClientId }),
 		deviceName: settings.deviceName,
 		autoSync: {
 			onStartup: settings.autoSync.onStartup,
@@ -437,7 +489,12 @@ export function defaultDeviceName(platform: PlatformKind): DefaultDeviceName {
 export type Connection =
 	| { readonly backend: "github"; readonly repository: string; readonly branch: string }
 	/** A folder in the app folder of the Dropbox account of `account` (its `account_id`). */
-	| { readonly backend: "dropbox"; readonly account: string; readonly folder: string };
+	| { readonly backend: "dropbox"; readonly account: string; readonly folder: string }
+	/**
+	 * A folder in `Sync Evo` at the top of the Google Drive of `account`
+	 * (its `permissionId`), and its id once known (`DeviceSettings.gdriveFolderId`).
+	 */
+	| { readonly backend: "gdrive"; readonly account: string; readonly folder: string; readonly folderId: string | null };
 
 /**
  * The connection the settings describe, or `null` while they describe none:
@@ -451,6 +508,11 @@ export type Connection =
  * is no new connection (R-4).
  */
 export function connectionOf(settings: DeviceSettings): Connection | null {
+	if (settings.backend === "gdrive") {
+		const folder = dropboxFolderToStore(settings.gdriveFolder);
+		if (settings.gdriveAccount === null || folder === null) return null;
+		return { backend: "gdrive", account: settings.gdriveAccount.id, folder, folderId: settings.gdriveFolderId };
+	}
 	if (settings.backend === "dropbox") {
 		const folder = dropboxFolderToStore(settings.dropboxFolder);
 		if (settings.dropboxAccount === null || folder === null) return null;
@@ -488,6 +550,17 @@ function sameConnection(before: Connection, after: Connection): boolean {
 	}
 	if (before.backend === "dropbox" && after.backend === "dropbox") {
 		return before.account === after.account && before.folder.toLowerCase() === after.folder.toLowerCase();
+	}
+	// Drive tells the cases of a name apart. The id of the folder is the
+	// one it was until a sync found it: found, it is no other folder, and
+	// the state of the sync that found it stays. Another id, or none after
+	// one, is another folder (R-3).
+	if (before.backend === "gdrive" && after.backend === "gdrive") {
+		return (
+			before.account === after.account &&
+			before.folder === after.folder &&
+			(before.folderId === after.folderId || before.folderId === null)
+		);
 	}
 	return false;
 }

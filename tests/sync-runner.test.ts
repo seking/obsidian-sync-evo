@@ -148,6 +148,9 @@ function setup(over: Partial<DeviceSettings> = {}, files: Record<string, string>
 		tokenSecret: "github-token",
 		dropboxFolder: "",
 		dropboxAccount: null,
+		gdriveFolder: "",
+		gdriveAccount: null,
+		gdriveFolderId: null,
 		deviceName: "iPhone",
 		autoSync: { ...DEFAULT_AUTO_SYNC, onStartup: true, atInterval: true },
 		onConflict: "copy",
@@ -839,5 +842,47 @@ describe("the end of a sync", () => {
 		} finally {
 			vi.useRealTimers();
 		}
+	});
+});
+
+describe("a folder on Google Drive that is no longer to be seen", () => {
+	function driveSetup() {
+		const made = setup({
+			backend: "gdrive",
+			gdriveFolder: "Vault",
+			gdriveAccount: { id: "perm1", email: "a@example.com" },
+			gdriveFolderId: "f1",
+		});
+		const gone: { id: string; running: boolean }[] = [];
+		Object.assign(made.host, {
+			readGdriveToken: () => "refresh",
+			gdriveTokens: () => ({ get: async () => "access", refused: () => {} }),
+			// What the plugin does: a change of the connection, which stops a sync that runs.
+			driveFolderGone: (id: string) => {
+				gone.push({ id, running: made.runner.running });
+				void made.runner.interrupt();
+			},
+		});
+		const body = new TextEncoder().encode(JSON.stringify({ error: { code: 404, errors: [{ reason: "notFound" }] } }));
+		app.request = async () => ({ status: 404, headers: {}, arrayBuffer: body.buffer });
+		return { ...made, gone };
+	}
+
+	const GONE = translatorFor("en", "Google Drive")("gdrive.folderGone", { folder: "Vault" });
+
+	test("a sync that started by itself tells it, and the id is let go of once the sync has ended", async () => {
+		const { runner, gone } = driveSetup();
+		await runner.runAuto("full");
+		expect(app.notices).toHaveLength(1);
+		expect(app.notices[0]?.startsWith(HEADING)).toBe(true);
+		expect(app.notices[0]).toContain(GONE);
+		expect(gone).toEqual([{ id: "f1", running: false }]);
+	});
+
+	test("a sync the user started tells it as the failure it is", async () => {
+		const { runner, gone } = driveSetup();
+		await runner.run("pull");
+		expect(app.notices.some((text) => text.includes(GONE))).toBe(true);
+		expect(gone).toEqual([{ id: "f1", running: false }]);
 	});
 });

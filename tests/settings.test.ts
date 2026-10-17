@@ -41,6 +41,9 @@ const settings = (over: Partial<DeviceSettings> = {}): DeviceSettings => ({
 	tokenSecret: "github-token",
 	dropboxFolder: "",
 	dropboxAccount: null,
+	gdriveFolder: "",
+	gdriveAccount: null,
+	gdriveFolderId: null,
 	deviceName: "Mac",
 	autoSync: DEFAULT_AUTO_SYNC,
 	onConflict: "copy",
@@ -58,6 +61,9 @@ describe("the default settings", () => {
 			tokenSecret: "",
 			dropboxFolder: "",
 			dropboxAccount: null,
+			gdriveFolder: "",
+			gdriveAccount: null,
+			gdriveFolderId: null,
 			deviceName: "iPhone",
 			autoSync: { onStartup: false, atInterval: false, intervalMinutes: 15, sendsChanges: false },
 			onConflict: "merge",
@@ -93,6 +99,9 @@ describe("reading stored settings", () => {
 			tokenSecret: "github-token",
 			dropboxFolder: "",
 			dropboxAccount: null,
+			gdriveFolder: "",
+			gdriveAccount: null,
+			gdriveFolderId: null,
 			deviceName: "Mac",
 			autoSync: { onStartup: false, atInterval: false, intervalMinutes: 15, sendsChanges: false },
 			onConflict: "copy",
@@ -156,7 +165,7 @@ describe("reading stored settings", () => {
 	});
 
 	test.each<[string, unknown]>([
-		["the version after Dropbox", { ...serializeSettings(settings()), version: 3 }],
+		["the version after Google Drive", { ...serializeSettings(settings()), version: 4 }],
 		["a far newer version", { version: 100 }],
 		["a version between this and the next", { ...serializeSettings(settings()), version: 1.5 }],
 	])("%s is a newer version", (_what, raw) => {
@@ -187,7 +196,7 @@ describe("reading stored settings", () => {
 		["a device name of spaces", { deviceName: "  " }, { deviceName: "iPad" }],
 		["a device name with a slash", { deviceName: "my/phone" }, { deviceName: "iPad" }],
 		["a device name with a line break", { deviceName: "my\nphone" }, { deviceName: "iPad" }],
-		["a backend that is not known", { backend: "gdrive" }, { backend: "github" }],
+		["a backend that is not known", { backend: "onedrive" }, { backend: "github" }],
 		["a backend that is a number", { backend: 3 }, { backend: "github" }],
 	])("%s falls back to the default of that field alone", (_what, broken, expected) => {
 		const raw = { ...serializeSettings(settings({ branch: "work" })), ...broken };
@@ -646,7 +655,68 @@ describe("the version settings are stored as", () => {
 		const stored = serializeSettings(dropbox);
 		expect(stored.version).toBe(2);
 		expect(parseSettings(JSON.parse(JSON.stringify(stored)), "Mac")).toEqual({ status: "ok", settings: dropbox });
-		expect(parseSettings({ ...stored, version: 3 }, "Mac")).toEqual({ status: "newer-version" });
+		expect(parseSettings({ ...stored, version: 4 }, "Mac")).toEqual({ status: "newer-version" });
+	});
+
+	test("with Google Drive chosen, the one after Dropbox, which a version that knows Dropbox alone reads as newer", () => {
+		const drive: DeviceSettings = {
+			...settings(),
+			backend: "gdrive",
+			gdriveFolder: "Vault",
+			gdriveAccount: { id: "perm1", email: "a@example.com" },
+			gdriveFolderId: "folder1",
+		};
+		const stored = serializeSettings(drive);
+		expect(stored.version).toBe(3);
+		expect(parseSettings(JSON.parse(JSON.stringify(stored)), "Mac")).toEqual({ status: "ok", settings: drive });
+		// What a version that knows Dropbox alone does with it.
+		expect(stored.version > 1 && stored.version !== 2).toBe(true);
+	});
+});
+
+describe("Google Drive in the settings", () => {
+	const account = { id: "perm1", email: "a@example.com" };
+	const drive = (over: Partial<DeviceSettings> = {}): DeviceSettings =>
+		settings({ backend: "gdrive", gdriveFolder: "Vault", gdriveAccount: account, gdriveFolderId: null, ...over });
+
+	test("the client id is left out unless one is set, and kept when it is", () => {
+		expect("gdriveClientId" in serializeSettings(drive())).toBe(false);
+		const own = drive({ gdriveClientId: "own.apps.googleusercontent.com" });
+		const parsed = parseSettings(JSON.parse(JSON.stringify(serializeSettings(own))), "Mac");
+		expect(parsed).toEqual({ status: "ok", settings: own });
+	});
+
+	test.each(["", "a/b", 3, null])("a stored folder of %j is stored as none", (gdriveFolder) => {
+		const parsed = parseSettings({ ...serializeSettings(drive()), gdriveFolder }, "Mac");
+		expect(parsed.status === "ok" && parsed.settings.gdriveFolder).toBe("");
+	});
+
+	test.each(["", 3, null])("a stored folder id of %j is none", (gdriveFolderId) => {
+		const parsed = parseSettings({ ...serializeSettings(drive({ gdriveFolderId: "f1" })), gdriveFolderId }, "Mac");
+		expect(parsed.status === "ok" && parsed.settings.gdriveFolderId).toBeNull();
+	});
+
+	test("the connection is the account, the folder and its id, and needs the account and the folder", () => {
+		expect(connectionOf(drive({ gdriveFolder: " Vault ", gdriveFolderId: "f1" }))).toEqual({
+			backend: "gdrive",
+			account: "perm1",
+			folder: "Vault",
+			folderId: "f1",
+		});
+		expect(connectionOf(drive({ gdriveAccount: null }))).toBeNull();
+		expect(connectionOf(drive({ gdriveFolder: "" }))).toBeNull();
+	});
+
+	test.each<[string, Partial<DeviceSettings>, Partial<DeviceSettings>, string]>([
+		["the id found by a sync", { gdriveFolderId: null }, { gdriveFolderId: "f1" }, "none"],
+		["the same id", { gdriveFolderId: "f1" }, { gdriveFolderId: "f1" }, "none"],
+		["the id let go of, the folder being gone", { gdriveFolderId: "f1" }, { gdriveFolderId: null }, "changed"],
+		["another id", { gdriveFolderId: "f1" }, { gdriveFolderId: "f2" }, "changed"],
+		["a folder that differs in case only, which Drive tells apart", {}, { gdriveFolder: "vault" }, "changed"],
+		["another account", {}, { gdriveAccount: { id: "perm2", email: "b@example.com" } }, "changed"],
+		["Dropbox to Google Drive", { backend: "dropbox", dropboxFolder: "Vault", dropboxAccount: { id: "perm1", email: "" } }, {}, "changed"],
+	])("%s", (_what, before, after, expected) => {
+		expect(connectionChange(connectionOf(drive(before)), connectionOf(drive(after)))).toBe(expected);
 	});
 });
 
