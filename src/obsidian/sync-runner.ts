@@ -53,6 +53,7 @@ import { type AccessTokens, DropboxClient } from "../core/dropbox/client";
 import { GDriveBackend } from "../core/gdrive/backend";
 import { DriveClient } from "../core/gdrive/client";
 import { DriveFolderGoneError } from "../core/gdrive/errors";
+import { DriveQuota } from "../core/gdrive/quota";
 import { GitHubBackend } from "../core/github/backend";
 import { GitHubClient, HeadMemory } from "../core/github/client";
 import type { MessageKey, Translate } from "../core/i18n";
@@ -231,6 +232,12 @@ export class SyncRunner {
 	 */
 	private readonly heads = new HeadMemory();
 	/**
+	 * The units of the Drive API this device has used (`DriveQuota`), from
+	 * one sync to the next: a sync that follows a large one does not start
+	 * with the burst again. In memory alone.
+	 */
+	private readonly driveQuota = new DriveQuota();
+	/**
 	 * What automatic sync goes by (`auto-sync.ts`): when the last sync
 	 * started, and what was told. This copy is the one that is read; the
 	 * sync state holds it for the next start of the app, and is written
@@ -292,8 +299,8 @@ export class SyncRunner {
 
 	/** What the decision to sync by itself goes by, apart from the settings and the time. */
 	autoClock(): Omit<AutoSyncClock, "now"> {
-		const { lastStartedAt, failures } = this.memory;
-		return { lastStartedAt, failures, fullOwed: this.debt.isOwed };
+		const { lastStartedAt, failures, pausedUntil } = this.memory;
+		return { lastStartedAt, failures, fullOwed: this.debt.isOwed, ...(pausedUntil === undefined ? {} : { pausedUntil }) };
 	}
 
 	/** The app has started, or has come back to the front: the next automatic sync is a full one. */
@@ -583,6 +590,7 @@ export class SyncRunner {
 					sleep: windowSleep,
 					signal: controller.signal,
 					tokens: host.gdriveTokens(remote.refreshToken),
+					quota: this.driveQuota,
 				});
 				const account = settings.gdriveAccount?.id ?? "";
 				backend = new GDriveBackend(client, {

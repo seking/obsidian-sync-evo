@@ -16,6 +16,8 @@
 import { BackendError, RateLimitedError } from "../backend";
 import type { AccessTokens } from "../dropbox/client";
 import { type HttpFunction, type HttpRequest, type HttpResponse, headerOf, type Sleep } from "../github/http";
+import { DriveDailyLimitError } from "./errors";
+import { DriveQuota, driveUnits, nextPacificMidnight } from "./quota";
 
 export const DRIVE_API = "https://www.googleapis.com/drive/v3";
 export const DRIVE_UPLOAD = "https://www.googleapis.com/upload/drive/v3";
@@ -35,10 +37,21 @@ const SLOWEST_BYTES_PER_SECOND = 50_000;
 const DEFAULT_MAX_RETRIES = 5;
 /** The first wait when Google names none. Doubles each time, as Google advises. */
 const FIRST_WAIT_MS = 1_000;
+/**
+ * The most added to each wait at random, as Google advises: the devices
+ * that met a limit together do not all ask again at the same moment.
+ */
+const MAX_JITTER_MS = 1_000;
 /** The longest wait that is waited out. Longer, the request fails as rate limited. */
 const MAX_WAIT_MS = 5 * 60 * 1000;
 /** The reasons of a 403 that only ask to wait. */
 const RATE_REASONS: ReadonlySet<string> = new Set(["rateLimitExceeded", "userRateLimitExceeded"]);
+/**
+ * The reason of a 403 that says the requests of the day have run out: the
+ * cap set on the project. Not waited out, and not sent again before
+ * midnight in the Pacific time.
+ */
+const DAILY_REASON = "dailyLimitExceeded";
 
 /**
  * An answer of Drive that is not a success, with the status and the reason
@@ -67,6 +80,13 @@ export interface DriveClientOptions {
 	readonly apiTimeoutMs?: number;
 	/** `DEFAULT_MAX_RETRIES` when absent. */
 	readonly maxRetries?: number;
+	/**
+	 * The units of the quota this device has used (`quota.ts`), shared by
+	 * every client of the device. A quota of this client's own when absent.
+	 */
+	readonly quota?: DriveQuota;
+	/** A number from 0 up to 1, as `Math.random`, which it is when absent: what is added to a wait at random. */
+	readonly random?: () => number;
 	/**
 	 * Aborted when the user stops the sync. A wait ends at once, and no
 	 * request is sent after that. A request on its way is not interrupted.
@@ -133,9 +153,11 @@ function newBoundary(): string {
 
 export class DriveClient {
 	private readonly options: DriveClientOptions;
+	private readonly quota: DriveQuota;
 
 	constructor(options: DriveClientOptions) {
 		this.options = options;
+		this.quota = options.quota ?? new DriveQuota();
 	}
 
 	/** A GET whose answer is JSON. */
@@ -268,8 +290,11 @@ export class DriveClient {
 	 * moment, until it succeeds or fails for good. An expired token is taken
 	 * again once. A wait Google asks for (429, a 403 of a rate limit) and a
 	 * failure on its side (500, 502, 503, 504) are waited out, longer each
-	 * time, up to `maxRetries` times; the second only with `again`: a
-	 * request that makes a file may have made it before it failed.
+	 * time and by up to a second more at random, up to `maxRetries` times;
+	 * the second only with `again`: a request that makes a file may have
+	 * made it before it failed. The requests of the day having run out is
+	 * not waited out. Every attempt first waits for its units of the quota
+	 * of this device.
 	 */
 	private async send(what: string, make: (token: string) => HttpRequest, bytes = 0, again = true): Promise<HttpResponse> {
 		const maxRetries = this.options.maxRetries ?? DEFAULT_MAX_RETRIES;
@@ -277,7 +302,10 @@ export class DriveClient {
 		for (let retries = 0; ; retries++) {
 			this.throwIfCancelled(what);
 			const token = await this.options.tokens.get();
-			const response = await this.once(what, make(token), this.timeout(bytes));
+			const request = make(token);
+			const queued = this.quota.take(driveUnits(request.method, request.url), this.options.now());
+			if (queued > 0) await this.sleepUnlessCancelled(what, queued);
+			const response = await this.once(what, request, this.timeout(bytes));
 			if (response.status >= 200 && response.status < 300) return response;
 			const text = textOf(response.body);
 			if (response.status === 401 && !renewed) {
@@ -286,11 +314,18 @@ export class DriveClient {
 				continue;
 			}
 			const { reason, message } = errorOf(text);
+			if (reason === DAILY_REASON) {
+				throw new DriveDailyLimitError(
+					nextPacificMidnight(this.options.now()),
+					`${what}: the requests of the day to Google Drive have run out (HTTP ${response.status} ${reason})`,
+				);
+			}
 			const limited = response.status === 429 || (response.status === 403 && RATE_REASONS.has(reason));
 			const failing = again && (response.status === 500 || response.status === 502 || response.status === 503 || response.status === 504);
 			if (limited || failing) {
 				const stated = Number(headerOf(response, "retry-after"));
-				const wait = Number.isFinite(stated) && stated > 0 ? stated * 1000 : FIRST_WAIT_MS * 2 ** retries;
+				const jitter = Math.floor((this.options.random ?? Math.random)() * MAX_JITTER_MS);
+				const wait = (Number.isFinite(stated) && stated > 0 ? stated * 1000 : FIRST_WAIT_MS * 2 ** retries) + jitter;
 				if (retries >= maxRetries || wait > MAX_WAIT_MS) {
 					if (limited) throw new RateLimitedError(this.options.now() + wait, `${what}: Google Drive asked to wait (HTTP ${response.status} ${reason})`.trim());
 					throw new DriveApiError(what, response.status, reason, message);

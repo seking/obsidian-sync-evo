@@ -95,6 +95,7 @@ Sync Evo asks Google only for the files it made itself (the `drive.file` permiss
 
 - **100 connections per account.** Google keeps at most 100 connections of Sync Evo for one Google account. Each press of **Connect** makes one. Past 100, the oldest device is disconnected. Connect it again.
 - **Work and school accounts.** With a Google Workspace account, the administrator may block apps such as Sync Evo. Ask them, or use another account.
+- **Requests, shared by everyone.** Every user of Sync Evo connects through the same Google client, and Google limits the requests of that client per minute, and per day. To leave room for the others, a device sends at most about 100,000 units a minute (Google counts a download as 200): a first download of thousands of files takes some minutes. When the limit of a minute is reached, Sync Evo waits and tries again, or the sync fails with "Google Drive asked to wait"; sync again later. When the requests of the day have run out, the sync stops and Sync Evo says at what time it works again (midnight in the Pacific time, 16:00 or 17:00 in Japan). Automatic sync waits until then. Nothing needs to be done, and connecting again does not help.
 - **Space.** A Google account comes with 15 GB for free, shared with Gmail and Google Photos. A file that does not fit is not uploaded, and Sync Evo says so. The rest is sent. Only the first upload to a new folder stops as a whole when its first file does not fit.
 
 More: [Network use and privacy](network.md#google-drive), [Limits](limits.md).

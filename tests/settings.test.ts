@@ -23,6 +23,7 @@ import {
 	type DeviceSettings,
 	intervalToStore,
 	minIntervalMinutes,
+	withBackend,
 	withSendsChanges,
 	deviceNameProblem,
 	normalizeRepository,
@@ -606,20 +607,48 @@ describe("the settings of automatic sync", () => {
 	});
 
 	test("the lower bound is 5 minutes when sending and 1 minute when not", () => {
-		expect(minIntervalMinutes(true)).toBe(5);
-		expect(minIntervalMinutes(false)).toBe(1);
-		expect(clampInterval(3, true)).toBe(5);
-		expect(clampInterval(3, false)).toBe(3);
-		expect(clampInterval(2000, false)).toBe(1440);
+		for (const backend of ["github", "dropbox"] as const) {
+			expect(minIntervalMinutes(true, backend)).toBe(5);
+			expect(minIntervalMinutes(false, backend)).toBe(1);
+			expect(clampInterval(3, true, backend)).toBe(5);
+			expect(clampInterval(3, false, backend)).toBe(3);
+			expect(clampInterval(2000, false, backend)).toBe(1440);
+		}
+	});
+
+	test("with Google Drive the lower bound is 5 minutes, sending or not", () => {
+		expect(minIntervalMinutes(false, "gdrive")).toBe(5);
+		expect(minIntervalMinutes(true, "gdrive")).toBe(5);
+		expect(clampInterval(3, false, "gdrive")).toBe(5);
+		expect(intervalToStore("4", false, "gdrive")).toBeNull();
+		expect(intervalToStore("5", false, "gdrive")).toBe(5);
+	});
+
+	test("an interval stored below 5 minutes is read as 5 with Google Drive", () => {
+		const parsed = parseSettings(
+			{ ...serializeSettings(settings({ backend: "gdrive", gdriveFolder: "Notes" })), autoSync: { atInterval: true, intervalMinutes: 2 } },
+			"Mac",
+		);
+		expect(parsed.status === "ok" && parsed.settings.autoSync.intervalMinutes).toBe(5);
+	});
+
+	test("switching to Google Drive raises an interval below 5 minutes, and switching back leaves it", () => {
+		const github = settings({ autoSync: auto({ atInterval: true, intervalMinutes: 2 }) });
+		const drive = withBackend(github, "gdrive");
+		expect(drive.backend).toBe("gdrive");
+		expect(drive.autoSync).toEqual(auto({ atInterval: true, intervalMinutes: 5 }));
+		expect(withBackend(drive, "github").autoSync.intervalMinutes).toBe(5);
+		const longer = settings({ autoSync: auto({ intervalMinutes: 30 }) });
+		expect(withBackend(longer, "gdrive").autoSync).toBe(longer.autoSync);
 	});
 
 	test("switching sending on raises an interval below 5 minutes to 5", () => {
-		expect(withSendsChanges(auto({ intervalMinutes: 2 }), true)).toEqual(auto({ intervalMinutes: 5, sendsChanges: true }));
-		expect(withSendsChanges(auto({ intervalMinutes: 30 }), true).intervalMinutes).toBe(30);
+		expect(withSendsChanges(auto({ intervalMinutes: 2 }), true, "github")).toEqual(auto({ intervalMinutes: 5, sendsChanges: true }));
+		expect(withSendsChanges(auto({ intervalMinutes: 30 }), true, "github").intervalMinutes).toBe(30);
 	});
 
 	test("switching sending off leaves the interval as it is", () => {
-		expect(withSendsChanges(auto({ intervalMinutes: 5, sendsChanges: true }), false)).toEqual(auto({ intervalMinutes: 5 }));
+		expect(withSendsChanges(auto({ intervalMinutes: 5, sendsChanges: true }), false, "github")).toEqual(auto({ intervalMinutes: 5 }));
 	});
 
 	test.each<[string, boolean, number | null]>([
@@ -638,7 +667,7 @@ describe("the settings of automatic sync", () => {
 		["ten", false, null],
 		["1e2", false, null],
 	])("typed %j, sending %j, is stored as %j", (typed, sendsChanges, expected) => {
-		expect(intervalToStore(typed, sendsChanges)).toBe(expected);
+		expect(intervalToStore(typed, sendsChanges, "github")).toBe(expected);
 	});
 
 	test("changing them is no change of the connection", () => {

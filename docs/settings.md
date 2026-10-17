@@ -124,6 +124,7 @@ These settings are kept per device. The three switches of automatic sync are off
 - **Also upload changes in automatic sync**:
   - When off, automatic sync only downloads. What you edit on the device is uploaded when you sync manually.
   - When on, the interval is at least 5 minutes, since every upload is a commit.
+  - With Google Drive, the interval is at least 5 minutes either way: every check counts against a limit that all users of Sync Evo share (see [Google Drive](google-drive.md#limits-of-google)).
 - **On a conflict**: "Automatically merge" (the default), or "Create conflict file". See [When a file changed on both sides](syncing.md#when-a-file-changed-on-both-sides). With Google Drive, a conflict file is always made.
 
 How automatic sync behaves is in [When it runs](syncing.md#when-it-runs).

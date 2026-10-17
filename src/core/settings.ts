@@ -151,10 +151,19 @@ export interface AutoSyncSettings {
 
 export const DEFAULT_INTERVAL_MINUTES = 15;
 /**
- * The shortest interval while automatic sync only pulls. A pull that finds
- * nothing new costs one request that is not counted against the quota.
+ * The shortest interval while automatic sync only pulls, with GitHub or
+ * Dropbox. With GitHub a pull that finds nothing new costs one request that
+ * is not counted against the quota (a 304); Dropbox counts no requests of
+ * a user against a limit that others share.
  */
 export const MIN_INTERVAL_MINUTES = 1;
+/**
+ * The shortest interval with Google Drive, whether automatic sync sends or
+ * not. Every request is counted, even of a pull that finds nothing new
+ * (about 205 units), against the quota of the project of Sync Evo's client,
+ * which all its users share (R-1).
+ */
+export const MIN_GDRIVE_INTERVAL_MINUTES = 5;
 /**
  * The shortest interval while automatic sync also sends. Not for the number
  * of requests: every push is a commit, and a shorter interval would fill
@@ -171,18 +180,19 @@ export const DEFAULT_AUTO_SYNC: AutoSyncSettings = {
 	sendsChanges: false,
 };
 
-/** The shortest interval there can be, by whether automatic sync sends. */
-export function minIntervalMinutes(sendsChanges: boolean): number {
-	return sendsChanges ? MIN_SENDING_INTERVAL_MINUTES : MIN_INTERVAL_MINUTES;
+/** The shortest interval there can be, by whether automatic sync sends, and by the service. */
+export function minIntervalMinutes(sendsChanges: boolean, backend: BackendId): number {
+	const sending = sendsChanges ? MIN_SENDING_INTERVAL_MINUTES : MIN_INTERVAL_MINUTES;
+	return backend === "gdrive" ? Math.max(sending, MIN_GDRIVE_INTERVAL_MINUTES) : sending;
 }
 
 /**
  * The interval that is used for a number of minutes: a whole number within
  * the bounds. What is no number at all is the default.
  */
-export function clampInterval(minutes: number, sendsChanges: boolean): number {
+export function clampInterval(minutes: number, sendsChanges: boolean, backend: BackendId): number {
 	if (!Number.isFinite(minutes)) return DEFAULT_INTERVAL_MINUTES;
-	return Math.min(Math.max(Math.round(minutes), minIntervalMinutes(sendsChanges)), MAX_INTERVAL_MINUTES);
+	return Math.min(Math.max(Math.round(minutes), minIntervalMinutes(sendsChanges, backend)), MAX_INTERVAL_MINUTES);
 }
 
 /**
@@ -191,19 +201,29 @@ export function clampInterval(minutes: number, sendsChanges: boolean): number {
  * minutes within the bounds. Not brought within them, unlike what is read
  * from storage: the user would find another number saved than the one typed.
  */
-export function intervalToStore(typed: string, sendsChanges: boolean): number | null {
+export function intervalToStore(typed: string, sendsChanges: boolean, backend: BackendId): number | null {
 	const text = typed.trim();
 	if (!/^\d+$/.test(text)) return null;
 	const minutes = Number(text);
-	return minutes >= minIntervalMinutes(sendsChanges) && minutes <= MAX_INTERVAL_MINUTES ? minutes : null;
+	return minutes >= minIntervalMinutes(sendsChanges, backend) && minutes <= MAX_INTERVAL_MINUTES ? minutes : null;
 }
 
 /**
  * The settings with "also sends" switched. Switched on, an interval below
  * the bound for sending is raised to it; switched off, the interval stays.
  */
-export function withSendsChanges(auto: AutoSyncSettings, sendsChanges: boolean): AutoSyncSettings {
-	return { ...auto, sendsChanges, intervalMinutes: clampInterval(auto.intervalMinutes, sendsChanges) };
+export function withSendsChanges(auto: AutoSyncSettings, sendsChanges: boolean, backend: BackendId): AutoSyncSettings {
+	return { ...auto, sendsChanges, intervalMinutes: clampInterval(auto.intervalMinutes, sendsChanges, backend) };
+}
+
+/**
+ * The settings with the service switched. An interval below the bound of
+ * the new one is raised to it; switched back, the interval stays.
+ */
+export function withBackend(settings: DeviceSettings, backend: BackendId): DeviceSettings {
+	const auto = settings.autoSync;
+	const intervalMinutes = clampInterval(auto.intervalMinutes, auto.sendsChanges, backend);
+	return { ...settings, backend, autoSync: intervalMinutes === auto.intervalMinutes ? auto : { ...auto, intervalMinutes } };
 }
 
 /**
@@ -296,10 +316,11 @@ export function parseSettings(raw: unknown, defaultDeviceName: string): ParsedSe
 
 	const text = (value: unknown, fallback: string): string => (typeof value === "string" ? value : fallback);
 	const deviceName = text(raw.deviceName, "").trim();
+	const backend = raw.backend === "dropbox" || raw.backend === "gdrive" ? raw.backend : defaults.backend;
 	return {
 		status: "ok",
 		settings: {
-			backend: raw.backend === "dropbox" || raw.backend === "gdrive" ? raw.backend : defaults.backend,
+			backend,
 			// Stored in its form or not at all, like the screen does it.
 			repository: normalizeRepository(text(raw.repository, "")) ?? defaults.repository,
 			branch: branchToStore(text(raw.branch, "")) ?? defaults.branch,
@@ -311,7 +332,7 @@ export function parseSettings(raw: unknown, defaultDeviceName: string): ParsedSe
 			gdriveFolderId: typeof raw.gdriveFolderId === "string" && raw.gdriveFolderId !== "" ? raw.gdriveFolderId : null,
 			...(typeof raw.gdriveClientId === "string" && raw.gdriveClientId !== "" ? { gdriveClientId: raw.gdriveClientId } : {}),
 			deviceName: deviceNameProblem(deviceName) === null ? deviceName : defaults.deviceName,
-			autoSync: parseAutoSync(raw.autoSync),
+			autoSync: parseAutoSync(raw.autoSync, backend),
 			onConflict: conflictHandlingOf(raw.onConflict),
 			deviceExclusion: parseDeviceExclusion(raw.deviceExclusion),
 			exclusionChangeTold: raw.exclusionChangeTold === true,
@@ -327,14 +348,14 @@ function parseDropboxAccount(raw: unknown): DropboxAccountSettings | null {
 
 // A switch is on only when it was stored as on: anything else, from a
 // version that knew no such switch or from a damaged value, is off.
-function parseAutoSync(raw: unknown): AutoSyncSettings {
+function parseAutoSync(raw: unknown, backend: BackendId): AutoSyncSettings {
 	if (!isRecord(raw)) return DEFAULT_AUTO_SYNC;
 	const sendsChanges = raw.sendsChanges === true;
 	const minutes = typeof raw.intervalMinutes === "number" ? raw.intervalMinutes : DEFAULT_INTERVAL_MINUTES;
 	return {
 		onStartup: raw.onStartup === true,
 		atInterval: raw.atInterval === true,
-		intervalMinutes: clampInterval(minutes, sendsChanges),
+		intervalMinutes: clampInterval(minutes, sendsChanges, backend),
 		sendsChanges,
 	};
 }

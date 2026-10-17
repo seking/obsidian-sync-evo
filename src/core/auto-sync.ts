@@ -42,6 +42,13 @@ export const RESUME_GAP_MS = 5 * 60_000;
 /** The longest the interval gets by doubling after failures. An interval set longer than this stays as set. */
 export const MAX_BACKOFF_MS = 60 * 60_000;
 
+/**
+ * The longest a remote's limit holds automatic sync back (`pausedUntil`):
+ * a day of Google's quotas, and the hour it gains or loses with summer
+ * time. Further ahead, the clock of the device was set back since.
+ */
+export const MAX_PAUSE_MS = 25 * 60 * 60_000;
+
 /** How often the clock is looked at while the app is in front. */
 export const TICK_MS = 10_000;
 
@@ -65,6 +72,8 @@ export interface AutoSyncClock {
 	 * front, and no sync has listed every folder since (`FullCheckDebt`).
 	 */
 	readonly fullOwed: boolean;
+	/** Until when the remote said it takes no requests (`AutoSyncMemory.pausedUntil`). */
+	readonly pausedUntil?: number;
 }
 
 /**
@@ -128,11 +137,22 @@ function sinceLastStart(clock: AutoSyncClock): number {
 }
 
 /**
+ * Whether the remote's limit holds automatic sync back now: it said until
+ * when it takes no requests, and that time has not come. A sync would only
+ * fail again, and use up requests of the others who share the limit.
+ */
+function paused(clock: AutoSyncClock): boolean {
+	const until = clock.pausedUntil;
+	return until !== undefined && clock.now < until && until - clock.now <= MAX_PAUSE_MS;
+}
+
+/**
  * Whether a sync starts when the app has started or has come back to the
  * front. Asked as often as either is noticed: a return that is seen twice
  * finds the sync of the first running, or just started.
  */
 export function dueOnResume(settings: AutoSyncSettings, clock: AutoSyncClock): AutoCheck | null {
+	if (paused(clock)) return null;
 	const since = sinceLastStart(clock);
 	if (settings.onStartup && since >= RESUME_GAP_MS) return "full";
 	if (settings.atInterval && since >= intervalMs(settings, clock.failures)) return "full";
@@ -144,7 +164,7 @@ export function dueOnResume(settings: AutoSyncSettings, clock: AutoSyncClock): A
  * front. With the light check, unless a full one is owed.
  */
 export function dueOnTick(settings: AutoSyncSettings, clock: AutoSyncClock): AutoCheck | null {
-	if (!settings.atInterval || sinceLastStart(clock) < intervalMs(settings, clock.failures)) return null;
+	if (!settings.atInterval || paused(clock) || sinceLastStart(clock) < intervalMs(settings, clock.failures)) return null;
 	return clock.fullOwed ? "full" : "light";
 }
 
@@ -199,6 +219,13 @@ export interface AutoSyncMemory {
 	 * not told again.
 	 */
 	readonly told: string | null;
+	/**
+	 * Until when the remote said it takes no requests, in milliseconds since
+	 * the epoch (`RateLimitedError.waitUntil`): Google Drive, when the
+	 * requests of the day have run out. No sync starts by itself before.
+	 * Absent when it said nothing of the kind.
+	 */
+	readonly pausedUntil?: number;
 }
 
 export const NO_AUTO_SYNC_MEMORY: AutoSyncMemory = { lastStartedAt: null, failures: 0, told: null };
@@ -207,11 +234,12 @@ export const NO_AUTO_SYNC_MEMORY: AutoSyncMemory = { lastStartedAt: null, failur
 export async function readAutoSyncMemory(store: Pick<StateStore, "getMeta">): Promise<AutoSyncMemory> {
 	const value = await store.getMeta(AUTO_SYNC_KEY);
 	if (typeof value !== "object" || value === null) return NO_AUTO_SYNC_MEMORY;
-	const { lastStartedAt, failures, told } = value as Record<string, unknown>;
+	const { lastStartedAt, failures, told, pausedUntil } = value as Record<string, unknown>;
 	return {
 		lastStartedAt: typeof lastStartedAt === "number" && Number.isFinite(lastStartedAt) ? lastStartedAt : null,
 		failures: typeof failures === "number" && Number.isInteger(failures) && failures > 0 ? failures : 0,
 		told: typeof told === "string" ? told : null,
+		...(typeof pausedUntil === "number" && Number.isFinite(pausedUntil) ? { pausedUntil } : {}),
 	};
 }
 
@@ -221,5 +249,6 @@ export function writeAutoSyncMemory(store: Pick<StateStore, "setMeta">, memory: 
 		lastStartedAt: memory.lastStartedAt,
 		failures: memory.failures,
 		told: memory.told,
+		...(memory.pausedUntil === undefined ? {} : { pausedUntil: memory.pausedUntil }),
 	});
 }

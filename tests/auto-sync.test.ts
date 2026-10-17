@@ -19,6 +19,7 @@ import {
 	FullCheckDebt,
 	intervalMs,
 	MAX_BACKOFF_MS,
+	MAX_PAUSE_MS,
 	NO_AUTO_SYNC_MEMORY,
 	readAutoSyncMemory,
 	RESUME_GAP_MS,
@@ -295,6 +296,23 @@ describe("telling a return from a look at the clock", () => {
 	});
 });
 
+describe("while a remote's limit holds automatic sync back", () => {
+	const settings = auto({ onStartup: true, atInterval: true, intervalMinutes: 15 });
+	const paused = (ms: number): AutoSyncClock => ({ ...clock(null), pausedUntil: NOW + ms });
+
+	test("no sync starts, on a return or at the interval, until the time comes", () => {
+		expect(dueOnResume(settings, paused(1))).toBeNull();
+		expect(dueOnTick(settings, paused(1))).toBeNull();
+		expect(dueOnResume(settings, paused(0))).toBe("full");
+		expect(dueOnTick(settings, paused(-1))).toBe("light");
+	});
+
+	test("a time further ahead than a day of Google's quotas was set by a clock set back since, and holds nothing back", () => {
+		expect(dueOnTick(settings, paused(MAX_PAUSE_MS))).toBeNull();
+		expect(dueOnTick(settings, paused(MAX_PAUSE_MS + 1))).toBe("light");
+	});
+});
+
 describe("what automatic sync remembers", () => {
 	test("nothing, in a sync state that holds nothing of it", async () => {
 		expect(await readAutoSyncMemory(new MemoryStateStore())).toEqual(NO_AUTO_SYNC_MEMORY);
@@ -305,6 +323,15 @@ describe("what automatic sync remembers", () => {
 		const memory = { lastStartedAt: NOW, failures: 2, told: "error:unreachable" };
 		await writeAutoSyncMemory(store, memory);
 		expect(await readAutoSyncMemory(store)).toEqual(memory);
+	});
+
+	test("until when a remote's limit holds it back is read back too", async () => {
+		const store = new MemoryStateStore();
+		const memory = { lastStartedAt: NOW, failures: 1, told: "error:rate-limited", pausedUntil: NOW + MINUTE };
+		await writeAutoSyncMemory(store, memory);
+		expect(await readAutoSyncMemory(store)).toEqual(memory);
+		await store.setMeta(AUTO_SYNC_KEY, { ...memory, pausedUntil: "soon" });
+		expect(await readAutoSyncMemory(store)).not.toHaveProperty("pausedUntil");
 	});
 
 	test("only the known fields are stored", async () => {

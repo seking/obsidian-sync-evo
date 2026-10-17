@@ -92,6 +92,8 @@ export const ja = completeTranslation(en, {
 		"Obsidian が前に出ている間、直前の同期を始めてから下の間隔がたつたびに同期します。",
 	"settings.autoSync.interval.name": "間隔（分）",
 	"settings.autoSync.interval.desc": "{min}〜{max} 分で指定します。「自動同期でこのデバイスの変更もアップロードする」が入の時は、{sendingMin} 分以上です。",
+	"settings.autoSync.interval.gdriveDesc":
+		"{min}〜{max} 分で指定します。Google Drive を確かめるたびに、Sync Evo の利用者全員で分け合う上限に数えられます。",
 	"settings.autoSync.interval.invalid":
 		"{min}〜{max} の整数を、分で入力してください。前の間隔のままになっています。",
 	"settings.autoSync.interval.raised": "「自動同期でこのデバイスの変更もアップロードする」を入にしたため、間隔を {minutes} 分に上げました。",
@@ -233,6 +235,8 @@ export const ja = completeTranslation(en, {
 		"この保管庫が同期していた Google Drive の Sync Evo/{folder} フォルダが、見えなくなりました。削除されたか、ゴミ箱に入ったか、Sync Evo から見えなくなっています。このデバイスでは何も変更していません。次の同期は、最初の同期としてやり直します。",
 	"gdrive.duplicateFolder":
 		"Google Drive に {folder} フォルダが複数あり、どれと同期するかを決められません。何も変更していません。Google Drive で1つだけを残してから、もう一度同期してください。",
+	"gdrive.dailyLimit":
+		"Sync Evo の利用者全員で分け合う、今日の Google Drive へのリクエスト数の上限に達しました。{time} から、また同期できます。自動同期は、それまで止めます。接続し直す必要はありません。",
 	"check.gdrive.connected": "Google Drive に接続できました。Sync Evo/{folder} フォルダがあります。",
 	"check.gdrive.empty": "Google Drive に接続できました。Sync Evo/{folder} フォルダは、まだありません。最初のアップロードで作ります。",
 	"check.gdrive.noFolder": "先に、Google Drive のフォルダの名前を入れてください。",

@@ -23,7 +23,8 @@ import {
 	waitForDeviceGrant,
 } from "../src/core/gdrive/auth";
 import { DriveApiError, DriveClient, MULTIPART_MAX_BYTES } from "../src/core/gdrive/client";
-import { GoogleClientSecretMissingError } from "../src/core/gdrive/errors";
+import { DriveDailyLimitError, GoogleClientSecretMissingError } from "../src/core/gdrive/errors";
+import { DriveQuota } from "../src/core/gdrive/quota";
 import type { HttpRequest, HttpResponse } from "../src/core/github/http";
 
 function response(status: number, body: unknown = {}, headers: Record<string, string> = {}): HttpResponse {
@@ -59,7 +60,11 @@ class Tokens implements AccessTokens {
 	}
 }
 
-function client(http: (request: HttpRequest) => Promise<HttpResponse>, slept: number[] = []): DriveClient {
+function client(
+	http: (request: HttpRequest) => Promise<HttpResponse>,
+	slept: number[] = [],
+	over: Partial<ConstructorParameters<typeof DriveClient>[0]> = {},
+): DriveClient {
 	return new DriveClient({
 		http,
 		now: () => 0,
@@ -68,6 +73,8 @@ function client(http: (request: HttpRequest) => Promise<HttpResponse>, slept: nu
 			return Promise.resolve();
 		},
 		tokens: new Tokens(),
+		random: () => 0,
+		...over,
 	});
 }
 
@@ -98,6 +105,41 @@ describe("calls of the Drive API", () => {
 		expect(await client(http, slept).getJson("https://www.googleapis.com/drive/v3/files")).toEqual({ ok: 1 });
 		// The race of each request against its timeout sleeps too: only the waits are looked at.
 		expect(slept.filter((ms) => ms < 60_000)).toEqual([1000, 2000, 4000]);
+	});
+
+	test("each wait gets up to a second more at random", async () => {
+		const slept: number[] = [];
+		const { http } = scripted(response(429), response(503, {}, { "retry-after": "3" }), response(200, { ok: 1 }));
+		await client(http, slept, { random: () => 0.5 }).getJson("https://www.googleapis.com/drive/v3/files");
+		expect(slept.filter((ms) => ms < 60_000)).toEqual([1500, 3500]);
+	});
+
+	test("the requests of the day having run out is not sent again, and waits until midnight in the Pacific time", async () => {
+		const { http, requests } = scripted(googleError(403, "dailyLimitExceeded"));
+		// 2026-10-17 10:00 in Japan: 2026-10-16 18:00 in the Pacific summer time.
+		const now = Date.UTC(2026, 9, 17, 1, 0);
+		const error = await client(http, [], { now: () => now })
+			.getJson("https://www.googleapis.com/drive/v3/files")
+			.catch((e: unknown) => e);
+		expect(requests).toHaveLength(1);
+		expect(error).toBeInstanceOf(DriveDailyLimitError);
+		expect(error).toBeInstanceOf(RateLimitedError);
+		// 16:00 in Japan.
+		expect(error).toMatchObject({ kind: "rate-limited", waitUntil: Date.UTC(2026, 9, 17, 7, 0) });
+	});
+
+	test("every request waits for its units of the quota of the device, which clients share", async () => {
+		const slept: number[] = [];
+		// 600 units a minute, 400 at once: 0.1 s a unit.
+		const quota = new DriveQuota(600, 400);
+		const answers = Array.from({ length: 4 }, () => response(200));
+		const { http } = scripted(...answers);
+		await client(http, slept, { quota }).download("a");
+		await client(http, slept, { quota }).download("b");
+		// The third download is 200 units over the burst: 20 s.
+		await client(http, slept, { quota }).download("c");
+		await client(http, slept, { quota }).getJson("https://www.googleapis.com/drive/v3/files/x?fields=id");
+		expect(slept.filter((ms) => ms < 60_000)).toEqual([20_000, 20_500]);
 	});
 
 	test("a rate limit that does not end fails as rate limited; another 403 at once, as forbidden", async () => {

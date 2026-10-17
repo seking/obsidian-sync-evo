@@ -25,7 +25,7 @@ import {
 	stateAutoReport,
 } from "../src/core/auto-report";
 import { type AutoSyncMemory, NO_AUTO_SYNC_MEMORY } from "../src/core/auto-sync";
-import { BackendError } from "../src/core/backend";
+import { BackendError, RateLimitedError } from "../src/core/backend";
 import { translatorFor } from "../src/core/i18n";
 import type { PullResult } from "../src/core/pull";
 import { pullDetails, pullFailureText, type ReportDetail } from "../src/core/pull-report";
@@ -636,6 +636,24 @@ describe("what is told, and what is remembered of it", () => {
 	test("a sync the user started that went well forgets the cause and ends the failures", () => {
 		const before = memory({ failures: 3, told: "error:unreachable" });
 		expect(settleAutoSync(before, good, false).memory).toEqual({ lastStartedAt: START, failures: 0, told: null });
+	});
+
+	test("a remote's limit is remembered until a sync goes well, from a sync of either kind", () => {
+		const limited = failureAutoReport(t, new RateLimitedError(START + 3_600_000, "the day's requests"), "x");
+		expect(limited.pausedUntil).toBe(START + 3_600_000);
+		const paused = settleAutoSync(memory(), limited, false).memory;
+		expect(paused.pausedUntil).toBe(START + 3_600_000);
+		expect(settleAutoSync(paused, failed, true).memory.pausedUntil).toBe(START + 3_600_000);
+		expect(settleAutoSync(paused, good, true).memory).not.toHaveProperty("pausedUntil");
+		// Another failure says nothing of a limit.
+		expect(failed).not.toHaveProperty("pausedUntil");
+	});
+
+	test("a pull that a remote's limit stopped remembers it, and so does the sync it was part of", () => {
+		const report = pull({ outcome: "incomplete", fetchError: new RateLimitedError(START + 60_000, "x"), deferred: [{ path: "a.md", reason: "fetch-failed" }] });
+		expect(report).toMatchObject({ end: "failure", pausedUntil: START + 60_000 });
+		expect(joinAutoReports([report, good]).pausedUntil).toBe(START + 60_000);
+		expect(joinAutoReports([good, good])).not.toHaveProperty("pausedUntil");
 	});
 
 	test("the time the last sync started is never changed here", () => {

@@ -26,10 +26,10 @@ import {
 	deviceNameProblem,
 	intervalToStore,
 	MAX_INTERVAL_MINUTES,
-	MIN_INTERVAL_MINUTES,
 	MIN_SENDING_INTERVAL_MINUTES,
 	minIntervalMinutes,
 	repositoryToStore,
+	withBackend,
 	withSendsChanges,
 } from "../core/settings";
 import { type ExclusionHost, ExclusionSettings, type Folds, grouped } from "./exclusion-settings";
@@ -143,7 +143,8 @@ export class SyncEvoSettingTab extends PluginSettingTab {
 							const vault = dropboxFolderToStore(this.app.vault.getName()) ?? "";
 							const folder = current.dropboxFolder === "" && backend === "dropbox" ? vault : current.dropboxFolder;
 							const gdriveFolder = current.gdriveFolder === "" && backend === "gdrive" ? vault : current.gdriveFolder;
-							return { ...current, backend, dropboxFolder: folder, gdriveFolder };
+							// Google Drive has a longer shortest interval.
+							return { ...withBackend(current, backend), dropboxFolder: folder, gdriveFolder };
 						});
 						this.display();
 					});
@@ -480,9 +481,13 @@ export class SyncEvoSettingTab extends PluginSettingTab {
 				});
 			});
 
-		const interval = new Setting(el)
-			.setName(t("settings.autoSync.interval.name"))
-			.setDesc(t("settings.autoSync.interval.desc", { min: MIN_INTERVAL_MINUTES, max: MAX_INTERVAL_MINUTES, sendingMin }));
+		// With Google Drive the bound is the same, sending or not.
+		const min = minIntervalMinutes(false, settings.backend);
+		const intervalDesc =
+			settings.backend === "gdrive"
+				? t("settings.autoSync.interval.gdriveDesc", { min, max: MAX_INTERVAL_MINUTES })
+				: t("settings.autoSync.interval.desc", { min, max: MAX_INTERVAL_MINUTES, sendingMin });
+		const interval = new Setting(el).setName(t("settings.autoSync.interval.name")).setDesc(intervalDesc);
 		const intervalNote = note(interval);
 		// Not a warning: the number was changed as it should be. But in a
 		// colour of its own, or the change goes unnoticed.
@@ -504,10 +509,11 @@ export class SyncEvoSettingTab extends PluginSettingTab {
 			// the way to "15" is an interval of its own.
 			const commit = (): void => {
 				const sends = this.host.deviceSettings?.autoSync.sendsChanges ?? stored.sendsChanges;
-				const minutes = intervalToStore(text.getValue(), sends);
+				const backend = this.host.deviceSettings?.backend ?? settings.backend;
+				const minutes = intervalToStore(text.getValue(), sends, backend);
 				if (minutes === null) {
 					// Nothing is saved, so the interval from before stays in use.
-					const min = minIntervalMinutes(sends);
+					const min = minIntervalMinutes(sends, backend);
 					intervalRaised.setText("");
 					intervalNote.setText(t("settings.autoSync.interval.invalid", { min, max: MAX_INTERVAL_MINUTES }));
 					return;
@@ -525,7 +531,7 @@ export class SyncEvoSettingTab extends PluginSettingTab {
 			.addToggle((toggle) => {
 				toggle.setValue(stored.sendsChanges).onChange((sends) => {
 					const before = this.host.deviceSettings?.autoSync.intervalMinutes;
-					change((auto) => withSendsChanges(auto, sends));
+					change((auto) => withSendsChanges(auto, sends, this.host.deviceSettings?.backend ?? settings.backend));
 					// The interval that is in use now, whatever the field held:
 					// one below the bound for sending was raised to it.
 					const now = this.host.deviceSettings?.autoSync.intervalMinutes;

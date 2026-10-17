@@ -12,6 +12,7 @@
 import { describe, expect, test } from "vitest";
 import { NO_DEVICE_EXCLUSION } from "../src/core/device-exclusion";
 import { BackendError, type BackendErrorKind, RateLimitedError } from "../src/core/backend";
+import { DriveDailyLimitError } from "../src/core/gdrive/errors";
 import { translatorFor } from "../src/core/i18n";
 import { NOTICE_KINDS } from "../src/core/notices";
 import type { PullResult } from "../src/core/pull-io";
@@ -1064,6 +1065,15 @@ describe("a pull that could not be carried out", () => {
 		expect(failureReason(t, settings, new RateLimitedError(0, "x"))).toBe(
 			"GitHub's request limit has been reached. Try again later.",
 		);
+	});
+
+	test("with Google Drive, the requests of the day having run out says until when, and not to connect again", () => {
+		const drive: DeviceSettings = { ...settings, backend: "gdrive", gdriveFolder: "Vault", gdriveAccount: { id: "1", email: "a@example.com" } };
+		const reset = new Date(2026, 9, 17, 16, 0).getTime();
+		const error = new DriveDailyLimitError(reset, "x");
+		expect(failureReason(t, drive, error)).toBe(t("gdrive.dailyLimit", { time: "16:00" }));
+		expect(failureReason(ja, drive, error)).toContain("16:00");
+		expect(failureReason(t, drive, error)).not.toBe(t("check.gdrive.forbidden"));
 	});
 
 	test("with Dropbox, a connection Dropbox refuses or does not allow reads as Dropbox's, and names no repository", () => {

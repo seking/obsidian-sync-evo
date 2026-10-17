@@ -103,6 +103,8 @@ export const en = baseCatalog({
 	"settings.autoSync.interval.name": "Interval (minutes)",
 	"settings.autoSync.interval.desc":
 		"From {min} to {max} minutes. At least {sendingMin} while automatic sync also uploads changes.",
+	"settings.autoSync.interval.gdriveDesc":
+		"From {min} to {max} minutes. Every check of Google Drive counts against a limit that all users of Sync Evo share.",
 	"settings.autoSync.interval.invalid":
 		"Enter a whole number of minutes from {min} to {max}. The previous interval is still in use.",
 	"settings.autoSync.interval.raised": "Raised to {minutes} minutes, because automatic sync now also uploads changes.",
@@ -258,6 +260,8 @@ export const en = baseCatalog({
 		"The folder Sync Evo/{folder} that this vault synced with is no longer to be seen on Google Drive: it was deleted, put in the trash, or is out of sight of Sync Evo. Nothing on this device was changed. The next sync starts over, as a first sync.",
 	"gdrive.duplicateFolder":
 		"There is more than one folder {folder} on Google Drive, and Sync Evo cannot tell which one to sync with. Nothing was changed. Keep only one of them on Google Drive, and sync again.",
+	"gdrive.dailyLimit":
+		"Sync Evo has used up today's requests to Google Drive, which all its users share. Syncing with Google Drive works again from {time}, and automatic sync waits until then. There is no need to connect again.",
 	"check.gdrive.connected": "Connected to Google Drive. The folder Sync Evo/{folder} is there.",
 	"check.gdrive.empty": "Connected to Google Drive. The folder Sync Evo/{folder} is not there yet: the first upload makes it.",
 	"check.gdrive.noFolder": "Enter the name of the folder on Google Drive first.",

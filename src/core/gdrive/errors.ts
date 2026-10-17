@@ -12,7 +12,7 @@
 // The failures of the Google Drive remote that the user is told of in words
 // of their own, apart from the backend so that the reports need not import it.
 
-import { BackendError } from "../backend";
+import { BackendError, RateLimitedError } from "../backend";
 
 /**
  * The folder of the vault, by the id this device kept, is no longer to be
@@ -58,5 +58,19 @@ export class GoogleClientSecretMissingError extends BackendError {
 	constructor() {
 		super("other", "this build of Sync Evo has no client secret of Google");
 		this.name = "GoogleClientSecretMissingError";
+	}
+}
+
+/**
+ * Google answered that the requests of the day have run out
+ * (`dailyLimitExceeded`): the cap that the author of Sync Evo sets on the
+ * project of its client, which every user shares (R-1). Not a wait that a
+ * retry gets past, nor a matter of the connection: it ends at midnight in
+ * the Pacific time (`waitUntil`), and automatic sync waits until then.
+ */
+export class DriveDailyLimitError extends RateLimitedError {
+	constructor(waitUntil: number, message: string) {
+		super(waitUntil, message);
+		this.name = "DriveDailyLimitError";
 	}
 }

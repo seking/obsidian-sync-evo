@@ -25,7 +25,7 @@
 // tell at all: it is on the screen of the results.
 
 import type { AutoSyncMemory } from "./auto-sync";
-import { BackendError } from "./backend";
+import { BackendError, RateLimitedError } from "./backend";
 import type { NotReadyReason } from "./connection-check";
 import type { Translate } from "./i18n";
 import type { DeferReason, PullResult } from "./pull-io";
@@ -78,6 +78,11 @@ export interface AutoReport {
 	 */
 	readonly cause: string | null;
 	readonly end: SyncEnd;
+	/**
+	 * Until when the remote said it takes no requests, when it ended the
+	 * sync with that (`RateLimitedError`): no sync starts by itself before.
+	 */
+	readonly pausedUntil?: number;
 }
 
 const NOTHING: AutoReport = { happened: [], standing: [], questions: [], cause: null, end: "neither" };
@@ -163,7 +168,8 @@ export function pullAutoReport(t: Translate, result: PullResult, options: PullRe
 			// Files that were being typed in, and nothing else.
 			if (reasons.size === 0) return { ...NOTHING, happened };
 			const cause = `pull:incomplete:${[...reasons].sort().join(",")}`;
-			return { happened, standing, questions: [], cause, end: "failure" };
+			const limit = result.fetchError instanceof RateLimitedError ? { pausedUntil: result.fetchError.waitUntil } : {};
+			return { happened, standing, questions: [], cause, end: "failure", ...limit };
 		}
 		case "declined":
 		case "cancelled":
@@ -230,7 +236,14 @@ export function pushAutoReport(t: Translate, result: PushRunResult, options: Pus
  */
 export function failureAutoReport(t: Translate, error: unknown, text: string): AutoReport {
 	if (isCancellation(error)) return NOTHING;
-	return { happened: [], standing: [whole("error", text)], questions: [], cause: `error:${kindOf(error)}`, end: "failure" };
+	return {
+		happened: [],
+		standing: [whole("error", text)],
+		questions: [],
+		cause: `error:${kindOf(error)}`,
+		end: "failure",
+		...(error instanceof RateLimitedError ? { pausedUntil: error.waitUntil } : {}),
+	};
 }
 
 /**
@@ -265,6 +278,7 @@ const END_ORDER: readonly SyncEnd[] = ["success", "neither", "waiting", "failure
 export function joinAutoReports(parts: readonly AutoReport[]): AutoReport {
 	if (parts.length === 0) return NOTHING;
 	const causes = parts.map((part) => part.cause).filter((cause): cause is string => cause !== null);
+	const pauses = parts.map((part) => part.pausedUntil).filter((until): until is number => until !== undefined);
 	return {
 		happened: parts.flatMap((part) => part.happened),
 		standing: parts.flatMap((part) => part.standing),
@@ -274,6 +288,7 @@ export function joinAutoReports(parts: readonly AutoReport[]): AutoReport {
 			(worst, part) => (END_ORDER.indexOf(part.end) > END_ORDER.indexOf(worst) ? part.end : worst),
 			"success",
 		),
+		...(pauses.length === 0 ? {} : { pausedUntil: Math.max(...pauses) }),
 	};
 }
 
@@ -303,7 +318,13 @@ export function settleAutoSync(memory: AutoSyncMemory, report: AutoReport, autom
 	let failures = memory.failures;
 	if (end === "success" || (automatic && end === "waiting")) failures = 0;
 	else if (automatic && end === "failure") failures += 1;
-	return { memory: { lastStartedAt: memory.lastStartedAt, failures, told }, tell };
+	// Of a sync of either kind: the limit is the remote's. Kept through
+	// other failures, and let go of by a success.
+	const pausedUntil = report.pausedUntil ?? (end === "success" ? undefined : memory.pausedUntil);
+	return {
+		memory: { lastStartedAt: memory.lastStartedAt, failures, told, ...(pausedUntil === undefined ? {} : { pausedUntil }) },
+		tell,
+	};
 }
 
 /**
