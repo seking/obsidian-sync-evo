@@ -58,6 +58,28 @@ export const ja = completeTranslation(en, {
 	"settings.gdriveFolder.name": "フォルダ",
 	"settings.gdriveFolder.desc":
 		"Google Drive の Sync Evo フォルダの中の、この保管庫のフォルダの名前です。同じ名前にしたデバイスどうしが同期します。変えると、同期を最初からやり直します。",
+	"settings.gdriveClient.heading": "自分の Google のクライアント",
+	"settings.gdriveClient.desc":
+		"Sync Evo のクライアントが使えなくなった時のためだけの欄です。自分の Google Cloud のプロジェクトで作った、種類が「テレビと入力が限られたデバイス」の OAuth クライアントの ID とシークレットを入れ、接続し直してください。Google Drive は、ファイルを置いたのと同じプロジェクトにしかそのファイルを見せません。別のプロジェクトのクライアントでは、この保管庫のフォルダが見えなくなり、全ファイルを新しいフォルダに送り直します。古いフォルダは Google Drive に残ります。Sync Evo のクライアントに戻すには、ID を空にしてください。",
+	"settings.gdriveClient.id.name": "クライアント ID",
+	"settings.gdriveClient.secret.name": "クライアント シークレット",
+	"settings.gdriveClient.secret.desc": "接続の情報と同じく、このデバイスにこの保管庫の分として置きます。保管庫のファイルには書きません。",
+	"settings.gdriveClient.reconnect": "クライアントを変えました。Google Drive に接続し直してください。",
+	"settings.license.name": "ライセンスキー",
+	"settings.license.desc":
+		"Dropbox と Google Drive は、最初の3か月は無料で、その後はライセンスキーが要ります。1つのキーで両方を、このデバイスで使えます。GitHub はずっと無料です。",
+	"settings.license.readme": "詳しくは Sync Evo の README をご覧ください。",
+	"settings.license.buy": "キーを入手",
+	"settings.license.trial": "このアカウントでは、{date} まで無料です。",
+	"settings.license.trialUnknown": "このアカウントで最初に同期した時から、3か月は無料です。",
+	"settings.license.readOnly": "無料の期間は {ended} に終わりました。{stops} までは、取得だけを行います。",
+	"settings.license.stopped": "無料の期間は {ended} に終わりました。{remote} との同期を止めています。",
+	"settings.license.ownClient": "自分の Google のクライアントを使う時は、ライセンスキーは要りません。",
+	"settings.license.checking": "キーを確かめています…",
+	"settings.license.valid": "このデバイスでキーを使っています。",
+	"settings.license.grace": "{since} からキーを確かめられていません。{until} までは使え、その間にまた確かめます。",
+	"settings.license.unconfirmed": "キーを確かめられませんでした。後でまた確かめます。ネットワークの接続を確認してください。",
+	"settings.license.invalid": "このキーは使えません。",
 	"settings.repository.name": "リポジトリ",
 	"settings.repository.desc": "同期する GitHub のリポジトリです。owner/name の形で入力するか、ブラウザのアドレスを貼り付けます。",
 	"settings.repository.placeholder": "owner/name",
@@ -236,6 +258,16 @@ export const ja = completeTranslation(en, {
 	"gdrive.signInFailed": "Google Drive に接続できませんでした。もう一度「接続する」を押してください。（{detail}）",
 	"gdrive.noClientSecret":
 		"この版の Sync Evo には Google のクライアントの情報が入っていないため、Google Drive に接続できません。公開されている版の Sync Evo を使ってください。",
+	"gdrive.ownClientNoSecret":
+		"自分の Google のクライアントの、クライアント シークレットが入っていません。Sync Evo の設定画面の「自分の Google のクライアント」で入れるか、クライアント ID を空にしてください。",
+	"paid.warning":
+		"{remote} での Sync Evo は、{date} まで（あと {count} 日）無料です。その後も {remote} と同期するには、ライセンスキーが要ります。Sync Evo の設定画面をご覧ください。GitHub はずっと無料です。",
+	"paid.readOnly.pulling":
+		"{remote} での Sync Evo の無料の期間は、{ended} に終わりました。{stops} までは、取得だけを行い、送信はしません。また同期するには、Sync Evo の設定画面でライセンスキーを入れてください。",
+	"paid.readOnly.blocked":
+		"何も送信していません。{remote} での Sync Evo の無料の期間は、{ended} に終わりました。{stops} までは、取得だけを行います。また同期するには、Sync Evo の設定画面でライセンスキーを入れてください。",
+	"paid.stopped":
+		"{remote} との同期を止めています。無料の期間が {ended} に終わったためです。何も変更していません。また同期するには、Sync Evo の設定画面でライセンスキーを入れてください。",
 	"gdrive.folderGone":
 		"この保管庫が同期していた Google Drive の Sync Evo/{folder} フォルダが、見えなくなりました。削除されたか、ゴミ箱に入ったか、Sync Evo から見えなくなっています。このデバイスでは何も変更していません。次の同期は、最初の同期としてやり直します。",
 	"gdrive.duplicateFolder":

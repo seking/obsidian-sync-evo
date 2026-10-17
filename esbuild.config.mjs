@@ -92,6 +92,12 @@ ${thirdParty}`;
 
 const production = process.argv[2] === "production";
 
+// A build that asks Dodo's test mode about license keys is for trying the
+// paid plan out, and never a release.
+if (production && process.env.SYNC_EVO_DODO_TEST === "1") {
+	throw new Error("esbuild.config.mjs: SYNC_EVO_DODO_TEST=1 is for a development build only, not for a production one.");
+}
+
 // The client secret of Sync Evo's Google client, kept out of the repository
 // (scripts/google-client-secret.mjs). A build without it still runs, for the
 // tests and the checks, and cannot connect to Google Drive; a release
@@ -138,7 +144,11 @@ const context = await esbuild.context({
 	charset: "utf8",
 	legalComments: "inline",
 	outfile: "main.js",
-	define: { SYNC_EVO_GOOGLE_CLIENT_SECRET: JSON.stringify(secret?.value ?? "") },
+	define: {
+		SYNC_EVO_GOOGLE_CLIENT_SECRET: JSON.stringify(secret?.value ?? ""),
+		// A build that asks Dodo's test mode about license keys (src/core/license.ts).
+		SYNC_EVO_DODO_TEST: JSON.stringify(process.env.SYNC_EVO_DODO_TEST === "1"),
+	},
 });
 
 if (production) {

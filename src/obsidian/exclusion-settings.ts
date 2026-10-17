@@ -675,7 +675,7 @@ function warning(el: HTMLElement, text: string): void {
 type FileView = Extract<ExclusionView, { fixedOff: readonly string[] }>;
 
 /** The groups of the screen that fold. */
-export type FoldId = "config" | "device" | "gitignore" | "symlinks";
+export type FoldId = "config" | "device" | "gitignore" | "symlinks" | "gdrive-client";
 
 /**
  * The groups the user has opened; every one starts closed. Kept by the

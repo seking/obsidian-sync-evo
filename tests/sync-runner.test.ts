@@ -14,6 +14,9 @@ import { NO_DEVICE_EXCLUSION } from "../src/core/device-exclusion";
 import { AUTO_SYNC_KEY, readAutoSyncMemory } from "../src/core/auto-sync";
 import { MAX_CONCURRENT_FETCH_BYTES } from "../src/core/concurrent-fetch";
 import { translatorFor } from "../src/core/i18n";
+import { DODO_LIVE_API } from "../src/core/license";
+import { dayOf } from "../src/core/paid";
+import { PaidGate, SINCE_KEY } from "../src/core/paid-gate";
 import { DEFAULT_AUTO_SYNC, type DeviceSettings } from "../src/core/settings";
 import { ANDROID_CONCURRENT_FETCH_BYTES } from "../src/obsidian/http-transport";
 import type { SyncResult } from "../src/core/sync-results";
@@ -35,7 +38,7 @@ const app = vi.hoisted(() => ({
 	/** Every notice that was made to look as an error (`sync-evo-notice-error`), by its text, in order. */
 	errors: [] as string[],
 	/** Answers a request: rejects like a device without a network unless a test says otherwise. */
-	request: (): Promise<unknown> => Promise.reject(new Error("net::ERR_INTERNET_DISCONNECTED")),
+	request: (_params?: { url: string; body?: unknown }): Promise<unknown> => Promise.reject(new Error("net::ERR_INTERNET_DISCONNECTED")),
 	requests: 0,
 	/** What the app says the device is. */
 	platform: { isAndroidApp: false },
@@ -81,9 +84,9 @@ vi.mock("obsidian", () => {
 		TFile: Empty,
 		TFolder: Empty,
 		Platform: app.platform,
-		requestUrl: () => {
+		requestUrl: (params: { url: string; body?: unknown }) => {
 			app.requests += 1;
-			return app.request();
+			return app.request(params);
 		},
 	};
 });
@@ -907,5 +910,218 @@ describe("a folder on Google Drive that is no longer to be seen", () => {
 		await runner.run("pull");
 		expect(app.notices.some((text) => text.includes(GONE))).toBe(true);
 		expect(gone).toEqual([{ id: "f1", running: false }]);
+	});
+});
+
+describe("the paid plan of Dropbox and Google Drive", () => {
+	const DAY = 24 * 60 * 60 * 1000;
+	// Long enough ago that the end is three months after the start of the count.
+	const ENABLED = Date.now() - 400 * DAY;
+	const t = translatorFor("en", "Google Drive");
+
+	/** Google Drive, whose free time ended `daysAgo` days ago for the account, or ends in minus that many. */
+	function paidSetup(daysAgo: number, enabledAt: number | null = ENABLED) {
+		const made = setup({
+			backend: "gdrive",
+			gdriveFolder: "Vault",
+			gdriveAccount: { id: "perm1", email: "a@example.com" },
+			gdriveFolderId: "f1",
+		});
+		const values = new Map<string, unknown>();
+		const storage = { read: (key: string) => values.get(key) ?? null, write: (key: string, value: unknown) => void values.set(key, value) };
+		const end = Date.now() - daysAgo * DAY;
+		// A start of the count three months before that end.
+		const since = new Date(end);
+		since.setUTCMonth(since.getUTCMonth() - 3);
+		const paid = new PaidGate({ storage, http: () => Promise.reject(new Error("offline")), now: Date.now, enabledAt, api: DODO_LIVE_API });
+		values.set(SINCE_KEY, { "gdrive:perm1": since.getTime() });
+		Object.assign(made.host, {
+			readGdriveToken: () => "refresh",
+			gdriveTokens: () => ({ get: async () => "access", refused: () => {} }),
+			paid,
+			// What the plugin gives with Google Drive chosen.
+			t,
+		});
+		return { ...made, paid, end };
+	}
+
+	const failedLines = (): string[] =>
+		vi
+			.mocked(console.debug)
+			.mock.calls.map(([message]) => String(message))
+			.filter((message) => message.includes(": failed (") || message.includes(": not started ("));
+
+	test("while it is switched off, every sync runs as it did", async () => {
+		const { runner } = paidSetup(100, null);
+		await runner.run("push");
+		expect(app.requests).toBeGreaterThan(0);
+		expect(failedLines()[0]).toContain("(push, by hand)");
+		expect(app.notices.some((text) => text.includes("license key"))).toBe(false);
+	});
+
+	test("after the free time, an upload does not start, and says why", async () => {
+		const { runner } = paidSetup(1);
+		await runner.run("push");
+		expect(app.requests).toBe(0);
+		expect(app.notices).toHaveLength(1);
+		expect(app.notices[0]).toContain("Nothing was uploaded.");
+		expect(failedLines()).toEqual(["Sync Evo: push: not started (by hand): paid plan, read-only"]);
+	});
+
+	test("after the free time, a sync becomes a download, and says so first", async () => {
+		const { runner } = paidSetup(1);
+		await runner.run("sync");
+		expect(app.notices[0]).toContain("only downloads");
+		expect(app.requests).toBeGreaterThan(0);
+		expect(failedLines()[0]).toContain("(pull, by hand)");
+	});
+
+	test("30 days after, nothing starts; automatic sync tells it once, and counts it as a failure", async () => {
+		const { runner, store, end } = paidSetup(31);
+		await runner.runAuto("full");
+		await runner.runAuto("light");
+		expect(app.requests).toBe(0);
+		expect(app.notices).toEqual([HEADING + t("paid.stopped", { ended: dayOf(end) })]);
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		expect(await readAutoSyncMemory(store)).toMatchObject({ told: "paid:stopped", failures: 2 });
+	});
+
+	test("a week before the end, it is told once, and the sync runs", async () => {
+		const { runner } = paidSetup(-7);
+		await runner.run("push");
+		await runner.run("push");
+		const warned = app.notices.filter((text) => text.includes("more days"));
+		expect(warned).toHaveLength(1);
+		expect(warned[0]).toContain("7 more days");
+		expect(failedLines().filter((line) => line.includes("(push, by hand)"))).toHaveLength(2);
+	});
+});
+
+describe("the start of the free time, learned before a sync goes on", () => {
+	const DAY = 24 * 60 * 60 * 1000;
+	const ENABLED = Date.now() - 400 * DAY;
+	const json = (status: number, body: unknown) => ({ status, headers: {}, arrayBuffer: new TextEncoder().encode(JSON.stringify(body)).buffer });
+
+	function learning(backend: "dropbox" | "gdrive") {
+		const made = setup(
+			backend === "dropbox"
+				? { backend, dropboxFolder: "Vault", dropboxAccount: { id: "dbid:1", email: "a@example.com" } }
+				: { backend, gdriveFolder: "Vault", gdriveAccount: { id: "perm1", email: "a@example.com" }, gdriveFolderId: "f1" },
+		);
+		const values = new Map<string, unknown>();
+		const storage = { read: (key: string) => values.get(key) ?? null, write: (key: string, value: unknown) => void values.set(key, value) };
+		const paid = new PaidGate({ storage, http: () => Promise.reject(new Error("offline")), now: Date.now, enabledAt: ENABLED, api: DODO_LIVE_API });
+		const learned: number[] = [];
+		const host = {
+			check: paid.check.bind(paid),
+			sinceWanted: paid.sinceWanted.bind(paid),
+			sinceLearned: (settings: DeviceSettings, at: number) => {
+				learned.push(at);
+				paid.sinceLearned(settings, at);
+			},
+		};
+		const tokens = { get: async () => "access", refused: () => {} };
+		Object.assign(made.host, {
+			readDropboxToken: () => "refresh",
+			dropboxTokens: () => tokens,
+			readGdriveToken: () => "refresh",
+			gdriveTokens: () => tokens,
+			paid: host,
+			t: translatorFor("en", backend === "dropbox" ? "Dropbox" : "Google Drive"),
+		});
+		/** The URLs asked, in order. */
+		const urls: string[] = [];
+		return { ...made, learned, urls };
+	}
+
+	/** A start of the count long enough ago that nothing syncs any more. */
+	const LONG_AGO = new Date(Date.now() - 200 * DAY).toISOString();
+
+	const lines = (): string[] => vi.mocked(console.debug).mock.calls.map(([message]) => String(message));
+
+	test("Dropbox: the file is read, the start kept, and a sync it ends before does not reach the folder", async () => {
+		const { runner, learned, urls } = learning("dropbox");
+		app.request = async (params) => {
+			urls.push(params?.url ?? "");
+			return json(200, { name: ".sync-evo-since", server_modified: LONG_AGO });
+		};
+		await runner.run("sync");
+		expect(learned).toEqual([Date.parse(LONG_AGO)]);
+		expect(urls).toEqual(["https://api.dropboxapi.com/2/files/get_metadata"]);
+		expect(app.notices.some((text) => text.startsWith("Sync Evo no longer syncs with Dropbox"))).toBe(true);
+		expect(lines()).toContain("Sync Evo: sync: not started (by hand): paid plan, stopped");
+	});
+
+	test("Dropbox: once known, it is not asked again, and the sync is held back before it starts", async () => {
+		const { runner, urls } = learning("dropbox");
+		app.request = async (params) => {
+			urls.push(params?.url ?? "");
+			return json(200, { name: ".sync-evo-since", server_modified: LONG_AGO });
+		};
+		await runner.run("sync");
+		urls.length = 0;
+		await runner.run("sync");
+		expect(urls).toEqual([]);
+	});
+
+	test("Dropbox: a start that cannot be read fails nothing: the sync goes on", async () => {
+		const { runner, learned } = learning("dropbox");
+		await runner.run("sync");
+		expect(learned).toEqual([]);
+		expect(lines().some((line) => line.includes("paid: the start of the free time could not be read: BackendError unreachable"))).toBe(true);
+		expect(lines().some((line) => line.includes("pull: failed (sync, by hand)"))).toBe(true);
+	});
+
+	test("Dropbox: a sync stopped while the start is asked for ends as stopped", async () => {
+		const { runner, learned } = learning("dropbox");
+		let answer: (value: unknown) => void = () => {};
+		app.request = () => new Promise((resolve) => (answer = resolve));
+		const running = runner.run("sync");
+		await underWay();
+		runner.requestStop();
+		// Dropbox asks to wait: the wait is where the stop is seen.
+		answer({ status: 429, headers: { "Retry-After": "1" }, arrayBuffer: new ArrayBuffer(0) });
+		await running;
+		expect(learned).toEqual([]);
+		expect(app.requests).toBe(1);
+		expect(lines().some((line) => line.includes("could not be read"))).toBe(false);
+		expect(lines().some((line) => line.includes(": failed ("))).toBe(false);
+	});
+
+	test("Google Drive: a folder kept that is gone fails the sync once, as the pull would, and not as a start that could not be read", async () => {
+		const { runner, learned, results } = learning("gdrive");
+		app.request = async () => json(404, { error: { code: 404, errors: [{ reason: "notFound" }] } });
+		await runner.run("push");
+		expect(learned).toEqual([]);
+		expect(lines().some((line) => line.includes("could not be read"))).toBe(false);
+		expect(lines().filter((line) => line.includes(": failed ("))).toHaveLength(1);
+		expect(lines().find((line) => line.includes(": failed ("))).toContain("DriveFolderGoneError");
+		expect(results).toHaveLength(1);
+	});
+
+	test("a sync the user started, held back once the start is learned, is told and not kept as a result", async () => {
+		const { runner, results } = learning("dropbox");
+		app.request = async () => json(200, { name: ".sync-evo-since", server_modified: LONG_AGO });
+		await runner.run("sync");
+		expect(app.notices.some((text) => text.startsWith("Sync Evo no longer syncs with Dropbox"))).toBe(true);
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		expect(results).toEqual([]);
+	});
+
+	test("Google Drive: the folder Sync Evo is asked for by its id, the parent of the folder kept", async () => {
+		const { runner, learned, urls } = learning("gdrive");
+		app.request = async (params) => {
+			const url = params?.url ?? "";
+			urls.push(url);
+			if (url.includes("/files/f1?")) return json(200, { id: "f1", mimeType: "application/vnd.google-apps.folder", trashed: false, parents: ["top1"] });
+			if (url.includes("/files/top1?")) return json(200, { createdTime: LONG_AGO });
+			// The folders of the same name: none but the ones kept.
+			return json(200, { files: [] });
+		};
+		await runner.run("push");
+		expect(learned).toEqual([Date.parse(LONG_AGO)]);
+		const asked = urls.find((url) => url.includes("/files/top1?"));
+		expect(asked).toBe("https://www.googleapis.com/drive/v3/files/top1?fields=createdTime");
+		expect(lines()).toContain("Sync Evo: push: not started (by hand): paid plan, stopped");
 	});
 });

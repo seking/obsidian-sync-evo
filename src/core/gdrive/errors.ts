@@ -52,12 +52,16 @@ export class DriveDuplicateFolderError extends BackendError {
  * The build has no client secret of Sync Evo's client: one made from the
  * source without it (`esbuild.config.mjs`). Google would answer "client_secret
  * is missing" only after the user typed the code, so Sync Evo stops before
- * asking. The released builds have it.
+ * asking. The released builds have it. `own`: the client is one of the
+ * user's own, and it is its secret that was not entered in the settings.
  */
 export class GoogleClientSecretMissingError extends BackendError {
-	constructor() {
-		super("other", "this build of Sync Evo has no client secret of Google");
+	readonly own: boolean;
+
+	constructor(own = false) {
+		super("other", own ? "no client secret of the user's own Google client" : "this build of Sync Evo has no client secret of Google");
 		this.name = "GoogleClientSecretMissingError";
+		this.own = own;
 	}
 }
 

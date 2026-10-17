@@ -18,6 +18,7 @@ import {
 	DRIVE_SCOPE,
 	GoogleTokens,
 	googleClientOf,
+	isOwnClient,
 	requestDeviceCode,
 	SYNC_EVO_GOOGLE_CLIENT,
 	waitForDeviceGrant,
@@ -274,10 +275,15 @@ describe("connecting to Google Drive by the device flow", () => {
 	test("the client of Sync Evo, unless the settings name another", () => {
 		expect(googleClientOf(undefined)).toBe(SYNC_EVO_GOOGLE_CLIENT);
 		expect(googleClientOf(SYNC_EVO_GOOGLE_CLIENT.id)).toBe(SYNC_EVO_GOOGLE_CLIENT);
-		expect(googleClientOf("own")).toEqual({ id: "own" });
+		expect(googleClientOf(SYNC_EVO_GOOGLE_CLIENT.id, "ignored")).toBe(SYNC_EVO_GOOGLE_CLIENT);
+		expect(googleClientOf("own", "own-secret")).toEqual({ id: "own", secret: "own-secret", own: true });
 		// The secret is put in when main.js is built, and the tests are not.
 		expect(SYNC_EVO_GOOGLE_CLIENT.secret).toBe("");
-		expect(googleClientOf("own").secret).toBeUndefined();
+		// A client of the user's own whose secret was not entered.
+		expect(googleClientOf("own")).toEqual({ id: "own", secret: "", own: true });
+		expect(isOwnClient(undefined)).toBe(false);
+		expect(isOwnClient(SYNC_EVO_GOOGLE_CLIENT.id)).toBe(false);
+		expect(isOwnClient("own")).toBe(true);
 	});
 
 	// Sync Evo's client as a release has it, with a secret made up here.
@@ -294,10 +300,29 @@ describe("connecting to Google Drive by the device flow", () => {
 		expect(requests).toEqual([]);
 	});
 
-	test("a client of the user's own is asked with no secret", async () => {
-		const { http, requests } = scripted(response(200, { access_token: "a1", expires_in: 3600 }));
-		expect(await new GoogleTokens(http, () => 0, googleClientOf("own"), "rt").get()).toBe("a1");
-		expect(form(requests[0])).toEqual({ client_id: "own", grant_type: "refresh_token", refresh_token: "rt" });
+	test("a client of the user's own is asked with its own secret", async () => {
+		const { http, requests } = scripted(
+			response(200, { device_code: "dc", user_code: "U", expires_in: 1800 }),
+			response(200, { access_token: "a1", refresh_token: "rt", expires_in: 3600 }),
+			response(200, { access_token: "a2", expires_in: 3600 }),
+		);
+		const own = googleClientOf("own", "own-secret");
+		const asked = await requestDeviceCode(http, () => 0, own);
+		// The code is asked for without the secret, as with the client of Sync Evo.
+		expect(form(requests[0])).toEqual({ client_id: "own", scope: DRIVE_SCOPE });
+		await waitForDeviceGrant(http, () => 0, () => Promise.resolve(), own, asked);
+		expect(form(requests[1])).toMatchObject({ client_id: "own", client_secret: "own-secret" });
+		expect(await new GoogleTokens(http, () => 0, own, "rt").get()).toBe("a2");
+		expect(form(requests[2])).toEqual({ client_id: "own", client_secret: "own-secret", grant_type: "refresh_token", refresh_token: "rt" });
+	});
+
+	test("a client of the user's own without its secret asks Google for nothing, and says whose secret is missing", async () => {
+		const { http, requests } = scripted();
+		const own = googleClientOf("own", null);
+		await expect(requestDeviceCode(http, () => 0, own)).rejects.toMatchObject({ own: true });
+		await expect(new GoogleTokens(http, () => 0, own, "rt").get()).rejects.toBeInstanceOf(GoogleClientSecretMissingError);
+		await expect(new GoogleTokens(http, () => 0, SYNC_EVO_GOOGLE_CLIENT, "rt").get()).rejects.toMatchObject({ own: false });
+		expect(requests).toEqual([]);
 	});
 
 	test("a code is asked for with the client and the one scope", async () => {

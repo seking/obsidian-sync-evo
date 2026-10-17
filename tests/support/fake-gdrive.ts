@@ -63,6 +63,10 @@ export class FakeDrive implements DriveBackendClient {
 	 * of a resumable upload answers).
 	 */
 	hashOnlyAlone = false;
+	/** The time Drive gives what is made from here on (`createdTime`), in milliseconds since the epoch. */
+	now = Date.parse("2027-01-10T00:00:00Z");
+	/** When each file and folder was made. */
+	private readonly created = new Map<string, number>();
 
 	private fail(what: string, status: number, reason: string): never {
 		throw new DriveApiError(what, status, reason, "");
@@ -70,15 +74,20 @@ export class FakeDrive implements DriveBackendClient {
 
 	private newId(): string {
 		this.ids += 1;
-		return `id${String(this.ids).padStart(4, "0")}`;
+		const id = `id${String(this.ids).padStart(4, "0")}`;
+		this.created.set(id, this.now);
+		return id;
 	}
 
 	private changed(id: string): void {
 		this.log.push(id);
 	}
 
-	private meta(item: Stored, alone = false): Record<string, unknown> {
+	private meta(item: Stored, alone = false, withCreated = false): Record<string, unknown> {
+		const created = this.created.get(item.id);
 		return {
+			// Only where it was asked for, as Drive answers the fields asked.
+			...(withCreated && created !== undefined ? { createdTime: new Date(created).toISOString() } : {}),
 			id: item.id,
 			name: item.name,
 			mimeType: item.mimeType,
@@ -128,7 +137,8 @@ export class FakeDrive implements DriveBackendClient {
 			await this.before("GET files");
 			const matches = this.query(params.get("q") ?? "");
 			const start = Number(params.get("pageToken") ?? "0");
-			const page = matches.slice(start, start + this.pageSize).map((item) => this.meta(item));
+			const withCreated = (params.get("fields") ?? "").includes("createdTime");
+			const page = matches.slice(start, start + this.pageSize).map((item) => this.meta(item, false, withCreated));
 			return {
 				files: page,
 				...(start + this.pageSize < matches.length ? { nextPageToken: String(start + this.pageSize) } : {}),
@@ -143,7 +153,7 @@ export class FakeDrive implements DriveBackendClient {
 		await this.before("GET file");
 		const item = this.items.get(id);
 		if (item === undefined) this.fail("get", 404, "notFound");
-		return this.meta(item, true);
+		return this.meta(item, true, (params.get("fields") ?? "").includes("createdTime"));
 	}
 
 	/** What a query of the backend finds. Only the forms it asks in. */
@@ -258,7 +268,15 @@ export class FakeDrive implements DriveBackendClient {
 	}
 
 	/** Makes a folder, as another client would, also where one of its name is. */
-	makeFolder(parentPath: string, name: string): string {
+	/** Renames what is at `path`, as the user does on the web. */
+	rename(path: string, name: string): void {
+		const item = this.items.get(this.idOf(path) ?? "");
+		if (item === undefined) throw new Error(`nothing at ${path}`);
+		item.name = name;
+		this.changed(item.id);
+	}
+
+		makeFolder(parentPath: string, name: string): string {
 		const parent = parentPath === "" ? this.rootId : this.idOf(parentPath);
 		if (parent === undefined) throw new Error(`no folder ${parentPath}`);
 		const id = this.newId();

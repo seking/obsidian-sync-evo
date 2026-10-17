@@ -19,6 +19,7 @@ import {
 	filesDigest,
 	joinAutoReports,
 	notReadyAutoReport,
+	paidAutoReport,
 	pullAutoReport,
 	pushAutoReport,
 	settleAutoSync,
@@ -463,6 +464,19 @@ describe("a sync that ended by throwing", () => {
 			cause: "not-ready:token-value",
 			end: "failure",
 		});
+	});
+
+	test("the paid plan is told once while it stays so: a download that ran is no failure, a sync kept from starting is", () => {
+		const ran = paidAutoReport(t, "read-only", true, "Only downloads.");
+		expect(ran).toMatchObject({ cause: "paid:read-only", end: "success", standing: [{ text: "Only downloads.", level: "warn" }] });
+		const kept = paidAutoReport(t, "stopped", false, "Stopped.");
+		expect(kept).toMatchObject({ cause: "paid:stopped", end: "failure", standing: [{ text: "Stopped.", level: "error" }] });
+		const first = settleAutoSync(NO_AUTO_SYNC_MEMORY, joinAutoReports([ran]), true);
+		expect(first.tell).toBe(true);
+		expect(first.memory.failures).toBe(0);
+		expect(settleAutoSync(first.memory, joinAutoReports([ran]), true).tell).toBe(false);
+		// The time for downloads is over too: news again.
+		expect(settleAutoSync(first.memory, kept, true).tell).toBe(true);
 	});
 
 	test("no sync state to run with is a failure by what is wrong with it", () => {

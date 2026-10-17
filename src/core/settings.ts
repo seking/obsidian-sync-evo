@@ -450,14 +450,24 @@ export function branchToStore(typed: string): string | null {
 }
 
 /**
+ * The file at the top of the app folder of Dropbox that tells when the
+ * account began to sync with Sync Evo, for the free time of the paid plan
+ * (`dropbox/since.ts`). Not a name the folder of a vault can have.
+ */
+export const DROPBOX_SINCE_FILE = ".sync-evo-since";
+
+/**
  * What to store for the text typed into the field of the Dropbox folder, or
  * `null` to store nothing and keep what was there: a name of one folder,
- * without a slash, and not one of the names a path gives a meaning to.
- * Dropbox answers for the rest.
+ * without a slash, and not one of the names a path gives a meaning to, nor
+ * that of the file of the free time (`DROPBOX_SINCE_FILE`), in any case:
+ * Dropbox takes names in any case. Dropbox answers for the rest. Also for
+ * the folder on Google Drive, which has no such file, and loses nothing.
  */
 export function dropboxFolderToStore(typed: string): string | null {
 	const name = typed.trim();
 	if (name === "" || name === "." || name === ".." || /[/\\\p{Cc}]/u.test(name)) return null;
+	if (name.toLowerCase() === DROPBOX_SINCE_FILE) return null;
 	return name;
 }
 

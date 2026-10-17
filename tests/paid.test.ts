@@ -1,0 +1,200 @@
+/*
+ * Sync Evo
+ * Copyright (C) 2026 seking
+ *
+ * This file is part of Sync Evo, which is free software licensed under the
+ * GNU Affero General Public License, version 3. It comes with ABSOLUTELY NO
+ * WARRANTY. See the LICENSE file for the full text.
+ *
+ * Source: https://github.com/seking/obsidian-sync-evo
+ */
+
+import { describe, expect, test } from "vitest";
+import { translatorFor } from "../src/core/i18n";
+import { DODO_BUSINESS_ID, DODO_PRODUCT_IDS, PURCHASE_URL } from "../src/core/license";
+import {
+	addMonths,
+	DAY_MS,
+	dueWarning,
+	type PaidFacts,
+	freeUntil,
+	PAID_ENABLED_AT,
+	paidNoteText,
+	paidStanding,
+	paidStatusLines,
+	type PaidStanding,
+	type PaidSyncMode,
+	paidVerdict,
+	paidWarningText,
+} from "../src/core/paid";
+
+const at = (iso: string): number => Date.parse(iso);
+
+describe("the switch", () => {
+	test("is off in this version: nothing of the plan is decided or shown", () => {
+		expect(PAID_ENABLED_AT).toBeNull();
+	});
+
+	test("is switched on only with the business, the products and the page of the key in place", () => {
+		// Fails the version that sets the day while these are placeholders:
+		// no key would be taken, and no page to buy one would be shown.
+		if (PAID_ENABLED_AT === null) return;
+		expect(DODO_BUSINESS_ID).not.toBe("");
+		expect(DODO_PRODUCT_IDS.length).toBeGreaterThan(0);
+		expect(PURCHASE_URL).toMatch(/^https:\/\//);
+	});
+});
+
+describe("three months", () => {
+	test("end on the same day of the month, at the same time", () => {
+		expect(addMonths(at("2026-10-17T05:00:00Z"), 3)).toBe(at("2027-01-17T05:00:00Z"));
+	});
+
+	test("end on the last day of a month that has no such day", () => {
+		expect(addMonths(at("2026-11-30T00:00:00Z"), 3)).toBe(at("2027-02-28T00:00:00Z"));
+		expect(addMonths(at("2027-11-30T00:00:00Z"), 3)).toBe(at("2028-02-29T00:00:00Z"));
+	});
+});
+
+describe("the end of the free time", () => {
+	const enabledAt = at("2027-03-01T00:00:00Z");
+
+	test("is three months after the count started, when that is after two weeks from the switch", () => {
+		expect(freeUntil(at("2027-02-01T00:00:00Z"), enabledAt)).toBe(at("2027-05-01T00:00:00Z"));
+	});
+
+	test("is two weeks after the switch, for an account whose three months were over by then", () => {
+		expect(freeUntil(at("2026-10-17T00:00:00Z"), enabledAt)).toBe(enabledAt + 14 * DAY_MS);
+		// Where the two meet.
+		expect(freeUntil(at("2026-12-15T00:00:00Z"), enabledAt)).toBe(enabledAt + 14 * DAY_MS);
+	});
+});
+
+describe("where a device stands", () => {
+	const enabledAt = at("2027-01-01T00:00:00Z");
+	const since = at("2027-01-10T00:00:00Z");
+	const end = at("2027-04-10T00:00:00Z");
+	const facts = (over: Partial<PaidFacts>): PaidFacts => ({
+		enabledAt,
+		backend: "dropbox",
+		ownClient: false,
+		licensed: false,
+		since,
+		now: since,
+		...over,
+	});
+
+	test("nothing applies while the switch is off, whatever else", () => {
+		expect(paidStanding(facts({ enabledAt: null, now: end + 100 * DAY_MS }))).toEqual({ status: "free" });
+	});
+
+	test("nothing applies to GitHub, to a key that counts, nor to Google Drive through a client of the user's own", () => {
+		const late = end + 100 * DAY_MS;
+		expect(paidStanding(facts({ backend: "github", now: late }))).toEqual({ status: "free" });
+		expect(paidStanding(facts({ licensed: true, now: late }))).toEqual({ status: "free" });
+		expect(paidStanding(facts({ backend: "gdrive", ownClient: true, now: late }))).toEqual({ status: "free" });
+		// The client is Google's alone: with Dropbox it changes nothing.
+		expect(paidStanding(facts({ backend: "dropbox", ownClient: true, now: late })).status).toBe("stopped");
+	});
+
+	test("free until the end, with the end unknown while the start of the count is", () => {
+		expect(paidStanding(facts({ since: null, now: end + 100 * DAY_MS }))).toEqual({ status: "trial", endsAt: null });
+		expect(paidStanding(facts({ now: end - 1 }))).toEqual({ status: "trial", endsAt: end });
+	});
+
+	test("downloads only from the end, for 30 days, and then nothing", () => {
+		const stopsAt = end + 30 * DAY_MS;
+		expect(paidStanding(facts({ now: end }))).toEqual({ status: "read-only", endedAt: end, stopsAt });
+		expect(paidStanding(facts({ now: stopsAt - 1 }))).toEqual({ status: "read-only", endedAt: end, stopsAt });
+		expect(paidStanding(facts({ now: stopsAt }))).toEqual({ status: "stopped", endedAt: end });
+	});
+});
+
+describe("what a sync is let do", () => {
+	const modes: PaidSyncMode[] = ["sync", "pull", "push", "first-fetch", "untrack"];
+	const readOnly: PaidStanding = { status: "read-only", endedAt: 0, stopsAt: 1 };
+
+	test("everything, while free", () => {
+		for (const mode of modes) {
+			expect(paidVerdict(mode, { status: "free" })).toEqual({ mode, note: null });
+			expect(paidVerdict(mode, { status: "trial", endsAt: null })).toEqual({ mode, note: null });
+		}
+	});
+
+	test("after the free time: a sync is a download, a download stays one, and what sends does not start", () => {
+		expect(paidVerdict("sync", readOnly)).toEqual({ mode: "pull", note: "read-only" });
+		expect(paidVerdict("pull", readOnly)).toEqual({ mode: "pull", note: "read-only" });
+		expect(paidVerdict("first-fetch", readOnly)).toEqual({ mode: "first-fetch", note: "read-only" });
+		expect(paidVerdict("push", readOnly)).toEqual({ mode: null, note: "read-only" });
+		expect(paidVerdict("untrack", readOnly)).toEqual({ mode: null, note: "read-only" });
+	});
+
+	test("nothing, once the time for downloads is over too", () => {
+		for (const mode of modes) expect(paidVerdict(mode, { status: "stopped", endedAt: 0 })).toEqual({ mode: null, note: "stopped" });
+	});
+});
+
+describe("the warnings before the end", () => {
+	const endsAt = at("2027-04-10T00:00:00Z");
+	const trial: PaidStanding = { status: "trial", endsAt };
+
+	test("14 days before, and then 7, each once", () => {
+		expect(dueWarning(trial, null, endsAt - 15 * DAY_MS)).toBeNull();
+		expect(dueWarning(trial, null, endsAt - 14 * DAY_MS)).toBe(14);
+		expect(dueWarning(trial, 14, endsAt - 10 * DAY_MS)).toBeNull();
+		expect(dueWarning(trial, 14, endsAt - 7 * DAY_MS)).toBe(7);
+		expect(dueWarning(trial, 7, endsAt - 1)).toBeNull();
+	});
+
+	test("only the nearest, for a device that was not used through the first", () => {
+		expect(dueWarning(trial, null, endsAt - 3 * DAY_MS)).toBe(7);
+	});
+
+	test("none without a known end, after it, or while free", () => {
+		expect(dueWarning({ status: "trial", endsAt: null }, null, 0)).toBeNull();
+		expect(dueWarning({ status: "read-only", endedAt: endsAt, stopsAt: endsAt + 1 }, null, endsAt)).toBeNull();
+		expect(dueWarning({ status: "free" }, null, endsAt)).toBeNull();
+	});
+});
+
+describe.each(["en", "ja"])("the texts in %s", (language) => {
+	const t = translatorFor(language, "Dropbox");
+	const endedAt = new Date(2027, 3, 10).getTime();
+	const readOnly: PaidStanding = { status: "read-only", endedAt, stopsAt: new Date(2027, 4, 10).getTime() };
+
+	test("each case has its own, with its dates and no placeholder left", () => {
+		const texts = [
+			paidNoteText(t, { mode: "pull", note: "read-only" }, readOnly),
+			paidNoteText(t, { mode: null, note: "read-only" }, readOnly),
+			paidNoteText(t, { mode: null, note: "stopped" }, { status: "stopped", endedAt }),
+			paidWarningText(t, { status: "trial", endsAt: endedAt }, 7),
+		];
+		expect(new Set(texts).size).toBe(texts.length);
+		for (const text of texts) {
+			expect(text).not.toBeNull();
+			expect(text).not.toMatch(/[{}]/);
+			expect(text).toContain("2027-04-10");
+			expect(text).toContain("Dropbox");
+		}
+		expect(texts[0]).toContain("2027-05-10");
+	});
+
+	test("nothing is said while free", () => {
+		expect(paidNoteText(t, { mode: "sync", note: null }, { status: "free" })).toBeNull();
+		expect(paidNoteText(t, { mode: "sync", note: null }, { status: "trial", endsAt: endedAt })).toBeNull();
+	});
+
+	test("the settings say where the device stands, and of the key", () => {
+		const lines = (over: Partial<Parameters<typeof paidStatusLines>[1]>): string[] =>
+			paidStatusLines(t, { standing: { status: "free" }, license: { status: "none" }, key: "", ownClient: false, ...over });
+		expect(lines({ ownClient: true, standing: readOnly })).toEqual([t("settings.license.ownClient")]);
+		expect(lines({ license: { status: "valid" } })).toEqual([t("settings.license.valid")]);
+		expect(lines({ standing: { status: "trial", endsAt: null } })).toEqual([t("settings.license.trialUnknown")]);
+		const invalid = lines({ license: { status: "invalid" }, standing: readOnly });
+		expect(invalid).toEqual([t("settings.license.invalid"), t("settings.license.readOnly", { ended: "2027-04-10", stops: "2027-05-10" })]);
+		const grace = lines({ license: { status: "grace", since: endedAt, until: endedAt + 14 * DAY_MS } });
+		expect(grace[0]).toContain("2027-04-10");
+		expect(grace[0]).toContain("2027-04-24");
+		for (const line of [...invalid, ...grace]) expect(line).not.toMatch(/[{}]/);
+	});
+});

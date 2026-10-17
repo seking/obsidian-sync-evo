@@ -26,14 +26,19 @@ import { BackendError } from "./core/backend";
 import {
 	currentDriveAccount,
 	type DeviceCode,
+	type GoogleClient,
 	GoogleTokens,
 	googleClientOf,
+	isOwnClient,
 	requestDeviceCode,
 	waitForDeviceGrant,
 } from "./core/gdrive/auth";
 import { GDriveBackend } from "./core/gdrive/backend";
 import { DriveClient } from "./core/gdrive/client";
 import { GoogleClientSecretMissingError } from "./core/gdrive/errors";
+import { DODO_API } from "./core/license";
+import { PAID_ENABLED_AT, type PaidInfo } from "./core/paid";
+import { PaidGate } from "./core/paid-gate";
 import {
 	applyExclusionEdit,
 	type ExclusionChanged,
@@ -80,6 +85,7 @@ import { type SettingsHost, SyncEvoSettingTab } from "./obsidian/settings-tab";
 import { SyncState, syncStateDepsOf } from "./obsidian/sync-state";
 import { windowSleep } from "./obsidian/window-sleep";
 import { copyText, DriveCodeModal } from "./obsidian/gdrive-connect";
+import { windowStorage } from "./obsidian/paid-storage";
 
 /** A code fetched before the press is used only while it has this much left. */
 const CODE_MARGIN_MS = 60_000;
@@ -159,8 +165,8 @@ export default class SyncEvoPlugin extends Plugin implements SettingsHost, SyncH
 	/** The access tokens of Dropbox, kept while the refresh token they come from is the one in use. */
 	private dropboxAccess: { readonly refreshToken: string; readonly tokens: RefreshingTokens } | null = null;
 
-	/** The access tokens of Google Drive, likewise. */
-	private gdriveAccess: { readonly refreshToken: string; readonly tokens: GoogleTokens } | null = null;
+	/** The access tokens of Google Drive, likewise, with the client they are taken with. */
+	private gdriveAccess: { readonly refreshToken: string; readonly client: GoogleClient; readonly tokens: GoogleTokens } | null = null;
 
 	/**
 	 * The code asked of Google ahead of a press of "Connect", kept while it
@@ -206,6 +212,20 @@ export default class SyncEvoPlugin extends Plugin implements SettingsHost, SyncH
 	 * change of the connection, and a first fetch.
 	 */
 	readonly results = new ResultsStore(resultsStoreDepsOf(this.app));
+
+	/**
+	 * The paid plan of Dropbox and Google Drive (T082): what a sync is let
+	 * do, and the license key of this device. Does nothing while the plan
+	 * is not switched on (`PAID_ENABLED_AT`).
+	 */
+	readonly paid = new PaidGate({
+		storage: windowStorage,
+		http: (request) => deviceNetwork().http(request),
+		now: Date.now,
+		enabledAt: PAID_ENABLED_AT,
+		api: DODO_API,
+		log,
+	});
 
 	/** The one place a sync of any kind is started from, so that two never run at once. */
 	private readonly syncs = new SyncRunner(this);
@@ -631,12 +651,22 @@ export default class SyncEvoPlugin extends Plugin implements SettingsHost, SyncH
 		return this.store.readGdriveToken();
 	}
 
-	gdriveTokens(refreshToken: string): AccessTokens {
+	/**
+	 * The client of Google to connect with: Sync Evo's, or the one of the
+	 * user's own the settings name, with the secret this device keeps for it.
+	 */
+	private gdriveClient(clientId: string | undefined = this.deviceSettings?.gdriveClientId): GoogleClient {
+		return googleClientOf(clientId, this.store.readGdriveClientSecret());
+	}
+
+	gdriveTokens(refreshToken: string, clientId: string | undefined = this.deviceSettings?.gdriveClientId): AccessTokens {
+		const client = this.gdriveClient(clientId);
 		const kept = this.gdriveAccess;
-		if (kept !== null && kept.refreshToken === refreshToken) return kept.tokens;
-		const client = googleClientOf(this.deviceSettings?.gdriveClientId);
+		if (kept !== null && kept.refreshToken === refreshToken && kept.client.id === client.id && kept.client.secret === client.secret) {
+			return kept.tokens;
+		}
 		const tokens = new GoogleTokens(deviceNetwork().http, Date.now, client, refreshToken);
-		this.gdriveAccess = { refreshToken, tokens };
+		this.gdriveAccess = { refreshToken, client, tokens };
 		return tokens;
 	}
 
@@ -653,7 +683,7 @@ export default class SyncEvoPlugin extends Plugin implements SettingsHost, SyncH
 	prepareGdriveCode(): Promise<DeviceCode> {
 		const kept = this.gdriveCode;
 		if (kept !== null && (kept.code === null || kept.code.expiresAt - Date.now() > CODE_MARGIN_MS)) return kept.asked;
-		const asked = requestDeviceCode(deviceNetwork().http, Date.now, googleClientOf(this.deviceSettings?.gdriveClientId));
+		const asked = requestDeviceCode(deviceNetwork().http, Date.now, this.gdriveClient());
 		const entry: { readonly asked: Promise<DeviceCode>; code: DeviceCode | null } = { asked, code: null };
 		this.gdriveCode = entry;
 		asked.then(
@@ -679,7 +709,7 @@ export default class SyncEvoPlugin extends Plugin implements SettingsHost, SyncH
 	 */
 	connectGdrive(prefetched: DeviceCode | null): void {
 		const http = deviceNetwork().http;
-		const client = googleClientOf(this.deviceSettings?.gdriveClientId);
+		const client = this.gdriveClient();
 		const ready = prefetched !== null && prefetched.expiresAt - Date.now() > CODE_MARGIN_MS ? prefetched : null;
 		// A code is for one press.
 		this.gdriveCode = null;
@@ -701,7 +731,7 @@ export default class SyncEvoPlugin extends Plugin implements SettingsHost, SyncH
 	private async finishGdriveSignIn(code: Promise<DeviceCode>, modal: DriveCodeModal): Promise<void> {
 		const t = this.t;
 		const http = deviceNetwork().http;
-		const client = googleClientOf(this.deviceSettings?.gdriveClientId);
+		const client = this.gdriveClient();
 		try {
 			const waited = await waitForDeviceGrant(http, Date.now, windowSleep, client, await code, modal.signal);
 			if (this.unloaded || waited.status === "cancelled") return;
@@ -723,7 +753,7 @@ export default class SyncEvoPlugin extends Plugin implements SettingsHost, SyncH
 				return;
 			}
 			this.store.saveGdriveToken(grant.refreshToken);
-			this.gdriveAccess = { refreshToken: grant.refreshToken, tokens };
+			this.gdriveAccess = { refreshToken: grant.refreshToken, client, tokens };
 			// Another account than the one before is a new connection, and its
 			// sync state is discarded, with the folder found for that account;
 			// the same account keeps both (R-1, as R-4).
@@ -738,7 +768,7 @@ export default class SyncEvoPlugin extends Plugin implements SettingsHost, SyncH
 		} catch (error) {
 			if (this.unloaded) return;
 			if (error instanceof GoogleClientSecretMissingError) {
-				new Notice(t("gdrive.noClientSecret"), 0);
+				new Notice(t(error.own ? "gdrive.ownClientNoSecret" : "gdrive.noClientSecret"), 0);
 				return;
 			}
 			new Notice(t("gdrive.signInFailed", { detail: error instanceof Error ? error.message : String(error) }), 0);
@@ -786,6 +816,61 @@ export default class SyncEvoPlugin extends Plugin implements SettingsHost, SyncH
 		this.updateSettings({ ...settings, gdriveFolderId: null });
 	}
 
+	/** The secret of the Google client of the user's own this device keeps, or "". */
+	gdriveClientSecret(): string {
+		return this.store.readGdriveClientSecret() ?? "";
+	}
+
+	/**
+	 * Takes the secret of the Google client of the user's own. The tokens
+	 * are taken with it from here on: a new secret of the same client keeps
+	 * the connection.
+	 */
+	setGdriveClientSecret(typed: string): void {
+		this.store.saveGdriveClientSecret(typed.trim());
+		this.gdriveAccess = null;
+		this.gdriveCode = null;
+	}
+
+	/**
+	 * Takes the id of the Google client of the user's own: "" goes back to
+	 * the client of Sync Evo. Another client than the one before takes no
+	 * refresh token of the one before, so this device is disconnected, and
+	 * the user connects again. The account and the folder stay: where the
+	 * client is of another project, the folder kept is no longer seen, and
+	 * the next sync starts over in a new one (R-3). Answers whether the
+	 * client changed. Never rejects.
+	 */
+	async setGdriveClientId(typed: string): Promise<boolean> {
+		const settings = this.deviceSettings;
+		if (settings === null) return false;
+		const id = typed.trim();
+		const next = isOwnClient(id === "" ? undefined : id) ? id : undefined;
+		if (next === settings.gdriveClientId) return false;
+		await this.disconnectGdrive();
+		this.gdriveCode = null;
+		const current = this.deviceSettings ?? settings;
+		const { gdriveClientId: _, ...rest } = current;
+		this.updateSettings(next === undefined ? rest : { ...rest, gdriveClientId: next });
+		return true;
+	}
+
+	/** What the settings show of the paid plan, or `null` while it is off, or with GitHub, which it does not apply to. */
+	paidInfo(settings: DeviceSettings): PaidInfo | null {
+		if (!this.paid.enabled || settings.backend === "github") return null;
+		return {
+			standing: this.paid.standing(settings),
+			license: this.paid.licenseStanding(),
+			key: this.paid.license()?.key ?? "",
+			ownClient: settings.backend === "gdrive" && isOwnClient(settings.gdriveClientId),
+		};
+	}
+
+	/** Takes the license key typed in the settings (`PaidGate.setKey`). Never rejects. */
+	async setLicenseKey(typed: string): Promise<void> {
+		await this.paid.setKey(typed, this.deviceSettings?.deviceName ?? "");
+	}
+
 	/** Asks GitHub for the head of the branch with the settings as given. Sends nothing else. */
 	testConnection(settings: DeviceSettings): Promise<CheckOutcome> {
 		return runConnectionCheck(
@@ -824,7 +909,7 @@ export default class SyncEvoPlugin extends Plugin implements SettingsHost, SyncH
 								http: deviceNetwork().http,
 								now: Date.now,
 								sleep: windowSleep,
-								tokens: this.gdriveTokens(target.refreshToken),
+								tokens: this.gdriveTokens(target.refreshToken, target.clientId),
 								// The user is looking at the button.
 								maxRetries: 1,
 							}),

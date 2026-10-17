@@ -31,6 +31,8 @@ export type ConnectionCheck =
 			readonly duplicate?: string;
 			/** Of Google Drive: the build has no client secret (`GoogleClientSecretMissingError`). */
 			readonly noClientSecret?: true;
+			/** With `noClientSecret`: it is the secret of the user's own client that is missing. */
+			readonly ownClient?: true;
 	  };
 
 /**
@@ -83,7 +85,10 @@ export interface DriveCheckTarget {
 	/** The id of the folder this device keeps (`DeviceSettings.gdriveFolderId`). */
 	readonly folderId: string | null;
 	readonly refreshToken: string;
-	/** `DeviceSettings.gdriveClientId`. */
+	/**
+	 * `DeviceSettings.gdriveClientId`: a client of the user's own, whose
+	 * secret the caller reads from where this device keeps it.
+	 */
 	readonly clientId?: string;
 }
 
@@ -215,7 +220,9 @@ export async function checkDriveFolder(find: () => Promise<string | null>): Prom
 	} catch (error) {
 		if (error instanceof DriveFolderGoneError) return { status: "failed", kind: "not-found", detail: error.message };
 		if (error instanceof DriveDuplicateFolderError) return { status: "failed", kind: "other", detail: error.message, duplicate: error.folder };
-		if (error instanceof GoogleClientSecretMissingError) return { status: "failed", kind: "other", detail: error.message, noClientSecret: true };
+		if (error instanceof GoogleClientSecretMissingError) {
+			return { status: "failed", kind: "other", detail: error.message, noClientSecret: true, ...(error.own ? { ownClient: true as const } : {}) };
+		}
 		if (error instanceof BackendError) return { status: "failed", kind: error.kind, detail: error.message };
 		return { status: "failed", kind: "other", detail: error instanceof Error ? error.message : String(error) };
 	}
@@ -310,7 +317,7 @@ function driveCheckText(t: Translate, settings: DeviceSettings, outcome: CheckOu
 		return outcome.reason === "gdrive-folder" ? t("check.gdrive.noFolder") : t("check.gdrive.notConnected");
 	}
 	if (outcome.duplicate !== undefined) return t("gdrive.duplicateFolder", { folder: outcome.duplicate });
-	if (outcome.noClientSecret === true) return t("gdrive.noClientSecret");
+	if (outcome.noClientSecret === true) return t(outcome.ownClient === true ? "gdrive.ownClientNoSecret" : "gdrive.noClientSecret");
 	switch (outcome.kind) {
 		case "unauthorized":
 			return t("check.gdrive.unauthorized");

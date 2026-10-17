@@ -65,6 +65,32 @@ export const en = baseCatalog({
 	"settings.gdriveFolder.name": "Folder",
 	"settings.gdriveFolder.desc":
 		"The name of the folder of this vault inside the folder Sync Evo on Google Drive. Devices with the same name sync with each other. Changing it starts the sync over.",
+	// A client of the user's own: the insurance for when the client of Sync
+	// Evo stops working (R-1, T082). Not offered as a way to use Google
+	// Drive for free.
+	"settings.gdriveClient.heading": "Your own Google client",
+	"settings.gdriveClient.desc":
+		"Only for when the client of Sync Evo stops working. Enter the ID and the secret of an OAuth client of the type \"TVs and Limited Input devices\" from a Google Cloud project of your own, and connect again. Google Drive shows Sync Evo only the files that the same project put there: with a client of another project, the folder of this vault is no longer seen, every file is uploaded again into a new folder, and the old folder stays on Google Drive. To go back to the client of Sync Evo, empty the ID.",
+	"settings.gdriveClient.id.name": "Client ID",
+	"settings.gdriveClient.secret.name": "Client secret",
+	"settings.gdriveClient.secret.desc": "Kept on this device for this vault, like the connection, and not in a file of the vault.",
+	"settings.gdriveClient.reconnect": "The client was changed. Connect to Google Drive again.",
+	// The license key of the paid plan of Dropbox and Google Drive (T082).
+	"settings.license.name": "License key",
+	"settings.license.desc":
+		"Dropbox and Google Drive are free for the first 3 months, and then need a license key. One key is for both, on this device. GitHub stays free.",
+	"settings.license.readme": "See the README of Sync Evo for details.",
+	"settings.license.buy": "Get a key",
+	"settings.license.trial": "Free until {date} with this account.",
+	"settings.license.trialUnknown": "Free for 3 months from the first sync with this account.",
+	"settings.license.readOnly": "The free time ended on {ended}. Until {stops}, Sync Evo only downloads.",
+	"settings.license.stopped": "The free time ended on {ended}. Sync Evo no longer syncs with {remote}.",
+	"settings.license.ownClient": "With your own Google client, no license key is needed.",
+	"settings.license.checking": "Checking the key…",
+	"settings.license.valid": "The key is in use on this device.",
+	"settings.license.grace": "The key could not be checked since {since}. It works until {until}, and is checked again meanwhile.",
+	"settings.license.unconfirmed": "The key could not be checked. Sync Evo tries again later. Check the network connection.",
+	"settings.license.invalid": "This key cannot be used.",
 	"settings.repository.name": "Repository",
 	"settings.repository.desc":
 		"The GitHub repository to sync this vault with. Enter it as owner/name, or paste its address from the browser.",
@@ -261,6 +287,20 @@ export const en = baseCatalog({
 	"gdrive.signInFailed": "Could not connect to Google Drive. Press \"Connect\" again. ({detail})",
 	"gdrive.noClientSecret":
 		"This build of Sync Evo has no Google client credentials, so it cannot connect to Google Drive. Use a released version of Sync Evo.",
+	"gdrive.ownClientNoSecret":
+		"Your own Google client has no client secret entered. Enter it under \"Your own Google client\" in the settings of Sync Evo, or empty the client ID there.",
+	// What the paid plan tells as a sync starts (T082). `{remote}` is Dropbox
+	// or Google Drive; dates are those of the device.
+	"paid.warning": {
+		one: "Sync Evo with {remote} is free until {date}, {count} more day. After that, a license key is needed to go on syncing with {remote}. See the settings of Sync Evo. GitHub stays free.",
+		other: "Sync Evo with {remote} is free until {date}, {count} more days. After that, a license key is needed to go on syncing with {remote}. See the settings of Sync Evo. GitHub stays free.",
+	},
+	"paid.readOnly.pulling":
+		"The free time of Sync Evo with {remote} ended on {ended}. Until {stops}, Sync Evo only downloads, and uploads nothing. To sync again, enter a license key in the settings of Sync Evo.",
+	"paid.readOnly.blocked":
+		"Nothing was uploaded. The free time of Sync Evo with {remote} ended on {ended}. Until {stops}, Sync Evo only downloads. To sync again, enter a license key in the settings of Sync Evo.",
+	"paid.stopped":
+		"Sync Evo no longer syncs with {remote}: the free time ended on {ended}. Nothing was changed. To sync again, enter a license key in the settings of Sync Evo.",
 	"gdrive.folderGone":
 		"The folder Sync Evo/{folder} that this vault synced with is no longer to be seen on Google Drive: it was deleted, put in the trash, or is out of sight of Sync Evo. Nothing on this device was changed. The next sync starts over, as a first sync.",
 	"gdrive.duplicateFolder":

@@ -53,6 +53,12 @@ export interface DriveBackendOptions {
 	readonly folderId: string | null;
 	/** Told the id of the folder of the vault once it was found by its name, or made. */
 	readonly onFolderFound?: (id: string) => void;
+	/**
+	 * Told when the folder `Sync Evo` at the top of Drive was made, each
+	 * time a sync looks it up: the start of the free time of the account
+	 * (`paid.ts`). Asked for with the lookups a sync makes anyway.
+	 */
+	readonly onSince?: (createdAt: number) => void;
 	/** Once aborted, a fetch starts nothing more, and a push sends nothing more. */
 	readonly signal?: AbortSignal;
 	/** How many files are fetched at once. */
@@ -63,6 +69,8 @@ export interface DriveBackendOptions {
 
 /** What is asked of a file in a listing, in the changes, and of a file written. */
 const FILE_FIELDS = "id,name,mimeType,parents,size,sha256Checksum,trashed";
+/** What is asked of the folders that are looked up by their names: also when each was made (`onSince`). */
+const FOLDER_FIELDS = `${FILE_FIELDS},createdTime`;
 /** The most entries a page of a listing or of the changes holds. Google's own limit. */
 const PAGE_SIZE = 1000;
 /** How many files are written, or trashed, at once. */
@@ -84,6 +92,8 @@ interface DriveItem {
 	readonly skip: boolean;
 	readonly hash?: string;
 	readonly size?: number;
+	/** When it was made, where that was asked for (`FOLDER_FIELDS`). */
+	readonly createdAt?: number;
 }
 
 /** A change since a page token: the file as it is now, or the id of one that is no longer to be seen. */
@@ -111,11 +121,12 @@ function malformed(what: string): BackendError {
 
 function itemOf(what: string, value: unknown): DriveItem {
 	if (!isRecord(value)) throw malformed(what);
-	const { id, name, mimeType, parents, trashed, sha256Checksum, size } = value;
+	const { id, name, mimeType, parents, trashed, sha256Checksum, size, createdTime } = value;
 	if (typeof id !== "string" || typeof name !== "string" || typeof mimeType !== "string") throw malformed(what);
 	const parent = Array.isArray(parents) && typeof parents[0] === "string" ? parents[0] : null;
 	const folder = mimeType === DRIVE_FOLDER_MIME;
 	const bytes = typeof size === "string" ? Number(size) : typeof size === "number" ? size : undefined;
+	const created = typeof createdTime === "string" ? Date.parse(createdTime) : Number.NaN;
 	return {
 		id,
 		name,
@@ -125,6 +136,7 @@ function itemOf(what: string, value: unknown): DriveItem {
 		skip: !folder && mimeType.startsWith(GOOGLE_APPS),
 		...(typeof sha256Checksum === "string" ? { hash: sha256Checksum.toLowerCase() } : {}),
 		...(bytes !== undefined && Number.isFinite(bytes) ? { size: bytes } : {}),
+		...(Number.isFinite(created) ? { createdAt: created } : {}),
 	};
 }
 
@@ -302,6 +314,8 @@ export class GDriveBackend implements Backend {
 	private readonly options: DriveBackendOptions;
 	/** The id of the folder of the vault, once looked up: `null` when there is none yet. */
 	private rootId: string | null | undefined = undefined;
+	/** The id of the folder the one of the vault kept by its id is in: `Sync Evo`, once looked up. */
+	private topId: string | null = null;
 	/** The listing this backend last answered or built, which a push lays its changes on. */
 	private last: RemoteListing | null = null;
 
@@ -478,13 +492,13 @@ export class GDriveBackend implements Backend {
 	}
 
 	/** Every file a query finds, page by page. Fails rather than answer part of them. */
-	private async query(q: string, what: string): Promise<DriveItem[]> {
+	private async query(q: string, what: string, fields: string = FILE_FIELDS): Promise<DriveItem[]> {
 		const items: DriveItem[] = [];
 		let page: string | null = null;
 		do {
 			const url: string =
 				`${DRIVE_API}/files?q=${encodeURIComponent(q)}&pageSize=${PAGE_SIZE}&spaces=drive&corpora=user` +
-				`&fields=${encodeURIComponent(`nextPageToken,incompleteSearch,files(${FILE_FIELDS})`)}` +
+				`&fields=${encodeURIComponent(`nextPageToken,incompleteSearch,files(${fields})`)}` +
 				(page === null ? "" : `&pageToken=${encodeURIComponent(page)}`);
 			const json = await this.client.getJson(url);
 			if (!isRecord(json) || !Array.isArray(json.files)) throw malformed(what);
@@ -516,7 +530,10 @@ export class GDriveBackend implements Backend {
 			if (!isRecord(json) || json.mimeType !== DRIVE_FOLDER_MIME) throw new DriveFolderGoneError(kept, "not a folder");
 			if (json.trashed === true) throw new DriveFolderGoneError(kept, "in the trash");
 			const parents = json.parents;
-			if (Array.isArray(parents) && typeof parents[0] === "string") await this.checkAlone(kept, parents[0]);
+			if (Array.isArray(parents) && typeof parents[0] === "string") {
+				this.topId = parents[0];
+				await this.checkAlone(kept, parents[0]);
+			}
 			this.rootId = kept;
 			return kept;
 		}
@@ -536,6 +553,23 @@ export class GDriveBackend implements Backend {
 	}
 
 	/**
+	 * When the folder `Sync Evo` that the folder of the vault kept by its id
+	 * is in was made, asked of that folder by its id: the start of the free
+	 * time of the account (`paid.ts`), for a sync that does not know it yet.
+	 * By the id, so that a folder renamed on the web is no other. `null`
+	 * without a folder kept: the lookup by the name tells it then
+	 * (`onSince`). Fails as the lookup of the folder of the vault does.
+	 */
+	async topCreatedAt(): Promise<number | null> {
+		if (this.options.folderId === null) return null;
+		await this.root();
+		if (this.topId === null) return null;
+		const json = await this.client.getJson(`${DRIVE_API}/files/${encodeURIComponent(this.topId)}?fields=createdTime`);
+		const created = isRecord(json) && typeof json.createdTime === "string" ? Date.parse(json.createdTime) : Number.NaN;
+		return Number.isFinite(created) ? created : null;
+	}
+
+	/**
 	 * Fails when the folder kept by its id is not the only one of its kind,
 	 * in one listing: another folder of the name in the settings beside it,
 	 * or another folder `Sync Evo` at the top of Drive beside the one it is
@@ -549,12 +583,19 @@ export class GDriveBackend implements Backend {
 			`mimeType = '${DRIVE_FOLDER_MIME}' and trashed = false and ` +
 				`((name = ${quoted(folder)} and ${quoted(parent)} in parents) or (name = ${quoted(SYNC_EVO_FOLDER)} and 'root' in parents))`,
 			"look for folders of the same name",
+			FOLDER_FIELDS,
 		);
+		this.toldSince(items.find((item) => item.id === parent && item.name === SYNC_EVO_FOLDER));
 		if (items.some((item) => item.parent === parent && item.name === folder && item.id !== id)) {
 			throw new DriveDuplicateFolderError(`${SYNC_EVO_FOLDER}/${folder}`);
 		}
 		const tops = items.filter((item) => item.name === SYNC_EVO_FOLDER && item.parent !== parent);
 		if (tops.some((item) => item.id === parent) && tops.length > 1) throw new DriveDuplicateFolderError(SYNC_EVO_FOLDER);
+	}
+
+	/** Tells when the folder `Sync Evo` at the top was made, where it was found and Drive said (`onSince`). */
+	private toldSince(top: DriveItem | undefined): void {
+		if (top?.createdAt !== undefined) this.options.onSince?.(top.createdAt);
 	}
 
 	/** The folder of the vault by its name, in the folder of Sync Evo at the top of Drive. */
@@ -576,7 +617,10 @@ export class GDriveBackend implements Backend {
 		const items = await this.query(
 			`name = ${quoted(name)} and ${quoted(parent)} in parents and mimeType = '${DRIVE_FOLDER_MIME}' and trashed = false`,
 			"look for a folder",
+			FOLDER_FIELDS,
 		);
+		// The one folder of Sync Evo; of two or more, none is told, and the sync stops on them.
+		if (parent === "root" && name === SYNC_EVO_FOLDER && items.length === 1) this.toldSince(items[0]);
 		return items.map((item) => item.id).sort();
 	}
 

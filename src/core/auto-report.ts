@@ -257,6 +257,22 @@ export function notReadyAutoReport(t: Translate, reason: NotReadyReason, text: s
 	return { happened: [], standing: [whole("error", text)], questions: [], cause: `not-ready:${reason}`, end: "failure" };
 }
 
+/**
+ * What the paid plan did to a sync that started by itself (`paid.ts`):
+ * made it a download (`ran`), or kept it from starting. Told once, like
+ * what else stands in the way, while it stays so. A download that ran is
+ * no failure: the interval stays as it is set.
+ */
+export function paidAutoReport(t: Translate, note: "read-only" | "stopped", ran: boolean, text: string): AutoReport {
+	return {
+		happened: [],
+		standing: [whole(ran ? "warn" : "error", text)],
+		questions: [],
+		cause: `paid:${note}`,
+		end: ran ? "success" : "failure",
+	};
+}
+
 /** A sync that had no sync state to run with. */
 export function stateAutoReport(t: Translate, problem: StateProblem): AutoReport {
 	return {

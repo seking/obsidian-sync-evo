@@ -19,17 +19,23 @@ import type { AccessTokens } from "../dropbox/client";
 import type { HttpFunction, HttpResponse, Sleep } from "../github/http";
 import { GoogleClientSecretMissingError } from "./errors";
 
-/** An OAuth client of Google: the author's, which every user shares (R-1). */
+/**
+ * An OAuth client of Google: the author's, which every user shares (R-1),
+ * or one of the user's own, made in a Google Cloud project of theirs.
+ */
 export interface GoogleClient {
 	readonly id: string;
 	/**
 	 * Google does not treat the secret of an installed app as a secret. A
 	 * client of the kind "TVs and limited input devices" gets no token
-	 * without it (checked 2026-10-17). Empty when the build left it out
-	 * (`SYNC_EVO_GOOGLE_CLIENT`): nothing is asked of Google then. None for
-	 * a client of the user's own, which is asked without one.
+	 * without it (checked 2026-10-17), the user's own as much as the
+	 * author's. Empty when there is none (`SYNC_EVO_GOOGLE_CLIENT` of a build
+	 * that left it out, or a client of the user's own whose secret was not
+	 * entered): nothing is asked of Google then.
 	 */
-	readonly secret?: string;
+	readonly secret: string;
+	/** Whether it is a client of the user's own (T082): what is missing is then theirs to enter. */
+	readonly own?: true;
 }
 
 /**
@@ -56,17 +62,28 @@ export const SYNC_EVO_GOOGLE_CLIENT: GoogleClient = {
 };
 
 /**
- * The client to use for the client id the settings hold: the one of Sync
- * Evo when they hold none, which is always for now. The settings keep room
- * for a client of the user's own (R-1); such a client brings no secret here.
+ * Whether the settings name a client of the user's own (T082): the
+ * insurance for when the author's stops (R-1). Such a client uses another
+ * project than the author's, and so none of its limits: no license key is
+ * asked of it (`paid.ts`).
  */
-export function googleClientOf(clientId: string | undefined): GoogleClient {
-	return clientId === undefined || clientId === SYNC_EVO_GOOGLE_CLIENT.id ? SYNC_EVO_GOOGLE_CLIENT : { id: clientId };
+export function isOwnClient(clientId: string | undefined): boolean {
+	return clientId !== undefined && clientId !== SYNC_EVO_GOOGLE_CLIENT.id;
 }
 
-/** Throws when the client needs a secret this build does not have. */
+/**
+ * The client to use for the client id the settings hold: the one of Sync
+ * Evo when they hold none, or one of the user's own, with the secret this
+ * device keeps for it (`null` when it keeps none).
+ */
+export function googleClientOf(clientId: string | undefined, ownSecret: string | null = null): GoogleClient {
+	if (clientId === undefined || !isOwnClient(clientId)) return SYNC_EVO_GOOGLE_CLIENT;
+	return { id: clientId, secret: ownSecret ?? "", own: true };
+}
+
+/** Throws when the client needs a secret that is not there: of this build, or of the user's own client. */
 export function assertClientSecret(client: GoogleClient): void {
-	if (client.secret === "") throw new GoogleClientSecretMissingError();
+	if (client.secret === "") throw new GoogleClientSecretMissingError(client.own === true);
 }
 
 /** The one scope Sync Evo asks for: the files it made itself (R-1). */
@@ -115,7 +132,7 @@ async function postForm(http: HttpFunction, url: string, what: string, fields: R
 }
 
 function clientFields(client: GoogleClient): Record<string, string> {
-	return client.secret === undefined ? { client_id: client.id } : { client_id: client.id, client_secret: client.secret };
+	return { client_id: client.id, client_secret: client.secret };
 }
 
 /** A failure of the token endpoint, by its status and its `error`. */

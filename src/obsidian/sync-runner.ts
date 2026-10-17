@@ -25,6 +25,7 @@ import {
 	failureAutoReport,
 	joinAutoReports,
 	notReadyAutoReport,
+	paidAutoReport,
 	pullAutoReport,
 	pushAutoReport,
 	settleAutoSync,
@@ -53,8 +54,11 @@ import { DropboxBackend } from "../core/dropbox/backend";
 import { type AccessTokens, DropboxClient } from "../core/dropbox/client";
 import { GDriveBackend } from "../core/gdrive/backend";
 import { DriveClient } from "../core/gdrive/client";
-import { DriveFolderGoneError } from "../core/gdrive/errors";
+import { DriveDuplicateFolderError, DriveFolderGoneError } from "../core/gdrive/errors";
 import { DriveQuota } from "../core/gdrive/quota";
+import { dropboxSince } from "../core/dropbox/since";
+import { paidNoteText, paidWarningText } from "../core/paid";
+import type { PaidGate } from "../core/paid-gate";
 import { GitHubBackend } from "../core/github/backend";
 import { GitHubClient, HeadMemory } from "../core/github/client";
 import type { MessageKey, Translate } from "../core/i18n";
@@ -124,8 +128,11 @@ export interface SyncHost {
 	dropboxTokens(refreshToken: string): AccessTokens;
 	/** The refresh token of Google Drive this device keeps, or `null` while it is not connected. */
 	readGdriveToken(): string | null;
-	/** Where the access tokens of Google Drive come from, as for Dropbox. */
-	gdriveTokens(refreshToken: string): AccessTokens;
+	/**
+	 * Where the access tokens of Google Drive come from, as for Dropbox,
+	 * with the client the settings name (`DeviceSettings.gdriveClientId`).
+	 */
+	gdriveTokens(refreshToken: string, clientId?: string): AccessTokens;
 	/** The id of the folder of the vault on Drive, found or made by a sync, for these settings. */
 	driveFolderFound?(id: string, account: string, folder: string): void;
 	/** The folder of that id is gone from Drive: the sync state is discarded (R-3). */
@@ -145,6 +152,11 @@ export interface SyncHost {
 	exclusionChangeTold?(): void;
 	/** Where the results of the syncs that had something to tell are kept (`results-store.ts`). */
 	readonly results?: { add(result: SyncResult): Promise<void> };
+	/**
+	 * The paid plan of Dropbox and Google Drive (`paid-gate.ts`): what a
+	 * sync is let do. Absent, nothing of it applies.
+	 */
+	readonly paid?: Pick<PaidGate, "check" | "sinceWanted" | "sinceLearned">;
 }
 
 /**
@@ -448,8 +460,12 @@ export class SyncRunner {
 		}
 	}
 
-	/** `run`, and `runAuto` with `auto` set to how the vault is looked at. Nothing is awaited before the screen is asked to stay on. */
-	private async start(mode: SyncMode, shown: readonly string[], auto: AutoCheck | null): Promise<void> {
+	/**
+	 * `run`, and `runAuto` with `auto` set to how the vault is looked at.
+	 * Nothing is awaited before the screen is asked to stay on. `asked`: the
+	 * kind of sync that was asked for, which the paid plan may change.
+	 */
+	private async start(asked: SyncMode, shown: readonly string[], auto: AutoCheck | null): Promise<void> {
 		const { host } = this;
 		const t = host.t;
 		if (this.stopped) return;
@@ -490,6 +506,26 @@ export class SyncRunner {
 			}
 			return;
 		}
+		// The paid plan of Dropbox and Google Drive (T082), decided here,
+		// before anything starts, and never in the middle of a sync. After
+		// the free time a sync becomes a download, and an upload does not
+		// start; after the time for downloads, nothing does.
+		const paid = host.paid?.check(settings, asked) ?? null;
+		const paidNote = paid === null ? null : paidNoteText(t, paid.verdict, paid.standing);
+		if (paid !== null && paid.warning !== null) {
+			const warning = paidWarningText(t, paid.standing, paid.warning);
+			// Told once for each, and remembered as told (`PaidGate.check`).
+			if (warning !== null) this.show(warning, 0, "warn");
+		}
+		if (paid !== null && paid.verdict.mode === null) {
+			const text = paidNote ?? "";
+			log(`${asked}: not started (${auto === null ? "by hand" : "automatic"}): paid plan, ${paid.standing.status}`);
+			if (auto === null) this.show(text, 0, "warn");
+			else this.notReady(paidAutoReport(t, paid.verdict.note ?? "stopped", false, text), true);
+			return;
+		}
+		let mode: SyncMode = paid?.verdict.mode ?? asked;
+
 		// Named in the question before a first fetch.
 		const remote = prepared.target;
 		const target: PullTarget =
@@ -512,6 +548,7 @@ export class SyncRunner {
 		this.parts = [];
 		this.told = [];
 		this.summaries = [];
+		if (paidNote !== null) this.tellReadOnly(paidNote, auto !== null);
 		// The sync state, once it is open: what is remembered is stored there.
 		let store: StateStore | null = null;
 		// From here on the settings screen writes nothing to `.gitignore`.
@@ -533,6 +570,10 @@ export class SyncRunner {
 		let goneFolder: string | null = null;
 		// What saves the sent blobs when the app goes to the back, while this sync runs.
 		let onHidden: (() => void) | null = null;
+		// Asks the service when the count of the free time of the account
+		// started (`paid.ts`), for a sync that does not know it yet: `null`
+		// for nothing to ask.
+		let askSince: (() => Promise<number | null>) | null = null;
 		if (auto === null) {
 			this.progress = new Notice(t(mode === "push" ? "push.progress.starting" : "pull.progress.starting"), 0);
 		} else {
@@ -593,19 +634,26 @@ export class SyncRunner {
 					now: Date.now,
 					sleep: windowSleep,
 					signal: controller.signal,
-					tokens: host.gdriveTokens(remote.refreshToken),
+					tokens: host.gdriveTokens(remote.refreshToken, remote.clientId),
 					quota: this.driveQuota,
 					// Each wait before a request is sent again.
 					log,
 				});
 				const account = settings.gdriveAccount?.id ?? "";
-				backend = new GDriveBackend(client, {
+				const drive = new GDriveBackend(client, {
 					folder: remote.folder,
 					folderId: remote.folderId,
 					onFolderFound: (id) => host.driveFolderFound?.(id, account, remote.folder),
+					// The start of the free time of the account (`paid.ts`).
+					onSince: (at) => host.paid?.sinceLearned(settings, at),
 					signal: controller.signal,
 					maxConcurrentFetchBytes: network.maxConcurrentFetchBytes,
 				});
+				backend = drive;
+				// By the id of the folder `Sync Evo` the one kept is in: one
+				// small request. Without a folder kept, the lookup by the name
+				// tells it (`onSince`).
+				askSince = () => drive.topCreatedAt();
 			} else if (remote.kind === "dropbox") {
 				const client = new DropboxClient({
 					http: network.http,
@@ -621,6 +669,8 @@ export class SyncRunner {
 					signal: controller.signal,
 					maxConcurrentFetchBytes: network.maxConcurrentFetchBytes,
 				});
+				// The file at the top of the app folder: a request or two.
+				askSince = () => dropboxSince(client, Date.now);
 			} else {
 				const client: GitHubClient = new GitHubClient({
 					...remote,
@@ -654,6 +704,44 @@ export class SyncRunner {
 					signal: controller.signal,
 					maxConcurrentFetchBytes: network.maxConcurrentFetchBytes,
 				});
+			}
+			// The start of the free time of the account, once for this
+			// device, and what the sync is let do decided again with it:
+			// before the vault or the remote is touched, so that a sync that
+			// does not start is not one stopped halfway. A failure fails
+			// nothing: the next sync asks again.
+			const paidHost = host.paid;
+			if (paidHost !== undefined && askSince !== null && paidHost.sinceWanted(settings)) {
+				let since: number | null = null;
+				try {
+					since = await askSince();
+				} catch (error) {
+					// A stop, and what the lookup of the folder of the vault
+					// meets, end the sync as the pull would: once, and as what
+					// they are.
+					if (error instanceof BackendError && error.kind === "cancelled") throw error;
+					if (error instanceof DriveFolderGoneError || error instanceof DriveDuplicateFolderError) throw error;
+					log(`paid: the start of the free time could not be read: ${failureLine(error)}`);
+				}
+				if (since !== null) {
+					paidHost.sinceLearned(settings, since);
+					const again = paidHost.check(settings, asked);
+					if (again.warning !== null) {
+						const warning = paidWarningText(t, again.standing, again.warning);
+						if (warning !== null) this.show(warning, 0, "warn");
+					}
+					const note = paidNoteText(t, again.verdict, again.standing);
+					if (again.verdict.mode === null) {
+						const text = note ?? "";
+						log(`${asked}: not started (${startedBy}): paid plan, ${again.standing.status}`);
+						this.parts.push(paidAutoReport(t, again.verdict.note ?? "stopped", false, text));
+						// As before a sync starts: shown, and not kept as a result.
+						if (!this.quiet) this.show(text, 0, "warn");
+						return;
+					}
+					mode = again.verdict.mode;
+					if (note !== null) this.tellReadOnly(note, this.quiet);
+				}
 			}
 			this.limitWatch = limitWatch;
 			const fetchContents = limitWatch.watch((revision, entries) => backend.fetch(revision, entries));
@@ -932,6 +1020,20 @@ export class SyncRunner {
 			// Let go of by the first fetch, unless it never began.
 			this.wakeLock.release();
 		}
+	}
+
+	/**
+	 * Tells that the free time is over, and the sync only downloads
+	 * (`paid.ts`): each time by hand, and once by automatic sync
+	 * (`paidAutoReport`).
+	 */
+	private tellReadOnly(text: string, automatic: boolean): void {
+		if (automatic) {
+			this.parts.push(paidAutoReport(this.host.t, "read-only", true, text));
+			return;
+		}
+		this.show(text, LONG_NOTICE_MS, "warn");
+		this.told.push({ level: "warn", text });
 	}
 
 	/**

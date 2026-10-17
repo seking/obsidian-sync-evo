@@ -161,6 +161,76 @@ describe("listing the folder of the vault on Google Drive", () => {
 	});
 });
 
+describe("when the folder of Sync Evo was made, for the free time of the paid plan", () => {
+	const MADE = Date.parse("2026-12-01T09:00:00Z");
+
+	function told(drive: FakeDrive, folderId: string | null): { remote: GDriveBackend; since: number[] } {
+		const since: number[] = [];
+		return { remote: new GDriveBackend(drive, { folder: "Vault", folderId, onSince: (at) => since.push(at) }), since };
+	}
+
+	test("is told by the lookups a sync makes anyway, with no request more", async () => {
+		const drive = await filled({ "a.md": "A" });
+		const id = drive.idOf("Sync Evo/Vault") as string;
+		drive.now = MADE;
+		const callsOf = async (remote: GDriveBackend): Promise<string[]> => {
+			drive.calls.length = 0;
+			await listing(remote);
+			return [...drive.calls];
+		};
+		// By the name: the folder of Sync Evo is looked up.
+		const byName = told(drive, null);
+		expect(await callsOf(byName.remote)).toEqual(await callsOf(backend(drive)));
+		expect(byName.since).toEqual([Date.parse("2027-01-10T00:00:00Z")]);
+		// By the id kept: the folders of the same name are looked for, with it.
+		const byId = told(drive, id);
+		expect(await callsOf(byId.remote)).toEqual(await callsOf(backend(drive, id)));
+		expect(byId.since).toEqual([Date.parse("2027-01-10T00:00:00Z")]);
+	});
+
+	test("is told of the folder the first upload makes", async () => {
+		const drive = new FakeDrive();
+		drive.now = MADE;
+		const { remote, since } = told(drive, null);
+		const started = await remote.start({ path: "a.md", content: new TextEncoder().encode("A") });
+		expect(started.status).toBe("started");
+		expect(since).toContain(MADE);
+	});
+
+	test("is asked of the folder by its id, for a sync that does not know it: also of one renamed on the web", async () => {
+		const drive = await filled({ "a.md": "A" });
+		const id = drive.idOf("Sync Evo/Vault") as string;
+		drive.rename("Sync Evo", "Renamed");
+		const remote = new GDriveBackend(drive, { folder: "Vault", folderId: id });
+		drive.calls.length = 0;
+		expect(await remote.topCreatedAt()).toBe(Date.parse("2027-01-10T00:00:00Z"));
+		expect(drive.calls).toEqual(["GET file", "GET files", "GET file"]);
+		// The listing that follows looks up nothing again.
+		drive.calls.length = 0;
+		await listing(remote);
+		expect(drive.calls).toEqual(["GET startPageToken", "GET files"]);
+	});
+
+	test("is not asked of a folder by its id without a folder kept", async () => {
+		const drive = await filled({ "a.md": "A" });
+		drive.calls.length = 0;
+		expect(await new GDriveBackend(drive, { folder: "Vault", folderId: null }).topCreatedAt()).toBeNull();
+		expect(drive.calls).toEqual([]);
+	});
+
+	test("is not told while there is no folder of Sync Evo, nor of two of them", async () => {
+		const none = told(new FakeDrive(), null);
+		await listing(none.remote);
+		expect(none.since).toEqual([]);
+		const two = new FakeDrive();
+		two.makeFolder("", "Sync Evo");
+		two.makeFolder("", "Sync Evo");
+		const both = told(two, null);
+		await expect(both.remote.list(null)).rejects.toBeInstanceOf(DriveDuplicateFolderError);
+		expect(both.since).toEqual([]);
+	});
+});
+
 describe("pushing to Google Drive", () => {
 	test("a file over its id, a new one in a new folder, and a deletion to the trash", async () => {
 		const drive = await filled({ "a.md": "A", "b.md": "B" });

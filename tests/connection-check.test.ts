@@ -548,6 +548,11 @@ describe("checking the connection to Google Drive", () => {
 			() => Promise.reject(new GoogleClientSecretMissingError()),
 			{ status: "failed", kind: "other", detail: "this build of Sync Evo has no client secret of Google", noClientSecret: true },
 		],
+		[
+			"a client of the user's own without its secret",
+			() => Promise.reject(new GoogleClientSecretMissingError(true)),
+			{ status: "failed", kind: "other", detail: "no client secret of the user's own Google client", noClientSecret: true, ownClient: true },
+		],
 	])("%s", async (_what, find, expected) => {
 		expect(await checkDriveFolder(find)).toEqual(expected);
 	});
@@ -563,6 +568,7 @@ describe("checking the connection to Google Drive", () => {
 			{ status: "failed", kind: "other", detail: "d", duplicate: "Sync Evo/Vault" },
 			{ status: "failed", kind: "other", detail: "d" },
 			{ status: "failed", kind: "other", detail: "d", noClientSecret: true },
+			{ status: "failed", kind: "other", detail: "d", noClientSecret: true, ownClient: true },
 			{ status: "not-ready", reason: "gdrive-folder" },
 			{ status: "not-ready", reason: "gdrive-account" },
 		];

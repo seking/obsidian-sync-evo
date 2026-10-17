@@ -22,6 +22,8 @@ const DROPBOX_TOKEN_KEY = "sync-evo-dropbox-token";
 const DROPBOX_SIGN_IN_KEY = "sync-evo-dropbox-sign-in";
 /** The refresh token of Google Drive, kept like the one of Dropbox (R-1). */
 const GDRIVE_TOKEN_KEY = "sync-evo-gdrive-token";
+/** The secret of a Google client of the user's own (T082), kept like the token. */
+const GDRIVE_CLIENT_SECRET_KEY = "sync-evo-gdrive-client-secret";
 
 
 /**
@@ -82,6 +84,20 @@ export class SettingsStore {
 
 	saveGdriveToken(token: string | null): void {
 		this.app.saveLocalStorage(GDRIVE_TOKEN_KEY, token);
+	}
+
+	/**
+	 * The secret of the Google client of the user's own, or `null` for none.
+	 * Beside the token, and not in the settings with the client id: it is
+	 * not to travel with them, in a copy or a report of the settings.
+	 */
+	readGdriveClientSecret(): string | null {
+		const value: unknown = this.app.loadLocalStorage(GDRIVE_CLIENT_SECRET_KEY);
+		return typeof value === "string" && value !== "" ? value : null;
+	}
+
+	saveGdriveClientSecret(secret: string | null): void {
+		this.app.saveLocalStorage(GDRIVE_CLIENT_SECRET_KEY, secret === "" ? null : secret);
 	}
 
 	readSignIn(): PendingSignIn | null {

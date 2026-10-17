@@ -9,11 +9,13 @@
  * Source: https://github.com/seking/obsidian-sync-evo
  */
 
-import { type App, Notice, type Plugin, PluginSettingTab, SecretComponent, Setting } from "obsidian";
+import { type App, Notice, Platform, type Plugin, PluginSettingTab, SecretComponent, Setting } from "obsidian";
 import { type CheckOutcome, connectionCheckText, isSuccess } from "../core/connection-check";
 import { newSignIn, type SignIn } from "../core/dropbox/auth";
 import type { DeviceCode } from "../core/gdrive/auth";
 import type { Translate } from "../core/i18n";
+import { PURCHASE_URL, README_URL } from "../core/license";
+import { type PaidInfo, paidStatusLines } from "../core/paid";
 import type { SymlinkTarget } from "../core/pull";
 import type { PushFailure } from "../core/push-failure";
 import { pushFailureReminderText } from "../core/push-report";
@@ -61,6 +63,15 @@ export interface SettingsHost extends ExclusionHost {
 	skippedSymlinks(): Promise<readonly SymlinkTarget[]>;
 	/** The push that did not get to its end, if no sync has sent since. Never rejects. */
 	pushFailure(): Promise<PushFailure | null>;
+	/** What to show of the paid plan of Dropbox and Google Drive, or `null` for nothing (T082). */
+	paidInfo(settings: DeviceSettings): PaidInfo | null;
+	/** Takes the license key typed: "" removes it. Never rejects. */
+	setLicenseKey(typed: string): Promise<void>;
+	/** The secret of the Google client of the user's own, or "". */
+	gdriveClientSecret(): string;
+	/** Takes the id of the Google client of the user's own; answers whether the client changed. Never rejects. */
+	setGdriveClientId(typed: string): Promise<boolean>;
+	setGdriveClientSecret(typed: string): void;
 }
 
 /**
@@ -235,6 +246,8 @@ export class SyncEvoSettingTab extends PluginSettingTab {
 			rejected = () => (repositoryRejected ? t("check.noRepository") : branchRejected ? t("check.noBranch") : null);
 		}
 
+		this.showLicense(connection, stored);
+
 		const deviceName = new Setting(connection)
 			.setName(t("settings.deviceName.name"))
 			.setDesc(t("settings.deviceName.desc"));
@@ -286,6 +299,8 @@ export class SyncEvoSettingTab extends PluginSettingTab {
 				}
 			});
 		});
+
+		if (stored.backend === "gdrive") this.showGdriveClient(containerEl, stored);
 
 		this.showHowItSyncs(grouped(containerEl, t("settings.howItSyncs.heading"), null).listEl, stored);
 
@@ -448,6 +463,94 @@ export class SyncEvoSettingTab extends PluginSettingTab {
 			this.commits.push(commit);
 		});
 		return () => (folderRejected ? t("check.gdrive.noFolder") : null);
+	}
+
+	/**
+	 * The license key of the paid plan of Dropbox and Google Drive (T082),
+	 * with where this device stands. Nothing while the plan is off, and with
+	 * GitHub. A page to buy a key is linked on a desktop only: the app
+	 * stores of the phones do not have a purchase outside them linked from
+	 * an app. Every device gets the field and the README.
+	 */
+	private showLicense(el: HTMLElement, stored: DeviceSettings): void {
+		const { host } = this;
+		const t = host.t;
+		const info = host.paidInfo(stored);
+		if (info === null) return;
+		const row = new Setting(el).setName(t("settings.license.name")).setDesc(t("settings.license.desc"));
+		const status = row.descEl.createDiv();
+		const show = (shown: PaidInfo): void => {
+			status.empty();
+			for (const line of paidStatusLines(t, shown)) status.createDiv({ text: line });
+		};
+		show(info);
+		const readme = row.descEl.createDiv();
+		readme.createEl("a", { text: t("settings.license.readme"), href: README_URL });
+		if (!Platform.isMobile && PURCHASE_URL !== "") {
+			row.addButton((button) => {
+				button.setButtonText(t("settings.license.buy")).onClick(() => {
+					window.open(PURCHASE_URL);
+				});
+			});
+		}
+		row.addText((text) => {
+			text.setValue(info.key);
+			// Taken when the field is left: each key that is taken is an
+			// activation on Dodo, and half a key is none.
+			const commit = (): void => {
+				const typed = text.getValue().trim();
+				if (typed === (host.paidInfo(stored)?.key ?? "")) return;
+				status.empty();
+				status.createDiv({ text: t("settings.license.checking") });
+				void host.setLicenseKey(typed).then(() => {
+					const current = host.deviceSettings;
+					const now = current === null ? null : host.paidInfo(current);
+					if (now !== null) show(now);
+				});
+			};
+			text.inputEl.addEventListener("change", commit);
+			this.commits.push(commit);
+		});
+	}
+
+	/**
+	 * A Google client of the user's own (R-1, T082): the insurance for when
+	 * the client of Sync Evo stops working, folded away. Shown whether or
+	 * not the paid plan is on. The id is kept in the settings, the secret
+	 * beside the token.
+	 */
+	private showGdriveClient(containerEl: HTMLElement, stored: DeviceSettings): void {
+		const { host } = this;
+		const t = host.t;
+		const group = grouped(containerEl, t("settings.gdriveClient.heading"), t("settings.gdriveClient.desc"), {
+			folds: this.folds,
+			id: "gdrive-client",
+		});
+		new Setting(group.listEl).setName(t("settings.gdriveClient.id.name")).addText((text) => {
+			text.setValue(stored.gdriveClientId ?? "");
+			const commit = (): void => {
+				void host.setGdriveClientId(text.getValue()).then((changed) => {
+					if (!changed) return;
+					this.display();
+					new Notice(t("settings.gdriveClient.reconnect"));
+				});
+			};
+			text.inputEl.addEventListener("change", commit);
+			this.commits.push(commit);
+		});
+		new Setting(group.listEl)
+			.setName(t("settings.gdriveClient.secret.name"))
+			.setDesc(t("settings.gdriveClient.secret.desc"))
+			.addText((text) => {
+				text.inputEl.type = "password";
+				text.setValue(host.gdriveClientSecret());
+				const commit = (): void => {
+					if (text.getValue().trim() === host.gdriveClientSecret()) return;
+					host.setGdriveClientSecret(text.getValue());
+				};
+				text.inputEl.addEventListener("change", commit);
+				this.commits.push(commit);
+			});
 	}
 
 	/** Draws the screen again, when it is shown: after the connection to Dropbox changed from outside it. */

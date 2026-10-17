@@ -211,7 +211,7 @@ export function failureReason(t: Translate, settings: DeviceSettings, error: unk
 	if (settings.backend === "gdrive") {
 		if (error instanceof DriveFolderGoneError) return t("gdrive.folderGone", { folder: settings.gdriveFolder.trim() });
 		if (error instanceof DriveDuplicateFolderError) return t("gdrive.duplicateFolder", { folder: error.folder });
-		if (error instanceof GoogleClientSecretMissingError) return t("gdrive.noClientSecret");
+		if (error instanceof GoogleClientSecretMissingError) return t(error.own ? "gdrive.ownClientNoSecret" : "gdrive.noClientSecret");
 		// The cap of the day, and not the connection: a 403 like the others.
 		if (error instanceof DriveDailyLimitError) return t("gdrive.dailyLimit", { time: timeFrom(error.at, nextMinute(error.waitUntil)) });
 		if (kind === "unauthorized") return t("check.gdrive.unauthorized");
