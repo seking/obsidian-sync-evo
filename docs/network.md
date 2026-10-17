@@ -2,6 +2,8 @@
 
 Sync Evo connects only when you use it, or when you have switched on automatic sync. Nothing is sent anywhere else. Sync Evo collects no usage data. There is no server of the developer's. Details are in [When Sync Evo connects](#when-sync-evo-connects).
 
+The privacy policy of Sync Evo is at [gyap.jp/sync-evo/privacy](https://gyap.jp/sync-evo/privacy).
+
 ## At a glance
 
 **GitHub** (with the token, and the names of the repository and the branch)
@@ -23,7 +25,19 @@ Sync Evo connects only when you use it, or when you have switched on automatic s
 | Upload | `api.dropboxapi.com`, `content.dropboxapi.com` | Added and changed files, and the paths of deleted files | To send your changes |
 | Remove from Dropbox | `api.dropboxapi.com`, `content.dropboxapi.com` | The `.gitignore`, and the paths to remove | To remove excluded files from Dropbox |
 
-- The token is kept in Obsidian's Keychain. The settings and the sync state stay on the device, outside the vault. Sync Evo writes no `data.json`.
+**Google Drive** (with a token Google gave this device, and the vault's folder name)
+
+| Action | Host | What is sent | Why |
+| --- | --- | --- | --- |
+| Connect | `oauth2.googleapis.com`, `www.googleapis.com` | A request for a code (already when the settings are opened), requests for the token, then a request for the account | To connect this device |
+| Connection test | `www.googleapis.com` | Requests for the folders `Sync Evo` and the vault's | To check that they are there |
+| Download | `www.googleapis.com` | Requests for changes, the file list and file contents | To get new and changed files |
+| Upload | `www.googleapis.com` | Added and changed files with their names, and the files to put in the trash | To send your changes |
+| Remove from Google Drive | `www.googleapis.com` | The `.gitignore`, and the files to put in the trash | To remove excluded files from Google Drive |
+
+The page you allow Sync Evo on, `www.google.com/device`, is opened in the browser. Sync Evo itself does not connect to it. **Disconnect** sends nothing.
+
+- The GitHub token is kept in Obsidian's Keychain. What lets Sync Evo reach Dropbox or Google Drive is kept in the app's local storage. The settings and the sync state stay on the device, outside the vault. Sync Evo writes no `data.json`.
 - Sync Evo never syncs its own folder.
 
 The rest of this page gives every request in detail.
@@ -34,8 +48,9 @@ Sync Evo makes network requests only when you:
 
 - press "Test" in its settings,
 - run one of its commands, or press its button in the ribbon,
-- remove files from GitHub in its settings,
-- with Dropbox, press "Connect" or "Disconnect".
+- remove excluded files from GitHub, Dropbox or Google Drive in its settings,
+- with Dropbox, press "Connect" or "Disconnect",
+- with Google Drive, open its settings while this device is not connected (Sync Evo asks Google for a code ahead of the press of "Connect"), or press "Connect".
 
 When you have switched on automatic sync under "How it syncs", it also connects for the downloads and uploads it starts by itself. These ask for and send what a download and an upload do.
 
@@ -142,11 +157,56 @@ Asks whether the folder of the vault is there.
 - Sends the `.gitignore` of the vault, when Dropbox does not hold it as the device has it.
 - Then sends the paths of the files to remove.
 
+## Google Drive
+
+With Google Drive, the same actions go to Google instead (`oauth2.googleapis.com` and `www.googleapis.com`). They carry:
+
+- a token Google gave for this device,
+- the name of the folder of the vault, and the IDs of its folders and files.
+
+Sync Evo asks only for the files it made itself (the `drive.file` permission). Nothing else in your Google Drive can be reached.
+
+### Connect and Disconnect
+
+- When the settings show Google Drive and this device is not connected, Sync Evo asks Google for a code (`oauth2.googleapis.com`). It keeps the code while it lasts.
+- **Connect** copies the code, and opens Google's page in the browser (`www.google.com/device`). That page is between you and Google. Sync Evo does not connect to it.
+- While you allow, Sync Evo asks Google every few seconds whether you have (`oauth2.googleapis.com`). Then it gets a token.
+- It asks which account it reached (`www.googleapis.com`):
+  - its ID, to tell a reconnection to the same account from another,
+  - its e-mail address, to show in the settings.
+- A token is renewed with Google when it runs out, every hour.
+- **Disconnect** sends nothing. It forgets the token on this device only. Telling Google would end the connection of every device. To end it for every device, remove Sync Evo under "Third-party apps & services" in your Google Account.
+
+### Connection test
+
+Asks whether the folder `Sync Evo` and the folder of the vault in it are there.
+
+### Download
+
+- Asks whether the folder `Sync Evo` and the folder of the vault are there, and are there only once.
+- Asks what changed in Google Drive since the last sync (the changes). It takes only those in the folder of the vault.
+- Asks for the whole list of files the first time, when a folder in the vault's changed, and when Google does not give the changes since the last sync.
+- Asks for the content of each file that is new or changed.
+
+### Upload
+
+- Asks what changed since the download, so as not to write over another device's change.
+- Sends the content and the name of each file that was added or changed, and makes the folders it needs. Files over 5 MB are sent in a resumable upload.
+- Puts the files that were deleted in Drive's trash.
+- Then asks what changed again.
+
+### Removing files from Google Drive
+
+- Sends the `.gitignore` of the vault, when Google Drive does not hold it as the device has it.
+- Then puts the files to remove in Drive's trash.
+
 ## Where things are kept
 
 - The settings and the record of what was synced are kept on the device, outside the vault (in the app's local storage and in IndexedDB). They are not synced.
-- The token is kept in Obsidian's Keychain. The settings hold only the name it is saved under.
+- The GitHub token is kept in Obsidian's Keychain. The settings hold only the name it is saved under.
 - For Dropbox, what lets Sync Evo reach Dropbox (a refresh token) is kept in the app's local storage, for this vault on this device.
 - The settings hold the ID and the e-mail address of the Dropbox account.
+- For Google Drive, the refresh token is kept the same way, in the app's local storage, for this vault on this device. The settings hold the ID and the e-mail address of the Google account, and the ID of the vault's folder on Google Drive.
+- Removing Sync Evo leaves these on the device. With Dropbox or Google Drive, press **Disconnect** first to take the token away.
 - Sync Evo writes no `data.json`.
 - Sync Evo never syncs its own folder.

@@ -3,10 +3,10 @@
 Sync Evo is made for large vaults and for phones:
 
 - It needs no git on the device.
-- It talks to the API of GitHub or Dropbox directly.
+- It talks to the API of GitHub, Dropbox or Google Drive directly.
 - It can pick up a first download of thousands of files where it was interrupted.
 
-With GitHub, the remote is the repository. With Dropbox, it is the vault's folder in Dropbox. What differs with Dropbox is in [Dropbox](dropbox.md).
+With GitHub, the remote is the repository. With Dropbox or Google Drive, it is the vault's folder there. What differs is in [Dropbox](dropbox.md) and [Google Drive](google-drive.md).
 
 ## Download, upload and sync
 
@@ -40,6 +40,8 @@ A file that was changed both in the vault and in the remote is not overwritten.
 
 ### Merging
 
+With GitHub and Dropbox, such a file is merged when it can be. With Google Drive, it is not merged: it is kept twice, as a [conflict file](#conflict-files).
+
 - The file gets the changes of both sides, line by line, under its own name.
 - The notice of the sync names it.
 - What the file held on the device before the merge is kept in `.trash/.sync-evo-merged/` in the vault.
@@ -70,7 +72,8 @@ A file is kept twice instead of merged:
 - when both sides changed the same lines,
 - when it is not text,
 - when it is a `.canvas` or a `.base`,
-- always, on a device where "On a conflict" (under "How it syncs" in the settings) is set to create a conflict file.
+- always, on a device where "On a conflict" (under "How it syncs" in the settings) is set to create a conflict file,
+- always, with Google Drive.
 
 Then:
 
@@ -118,9 +121,9 @@ Sync Evo stops and asks before it goes on when:
 | Command | What it does |
 | --- | --- |
 | Sync | A download, and then an upload. |
-| Download changes from GitHub (or Dropbox) | Only downloads from the remote. |
-| Upload changes to GitHub (or Dropbox) | Only uploads to the remote. |
-| Start over (download everything from GitHub, or Dropbox, again) | Compares the vault with the remote again, as a first download does. No file is deleted. |
+| Download changes from GitHub (or Dropbox, or Google Drive) | Only downloads from the remote. |
+| Upload changes to GitHub (or Dropbox, or Google Drive) | Only uploads to the remote. |
+| Start over (download everything from GitHub, Dropbox or Google Drive again) | Compares the vault with the remote again, as a first download does. No file is deleted. |
 | Stop the sync | Stops a running sync. |
 
 Upload:
@@ -132,5 +135,7 @@ Stop the sync:
 
 - A stopped download continues from where it was.
 - A stopped upload does not change the branch. What it had already uploaded is in no commit.
+- With Google Drive, the files a stopped upload already sent stay there. The next sync sends the rest.
+- With Dropbox, the files are made final together at the end of the upload. Only those already made final stay there. A stop before that leaves nothing on Dropbox. The next sync sends the rest.
 
 On GitHub, an upload makes one commit. Its message is `Sync Evo: <device name> (<n> added, <n> modified, <n> deleted)`, with the changed paths below it.

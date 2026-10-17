@@ -2,7 +2,7 @@
 
 [日本語](https://github.com/seking/obsidian-sync-evo/blob/main/README.ja.md)
 
-Sync your vault across all your devices — free, through your own GitHub or Dropbox.
+Sync your vault across all your devices — free, through your own GitHub, Dropbox or Google Drive.
 
 It works on phones and computers alike, with no Git to install.
 
@@ -10,7 +10,7 @@ It works on phones and computers alike, with no Git to install.
 
 ## Why Sync Evo
 
-**Free, with your own storage.** Your notes go to your own GitHub repository or Dropbox, with no account with the developer and no server in between.
+**Free, with your own storage.** Your notes go to your own GitHub repository, Dropbox or Google Drive, with no account with the developer and no server in between.
 
 **Made for phones and large vaults.** A first download of thousands of files picks up where it stopped.
 
@@ -22,12 +22,12 @@ It works on phones and computers alike, with no Git to install.
 
 **Quiet automatic sync.** If you turn it on, Sync Evo syncs on startup and at an interval, and says nothing when all is well.
 
-## GitHub or Dropbox?
+## GitHub, Dropbox or Google Drive?
 
-- **No GitHub account? Use Dropbox.** A [free Dropbox account](https://www.dropbox.com/register) is enough. You sign in, and there is no repository or token to make.
+- **No GitHub account? Use Dropbox or Google Drive.** A [free Dropbox account](https://www.dropbox.com/register) or your Google account is enough. You sign in, and there is no repository or token to make.
 - **Use GitHub** if you already have an account, use Git on a computer, or want every change kept.
 
-[Compare them](https://github.com/seking/obsidian-sync-evo/blob/main/docs/github-or-dropbox.md)
+[Compare them](https://github.com/seking/obsidian-sync-evo/blob/main/docs/choosing-a-service.md)
 
 ## Get started
 
@@ -53,6 +53,17 @@ Sync Evo is not in the community plugin directory yet. Install it with [BRAT](ht
 3. Press **Connect**, and allow Sync Evo in the browser.
 4. Press **Test**, then sync as in step 4 for GitHub.
 
+### Google Drive
+
+Google Drive needs Sync Evo 0.5.0 or later, which is not released yet. To try it now, install the beta with BRAT.
+
+1. In Settings → Community plugins → Sync Evo, set **Service** to **Google Drive**.
+2. Press **Connect**. The browser opens `google.com/device`, and the code is already copied.
+3. Paste the code, choose your Google account, and allow Sync Evo. Then come back to Obsidian.
+4. Press **Test**, then sync as in step 4 for GitHub.
+
+Sync Evo sees only the files it made in your Google Drive. [Details](https://github.com/seking/obsidian-sync-evo/blob/main/docs/google-drive.md)
+
 [Step-by-step guide](https://github.com/seking/obsidian-sync-evo/blob/main/docs/setup.md)
 
 ## Good to know
@@ -64,15 +75,16 @@ Sync Evo is not in the community plugin directory yet. Install it with [BRAT](ht
 
 ## Network and privacy
 
-Sync Evo connects only to GitHub (`api.github.com`, `codeload.github.com`) or Dropbox (`api.dropboxapi.com`, `content.dropboxapi.com`, `www.dropbox.com`), to sync your vault. It does so only when you sync, or when you have turned on automatic sync. It sends nothing anywhere else, collects no usage data and has no server of the developer's. A GitHub or Dropbox account is required. [Details](https://github.com/seking/obsidian-sync-evo/blob/main/docs/network.md)
+Sync Evo connects only to GitHub (`api.github.com`, `codeload.github.com`), Dropbox (`api.dropboxapi.com`, `content.dropboxapi.com`, `www.dropbox.com`) or Google (`oauth2.googleapis.com`, `www.googleapis.com`), to sync your vault. To connect to Google Drive, it opens `google.com/device` in the browser. It does so only when you sync, when you have turned on automatic sync, or when you connect. It sends nothing anywhere else, collects no usage data and has no server of the developer's. A GitHub, Dropbox or Google account is required. [Details](https://github.com/seking/obsidian-sync-evo/blob/main/docs/network.md), [Privacy policy](https://gyap.jp/sync-evo/privacy)
 
 ## Learn more
 
 - [Setting up, step by step](https://github.com/seking/obsidian-sync-evo/blob/main/docs/setup.md)
-- [GitHub or Dropbox?](https://github.com/seking/obsidian-sync-evo/blob/main/docs/github-or-dropbox.md)
+- [GitHub, Dropbox or Google Drive?](https://github.com/seking/obsidian-sync-evo/blob/main/docs/choosing-a-service.md)
 - [How syncing works](https://github.com/seking/obsidian-sync-evo/blob/main/docs/syncing.md), and its [commands](https://github.com/seking/obsidian-sync-evo/blob/main/docs/syncing.md#commands)
 - [Settings](https://github.com/seking/obsidian-sync-evo/blob/main/docs/settings.md)
 - [Dropbox](https://github.com/seking/obsidian-sync-evo/blob/main/docs/dropbox.md)
+- [Google Drive](https://github.com/seking/obsidian-sync-evo/blob/main/docs/google-drive.md)
 - [A vault in iCloud Drive](https://github.com/seking/obsidian-sync-evo/blob/main/docs/icloud.md)
 - [Limits, what is not supported yet, and where it was tested](https://github.com/seking/obsidian-sync-evo/blob/main/docs/limits.md)
 - [Network use and privacy](https://github.com/seking/obsidian-sync-evo/blob/main/docs/network.md)

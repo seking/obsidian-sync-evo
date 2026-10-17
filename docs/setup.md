@@ -3,7 +3,7 @@
 ## What you need
 
 - Obsidian 1.11.4 or later.
-- A GitHub account and a repository, or a Dropbox account.
+- A GitHub account and a repository, a Dropbox account, or a Google account. Google Drive needs Sync Evo 0.5.0 or later, which is not released yet. To try it now, install the beta with BRAT.
 - No account with the developer. Every feature is free.
 
 ## Installing
@@ -42,6 +42,15 @@ Sync Evo is not in the community plugin directory yet. Until it is, install it w
 3. Press **Test**, then run **Sync**, as in steps 4 and 5 for GitHub.
 
 Sync Evo reaches only its own folder in your Dropbox, `Apps/Sync Evo/`. Files you delete stay in Dropbox's version history for a while. More: [Dropbox](dropbox.md).
+
+## Google Drive
+
+1. In Obsidian, open Settings → Community plugins → Sync Evo. Under "Connection", set **Service** to **Google Drive**. Check **Folder** (the name of the vault, at first) and **Device name** (used in the names of conflict files).
+2. Press **Connect**. Sync Evo shows a code, copies it, and opens `google.com/device` in the browser. If the browser does not open, press **Open the browser** in the window of the code.
+3. In the browser, paste the code, choose your Google account, and allow Sync Evo. Then come back to Obsidian. The window of the code closes by itself.
+4. Press **Test**, then run **Sync**, as in steps 4 and 5 for GitHub.
+
+On every device, connect to the same Google account and name the same folder. Sync Evo keeps the vault in `Sync Evo/<folder>` in My Drive, and sees only the files it made there. Files it deletes go to Drive's trash. More: [Google Drive](google-drive.md).
 
 ## Next
 

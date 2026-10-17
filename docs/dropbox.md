@@ -1,6 +1,6 @@
 # Dropbox
 
-Under "Connection" in the settings, **Service** chooses between GitHub and Dropbox.
+Under "Connection" in the settings, **Service** chooses between GitHub, Dropbox and Google Drive.
 
 ## The folder
 
@@ -41,6 +41,7 @@ Under "Connection" in the settings, **Service** chooses between GitHub and Dropb
 
 - Two files in the vault whose paths differ only in case are not uploaded.
 - A rename on Dropbox that changes only case reaches the device only when the folder is listed in full again.
+- Paths that differ only in case are not synced with any service. See [the comparison](choosing-a-service.md).
 
 ## Several devices
 

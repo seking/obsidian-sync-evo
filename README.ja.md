@@ -2,7 +2,7 @@
 
 [English](https://github.com/seking/obsidian-sync-evo/blob/main/README.md)
 
-保管庫を、すべてのデバイスで同期します。使うのは自分の GitHub か Dropbox で、無料です。
+保管庫を、すべてのデバイスで同期します。使うのは自分の GitHub・Dropbox・Google Drive のどれかで、無料です。
 
 スマートフォンでもパソコンでも動きます。Git のインストールは要りません。
 
@@ -10,7 +10,7 @@
 
 ## Sync Evo の特長
 
-**自分のストレージで、無料。** ノートは、自分の GitHub のリポジトリか Dropbox に保存されます。開発者にアカウントを作る必要は無く、間にサーバーもありません。
+**自分のストレージで、無料。** ノートは、自分の GitHub のリポジトリ・Dropbox・Google Drive のどれかに保存されます。開発者にアカウントを作る必要は無く、間にサーバーもありません。
 
 **スマートフォンと大きな保管庫のために作りました。** 数千ファイルの最初のダウンロードは、途中で止まっても、続きから進みます。
 
@@ -22,12 +22,12 @@
 
 **自動同期は、邪魔をしません。** 有効にすると、起動時と一定の間隔で同期します。問題が無い時は、何も知らせません。
 
-## GitHub か Dropbox か
+## GitHub・Dropbox・Google Drive のどれか
 
-- **GitHub のアカウントが無いなら、Dropbox を。** [無料の Dropbox アカウント](https://www.dropbox.com/register)で足ります。ログインするだけで、リポジトリやトークンを作る必要はありません。
+- **GitHub のアカウントが無いなら、Dropbox か Google Drive を。** [無料の Dropbox アカウント](https://www.dropbox.com/register)か、今の Google アカウントで足ります。ログインするだけで、リポジトリやトークンを作る必要はありません。
 - **GitHub が向くのは**、すでにアカウントがある時、パソコンで Git を使う時、変更をすべて残したい時です。
 
-[GitHub と Dropbox の比較](https://github.com/seking/obsidian-sync-evo/blob/main/docs/github-or-dropbox.md)
+[3つの比較](https://github.com/seking/obsidian-sync-evo/blob/main/docs/choosing-a-service.md)
 
 ## 始め方
 
@@ -53,6 +53,17 @@ Sync Evo は、まだコミュニティプラグインの一覧にありませ�
 3. **接続する**を押し、ブラウザで Sync Evo を許可します。
 4. **テスト**を押し、GitHub の手順 4 と同じように同期します。
 
+### Google Drive
+
+Google Drive には、Sync Evo 0.5.0 以降が要ります。0.5.0 は、まだ公開していません。今試すには、BRAT でベータを入れます。
+
+1. 設定 → コミュニティプラグイン → Sync Evo で、**サービス**を**Google Drive**にします。
+2. **接続する**を押します。ブラウザで `google.com/device` が開きます。コードは、もうコピーされています。
+3. コードを貼り、Google アカウントを選んで、Sync Evo を許可します。終わったら Obsidian に戻ります。
+4. **テスト**を押し、GitHub の手順 4 と同じように同期します。
+
+Sync Evo から見えるのは、Google Drive の中の Sync Evo が作ったファイルだけです。[詳細](https://github.com/seking/obsidian-sync-evo/blob/main/docs/google-drive.md)
+
 [手順の詳しい説明](https://github.com/seking/obsidian-sync-evo/blob/main/docs/setup.md)
 
 ## 知っておくこと
@@ -64,15 +75,16 @@ Sync Evo は、まだコミュニティプラグインの一覧にありませ�
 
 ## 通信とプライバシー
 
-Sync Evo が接続するのは、GitHub（`api.github.com`、`codeload.github.com`）か Dropbox（`api.dropboxapi.com`、`content.dropboxapi.com`、`www.dropbox.com`）だけです。どちらも保管庫の同期に使い、通信するのは、同期する時と、自動同期を有効にしている時だけです。ほかへは何も送りません。利用状況は集めず、開発者のサーバーもありません。GitHub か Dropbox のアカウントが必要です。[詳細](https://github.com/seking/obsidian-sync-evo/blob/main/docs/network.md)
+Sync Evo が接続するのは、GitHub（`api.github.com`、`codeload.github.com`）、Dropbox（`api.dropboxapi.com`、`content.dropboxapi.com`、`www.dropbox.com`）、Google（`oauth2.googleapis.com`、`www.googleapis.com`）だけです。Google Drive に接続する時は、ブラウザで `google.com/device` を開きます。どれも保管庫の同期に使い、通信するのは、同期する時、自動同期を有効にしている時、接続する時だけです。ほかへは何も送りません。利用状況は集めず、開発者のサーバーもありません。GitHub・Dropbox・Google のどれかのアカウントが必要です。[詳細](https://github.com/seking/obsidian-sync-evo/blob/main/docs/network.md)、[プライバシーポリシー](https://gyap.jp/sync-evo/privacy)
 
 ## 詳しく知る
 
 - [セットアップの手順](https://github.com/seking/obsidian-sync-evo/blob/main/docs/setup.md)
-- [GitHub か Dropbox か](https://github.com/seking/obsidian-sync-evo/blob/main/docs/github-or-dropbox.md)
+- [GitHub・Dropbox・Google Drive のどれか](https://github.com/seking/obsidian-sync-evo/blob/main/docs/choosing-a-service.md)
 - [同期のしくみ](https://github.com/seking/obsidian-sync-evo/blob/main/docs/syncing.md)と[コマンド](https://github.com/seking/obsidian-sync-evo/blob/main/docs/syncing.md#commands)
 - [設定](https://github.com/seking/obsidian-sync-evo/blob/main/docs/settings.md)
 - [Dropbox](https://github.com/seking/obsidian-sync-evo/blob/main/docs/dropbox.md)
+- [Google Drive](https://github.com/seking/obsidian-sync-evo/blob/main/docs/google-drive.md)
 - [iCloud Drive の保管庫](https://github.com/seking/obsidian-sync-evo/blob/main/docs/icloud.md)
 - [制限、未対応のこと、試験した環境](https://github.com/seking/obsidian-sync-evo/blob/main/docs/limits.md)
 - [通信とプライバシー](https://github.com/seking/obsidian-sync-evo/blob/main/docs/network.md)

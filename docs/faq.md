@@ -28,7 +28,23 @@ Yes, but support is experimental. Do not sync the same iCloud vault with Sync Ev
 
 ## What happens when I exclude something?
 
-Nothing is deleted, on a device or on GitHub. What is excluded is neither uploaded nor downloaded, and a deletion on either side is not carried over. To remove excluded files from the repository, use "Remove from GitHub" in the settings. See [What happens when you exclude something](settings.md#what-happens-when-you-exclude-something).
+Nothing is deleted, on a device or on the service. What is excluded is neither uploaded nor downloaded, and a deletion on either side is not carried over. To remove excluded files from the service, use "Remove from GitHub" (or Dropbox, or Google Drive) in the settings. See [What happens when you exclude something](settings.md#what-happens-when-you-exclude-something).
+
+## I put a file into the folder on Google Drive. Why is it not synced?
+
+Sync Evo sees only the files it made itself on Google Drive. A file you add there on the Google Drive website, or with Google Drive for desktop, is not seen. Put the file into the vault on one of your devices instead. See [What Sync Evo can see](google-drive.md#what-sync-evo-can-see).
+
+## I cannot connect to Google Drive with my work or school account
+
+With a Google Workspace account, the administrator may have blocked apps such as Sync Evo. Ask them, or use another Google account.
+
+## Sync Evo says that Google no longer accepts its connection
+
+Sync Evo was removed in your Google Account, or this device's connection ended for another reason: one Google account keeps at most 100 connections of Sync Evo, and the oldest ends past that. Press **Connect** in the settings again. With the same account, the sync goes on where it was. See [Disconnecting](google-drive.md#disconnecting).
+
+## Sync Evo says that there is more than one folder on Google Drive
+
+Keep only one of them: put the other one in the trash on Google Drive, and sync again on every device. See [When the folder is not as it was](google-drive.md#when-the-folder-is-not-as-it-was).
 
 ## How do I report a bug?
 
