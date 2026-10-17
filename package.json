@@ -17,6 +17,7 @@
 	"scripts": {
 		"dev": "node esbuild.config.mjs",
 		"build": "tsc --noEmit && tsc --noEmit -p tests && eslint . && node esbuild.config.mjs production",
+		"build:paid-test": "node esbuild.config.mjs once",
 		"test": "vitest run",
 		"lint": "eslint .",
 		"install:vault": "node scripts/install-to-vault.mjs",

@@ -33,7 +33,20 @@ import type { BackendId } from "./settings";
  * Sync Evo works as it did before. The one value to set, in the version
  * that switches it on (T082).
  */
-export const PAID_ENABLED_AT: number | null = null;
+export const RELEASE_PAID_ENABLED_AT: number | null = null;
+
+/**
+ * Put in by esbuild at build time (`define` in esbuild.config.mjs): the day
+ * of `SYNC_EVO_PAID_ENABLED_AT`, for a build made to try the plan out on a
+ * device (with `SYNC_EVO_DODO_TEST=1` only, and never a production one), or
+ * `null`. A day in the past tries the states after the free time. Not
+ * defined in the tests.
+ */
+declare const SYNC_EVO_PAID_ENABLED_AT: number | null | undefined;
+
+/** The day the plan was switched on, for this build: `RELEASE_PAID_ENABLED_AT` but in a build to try it out. */
+export const PAID_ENABLED_AT: number | null =
+	typeof SYNC_EVO_PAID_ENABLED_AT === "number" ? SYNC_EVO_PAID_ENABLED_AT : RELEASE_PAID_ENABLED_AT;
 
 /** How long Dropbox and Google Drive are free, from the start of the count of an account. */
 export const FREE_MONTHS = 3;

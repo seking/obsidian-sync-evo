@@ -11,7 +11,15 @@
 
 import { describe, expect, test } from "vitest";
 import { translatorFor } from "../src/core/i18n";
-import { DODO_BUSINESS_ID, DODO_PRODUCT_IDS, PURCHASE_URL } from "../src/core/license";
+import {
+	DODO_BUSINESS_ID,
+	DODO_LIVE_BUSINESS_ID,
+	DODO_LIVE_PRODUCT_IDS,
+	DODO_PRODUCT_IDS,
+	DODO_TEST_BUILD,
+	DODO_TEST_PRODUCT_IDS,
+	PURCHASE_URL,
+} from "../src/core/license";
 import {
 	addMonths,
 	DAY_MS,
@@ -20,6 +28,7 @@ import {
 	countStart,
 	freeUntil,
 	PAID_ENABLED_AT,
+	RELEASE_PAID_ENABLED_AT,
 	paidNoteText,
 	paidStanding,
 	paidStatusLines,
@@ -33,16 +42,29 @@ const at = (iso: string): number => Date.parse(iso);
 
 describe("the switch", () => {
 	test("is off in this version: nothing of the plan is decided or shown", () => {
-		expect(PAID_ENABLED_AT).toBeNull();
+		expect(RELEASE_PAID_ENABLED_AT).toBeNull();
+		// The tests are no build to try the plan out: the release's day, and the live mode.
+		expect(PAID_ENABLED_AT).toBe(RELEASE_PAID_ENABLED_AT);
+		expect(DODO_TEST_BUILD).toBe(false);
+		expect(DODO_PRODUCT_IDS).toBe(DODO_LIVE_PRODUCT_IDS);
+		expect(DODO_BUSINESS_ID).toBe(DODO_LIVE_BUSINESS_ID);
 	});
 
-	test("is switched on only with the business, the products and the page of the key in place", () => {
+	test("is switched on for a release only with the live business, products and page of the key in place", () => {
 		// Fails the version that sets the day while these are placeholders:
-		// no key would be taken, and no page to buy one would be shown.
-		if (PAID_ENABLED_AT === null) return;
-		expect(DODO_BUSINESS_ID).not.toBe("");
-		expect(DODO_PRODUCT_IDS.length).toBeGreaterThan(0);
+		// no key would be taken, and no page to buy one would be shown. The
+		// values of the test mode do not count.
+		if (RELEASE_PAID_ENABLED_AT === null) return;
+		expect(DODO_LIVE_BUSINESS_ID).not.toBe("");
+		expect(DODO_LIVE_PRODUCT_IDS.length).toBeGreaterThan(0);
 		expect(PURCHASE_URL).toMatch(/^https:\/\//);
+	});
+
+	test("the products of the two modes are ids of Dodo's form, and none of them is in both", () => {
+		for (const id of [...DODO_LIVE_PRODUCT_IDS, ...DODO_TEST_PRODUCT_IDS]) expect(id).toMatch(/^pdt_[A-Za-z0-9]{21}$/);
+		expect(DODO_LIVE_PRODUCT_IDS.filter((id) => DODO_TEST_PRODUCT_IDS.includes(id))).toEqual([]);
+		expect(new Set(DODO_LIVE_PRODUCT_IDS).size).toBe(3);
+		expect(new Set(DODO_TEST_PRODUCT_IDS).size).toBe(3);
 	});
 });
 

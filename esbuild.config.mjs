@@ -91,12 +91,43 @@ const banner = `/*
 ${thirdParty}`;
 
 const production = process.argv[2] === "production";
+// Built once, as for development, and not watched: for a build to try out
+// on a device (`npm run build:paid-test`).
+const once = process.argv[2] === "once";
 
 // A build that asks Dodo's test mode about license keys is for trying the
 // paid plan out, and never a release.
 if (production && process.env.SYNC_EVO_DODO_TEST === "1") {
 	throw new Error("esbuild.config.mjs: SYNC_EVO_DODO_TEST=1 is for a development build only, not for a production one.");
 }
+
+// The day the paid plan was switched on, for a build to try the plan out
+// (src/core/paid.ts): an ISO date ("2026-07-01") or milliseconds since the
+// epoch. A day in the past tries the free time, the warnings, the time of
+// downloads alone, and the stop. With SYNC_EVO_DODO_TEST=1 only, and never
+// in a production build. To try it on a device:
+//
+//   SYNC_EVO_DODO_TEST=1 SYNC_EVO_PAID_ENABLED_AT=2026-07-01 npm run build:paid-test
+//   npm run install:vault
+//
+// (`install:vault` copies main.js into the vault of SYNC_EVO_VAULT; see
+// scripts/install-to-vault.mjs.) A key is then bought with a test card of
+// Dodo's test mode, and the business id of the test mode is needed in
+// src/core/license.ts for the key to be taken.
+function paidEnabledAt() {
+	const raw = process.env.SYNC_EVO_PAID_ENABLED_AT;
+	if (raw === undefined || raw === "") return null;
+	if (production) throw new Error("esbuild.config.mjs: SYNC_EVO_PAID_ENABLED_AT is for a build to try the paid plan out, not for a production one.");
+	if (process.env.SYNC_EVO_DODO_TEST !== "1") {
+		console.warn("warning: SYNC_EVO_PAID_ENABLED_AT is left out: it is only used with SYNC_EVO_DODO_TEST=1.");
+		return null;
+	}
+	const at = /^\d+$/.test(raw) ? Number(raw) : Date.parse(raw);
+	if (!Number.isFinite(at)) throw new Error(`esbuild.config.mjs: SYNC_EVO_PAID_ENABLED_AT is neither a date nor milliseconds: ${raw}`);
+	console.warn(`warning: a build to try the paid plan out, switched on ${new Date(at).toISOString()}, asking Dodo's test mode.`);
+	return at;
+}
+const enabledAt = paidEnabledAt();
 
 // The client secret of Sync Evo's Google client, kept out of the repository
 // (scripts/google-client-secret.mjs). A build without it still runs, for the
@@ -148,10 +179,12 @@ const context = await esbuild.context({
 		SYNC_EVO_GOOGLE_CLIENT_SECRET: JSON.stringify(secret?.value ?? ""),
 		// A build that asks Dodo's test mode about license keys (src/core/license.ts).
 		SYNC_EVO_DODO_TEST: JSON.stringify(process.env.SYNC_EVO_DODO_TEST === "1"),
+		// The day the paid plan was switched on, in a build to try it out (src/core/paid.ts).
+		SYNC_EVO_PAID_ENABLED_AT: JSON.stringify(enabledAt),
 	},
 });
 
-if (production) {
+if (production || once) {
 	await context.rebuild();
 	await context.dispose();
 } else {

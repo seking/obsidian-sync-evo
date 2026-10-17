@@ -43,19 +43,50 @@ export const DODO_TEST_API = "https://test.dodopayments.com";
  */
 declare const SYNC_EVO_DODO_TEST: boolean | undefined;
 
+/** Whether this build asks Dodo's test mode (`SYNC_EVO_DODO_TEST`). */
+export const DODO_TEST_BUILD = typeof SYNC_EVO_DODO_TEST === "boolean" && SYNC_EVO_DODO_TEST;
+
 /** Where this build asks Dodo. */
-export const DODO_API = typeof SYNC_EVO_DODO_TEST === "boolean" && SYNC_EVO_DODO_TEST ? DODO_TEST_API : DODO_LIVE_API;
+export const DODO_API = DODO_TEST_BUILD ? DODO_TEST_API : DODO_LIVE_API;
 
 /**
- * The business of Sync Evo on Dodo (GYAP). Empty until the account is
- * set up there: no key is taken until then.
+ * The business of Sync Evo (GYAP) on Dodo, in its live mode. Empty until
+ * it is known: no key is taken until then. Whether the test mode has the
+ * same id is not known yet.
  */
-export const DODO_BUSINESS_ID = "";
+export const DODO_LIVE_BUSINESS_ID = "";
 /**
- * The products a key of Sync Evo is sold with: by the month, by the year,
- * and once for good. Empty until they are made on Dodo.
+ * The business of Sync Evo in Dodo's test mode, as the activation of a key
+ * bought there named it (2026-10-18).
  */
-export const DODO_PRODUCT_IDS: readonly string[] = [];
+export const DODO_TEST_BUSINESS_ID = "bus_0NpvnyuwMvGA62iaE3swK";
+/**
+ * The products a key of Sync Evo is sold with in the live mode, which
+ * cannot be bought until Dodo has verified the business. Copied from a
+ * picture of Dodo's screen: compared with the text on that screen before
+ * the release that switches the plan on (l and I, 0 and O).
+ */
+export const DODO_LIVE_PRODUCT_IDS: readonly string[] = [
+	// Once for good, $49.
+	"pdt_0Npwfs17O6R4lOSY7Q87z",
+	// A year, $24.
+	"pdt_0NpwfisGtlvF694AZlydR",
+	// A month, $3.
+	"pdt_0NpwfWybRvpHYSN0loBu3",
+];
+/** The same products in Dodo's test mode, for keys bought with its test cards. */
+export const DODO_TEST_PRODUCT_IDS: readonly string[] = [
+	// A month, $3.
+	"pdt_0Npwh87MDEp2ht2V7jhr0",
+	// A year, $24.
+	"pdt_0NpwhEUoEH4OTB9qkQ059",
+	// Once for good, $49.
+	"pdt_0Npwh30QNmPXpnekbEE6B",
+];
+/** The business of Sync Evo in the mode this build asks. */
+export const DODO_BUSINESS_ID = DODO_TEST_BUILD ? DODO_TEST_BUSINESS_ID : DODO_LIVE_BUSINESS_ID;
+/** The products of a key of Sync Evo: by the month, by the year, and once for good, in the mode this build asks. */
+export const DODO_PRODUCT_IDS: readonly string[] = DODO_TEST_BUILD ? DODO_TEST_PRODUCT_IDS : DODO_LIVE_PRODUCT_IDS;
 /** The page a key is bought on, shown on a desktop only. Empty until there is one. */
 export const PURCHASE_URL = "";
 /** Where the settings send the user for the details, on every device. */
