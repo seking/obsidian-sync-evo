@@ -839,6 +839,10 @@ export const en = baseCatalog({
 		"Nothing was removed from {remote}. The folder is not on Dropbox now. Sync first, then try again in the settings of Sync Evo.",
 	"pull.reason.hashMismatch.dropbox":
 		"The content Dropbox sent did not match its own listing.",
+	"confirm.delete.body.dropbox": {
+		one: "{count} file on this device was deleted on {remote}. The download deletes it from this device.",
+		other: "{count} files on this device were deleted on {remote}. The download deletes them from this device.",
+	},
 	"settings.deviceName.desc.dropbox":
 		"It appears in the names of conflict files.",
 	// What Google Drive has no repository, commit or history for (`GDRIVE_VARIANT`).
@@ -864,6 +868,10 @@ export const en = baseCatalog({
 		"Nothing was removed from {remote}. The folder is not on Google Drive now. Sync first, then try again in the settings of Sync Evo.",
 	"pull.reason.hashMismatch.gdrive":
 		"The content Google Drive sent did not match its own listing.",
+	"confirm.delete.body.gdrive": {
+		one: "{count} file on this device was deleted on {remote}, put in the trash, or moved out of the folder of this vault there. The download deletes it from this device.",
+		other: "{count} files on this device were deleted on {remote}, put in the trash, or moved out of the folder of this vault there. The download deletes them from this device.",
+	},
 	"settings.deviceName.desc.gdrive":
 		"It appears in the names of conflict files.",
 });

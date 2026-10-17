@@ -645,6 +645,8 @@ export const ja = completeTranslation(en, {
 		"{remote} から削除していません。Dropbox にフォルダがありません。先に同期してから、Sync Evo の設定画面で、もう一度行ってください。",
 	"pull.reason.hashMismatch.dropbox":
 		"Dropbox から受け取った内容が、Dropbox の一覧と合いませんでした。",
+	"confirm.delete.body.dropbox":
+		"このデバイスにあるファイル {count} 件が、{remote} で削除されています。ダウンロードすると、このデバイスから削除されます。",
 	"settings.deviceName.desc.dropbox":
 		"競合ファイルの名前に使われます。",
 	// What Google Drive has no repository, commit or history for (`GDRIVE_VARIANT`).
@@ -670,6 +672,8 @@ export const ja = completeTranslation(en, {
 		"{remote} から削除していません。Google Drive にフォルダがありません。先に同期してから、Sync Evo の設定画面で、もう一度行ってください。",
 	"pull.reason.hashMismatch.gdrive":
 		"Google Drive から受け取った内容が、Google Drive の一覧と合いませんでした。",
+	"confirm.delete.body.gdrive":
+		"このデバイスにあるファイル {count} 件が、{remote} で削除されたか、ゴミ箱に入ったか、同期先のフォルダの外へ動かされています。ダウンロードすると、このデバイスから削除されます。",
 	"settings.deviceName.desc.gdrive":
 		"競合ファイルの名前に使われます。",
 });

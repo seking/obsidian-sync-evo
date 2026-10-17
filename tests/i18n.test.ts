@@ -340,6 +340,21 @@ describe("the texts while Google Drive is the service", () => {
 		expect(drive("untrack.done", { count: 2 })).toBe("Google Drive から 2 件を削除しました。このデバイスのファイルは、そのままです。");
 	});
 
+	test("the question before deletions speaks of no symbolic link on Dropbox and Google Drive, and does on GitHub", () => {
+		for (const language of ["en", "ja"]) {
+			const symlink = language === "en" ? "symbolic link" : "シンボリックリンク";
+			expect(translatorFor(language)("confirm.delete.body", { count: 2 })).toContain(symlink);
+			const dropbox = translatorFor(language, "Dropbox")("confirm.delete.body", { count: 2 });
+			const drive = translatorFor(language, "Google Drive")("confirm.delete.body", { count: 2 });
+			for (const text of [dropbox, drive]) {
+				expect(text).not.toContain(symlink);
+				expect(text).toContain("2");
+				expect(text).not.toMatch(/[{}]/);
+			}
+			expect(drive).toContain(language === "en" ? "trash" : "ゴミ箱");
+		}
+	});
+
 	test("every variant of Dropbox has one of Google Drive, and the other way round", () => {
 		const keys = Object.keys(en);
 		const dropbox = keys.filter((key) => key.endsWith(DROPBOX_VARIANT)).map((key) => key.slice(0, -DROPBOX_VARIANT.length));

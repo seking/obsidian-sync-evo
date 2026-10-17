@@ -358,4 +358,31 @@ describe("syncing two devices through Google Drive", () => {
 		expect(drive.calls.filter((call) => call.startsWith("POST") || call.startsWith("PATCH"))).toEqual([]);
 		expect(drive.idOf("Sync Evo")).toBeUndefined();
 	});
+
+	test("an empty file goes up and comes down, both ways, and an edit to and from empty goes across", async () => {
+		const drive = new FakeDrive();
+		const a = device(drive, "Pixel");
+		a.vault.put("mass/m1.md", "m1\n");
+		a.vault.put("mass/m3.md", "");
+		await a.pull();
+		const pushed = await a.push();
+		expect(pushed.outcome).toBe("pushed");
+		expect(pushed.leftOut ?? []).toEqual([]);
+		expect(drive.tree("Sync Evo/Vault")).toMatchObject({ "mass/m3.md": "" });
+
+		const b = device(drive, "Pixel 2");
+		const pulled = await b.pull();
+		expect(pulled.outcome).toBe("completed");
+		expect(b.vault.text("mass/m3.md")).toBe("");
+
+		// Filled on one side, emptied on the other.
+		b.vault.put("mass/m3.md", "now m3");
+		b.vault.put("mass/m1.md", "");
+		b.vault.put("mass/new-empty.md", "");
+		expect((await b.push()).counts).toMatchObject({ added: 1, modified: 2 });
+		await a.pull();
+		expect(notes(a.vault)).toEqual({ "mass/m1.md": "", "mass/m3.md": "now m3", "mass/new-empty.md": "" });
+		expect((await a.push()).outcome).toBe("nothing-to-push");
+		expect((await b.pull()).counts).toMatchObject({ fetched: 0 });
+	});
 });
