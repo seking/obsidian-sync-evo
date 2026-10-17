@@ -670,11 +670,12 @@ export default class SyncEvoPlugin extends Plugin implements SettingsHost, SyncH
 
 	/**
 	 * Connects to Google Drive by the device flow (R-1). Called in the
-	 * handler of the press, with nothing awaited before: with a code asked
-	 * for ahead, it is copied and google.com/device opened right away, which
-	 * iOS allows only then. Without one, the dialog asks for it, and the
-	 * browser opens from its button. The dialog shows the code while Sync
-	 * Evo waits for the user to allow; closing it stops the wait.
+	 * handler of the press, with nothing awaited before. The dialog shows the
+	 * code first, copied at once when it was asked for ahead (the clipboard
+	 * too takes a press on some platforms); without one, the dialog asks for
+	 * it. The browser opens from the button of the dialog only, in the
+	 * handler of its press, which iOS needs. Sync Evo waits for the user to
+	 * allow while the dialog is up; closing it stops the wait.
 	 */
 	connectGdrive(prefetched: DeviceCode | null): void {
 		const http = deviceNetwork().http;
@@ -682,15 +683,15 @@ export default class SyncEvoPlugin extends Plugin implements SettingsHost, SyncH
 		const ready = prefetched !== null && prefetched.expiresAt - Date.now() > CODE_MARGIN_MS ? prefetched : null;
 		// A code is for one press.
 		this.gdriveCode = null;
-		if (ready !== null) {
-			void copyText(ready.userCode);
-			window.open(ready.verificationUrl);
-		}
+		const copied = ready === null ? null : copyText(ready.userCode);
 		const code = ready === null ? requestDeviceCode(http, Date.now, client) : Promise.resolve(ready);
 		const modal = new DriveCodeModal(this.app, this.t, {
 			code,
-			copied: ready !== null,
-			openBrowser: (shown) => window.open(shown.verificationUrl),
+			copied,
+			copy: copyText,
+			open: (url) => {
+				window.open(url);
+			},
 		});
 		modal.open();
 		void this.finishGdriveSignIn(code, modal);

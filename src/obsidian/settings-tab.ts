@@ -381,9 +381,9 @@ export class SyncEvoSettingTab extends PluginSettingTab {
 			.setName(t("settings.gdrive.name"))
 			.setDesc(connected === null ? t("settings.gdrive.desc") : t("settings.gdrive.connected", { email: connected.email }));
 		if (connected === null) {
-			// Asked for before the press: iOS opens the browser only right
-			// after a tap, and the code takes a request to get. Without one by
-			// then, the dialog asks for it.
+			// Asked for before the press, so the dialog shows the code at once
+			// and copies it in the press (the clipboard too may take a tap).
+			// Without one by then, the dialog asks for it.
 			// The plugin keeps it while it lasts: drawing the screen again
 			// asks for no other.
 			let code: DeviceCode | null = null;

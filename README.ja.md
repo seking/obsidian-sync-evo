@@ -58,9 +58,10 @@ Sync Evo は、まだコミュニティプラグインの一覧にありませ�
 Google Drive には、Sync Evo 0.5.0 以降が要ります。0.5.0 は、まだ公開していません。今試すには、BRAT でベータを入れます。
 
 1. 設定 → コミュニティプラグイン → Sync Evo で、**サービス**を**Google Drive**にします。
-2. **接続する**を押します。ブラウザで `google.com/device` が開きます。コードは、もうコピーされています。
-3. コードを貼り、Google アカウントを選んで、Sync Evo を許可します。終わったら Obsidian に戻ります。
-4. **テスト**を押し、GitHub の手順 4 と同じように同期します。
+2. **接続する**を押します。コードが表示され、コピーされます。
+3. **ブラウザで開く**を押します。ブラウザで `google.com/device` が開き、コードもまたコピーされます。
+4. コードを貼り、Google アカウントを選んで、Sync Evo を許可します。終わったら Obsidian に戻ります。設定画面に、接続したアカウントが出ます。
+5. **テスト**を押し、GitHub の手順 4 と同じように同期します。
 
 Sync Evo から見えるのは、Google Drive の中の Sync Evo が作ったファイルだけです。[詳細](https://github.com/seking/obsidian-sync-evo/blob/main/docs/google-drive.md)
 

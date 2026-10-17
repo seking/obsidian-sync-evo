@@ -50,7 +50,7 @@ export const ja = completeTranslation(en, {
 	"settings.dropboxFolder.invalid": "フォルダの名前にならないため、保存されていません。空にせず、/ や \\ を入れないでください。",
 	"settings.gdrive.name": "Google Drive",
 	"settings.gdrive.desc":
-		"「接続する」を押すと、コードが表示され、ブラウザで google.com/device が開きます。そこでコードを入れ、ログインして、Sync Evo を許可してください。その後、Obsidian に戻ります。",
+		"「接続する」を押すと、コードが表示され、コピーされます。「ブラウザで開く」で google.com/device が開くので、そこにコードを入れ、Google アカウントを選び、Sync Evo を許可してください。その後、Obsidian に戻ります。",
 	"settings.gdrive.connected":
 		"接続中：{email}。「接続を解除」は、このデバイスだけの解除です。全デバイスの接続を取り消す時は、Google アカウントの「サードパーティ製のアプリとサービス」から Sync Evo を外してください（外すと、全デバイスの接続が切れます）。",
 	"settings.gdrive.connect": "接続する",
@@ -219,10 +219,9 @@ export const ja = completeTranslation(en, {
 	"gdrive.code.title": "Google Drive に接続する",
 	"gdrive.code.asking": "Google にコードを求めています…",
 	"gdrive.code.body":
-		"{url} でこのコードを入れ、Google アカウントでログインして、Sync Evo を許可してください。許可すると、この画面は自動で閉じます。",
-	"gdrive.code.copied": "コードをコピーしました。",
+		"このコードを、ブラウザで開く Google の画面（{url}）に入れてください。Google アカウントを選び、Sync Evo を許可したら、Obsidian に戻ってください。",
+	"gdrive.code.copied": "コードはコピー済みです。",
 	"gdrive.code.open": "ブラウザで開く",
-	"gdrive.code.copy": "コードをコピー",
 	"gdrive.code.cancel": "やめる",
 	"gdrive.connected": "Google Drive に接続しました（{email}）。",
 	"gdrive.denied": "Google Drive に接続していません。許可されませんでした。",

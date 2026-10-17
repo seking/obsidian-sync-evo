@@ -57,7 +57,7 @@ export const en = baseCatalog({
 	"settings.dropboxFolder.invalid": "This cannot be the name of a folder, so it was not saved. Do not leave it empty, and do not use / or \\.",
 	"settings.gdrive.name": "Google Drive",
 	"settings.gdrive.desc":
-		"\"Connect\" shows a code and opens google.com/device in the browser. Enter the code there, sign in, and allow Sync Evo. Then come back to Obsidian.",
+		"\"Connect\" shows a code and copies it. \"Open the browser\" opens google.com/device: enter the code there, choose your Google account, and allow Sync Evo. Then come back to Obsidian.",
 	"settings.gdrive.connected":
 		"Connected: {email}. \"Disconnect\" ends the connection of this device only. To end it for every device, remove Sync Evo under \"Third-party apps & services\" in your Google Account.",
 	"settings.gdrive.connect": "Connect",
@@ -244,10 +244,9 @@ export const en = baseCatalog({
 	"gdrive.code.title": "Connect to Google Drive",
 	"gdrive.code.asking": "Asking Google for a code…",
 	"gdrive.code.body":
-		"Enter this code at {url}, sign in with your Google account, and allow Sync Evo. This window closes by itself once you have.",
-	"gdrive.code.copied": "The code was copied.",
+		"Enter this code on the page of Google that the browser opens ({url}). Choose your Google account, allow Sync Evo, and come back to Obsidian.",
+	"gdrive.code.copied": "The code is copied.",
 	"gdrive.code.open": "Open the browser",
-	"gdrive.code.copy": "Copy the code",
 	"gdrive.code.cancel": "Cancel",
 	"gdrive.connected": "Connected to Google Drive as {email}.",
 	"gdrive.denied": "Not connected to Google Drive: the access was not allowed.",

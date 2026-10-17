@@ -46,8 +46,8 @@ Sync Evo reaches only its own folder in your Dropbox, `Apps/Sync Evo/`. Files yo
 ## Google Drive
 
 1. In Obsidian, open Settings → Community plugins → Sync Evo. Under "Connection", set **Service** to **Google Drive**. Check **Folder** (the name of the vault, at first) and **Device name** (used in the names of conflict files).
-2. Press **Connect**. Sync Evo shows a code, copies it, and opens `google.com/device` in the browser. If the browser does not open, press **Open the browser** in the window of the code.
-3. In the browser, paste the code, choose your Google account, and allow Sync Evo. Then come back to Obsidian. The window of the code closes by itself.
+2. Press **Connect**. Sync Evo shows a code in a window, and copies it. Press **Open the browser** in the window: it opens `google.com/device` in the browser, and copies the code again.
+3. In the browser, paste the code, choose your Google account, and allow Sync Evo. Then come back to Obsidian. The window of the code closes by itself, and the settings show the account it is connected to.
 4. Press **Test**, then run **Sync**, as in steps 4 and 5 for GitHub.
 
 On every device, connect to the same Google account and name the same folder. Sync Evo keeps the vault in `Sync Evo/<folder>` in My Drive, and sees only the files it made there. Files it deletes go to Drive's trash. More: [Google Drive](google-drive.md).

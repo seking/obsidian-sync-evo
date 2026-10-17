@@ -169,7 +169,7 @@ Sync Evo asks only for the files it made itself (the `drive.file` permission). N
 ### Connect and Disconnect
 
 - When the settings show Google Drive and this device is not connected, Sync Evo asks Google for a code (`oauth2.googleapis.com`). It keeps the code while it lasts.
-- **Connect** copies the code, and opens Google's page in the browser (`www.google.com/device`). That page is between you and Google. Sync Evo does not connect to it.
+- **Connect** shows the code and copies it. **Open the browser** in its window opens Google's page in the browser (`www.google.com/device`). That page is between you and Google. Sync Evo does not connect to it.
 - While you allow, Sync Evo asks Google every few seconds whether you have (`oauth2.googleapis.com`). Then it gets a token.
 - It asks which account it reached (`www.googleapis.com`):
   - its ID, to tell a reconnection to the same account from another,

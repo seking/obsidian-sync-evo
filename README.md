@@ -58,9 +58,10 @@ Sync Evo is not in the community plugin directory yet. Install it with [BRAT](ht
 Google Drive needs Sync Evo 0.5.0 or later, which is not released yet. To try it now, install the beta with BRAT.
 
 1. In Settings → Community plugins → Sync Evo, set **Service** to **Google Drive**.
-2. Press **Connect**. The browser opens `google.com/device`, and the code is already copied.
-3. Paste the code, choose your Google account, and allow Sync Evo. Then come back to Obsidian.
-4. Press **Test**, then sync as in step 4 for GitHub.
+2. Press **Connect**. Sync Evo shows a code and copies it.
+3. Press **Open the browser**. It opens `google.com/device`, and copies the code again.
+4. Paste the code, choose your Google account, and allow Sync Evo. Then come back to Obsidian. The settings show the account it is connected to.
+5. Press **Test**, then sync as in step 4 for GitHub.
 
 Sync Evo sees only the files it made in your Google Drive. [Details](https://github.com/seking/obsidian-sync-evo/blob/main/docs/google-drive.md)
 

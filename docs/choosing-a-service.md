@@ -8,7 +8,7 @@
 
 | | GitHub | Dropbox | Google Drive |
 | --- | --- | --- | --- |
-| Setting up | Create a repository and a token, and enter both | Press **Connect** and allow Sync Evo | Press **Connect**, paste the code in the browser, and allow Sync Evo |
+| Setting up | Create a repository and a token, and enter both | Press **Connect** and allow Sync Evo | Press **Connect**, then **Open the browser**, paste the code, and allow Sync Evo |
 | Later upkeep | A token expires (after 90 days with the link in the README). Create a new one then | None, unless the connection is removed on Dropbox. Then connect again | None, unless the connection is removed in the Google Account, or more than 100 connections of the account end the oldest. Then connect again |
 | Free space | Private repositories are free. GitHub recommends keeping one under 1 GB, and it grows with the history | 2 GB on the free plan | 15 GB on a free Google account, shared with Gmail and Google Photos |
 | History | Each upload is a commit. Every earlier version stays in the history | Earlier versions and deleted files stay in Dropbox's version history for a while (30 days on the free plan) | Files Sync Evo deletes go to Drive's trash, for 30 days. A version written over stays in the file's version history on Drive |

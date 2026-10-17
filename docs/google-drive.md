@@ -20,13 +20,14 @@ Under "Connection" in the settings, **Service** chooses between GitHub, Dropbox 
 
 Google does not send the browser back to Obsidian. You enter a code instead.
 
-1. Press **Connect**. Sync Evo shows a code in a window, copies it, and opens `google.com/device` in the browser.
-2. Paste the code there, choose your Google account, and allow Sync Evo.
-3. Come back to Obsidian. The window closes by itself, and the settings show the account it is connected to.
+1. Press **Connect**. Sync Evo shows a code in a window, and copies it.
+2. Press **Open the browser** in the window. It opens `google.com/device` in the browser, and copies the code again.
+3. Paste the code there, choose your Google account, and allow Sync Evo.
+4. Come back to Obsidian. The window closes by itself, and the settings show the account it is connected to.
 
 Also:
 
-- If the browser did not open, press **Open the browser** in the window. It copies the code too. **Copy the code** copies it again.
+- If the code is not there yet, the window asks Google for it first. **Open the browser** can be pressed once it is shown.
 - Closing the window stops the wait. The code runs out after a while. Then press **Connect** again.
 - There is no token to copy, and nothing to set up in Google Cloud.
 
