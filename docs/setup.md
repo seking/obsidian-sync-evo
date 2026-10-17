@@ -31,7 +31,7 @@ Sync Evo is not in the community plugin directory yet. Until it is, install it w
    - **Token**: choose the secret that holds the token. If you have none yet, create a secret (named `Sync Evo`, for example) and paste the token as its value. It is kept in Obsidian's Keychain, not in the vault. See [The token](settings.md#the-token).
    - **Device name**: shown in commit messages and in the names of conflict files.
 4. Press **Test** under "Connection test". It tells you whether the token reaches the repository and the branch.
-5. Sync: tap the **Sync** icon (two circling arrows) in the ribbon, or run **Sync Evo: Sync** from the command palette.
+5. Sync: tap the two circling arrows (**Sync**) in the ribbon, the strip of icons at the edge of the screen, or run **Sync Evo: Sync** from the command palette.
    - The first download asks when files in the vault differ from the repository's.
    - The first upload shows what it will upload, and asks.
 
