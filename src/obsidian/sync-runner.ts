@@ -45,6 +45,7 @@ import type { DeviceExclusion } from "../core/device-exclusion";
 import type { ExclusionPaths } from "../core/exclusion";
 import { excludedOnRemoteCount } from "../core/exclusion-settings";
 import { type EditingFact, isBeingEdited } from "../core/editing";
+import { failureLine } from "../core/failure-line";
 import { type FetchLimitState, FetchLimitWatch, NO_FETCH_LIMIT, sameFetchLimit } from "../core/fetch-quota";
 import { type GitignoreEdit, GitignoreGate } from "../core/gitignore-gate";
 import type { Backend } from "../core/backend";
@@ -505,6 +506,8 @@ export class SyncRunner {
 		this.memory = { ...this.memory, lastStartedAt: Date.now() };
 		// Every sync the user starts lists every folder.
 		const check: AutoCheck = auto ?? "full";
+		// For a line of the log that says the sync failed.
+		const startedBy = auto === null ? "by hand" : "automatic";
 		this.quiet = auto !== null;
 		this.parts = [];
 		this.told = [];
@@ -553,6 +556,7 @@ export class SyncRunner {
 			}
 			if (opened.status !== "ok") {
 				const problem = opened.status === "unavailable" ? opened.reason : opened.status;
+				log(`${this.direction}: failed (${mode}, ${startedBy}): the sync state could not be opened: ${problem}`);
 				this.parts.push(stateAutoReport(t, problem));
 				if (!this.quiet) {
 					const text = stateProblemText(t, problem);
@@ -591,6 +595,8 @@ export class SyncRunner {
 					signal: controller.signal,
 					tokens: host.gdriveTokens(remote.refreshToken),
 					quota: this.driveQuota,
+					// Each wait before a request is sent again.
+					log,
 				});
 				const account = settings.gdriveAccount?.id ?? "";
 				backend = new GDriveBackend(client, {
@@ -607,6 +613,7 @@ export class SyncRunner {
 					sleep: windowSleep,
 					signal: controller.signal,
 					tokens: host.dropboxTokens(remote.refreshToken),
+					log,
 				});
 				backend = new DropboxBackend(client, {
 					folder: remote.folder,
@@ -637,8 +644,9 @@ export class SyncRunner {
 						this.showLimit();
 						return true;
 					},
-					// Whether the head was answered with a 304, to be read on a device.
-					...(auto === null ? {} : { log }),
+					// Whether the head was answered with a 304, and each wait
+					// for a limit, to be read on a device.
+					log,
 				});
 				limitWatch = new FetchLimitWatch(() => client.quota, Date.now);
 				backend = new GitHubBackend(client, {
@@ -823,7 +831,11 @@ export class SyncRunner {
 			// A pull that was stopped while the remote was asked ends by
 			// throwing too, and did not fail.
 			const cancelled = error instanceof BackendError && error.kind === "cancelled";
-			if (!this.stopped && !cancelled) console.error(`Sync Evo: the ${this.direction} failed`, error);
+			if (!this.stopped && !cancelled) {
+				console.error(`Sync Evo: the ${this.direction} failed`, error);
+				// The notice goes; the log is what a report is copied from.
+				log(`${this.direction}: failed (${mode}, ${startedBy}): ${failureLine(error)}`);
+			}
 			// The folder on Drive is no longer to be seen: its id is let go
 			// of, and the sync state with it, once this sync has ended (R-3),
 			// and not here: a change of the connection under a running sync

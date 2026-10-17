@@ -114,6 +114,17 @@ describe("calls of the Drive API", () => {
 		expect(slept.filter((ms) => ms < 60_000)).toEqual([1500, 3500]);
 	});
 
+	test("each wait is logged with the status, the reason, the wait and the retry, and without the token", async () => {
+		const lines: string[] = [];
+		const { http } = scripted(googleError(403, "userRateLimitExceeded"), response(503, {}, { "retry-after": "3" }), response(200, { ok: 1 }));
+		await client(http, [], { random: () => 0.5, log: (line) => lines.push(line) }).getJson("https://www.googleapis.com/drive/v3/files?q=x");
+		expect(lines).toEqual([
+			"gdrive: GET /drive/v3/files: HTTP 403 userRateLimitExceeded, waiting 1000 ms and 500 ms at random (retry 1 of 5)",
+			"gdrive: GET /drive/v3/files: HTTP 503, waiting 3000 ms and 500 ms at random (retry 2 of 5)",
+		]);
+		expect(lines.join("\n")).not.toContain("token");
+	});
+
 	test("a wait of five minutes that Google asks for is waited out, with the second at random on top", async () => {
 		const slept: number[] = [];
 		const { http } = scripted(response(429, {}, { "retry-after": "300" }), response(200, { ok: 1 }));

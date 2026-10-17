@@ -59,6 +59,12 @@ export interface DropboxClientOptions {
 	 * request is sent after that. A request on its way is not interrupted.
 	 */
 	readonly signal?: AbortSignal;
+	/**
+	 * A line for the log that is kept, in English: each wait before a
+	 * request is sent again. Only the status and Dropbox's `error_summary`,
+	 * never a body: a line must never carry the token.
+	 */
+	readonly log?: (message: string) => void;
 }
 
 /**
@@ -209,6 +215,8 @@ export class DropboxClient {
 				if (retries >= maxRetries || wait > MAX_WAIT_MS) {
 					throw new RateLimitedError(this.options.now() + wait, `${what}: Dropbox asked to wait (HTTP ${response.status})`);
 				}
+				const summary = summaryOf(text);
+				this.log(`dropbox: ${what}: HTTP ${response.status}${summary === "" ? "" : ` ${summary}`}, waiting ${wait} ms (retry ${retries + 1} of ${maxRetries})`);
 				await this.sleepUnlessCancelled(what, wait);
 				continue;
 			}
@@ -261,6 +269,11 @@ export class DropboxClient {
 
 	private throwIfCancelled(what: string): void {
 		if (this.options.signal?.aborted) throw new BackendError("cancelled", `${what}: cancelled`);
+	}
+
+	/** Writes a line to the log the client was given (`DropboxClientOptions.log`): for a wait the backend asks for. */
+	log(message: string): void {
+		this.options.log?.(message);
 	}
 
 	/**

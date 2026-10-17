@@ -114,7 +114,11 @@ export interface GitHubClientOptions {
 	 * counted against the quota. Without it every answer is a full one.
 	 */
 	readonly headMemory?: HeadMemory;
-	/** A line for the developer console, in English: how the head was answered. */
+	/**
+	 * A line for the log that is kept, in English: how the head was
+	 * answered, and each wait for a rate limit before a request is sent
+	 * again. Never a body: a line must never carry the token.
+	 */
 	readonly log?: (message: string) => void;
 }
 
@@ -725,6 +729,8 @@ export class GitHubClient {
 			if (!(await this.agreesToWait({ ...limit, retries }))) {
 				throw new RateLimitedError(limit.until, `${what}: rate limited (${limit.kind})`);
 			}
+			const retry = limit.stated ? `retry ${stated} of ${maxRetries}` : `retry ${unstated}, no time named: up to an hour in all`;
+			this.options.log?.(`github: ${what}: HTTP ${response.status} ${limit.kind} rate limit, waiting ${limit.until - now} ms (${retry})`);
 			await this.waitUntil(what, limit.until);
 		}
 	}

@@ -138,6 +138,22 @@ describe("calls of the Dropbox API", () => {
 		expect(slept.filter((ms) => ms < 60_000)).toEqual([3000, 2000]);
 	});
 
+	test("each wait is logged with the status, the summary, the wait and the retry, and without the token", async () => {
+		const lines: string[] = [];
+		const { http } = scripted(
+			response(429, {}, { "Retry-After": "3" }),
+			response(409, { error_summary: "too_many_write_operations/.." }),
+			response(200, {}),
+		);
+		const logged = new DropboxClient({ http, now: () => 0, sleep: () => Promise.resolve(), tokens: new Tokens(), log: (line) => lines.push(line) });
+		await logged.rpc("files/delete_v2", { path: "/a" });
+		expect(lines).toEqual([
+			"dropbox: files/delete_v2: HTTP 429, waiting 3000 ms (retry 1 of 5)",
+			"dropbox: files/delete_v2: HTTP 409 too_many_write_operations/.., waiting 2000 ms (retry 2 of 5)",
+		]);
+		expect(lines.join("\n")).not.toContain("token");
+	});
+
 	test("a wait that does not end is rate limited", async () => {
 		const answers = Array.from({ length: 10 }, () => response(429, {}, { "Retry-After": "1" }));
 		const { http } = scripted(...answers);

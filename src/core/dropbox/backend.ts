@@ -37,7 +37,7 @@ import { type DropboxClient, DropboxApiError } from "./client";
 import { dropboxContentHash } from "./content-hash";
 
 /** The calls of the client a backend is built from. */
-export type DropboxBackendClient = Pick<DropboxClient, "rpc" | "upload" | "download" | "wait">;
+export type DropboxBackendClient = Pick<DropboxClient, "rpc" | "upload" | "download" | "wait" | "log">;
 
 export interface DropboxBackendOptions {
 	/**
@@ -685,7 +685,11 @@ export class DropboxBackend implements Backend {
 			}
 			if (again.length > 0) {
 				if (retries >= BATCH_RETRIES) throw new BackendError("unreachable", `${what}: Dropbox stayed busy with other writes`);
-				await this.client.wait("push", BATCH_WAIT_MS * 2 ** retries);
+				const wait = BATCH_WAIT_MS * 2 ** retries;
+				this.client.log(
+					`dropbox: ${what}: ${again.length} of ${left.length} files met too_many_write_operations, waiting ${wait} ms (retry ${retries + 1} of ${BATCH_RETRIES})`,
+				);
+				await this.client.wait("push", wait);
 			}
 			left = again;
 		}

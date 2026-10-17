@@ -53,7 +53,7 @@ function nested(summary: string): Item {
 export class FakeDropbox implements DropboxBackendClient {
 	private readonly files = new Map<string, StoredFile>();
 	private readonly folders = new Map<string, string>();
-	private readonly log: Item[] = [];
+	private readonly changes: Item[] = [];
 	private revs = 0;
 	/** Entries per page of a listing. */
 	pageSize = 2000;
@@ -71,6 +71,8 @@ export class FakeDropbox implements DropboxBackendClient {
 	beforeEntry: ((endpoint: string, path: string) => void | Promise<void>) | undefined;
 	/** The waits asked for, in milliseconds. */
 	readonly waits: number[] = [];
+	/** The lines written to the log. */
+	readonly lines: string[] = [];
 	/** How many times a delete of several files answers "in progress" before it is done. */
 	deleteChecks = 0;
 	private readonly sessions = new Map<string, Uint8Array>();
@@ -99,7 +101,7 @@ export class FakeDropbox implements DropboxBackendClient {
 			const lower = parent.toLowerCase();
 			if (this.folders.has(lower)) continue;
 			this.folders.set(lower, parent);
-			this.log.push({ ".tag": "folder", name: parent.slice(parent.lastIndexOf("/") + 1), path_lower: lower, path_display: parent });
+			this.changes.push({ ".tag": "folder", name: parent.slice(parent.lastIndexOf("/") + 1), path_lower: lower, path_display: parent });
 		}
 	}
 
@@ -119,7 +121,7 @@ export class FakeDropbox implements DropboxBackendClient {
 		}
 		this.ensureFolders(path);
 		const stored = this.files.get(lower);
-		if (stored !== undefined) this.log.push(this.fileItem(lower, stored));
+		if (stored !== undefined) this.changes.push(this.fileItem(lower, stored));
 		return rev;
 	}
 
@@ -129,7 +131,7 @@ export class FakeDropbox implements DropboxBackendClient {
 		const prefix = `${lower}/`;
 		for (const [key, file] of this.files) if (key === lower || key.startsWith(prefix)) file.deleted = true;
 		for (const key of [...this.folders.keys()]) if (key === lower || key.startsWith(prefix)) this.folders.delete(key);
-		this.log.push({ ".tag": "deleted", name: path.slice(path.lastIndexOf("/") + 1), path_lower: lower, path_display: path });
+		this.changes.push({ ".tag": "deleted", name: path.slice(path.lastIndexOf("/") + 1), path_lower: lower, path_display: path });
 	}
 
 	/** What a path holds now, or `undefined`. */
@@ -181,7 +183,7 @@ export class FakeDropbox implements DropboxBackendClient {
 			case "files/list_folder": {
 				const path = String(a.path);
 				if (!this.folders.has(path.toLowerCase())) this.fail(endpoint, "path/not_found/..");
-				return this.page(this.snapshot(path), 0, this.log.length);
+				return this.page(this.snapshot(path), 0, this.changes.length);
 			}
 			case "files/list_folder/continue": {
 				const cursor = String(a.cursor);
@@ -193,7 +195,7 @@ export class FakeDropbox implements DropboxBackendClient {
 					return this.page(snapshot.items, Number(offset), snapshot.at);
 				}
 				const from = Number(cursor.slice(1));
-				return this.page(this.log.slice(from), 0, this.log.length);
+				return this.page(this.changes.slice(from), 0, this.changes.length);
 			}
 			case "files/delete_v2":
 				return { metadata: this.deleteFile(endpoint, a) };
@@ -309,6 +311,10 @@ export class FakeDropbox implements DropboxBackendClient {
 
 	async wait(_what: string, ms: number): Promise<void> {
 		this.waits.push(ms);
+	}
+
+	log(message: string): void {
+		this.lines.push(message);
 	}
 
 	async download(arg: unknown): Promise<{ readonly content: Uint8Array; readonly result: unknown }> {

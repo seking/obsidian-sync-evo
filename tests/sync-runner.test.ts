@@ -303,6 +303,21 @@ describe("a sync that started by itself, without a network", () => {
 		expect(await readAutoSyncMemory(store)).toMatchObject({ failures: 1, told: "error:unreachable" });
 	});
 
+	test("leaves a line in the log each time, of what failed and how the sync started", async () => {
+		const { runner } = setup();
+		await runner.runAuto("full");
+		await runner.run("pull");
+
+		const failed = vi
+			.mocked(console.debug)
+			.mock.calls.map(([message]) => String(message))
+			.filter((message) => message.includes(": failed ("));
+		expect(failed).toEqual([
+			"Sync Evo: pull: failed (pull, automatic): BackendError unreachable",
+			"Sync Evo: pull: failed (pull, by hand): BackendError unreachable",
+		]);
+	});
+
 	test("the start of every sync is what the next is counted from, also of one that fails", async () => {
 		const { runner, store } = setup();
 		expect(runner.autoClock().lastStartedAt).toBeNull();

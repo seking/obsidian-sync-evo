@@ -527,6 +527,17 @@ describe("rate limits", () => {
 		expect(http.request(1).body).toBe(http.request(0).body);
 	});
 
+	test("each wait for a limit is logged with the status, the kind, the wait and the retry, and without the token", async () => {
+		const lines: string[] = [];
+		const { client } = setup([secondary(7), secondary(), json(201, { sha: A })], { log: (line) => lines.push(line) });
+		expect(await client.createBlob(new Uint8Array([1]))).toBe(A);
+		expect(lines).toEqual([
+			"github: create blob: HTTP 403 secondary rate limit, waiting 8000 ms (retry 1 of 3)",
+			"github: create blob: HTTP 403 secondary rate limit, waiting 61000 ms (retry 1, no time named: up to an hour in all)",
+		]);
+		expect(lines.join("\n")).not.toContain(TOKEN);
+	});
+
 	test("a 429 is handled like a 403", async () => {
 		const limited = json(429, { message: "Too Many Requests" }, { "retry-after": "2" });
 		const { client, time } = setup([limited, ref(A)]);

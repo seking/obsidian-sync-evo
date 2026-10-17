@@ -92,6 +92,12 @@ export interface DriveClientOptions {
 	 * request is sent after that. A request on its way is not interrupted.
 	 */
 	readonly signal?: AbortSignal;
+	/**
+	 * A line for the log that is kept, in English: each wait before a
+	 * request is sent again. Only the status and Google's reason, never a
+	 * body: a line must never carry the token.
+	 */
+	readonly log?: (message: string) => void;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -334,6 +340,9 @@ export class DriveClient {
 					if (limited) throw new RateLimitedError(this.options.now() + base, `${what}: Google Drive asked to wait (HTTP ${response.status} ${reason})`.trim());
 					throw new DriveApiError(what, response.status, reason, message);
 				}
+				this.options.log?.(
+					`gdrive: ${what}: HTTP ${response.status}${reason === "" ? "" : ` ${reason}`}, waiting ${base} ms and ${jitter} ms at random (retry ${retries + 1} of ${maxRetries})`,
+				);
 				await this.sleepUnlessCancelled(what, base + jitter);
 				continue;
 			}

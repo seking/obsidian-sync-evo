@@ -484,6 +484,10 @@ describe("pushing to Dropbox", () => {
 		expect(dropbox.calls.filter((call) => call === "files/upload_session/start")).toHaveLength(2);
 		expect(dropbox.calls.filter((call) => call === "files/upload_session/finish_batch_v2")).toHaveLength(3);
 		expect(dropbox.waits).toEqual([1000, 2000]);
+		expect(dropbox.lines).toEqual([
+			"dropbox: files/upload_session/finish_batch_v2: 1 of 2 files met too_many_write_operations, waiting 1000 ms (retry 1 of 5)",
+			"dropbox: files/upload_session/finish_batch_v2: 1 of 1 files met too_many_write_operations, waiting 2000 ms (retry 2 of 5)",
+		]);
 		expect(dropbox.tree(ROOT)).toEqual({ "a.md": "A", "b.md": "B", "x.md": "X" });
 		expect(result.status === "pushed" && result.written.map((entry) => entry.path)).toEqual(["a.md", "b.md"]);
 	});

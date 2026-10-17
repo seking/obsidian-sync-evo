@@ -46,17 +46,18 @@ export class LogRing {
 const two = (value: number): string => String(value).padStart(2, "0");
 
 /**
- * The lines as text, one each, oldest first: the month, the day and the
- * time of the device, then the message. No year, to keep a line short on a
- * phone: the lines do not outlive the run of the app.
+ * A time as the log writes it: the month, the day and the time of the
+ * device. No year, to keep a line short on a phone: the lines do not
+ * outlive the run of the app.
  */
+export function logTime(at: number): string {
+	const time = new Date(at);
+	const day = `${two(time.getMonth() + 1)}-${two(time.getDate())}`;
+	const clock = `${two(time.getHours())}:${two(time.getMinutes())}:${two(time.getSeconds())}`;
+	return `${day} ${clock}`;
+}
+
+/** The lines as text, one each, oldest first: when it was written (`logTime`), then the message. */
 export function logText(lines: readonly LogLine[]): string {
-	return lines
-		.map(({ at, message }) => {
-			const time = new Date(at);
-			const day = `${two(time.getMonth() + 1)}-${two(time.getDate())}`;
-			const clock = `${two(time.getHours())}:${two(time.getMinutes())}:${two(time.getSeconds())}`;
-			return `${day} ${clock} ${message}`;
-		})
-		.join("\n");
+	return lines.map(({ at, message }) => `${logTime(at)} ${message}`).join("\n");
 }
