@@ -110,8 +110,12 @@ export const en = baseCatalog({
 	"settings.autoSync.interval.raised": "Raised to {minutes} minutes, because automatic sync now also uploads changes.",
 	"settings.autoSync.interval.raisedForGdrive": "Raised to {minutes} minutes, because Google Drive needs an interval of at least {minutes} minutes.",
 	"settings.autoSync.sends.name": "Also upload changes in automatic sync",
-	"settings.autoSync.sends.desc":
+	"settings.autoSync.sends.githubDesc":
 		"When this is off, automatic sync only downloads: what you edit on this device is not uploaded until you sync manually. When it is on, each automatic sync that finds changes on this device makes a commit, so the interval is at least {sendingMin} minutes.",
+	"settings.autoSync.sends.dropboxDesc":
+		"When this is off, automatic sync only downloads: what you edit on this device is not uploaded until you sync manually. When it is on, the interval is at least {sendingMin} minutes, so that a note in the middle of being written is not uploaded over and over.",
+	"settings.autoSync.sends.gdriveDesc":
+		"When this is off, automatic sync only downloads: what you edit on this device is not uploaded until you sync manually.",
 	"settings.onConflict.name": "On a conflict",
 	"settings.onConflict.desc":
 		"What happens to a file that was changed both on this device and on {remote}. Merging goes line by line, and a file that cannot be merged is kept as a conflict file. What a file held on this device before a merge is put in .trash/.sync-evo-merged/ in this vault.",

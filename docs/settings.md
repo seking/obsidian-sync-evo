@@ -123,7 +123,7 @@ These settings are kept per device. The three switches of automatic sync are off
 - **Sync at an interval**: syncs while Obsidian is in the foreground, each time the interval (in minutes) has passed since the last sync started. After a sync that failed, the next one waits twice as long, up to an hour.
 - **Also upload changes in automatic sync**:
   - When off, automatic sync only downloads. What you edit on the device is uploaded when you sync manually.
-  - When on, the interval is at least 5 minutes, since every upload is a commit.
+  - When on, the interval is at least 5 minutes. With GitHub, every upload is a commit. With Dropbox, a note in the middle of being written would otherwise be uploaded over and over.
   - With Google Drive, the interval is at least 5 minutes either way: every check counts against a limit that all users of Sync Evo share (see [Google Drive](google-drive.md#limits-of-google)).
 - **On a conflict**: "Automatically merge" (the default), or "Create conflict file". See [When a file changed on both sides](syncing.md#when-a-file-changed-on-both-sides). With Google Drive, a conflict file is always made.
 

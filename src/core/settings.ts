@@ -166,8 +166,11 @@ export const MIN_INTERVAL_MINUTES = 1;
 export const MIN_GDRIVE_INTERVAL_MINUTES = 5;
 /**
  * The shortest interval while automatic sync also sends. Not for the number
- * of requests: every push is a commit, and a shorter interval would fill
- * the history with commits of notes in the middle of being written.
+ * of requests: with GitHub every push is a commit, and with Dropbox every
+ * file sent over another is a revision. A shorter interval would fill the
+ * history with notes in the middle of being written, and with Dropbox push
+ * the revision another device last synced out of the 100 that a merge looks
+ * through for its base.
  */
 export const MIN_SENDING_INTERVAL_MINUTES = 5;
 /** A day. Longer than that is no interval any more. */

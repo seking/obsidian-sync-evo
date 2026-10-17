@@ -99,8 +99,12 @@ export const ja = completeTranslation(en, {
 	"settings.autoSync.interval.raised": "「自動同期でこのデバイスの変更もアップロードする」を入にしたため、間隔を {minutes} 分に上げました。",
 	"settings.autoSync.interval.raisedForGdrive": "Google Drive では間隔が {minutes} 分以上必要なため、間隔を {minutes} 分に上げました。",
 	"settings.autoSync.sends.name": "自動同期でこのデバイスの変更もアップロードする",
-	"settings.autoSync.sends.desc":
+	"settings.autoSync.sends.githubDesc":
 		"切の時、自動同期はダウンロードするだけです。このデバイスで編集した内容は、手動で同期するまでアップロードされません。入の時は、このデバイスに変更があるたびにコミットが作られるため、間隔は {sendingMin} 分以上になります。",
+	"settings.autoSync.sends.dropboxDesc":
+		"切の時、自動同期はダウンロードするだけです。このデバイスで編集した内容は、手動で同期するまでアップロードされません。入の時は、書きかけのノートを何度もアップロードしないよう、間隔は {sendingMin} 分以上になります。",
+	"settings.autoSync.sends.gdriveDesc":
+		"切の時、自動同期はダウンロードするだけです。このデバイスで編集した内容は、手動で同期するまでアップロードされません。",
 	"settings.onConflict.name": "競合した時",
 	"settings.onConflict.desc":
 		"このデバイスと {remote} の両方で変更したファイルの扱いです。統合は行単位で行い、統合できないファイルは競合ファイルとして残します。統合する前のこのデバイスの内容は、この保管庫の .trash/.sync-evo-merged/ に入れます。",

@@ -538,9 +538,17 @@ export class SyncEvoSettingTab extends PluginSettingTab {
 			this.commits.push(commit);
 		});
 
+		// Why sending raises the interval differs by the service. With Google
+		// Drive the interval is at its bound for sending either way.
+		const sendsDesc =
+			settings.backend === "gdrive"
+				? t("settings.autoSync.sends.gdriveDesc")
+				: settings.backend === "dropbox"
+					? t("settings.autoSync.sends.dropboxDesc", { sendingMin })
+					: t("settings.autoSync.sends.githubDesc", { sendingMin });
 		new Setting(el)
 			.setName(t("settings.autoSync.sends.name"))
-			.setDesc(t("settings.autoSync.sends.desc", { sendingMin }))
+			.setDesc(sendsDesc)
 			.addToggle((toggle) => {
 				toggle.setValue(stored.sendsChanges).onChange((sends) => {
 					const before = this.host.deviceSettings?.autoSync.intervalMinutes;
