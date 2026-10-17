@@ -13,7 +13,7 @@
 // sync means by them is the backend's (`backend.ts`). Every answer that is
 // not a success becomes a `BackendError` here, and nowhere else.
 
-import { BackendError, RateLimitedError } from "../backend";
+import { BackendError, RateLimitedError, requestFailedDetail } from "../backend";
 import type { AccessTokens } from "../dropbox/client";
 import { type HttpFunction, type HttpRequest, type HttpResponse, headerOf, type Sleep } from "../github/http";
 import { DriveDailyLimitError } from "./errors";
@@ -340,6 +340,8 @@ export class DriveClient {
 					if (limited) throw new RateLimitedError(this.options.now() + base, `${what}: Google Drive asked to wait (HTTP ${response.status} ${reason})`.trim());
 					throw new DriveApiError(what, response.status, reason, message);
 				}
+				// Not for a request that answered after the sync was stopped, or failed.
+				this.throwIfCancelled(what);
 				this.options.log?.(
 					`gdrive: ${what}: HTTP ${response.status}${reason === "" ? "" : ` ${reason}`}, waiting ${base} ms and ${jitter} ms at random (retry ${retries + 1} of ${maxRetries})`,
 				);
@@ -365,11 +367,13 @@ export class DriveClient {
 			response = await Promise.race([this.options.http(request), this.options.sleep(timeoutMs, timer.signal).then(() => null)]);
 		} catch (error) {
 			const detail = error instanceof Error ? error.message : String(error);
-			throw new BackendError("unreachable", `${what}: the request failed: ${redact(detail)}`);
+			throw new BackendError("unreachable", `${what}: the request failed: ${redact(detail)}`, undefined, requestFailedDetail(redact(detail)));
 		} finally {
 			timer.abort();
 		}
-		if (response === null) throw new BackendError("unreachable", `${what}: no response within ${timeoutMs} ms`);
+		if (response === null) {
+			throw new BackendError("unreachable", `${what}: no response within ${timeoutMs} ms`, undefined, `no response within ${timeoutMs} ms`);
+		}
 		return response;
 	}
 
@@ -396,9 +400,13 @@ export class DriveClient {
 	}
 }
 
-/** The path of a URL, without the query, which names what is asked about. */
+/**
+ * The path of a URL, without the query, which names what is asked about,
+ * and without the id of the file: it goes to the log that is kept, and
+ * is copied into reports.
+ */
 function pathOf(url: string): string {
-	return url.split("?")[0]?.replace(/^https:\/\/www\.googleapis\.com/, "") ?? url;
+	return (url.split("?")[0] ?? url).replace(/^https:\/\/www\.googleapis\.com/, "").replace(/\/files\/[^/]+/, "/files/{id}");
 }
 
 /** A token must not reach a log. Google's access tokens start with `ya29.`, its refresh tokens with `1//`. */

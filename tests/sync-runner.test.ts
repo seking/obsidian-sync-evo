@@ -40,7 +40,7 @@ const app = vi.hoisted(() => ({
 	/** What the app says the device is. */
 	platform: { isAndroidApp: false },
 	/** The options every backend was built with, in order. */
-	backends: [] as { maxConcurrentFetchBytes?: number }[],
+	backends: [] as { maxConcurrentFetchBytes?: number; signal?: AbortSignal }[],
 	/** What every pull was given of `archiveAllowed`, in order. */
 	pulls: [] as (boolean | undefined)[],
 	/** What every pull was given of `mergeConflicts`, in order. */
@@ -313,9 +313,17 @@ describe("a sync that started by itself, without a network", () => {
 			.mock.calls.map(([message]) => String(message))
 			.filter((message) => message.includes(": failed ("));
 		expect(failed).toEqual([
-			"Sync Evo: pull: failed (pull, automatic): BackendError unreachable",
-			"Sync Evo: pull: failed (pull, by hand): BackendError unreachable",
+			"Sync Evo: pull: failed (pull, automatic): BackendError unreachable: the request failed: net::ERR_INTERNET_DISCONNECTED",
+			"Sync Evo: pull: failed (pull, by hand): BackendError unreachable: the request failed: net::ERR_INTERNET_DISCONNECTED",
 		]);
+	});
+
+	test("ends what is still on its way, and tells the failure as it came, not as a stop", async () => {
+		const { runner } = setup();
+		await runner.run("pull");
+		// The signal the backend was built with: the clients' too.
+		expect(app.backends[0]?.signal?.aborted).toBe(true);
+		expect(app.notices[app.notices.length - 1]).toBe(OFFLINE);
 	});
 
 	test("the start of every sync is what the next is counted from, also of one that fails", async () => {

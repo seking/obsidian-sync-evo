@@ -13,7 +13,7 @@
 // them is the backend's (`backend.ts`). Every answer that is not a success
 // becomes a `BackendError` here, and nowhere else.
 
-import { BackendError, RateLimitedError } from "../backend";
+import { BackendError, RateLimitedError, requestFailedDetail } from "../backend";
 import { type HttpFunction, type HttpRequest, type HttpResponse, headerOf, type Sleep } from "../github/http";
 
 const API = "https://api.dropboxapi.com/2";
@@ -215,6 +215,8 @@ export class DropboxClient {
 				if (retries >= maxRetries || wait > MAX_WAIT_MS) {
 					throw new RateLimitedError(this.options.now() + wait, `${what}: Dropbox asked to wait (HTTP ${response.status})`);
 				}
+				// Not for a request that answered after the sync was stopped, or failed.
+				this.throwIfCancelled(what);
 				const summary = summaryOf(text);
 				this.log(`dropbox: ${what}: HTTP ${response.status}${summary === "" ? "" : ` ${summary}`}, waiting ${wait} ms (retry ${retries + 1} of ${maxRetries})`);
 				await this.sleepUnlessCancelled(what, wait);
@@ -259,11 +261,13 @@ export class DropboxClient {
 			response = await Promise.race([this.options.http(request), this.options.sleep(timeoutMs, timer.signal).then(() => null)]);
 		} catch (error) {
 			const detail = error instanceof Error ? error.message : String(error);
-			throw new BackendError("unreachable", `${what}: the request failed: ${redact(detail)}`);
+			throw new BackendError("unreachable", `${what}: the request failed: ${redact(detail)}`, undefined, requestFailedDetail(redact(detail)));
 		} finally {
 			timer.abort();
 		}
-		if (response === null) throw new BackendError("unreachable", `${what}: no response within ${timeoutMs} ms`);
+		if (response === null) {
+			throw new BackendError("unreachable", `${what}: no response within ${timeoutMs} ms`, undefined, `no response within ${timeoutMs} ms`);
+		}
 		return response;
 	}
 

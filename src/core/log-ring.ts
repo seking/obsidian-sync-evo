@@ -13,8 +13,11 @@
 // console cannot be: a phone. Only in memory. Nothing of it is written to
 // the disk or to the sync state, and it is gone when the app is closed.
 
-/** How many lines are kept. The oldest goes when one more comes. */
-export const LOG_LINES_KEPT = 200;
+/**
+ * How many lines are kept. The oldest goes when one more comes. A limit
+ * can write a line for each of 16 requests at once, five times over.
+ */
+export const LOG_LINES_KEPT = 500;
 
 /** One line of the log, with when it was written. */
 export interface LogLine {

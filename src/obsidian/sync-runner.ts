@@ -836,6 +836,13 @@ export class SyncRunner {
 				// The notice goes; the log is what a report is copied from.
 				log(`${this.direction}: failed (${mode}, ${startedBy}): ${failureLine(error)}`);
 			}
+			// What is still on its way ends: the requests of a fetch that
+			// were started beside the one that failed (`fetchConcurrently`),
+			// whose answers are dropped, would wait out a limit and send
+			// again. Only those are left: what writes, to the vault or to the
+			// remote, has ended before the failure came here. The failure is
+			// told as it came, and not as a stop.
+			controller.abort();
 			// The folder on Drive is no longer to be seen: its id is let go
 			// of, and the sync state with it, once this sync has ended (R-3),
 			// and not here: a change of the connection under a running sync

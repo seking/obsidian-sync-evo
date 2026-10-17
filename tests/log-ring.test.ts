@@ -29,8 +29,8 @@ describe("the last lines of the log", () => {
 		]);
 	});
 
-	test("200 of them, and the oldest goes when one more comes", () => {
-		expect(LOG_LINES_KEPT).toBe(200);
+	test("500 of them, and the oldest goes when one more comes", () => {
+		expect(LOG_LINES_KEPT).toBe(500);
 		const ring = new LogRing();
 		for (let i = 0; i < LOG_LINES_KEPT + 3; i++) ring.add(i, `line ${i}`);
 		const lines = ring.lines();

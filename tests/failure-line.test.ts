@@ -10,7 +10,7 @@
  */
 
 import { describe, expect, test } from "vitest";
-import { BackendError, RateLimitedError } from "../src/core/backend";
+import { BackendError, RateLimitedError, requestFailedDetail } from "../src/core/backend";
 import { DropboxApiError } from "../src/core/dropbox/client";
 import { failureLine } from "../src/core/failure-line";
 import { DriveApiError } from "../src/core/gdrive/client";
@@ -37,11 +37,33 @@ describe("the line of a sync that failed", () => {
 			"DropboxApiError other, HTTP 409 path/insufficient_space/..",
 		);
 		expect(failureLine(new BackendError("forbidden", "create blob: HTTP 403: body with sl.secret", 403))).toBe("BackendError forbidden, HTTP 403");
-		expect(failureLine(new BackendError("unreachable", "files/list_folder: no response within 60000 ms"))).toBe("BackendError unreachable");
+		expect(failureLine(new BackendError("unreachable", "files/list_folder: the request failed: /Vault/a.md"))).toBe("BackendError unreachable");
 	});
 
-	test("an error that is not of the remote says its message", () => {
-		expect(failureLine(new TypeError("x is undefined"))).toBe("TypeError: x is undefined");
-		expect(failureLine("odd")).toBe("odd");
+	test("a request that got no answer says why, as the client put it", () => {
+		const timeout = new BackendError("unreachable", "files/list_folder: no response within 60000 ms", undefined, "no response within 60000 ms");
+		expect(failureLine(timeout)).toBe("BackendError unreachable: no response within 60000 ms");
+		const failed = new BackendError("unreachable", "x", undefined, requestFailedDetail("net::ERR_CONNECTION_RESET"));
+		expect(failureLine(failed)).toBe("BackendError unreachable: the request failed: net::ERR_CONNECTION_RESET");
+	});
+
+	test("what the platform said of a request that failed goes only when it is plain words", () => {
+		expect(requestFailedDetail("net::ERR_INTERNET_DISCONNECTED")).toBe("the request failed: net::ERR_INTERNET_DISCONNECTED");
+		expect(requestFailedDetail("Request failed, status 0")).toBe("the request failed: Request failed, status 0");
+		for (const said of [
+			"https://www.googleapis.com/drive/v3/files?q=name%3D'Vault'",
+			"ENOENT: no such file, open '/storage/emulated/0/Vault/a.md'",
+			"bad header Bearer [token]",
+			"cannot read note.md",
+			"x".repeat(121),
+		]) {
+			expect(requestFailedDetail(said)).toBe("the request failed");
+		}
+	});
+
+	test("an error that is not of the remote says only its name: its message may name a file", () => {
+		expect(failureLine(new TypeError("No free name for a copy of Private/diary.md"))).toBe("TypeError");
+		expect(failureLine(new Error("zip: an encrypted entry: secret.md"))).toBe("Error");
+		expect(failureLine("odd")).toBe("string");
 	});
 });

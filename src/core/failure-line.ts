@@ -22,9 +22,11 @@ import { logTime } from "./log-ring";
  * The kind of the error and what the remote answered: the status, and
  * Google's reason or Dropbox's `error_summary`. Not the message of an
  * answer of the remote, which may hold its body; a line must never carry
- * the token. A rate limit says until when, with the message the client
- * made of it, which holds no body. An error that is not of the remote
- * (the vault, a bug) says its message, which is what there is to go by.
+ * the token. A request that got no answer says why (`BackendError.detail`).
+ * A rate limit says until when, with the message the client made of it,
+ * which holds no body. An error that is not of the remote (the vault, a
+ * bug) says only its name: its message may name a file of the vault, or
+ * a path on the device, and the log is copied into reports.
  */
 export function failureLine(error: unknown): string {
 	if (error instanceof RateLimitedError) return `${error.name} until ${logTime(error.waitUntil)}: ${error.message}`;
@@ -36,8 +38,7 @@ export function failureLine(error: unknown): string {
 				: error instanceof DropboxApiError && error.summary !== ""
 					? ` ${error.summary}`
 					: "";
-		return `${error.name} ${error.kind}${status}${reason}`;
+		return `${error.name} ${error.kind}${status}${reason}${error.detail === undefined ? "" : `: ${error.detail}`}`;
 	}
-	if (error instanceof Error) return `${error.name}: ${error.message.slice(0, 200)}`;
-	return String(error).slice(0, 200);
+	return error instanceof Error ? error.name : typeof error;
 }

@@ -125,6 +125,25 @@ describe("calls of the Drive API", () => {
 		expect(lines.join("\n")).not.toContain("token");
 	});
 
+	test("the id of a file is not in a line of the log", async () => {
+		const lines: string[] = [];
+		const { http } = scripted(response(429), response(200, { ok: 1 }));
+		await client(http, [], { log: (line) => lines.push(line) }).getJson("https://www.googleapis.com/drive/v3/files/1AbC-secretId?fields=id");
+		expect(lines).toEqual(["gdrive: GET /drive/v3/files/{id}: HTTP 429, waiting 1000 ms and 0 ms at random (retry 1 of 5)"]);
+	});
+
+	test("a request that answers with a limit after the sync was stopped writes no line, and ends as cancelled", async () => {
+		const lines: string[] = [];
+		const controller = new AbortController();
+		const http = (): Promise<HttpResponse> => {
+			controller.abort();
+			return Promise.resolve(response(429));
+		};
+		const stopped = client(http, [], { signal: controller.signal, log: (line) => lines.push(line) });
+		await expect(stopped.getJson("https://www.googleapis.com/drive/v3/files")).rejects.toMatchObject({ kind: "cancelled" });
+		expect(lines).toEqual([]);
+	});
+
 	test("a wait of five minutes that Google asks for is waited out, with the second at random on top", async () => {
 		const slept: number[] = [];
 		const { http } = scripted(response(429, {}, { "retry-after": "300" }), response(200, { ok: 1 }));

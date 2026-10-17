@@ -480,13 +480,32 @@ export class BackendError extends Error {
 	 * have to tell them apart read this instead of the message.
 	 */
 	readonly status?: number;
+	/**
+	 * Why a request got no answer at all, in words that may go to the log
+	 * that is kept (`failure-line.ts`): no body, no path, no token. Only the
+	 * clients set it, where they make the error: `requestFailedDetail`, or
+	 * how long they waited.
+	 */
+	readonly detail?: string;
 
-	constructor(kind: BackendErrorKind, message: string, status?: number) {
+	constructor(kind: BackendErrorKind, message: string, status?: number, detail?: string) {
 		super(message);
 		this.name = "BackendError";
 		this.kind = kind;
 		if (status !== undefined) this.status = status;
+		if (detail !== undefined) this.detail = detail;
 	}
+}
+
+/**
+ * The `detail` of a request that failed before any answer came, from what
+ * the platform said (already redacted). Its words only when they are plain
+ * words, such as `net::ERR_CONNECTION_RESET`: no slash, dot, query or
+ * bracket, so no URL, path, file name or token (a redacted token is
+ * `[token]`). Otherwise only that it failed.
+ */
+export function requestFailedDetail(said: string): string {
+	return /^[A-Za-z0-9 _,:;()'-]{1,120}$/.test(said) ? `the request failed: ${said}` : "the request failed";
 }
 
 export class RateLimitedError extends BackendError {

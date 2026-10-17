@@ -16,7 +16,7 @@
 // Three things are handled in this one place for every call: the mapping of
 // failures to `BackendError`, waiting out a rate limit, and the timeout.
 
-import { BackendError, RateLimitedError } from "../backend";
+import { BackendError, RateLimitedError, requestFailedDetail } from "../backend";
 import { encodeBase64 } from "./base64";
 import { headerOf, type HttpFunction, type HttpRequest, type HttpResponse, type Sleep } from "./http";
 import {
@@ -729,6 +729,8 @@ export class GitHubClient {
 			if (!(await this.agreesToWait({ ...limit, retries }))) {
 				throw new RateLimitedError(limit.until, `${what}: rate limited (${limit.kind})`);
 			}
+			// Not for a request that answered after the sync was stopped, or failed.
+			this.throwIfCancelled(what);
 			const retry = limit.stated ? `retry ${stated} of ${maxRetries}` : `retry ${unstated}, no time named: up to an hour in all`;
 			this.options.log?.(`github: ${what}: HTTP ${response.status} ${limit.kind} rate limit, waiting ${limit.until - now} ms (${retry})`);
 			await this.waitUntil(what, limit.until);
@@ -824,12 +826,17 @@ export class GitHubClient {
 			]);
 		} catch (error) {
 			const detail = error instanceof Error ? error.message : String(error);
-			throw new BackendError("unreachable", this.redact(`${what}: the request failed: ${detail}`));
+			throw new BackendError(
+				"unreachable",
+				this.redact(`${what}: the request failed: ${detail}`),
+				undefined,
+				requestFailedDetail(this.redact(detail)),
+			);
 		} finally {
 			timer.abort();
 		}
 		if (response === null) {
-			throw new BackendError("unreachable", `${what}: no response within ${timeoutMs} ms`);
+			throw new BackendError("unreachable", `${what}: no response within ${timeoutMs} ms`, undefined, `no response within ${timeoutMs} ms`);
 		}
 		return response;
 	}
