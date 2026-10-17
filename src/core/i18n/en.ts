@@ -91,6 +91,8 @@ export const en = baseCatalog({
 	"settings.license.grace": "The key could not be checked since {since}. It works until {until}, and is checked again meanwhile.",
 	"settings.license.unconfirmed": "The key could not be checked. Sync Evo tries again later. Check the network connection.",
 	"settings.license.invalid": "This key cannot be used.",
+	// Only in a build to try the paid plan out, decided ahead of the clock.
+	"settings.license.testClock": "(test clock {days} days)",
 	"settings.repository.name": "Repository",
 	"settings.repository.desc":
 		"The GitHub repository to sync this vault with. Enter it as owner/name, or paste its address from the browser.",

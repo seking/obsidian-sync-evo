@@ -110,6 +110,14 @@ if (production && process.env.SYNC_EVO_DODO_TEST === "1") {
 //   SYNC_EVO_DODO_TEST=1 SYNC_EVO_PAID_ENABLED_AT=2026-07-01 npm run build:paid-test
 //   npm run install:vault
 //
+// SYNC_EVO_PAID_CLOCK_OFFSET_DAYS (a whole number of days, ahead when
+// positive) decides the plan that much ahead of the clock: the end of the
+// free time, the warnings, downloads alone, and the stop. Not the checks of
+// the key and their 14 days of grace, the syncs, or the log. For example,
+// to try the stop of an account whose free time began today:
+//
+//   SYNC_EVO_DODO_TEST=1 SYNC_EVO_PAID_ENABLED_AT=2026-07-01 SYNC_EVO_PAID_CLOCK_OFFSET_DAYS=130 npm run build:paid-test
+//
 // (`install:vault` copies main.js into the vault of SYNC_EVO_VAULT; see
 // scripts/install-to-vault.mjs.) A key is then bought with a test card of
 // Dodo's test mode, and the business id of the test mode is needed in
@@ -128,6 +136,23 @@ function paidEnabledAt() {
 	return at;
 }
 const enabledAt = paidEnabledAt();
+
+// How many days ahead of the clock a build to try the paid plan out
+// decides it (src/core/paid.ts). The same rules as the day above.
+function paidClockOffsetDays() {
+	const raw = process.env.SYNC_EVO_PAID_CLOCK_OFFSET_DAYS;
+	if (raw === undefined || raw === "") return 0;
+	if (production) throw new Error("esbuild.config.mjs: SYNC_EVO_PAID_CLOCK_OFFSET_DAYS is for a build to try the paid plan out, not for a production one.");
+	if (!/^[+-]?\d+$/.test(raw.trim())) throw new Error(`esbuild.config.mjs: SYNC_EVO_PAID_CLOCK_OFFSET_DAYS is not a whole number of days: ${raw}`);
+	if (process.env.SYNC_EVO_DODO_TEST !== "1") {
+		console.warn("warning: SYNC_EVO_PAID_CLOCK_OFFSET_DAYS is left out: it is only used with SYNC_EVO_DODO_TEST=1.");
+		return 0;
+	}
+	const days = Number(raw.trim());
+	console.warn(`warning: the paid plan is decided ${days} days ahead of the clock.`);
+	return days;
+}
+const clockOffsetDays = paidClockOffsetDays();
 
 // The client secret of Sync Evo's Google client, kept out of the repository
 // (scripts/google-client-secret.mjs). A build without it still runs, for the
@@ -181,6 +206,7 @@ const context = await esbuild.context({
 		SYNC_EVO_DODO_TEST: JSON.stringify(process.env.SYNC_EVO_DODO_TEST === "1"),
 		// The day the paid plan was switched on, in a build to try it out (src/core/paid.ts).
 		SYNC_EVO_PAID_ENABLED_AT: JSON.stringify(enabledAt),
+		SYNC_EVO_PAID_CLOCK_OFFSET_DAYS: JSON.stringify(clockOffsetDays),
 	},
 });
 

@@ -37,7 +37,7 @@ import { GDriveBackend } from "./core/gdrive/backend";
 import { DriveClient } from "./core/gdrive/client";
 import { GoogleClientSecretMissingError } from "./core/gdrive/errors";
 import { DODO_API } from "./core/license";
-import { PAID_ENABLED_AT, type PaidInfo } from "./core/paid";
+import { DAY_MS, PAID_CLOCK_OFFSET_DAYS, PAID_ENABLED_AT, type PaidInfo } from "./core/paid";
 import { PaidGate } from "./core/paid-gate";
 import {
 	applyExclusionEdit,
@@ -222,6 +222,8 @@ export default class SyncEvoPlugin extends Plugin implements SettingsHost, SyncH
 		storage: windowStorage,
 		http: (request) => deviceNetwork().http(request),
 		now: Date.now,
+		// Ahead of the clock only in a build to try the plan out.
+		planNow: () => Date.now() + PAID_CLOCK_OFFSET_DAYS * DAY_MS,
 		enabledAt: PAID_ENABLED_AT,
 		api: DODO_API,
 		log,
@@ -863,6 +865,7 @@ export default class SyncEvoPlugin extends Plugin implements SettingsHost, SyncH
 			license: this.paid.licenseStanding(),
 			key: this.paid.license()?.key ?? "",
 			ownClient: settings.backend === "gdrive" && isOwnClient(settings.gdriveClientId),
+			...(PAID_CLOCK_OFFSET_DAYS === 0 ? {} : { clockOffsetDays: PAID_CLOCK_OFFSET_DAYS }),
 		};
 	}
 

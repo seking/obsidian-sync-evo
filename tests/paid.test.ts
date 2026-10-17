@@ -29,6 +29,7 @@ import {
 	freeUntil,
 	PAID_ENABLED_AT,
 	RELEASE_PAID_ENABLED_AT,
+	PAID_CLOCK_OFFSET_DAYS,
 	paidNoteText,
 	paidStanding,
 	paidStatusLines,
@@ -48,6 +49,7 @@ describe("the switch", () => {
 		expect(DODO_TEST_BUILD).toBe(false);
 		expect(DODO_PRODUCT_IDS).toBe(DODO_LIVE_PRODUCT_IDS);
 		expect(DODO_BUSINESS_ID).toBe(DODO_LIVE_BUSINESS_ID);
+		expect(PAID_CLOCK_OFFSET_DAYS).toBe(0);
 	});
 
 	test("is switched on for a release only with the live business, products and page of the key in place", () => {
@@ -221,5 +223,10 @@ describe.each(["en", "ja"])("the texts in %s", (language) => {
 		expect(grace[0]).toContain("2027-04-10");
 		expect(grace[0]).toContain("2027-04-24");
 		for (const line of [...invalid, ...grace]) expect(line).not.toMatch(/[{}]/);
+		// A build to try the plan out says that its clock is ahead.
+		const ahead = lines({ clockOffsetDays: 130 });
+		expect(ahead).toHaveLength(1);
+		expect(ahead[0]).toContain("+130");
+		expect(lines({ clockOffsetDays: 0 })).toEqual([]);
 	});
 });

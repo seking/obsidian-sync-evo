@@ -166,6 +166,33 @@ describe("a sync", () => {
 	});
 });
 
+describe("a clock of the plan ahead of the clock (a build to try it out)", () => {
+	test("decides the plan, and leaves the key's checks and days of grace to the clock", async () => {
+		const storage = memoryStorage();
+		const requests: HttpRequest[] = [];
+		const now = END - 10 * DAY_MS;
+		const paid = new PaidGate({
+			storage,
+			http: async (request) => {
+				requests.push(request);
+				throw new Error("offline");
+			},
+			now: () => now,
+			planNow: () => now + 20 * DAY_MS,
+			enabledAt: ENABLED,
+			api: DODO_LIVE_API,
+		});
+		paid.sinceLearned(settings(), SINCE);
+		expect(paid.check(settings(), "sync").verdict).toEqual({ mode: "pull", note: "read-only" });
+		// A key last valid 13 days ago by the clock still counts, though 33 by the plan's.
+		storage.values.set(LICENSE_KEY, { key: "KEY", instanceId: "lki_1", state: "unreachable", validAt: now - 13 * DAY_MS, checkedAt: now });
+		expect(paid.check(settings(), "push").verdict).toEqual({ mode: "push", note: null });
+		expect(paid.licenseStanding()).toMatchObject({ status: "grace", until: now + DAY_MS });
+		// Checked an hour ago or not, by the clock: not due.
+		expect(requests).toEqual([]);
+	});
+});
+
 describe("the license key", () => {
 	const ACTIVATED = { id: "lki_1", business_id: "bus_syncevo", product: { product_id: "pdt" } };
 

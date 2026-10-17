@@ -44,6 +44,21 @@ export const RELEASE_PAID_ENABLED_AT: number | null = null;
  */
 declare const SYNC_EVO_PAID_ENABLED_AT: number | null | undefined;
 
+/**
+ * Put in by esbuild at build time: the days of `SYNC_EVO_PAID_CLOCK_OFFSET_DAYS`,
+ * by which a build to try the plan out decides it ahead of the clock (with
+ * `SYNC_EVO_DODO_TEST=1` only, and never a production one), or 0. Not
+ * defined in the tests.
+ */
+declare const SYNC_EVO_PAID_CLOCK_OFFSET_DAYS: number | undefined;
+
+/**
+ * How many days ahead of the clock the plan is decided (`PaidGateDeps.planNow`):
+ * 0 but in a build to try it out. Not the key's time: its checks and its
+ * days of grace go by the clock.
+ */
+export const PAID_CLOCK_OFFSET_DAYS: number = typeof SYNC_EVO_PAID_CLOCK_OFFSET_DAYS === "number" ? SYNC_EVO_PAID_CLOCK_OFFSET_DAYS : 0;
+
 /** The day the plan was switched on, for this build: `RELEASE_PAID_ENABLED_AT` but in a build to try it out. */
 export const PAID_ENABLED_AT: number | null =
 	typeof SYNC_EVO_PAID_ENABLED_AT === "number" ? SYNC_EVO_PAID_ENABLED_AT : RELEASE_PAID_ENABLED_AT;
@@ -216,6 +231,8 @@ export interface PaidInfo {
 	readonly key: string;
 	/** Google Drive through a client of the user's own (`isOwnClient`). */
 	readonly ownClient: boolean;
+	/** `PAID_CLOCK_OFFSET_DAYS`, shown when it is not 0: a build to try the plan out. */
+	readonly clockOffsetDays?: number;
 }
 
 /** The lines the settings show under the field of the key, in order. */
@@ -240,5 +257,7 @@ export function paidStatusLines(t: Translate, info: PaidInfo): string[] {
 			lines.push(t("settings.license.stopped", { ended: dayOf(standing.endedAt) }));
 			break;
 	}
+	const offset = info.clockOffsetDays ?? 0;
+	if (offset !== 0) lines.push(t("settings.license.testClock", { days: `${offset > 0 ? "+" : ""}${offset}` }));
 	return lines;
 }

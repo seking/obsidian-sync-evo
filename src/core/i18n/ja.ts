@@ -80,6 +80,7 @@ export const ja = completeTranslation(en, {
 	"settings.license.grace": "{since} からキーを確かめられていません。{until} までは使え、その間にまた確かめます。",
 	"settings.license.unconfirmed": "キーを確かめられませんでした。後でまた確かめます。ネットワークの接続を確認してください。",
 	"settings.license.invalid": "このキーは使えません。",
+	"settings.license.testClock": "（試験用の時計 {days} 日）",
 	"settings.repository.name": "リポジトリ",
 	"settings.repository.desc": "同期する GitHub のリポジトリです。owner/name の形で入力するか、ブラウザのアドレスを貼り付けます。",
 	"settings.repository.placeholder": "owner/name",

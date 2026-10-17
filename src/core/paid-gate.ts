@@ -51,7 +51,14 @@ export const TOLD_KEY = "sync-evo-paid-told";
 export interface PaidGateDeps {
 	readonly storage: PaidStorage;
 	readonly http: HttpFunction;
+	/** The time of the key: its checks, and its days of grace (`license.ts`). */
 	readonly now: () => number;
+	/**
+	 * The time the plan is decided by: the end of the free time, the
+	 * warnings, the time of downloads alone. `now` when absent; ahead of it
+	 * in a build to try the plan out (`PAID_CLOCK_OFFSET_DAYS`).
+	 */
+	readonly planNow?: () => number;
 	/** `PAID_ENABLED_AT`, given so that the tests can set it. */
 	readonly enabledAt: number | null;
 	/** Where Dodo is asked (`DODO_LIVE_API`). */
@@ -90,6 +97,10 @@ export class PaidGate {
 		this.deps = deps;
 	}
 
+	private planNow(): number {
+		return (this.deps.planNow ?? this.deps.now)();
+	}
+
 	/** Whether the paid plan is switched on at all. While it is not, nothing here is stored, asked or shown. */
 	get enabled(): boolean {
 		return this.deps.enabledAt !== null;
@@ -111,7 +122,7 @@ export class PaidGate {
 			ownClient: isOwnClient(settings.gdriveClientId),
 			licensed: licenseCounts(licenseStanding(license, now())),
 			since: account === null ? null : this.since(account),
-			now: now(),
+			now: this.planNow(),
 		});
 	}
 
@@ -125,7 +136,7 @@ export class PaidGate {
 		const verdict = paidVerdict(mode, standing);
 		const account = accountOf(settings);
 		const told = account === null ? null : this.told(account);
-		const warning = dueWarning(standing, told, this.deps.now());
+		const warning = dueWarning(standing, told, this.planNow());
 		if (warning !== null && account !== null) this.writeMap(TOLD_KEY, account, warning);
 		return { standing, verdict, warning };
 	}
