@@ -10,7 +10,7 @@ Once the paid plan has started: for 30 days, Sync Evo only downloads from Dropbo
 
 ## Do I need a key for each device?
 
-No. One key is for up to 10 of your devices, with Dropbox and Google Drive. Enter it in the settings on each device: each device activates it once, whichever vault it is entered in.
+No. One key is for up to 5 of your devices, with Dropbox and Google Drive. Enter it in the settings on each device: each device activates it once, whichever vault it is entered in.
 
 To free a place for another device, empty the field of the key on a device that no longer needs it: that ends its activation. If you no longer have that device, write to contact@gyap.jp.
 
