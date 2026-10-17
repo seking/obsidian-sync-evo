@@ -78,11 +78,11 @@ export const en = baseCatalog({
 	// The license key of the paid plan of Dropbox and Google Drive (T082).
 	"settings.license.name": "License key",
 	"settings.license.desc":
-		"Dropbox and Google Drive are free for the first 3 months, and then need a license key. One key is for both, on this device. GitHub stays free.",
+		"Dropbox and Google Drive are free for 3 months, and then need a license key. One key is for both, on this device. GitHub stays free.",
 	"settings.license.readme": "See the README of Sync Evo for details.",
 	"settings.license.buy": "Get a key",
 	"settings.license.trial": "Free until {date} with this account.",
-	"settings.license.trialUnknown": "Free for 3 months from the first sync with this account.",
+	"settings.license.trialUnknown": "Free for 3 months with this account. The day it ends is shown after the next sync.",
 	"settings.license.readOnly": "The free time ended on {ended}. Until {stops}, Sync Evo only downloads.",
 	"settings.license.stopped": "The free time ended on {ended}. Sync Evo no longer syncs with {remote}.",
 	"settings.license.ownClient": "With your own Google client, no license key is needed.",

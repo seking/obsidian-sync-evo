@@ -2,7 +2,10 @@
 
 [日本語](https://github.com/seking/obsidian-sync-evo/blob/main/README.ja.md)
 
-Sync your vault across all your devices — free, through your own GitHub, Dropbox or Google Drive.
+Sync your vault across all your devices, through your own GitHub, Dropbox or Google Drive.
+
+> [!NOTE]
+> **Payment is required for full access, once the paid plan starts.** For now, all of Sync Evo is free. Syncing with GitHub stays free, for good. Syncing with Dropbox and Google Drive may become paid later, with a license key: $3 a month, $24 a year, or $49 once, one key for both. It will be announced here and in the release notes before it starts, and even then, Dropbox and Google Drive stay free for 3 months from the day it starts, or from the day you start using them, if that is later. [Pricing](https://github.com/seking/obsidian-sync-evo#pricing)
 
 It works on phones and computers alike, with no Git to install.
 
@@ -10,7 +13,7 @@ It works on phones and computers alike, with no Git to install.
 
 ## Why Sync Evo
 
-**Free, with your own storage.** Your notes go to your own GitHub repository, Dropbox or Google Drive, with no account with the developer and no server in between.
+**Your own storage.** Your notes go to your own GitHub repository, Dropbox or Google Drive, with no account with the developer and no server in between.
 
 **Made for phones and large vaults.** A first download of thousands of files picks up where it stopped.
 
@@ -24,10 +27,25 @@ It works on phones and computers alike, with no Git to install.
 
 ## GitHub, Dropbox or Google Drive?
 
-- **No GitHub account? Use Dropbox or Google Drive.** A [free Dropbox account](https://www.dropbox.com/register) or your Google account is enough. You sign in, and there is no repository or token to make.
-- **Use GitHub** if you already have an account, use Git on a computer, or want every change kept.
+- **No GitHub account? Use Dropbox or Google Drive.** A [free Dropbox account](https://www.dropbox.com/register) or your Google account is enough. You sign in, and there is no repository or token to make. Sync Evo is free with them for now. It may later need a license key with them, after 3 months free.
+- **Use GitHub** if you already have an account, use Git on a computer, or want every change kept. Sync Evo stays free with GitHub, for good.
 
 [Compare them](https://github.com/seking/obsidian-sync-evo/blob/main/docs/choosing-a-service.md)
+
+## Pricing
+
+- **GitHub**: free, for good.
+- **Dropbox and Google Drive**: free for now. They may become paid later: free for 3 months, and then a license key is needed. One key is for both: $3 a month, $24 a year, or $49 once. Keys are sold through Dodo Payments, which handles the payment and the tax.
+- **Not started yet.** The paid plan will be announced in this README and in the release notes before it starts. It starts with a later version of Sync Evo.
+
+How it works, once it has started:
+
+- The 3 months are counted for each Dropbox or Google account, from the day the paid plan starts, or from the first sync with the account, if that is later. No one's 3 months begin before the paid plan starts.
+- Once 14 days are left before your free time ends, and again once 7 days are left, Sync Evo tells you at the next sync.
+- After it ends, Sync Evo only downloads for 30 days, and uploads nothing. Then it stops syncing with Dropbox or Google Drive. Nothing is deleted, on your devices or in your Dropbox or Google Drive.
+- Enter the key in the settings of Sync Evo, on each device. Sync Evo checks it with Dodo Payments. When Dodo cannot be reached, a key that was valid keeps working for 14 days.
+
+[Terms of service](https://gyap.jp/sync-evo/terms), including refunds.
 
 ## Get started
 
@@ -48,6 +66,8 @@ Sync Evo is not in the community plugin directory yet. Install it with [BRAT](ht
 
 ### Dropbox
 
+Free for now. It may later need a license key, after 3 months free. See [Pricing](https://github.com/seking/obsidian-sync-evo#pricing).
+
 1. No Dropbox account yet? [Create one](https://www.dropbox.com/register), for free.
 2. In Settings → Community plugins → Sync Evo, set **Service** to **Dropbox**.
 3. Press **Connect**, and allow Sync Evo in the browser.
@@ -56,6 +76,8 @@ Sync Evo is not in the community plugin directory yet. Install it with [BRAT](ht
 ### Google Drive
 
 Google Drive needs Sync Evo 0.5.0 or later, which is not released yet. To try it now, install the beta with BRAT.
+
+Free for now. It may later need a license key, after 3 months free. See [Pricing](https://github.com/seking/obsidian-sync-evo#pricing).
 
 1. In Settings → Community plugins → Sync Evo, set **Service** to **Google Drive**.
 2. Press **Connect**. Sync Evo shows a code and copies it.
@@ -76,7 +98,7 @@ Sync Evo sees only the files it made in your Google Drive. [Details](https://git
 
 ## Network and privacy
 
-Sync Evo connects only to GitHub (`api.github.com`, `codeload.github.com`), Dropbox (`api.dropboxapi.com`, `content.dropboxapi.com`, `www.dropbox.com`) or Google (`oauth2.googleapis.com`, `www.googleapis.com`), to sync your vault. To connect to Google Drive, it opens `google.com/device` in the browser. It does so only when you sync, when you have turned on automatic sync, or when you connect. It sends nothing anywhere else, collects no usage data and has no server of the developer's. A GitHub, Dropbox or Google account is required. [Details](https://github.com/seking/obsidian-sync-evo/blob/main/docs/network.md), [Privacy policy](https://gyap.jp/sync-evo/privacy)
+Sync Evo connects only to GitHub (`api.github.com`, `codeload.github.com`), Dropbox (`api.dropboxapi.com`, `content.dropboxapi.com`, `www.dropbox.com`) or Google (`oauth2.googleapis.com`, `www.googleapis.com`), to sync your vault. To connect to Google Drive, it opens `google.com/device` in the browser. It does so only when you sync, when you have turned on automatic sync, or when you connect. Once the paid plan has started, with Dropbox or Google Drive it also connects to Dodo Payments (`live.dodopayments.com`) to check the license key you entered: it sends the key and the device name, and nothing from the vault. It sends nothing anywhere else, collects no usage data and has no server of the developer's. A GitHub, Dropbox or Google account is required. [Details](https://github.com/seking/obsidian-sync-evo/blob/main/docs/network.md), [Privacy policy](https://gyap.jp/sync-evo/privacy)
 
 ## Learn more
 

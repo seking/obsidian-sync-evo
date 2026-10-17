@@ -98,4 +98,32 @@ Sync Evo asks Google only for the files it made itself (the `drive.file` permiss
 - **Requests, shared by everyone.** Every user of Sync Evo connects through the same Google client, and Google limits the requests of that client per minute, and per day. To leave room for the others, a device sends at most about 100,000 units a minute (Google counts a download as 200): a first download of thousands of files takes some minutes. When the limit of a minute is reached, Sync Evo waits and tries again, or the sync fails with "Google Drive asked to wait"; sync again later. When the requests of the day have run out, the sync stops and Sync Evo says at what time it works again (midnight in the Pacific time, 16:00 or 17:00 in Japan). Automatic sync waits until then. Nothing needs to be done, and connecting again does not help.
 - **Space.** A Google account comes with 15 GB for free, shared with Gmail and Google Photos. A file that does not fit is not uploaded, and Sync Evo says so. The rest is sent. Only the first upload to a new folder stops as a whole when its first file does not fit.
 
+## Free time and license key
+
+Sync Evo with Google Drive is free for now. It may become paid later: free for 3 months, and then a license key is needed. That will be announced before it starts. See [Pricing](https://github.com/seking/obsidian-sync-evo#pricing).
+
+Once it has started:
+
+- The 3 months count from the day the paid plan starts, or from the first sync with the Google account, if that is later. They count for the account, not for each vault.
+- Enter the key under **License key** in the settings, on each device. See [License key](settings.md#license-key).
+- With a Google client of your own (below), no key is needed.
+
+## Your own Google client
+
+This is for advanced users, and for when the Google client of Sync Evo stops working. It is not meant as a way to use Google Drive for free.
+
+Under **Your own Google client** in the settings (shown with Google Drive), enter the ID and the secret of an OAuth client of your own, and connect again. Sync Evo then connects through it instead of through its own.
+
+What it takes:
+
+- A project of your own in Google Cloud, with the Google Drive API on, and an OAuth client of the type "TVs and Limited Input devices" in it.
+- Its consent screen in production. While it is in testing, Google ends the connection after 7 days. To put it in production, Google asks for a home page, a privacy policy and terms of service on a domain you own.
+
+What changes:
+
+- Google Drive shows a client only the files its own project put there. With a client of another project, the folder of the vault is no longer seen: every file is uploaded again into a new folder, and the old folder stays on Google Drive.
+- The secret is kept on the device for this vault, like the connection, and not in a file of the vault.
+- Requests go against the limits of your own project, not of Sync Evo's.
+- To go back to the client of Sync Evo, empty the ID, and connect again.
+
 More: [Network use and privacy](network.md#google-drive), [Limits](limits.md).

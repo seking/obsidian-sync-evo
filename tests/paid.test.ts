@@ -17,6 +17,7 @@ import {
 	DAY_MS,
 	dueWarning,
 	type PaidFacts,
+	countStart,
 	freeUntil,
 	PAID_ENABLED_AT,
 	paidNoteText,
@@ -59,14 +60,16 @@ describe("three months", () => {
 describe("the end of the free time", () => {
 	const enabledAt = at("2027-03-01T00:00:00Z");
 
-	test("is three months after the count started, when that is after two weeks from the switch", () => {
-		expect(freeUntil(at("2027-02-01T00:00:00Z"), enabledAt)).toBe(at("2027-05-01T00:00:00Z"));
+	test("is three months after the account began to sync, when that was after the switch", () => {
+		expect(countStart(at("2027-04-01T00:00:00Z"), enabledAt)).toBe(at("2027-04-01T00:00:00Z"));
+		expect(freeUntil(at("2027-04-01T00:00:00Z"), enabledAt)).toBe(at("2027-07-01T00:00:00Z"));
 	});
 
-	test("is two weeks after the switch, for an account whose three months were over by then", () => {
-		expect(freeUntil(at("2026-10-17T00:00:00Z"), enabledAt)).toBe(enabledAt + 14 * DAY_MS);
-		// Where the two meet.
-		expect(freeUntil(at("2026-12-15T00:00:00Z"), enabledAt)).toBe(enabledAt + 14 * DAY_MS);
+	test("is three months after the switch, for an account that began to sync before it, however long before", () => {
+		for (const since of ["2026-10-17T00:00:00Z", "2027-02-28T23:59:59Z", "2027-03-01T00:00:00Z"]) {
+			expect(countStart(at(since), enabledAt)).toBe(enabledAt);
+			expect(freeUntil(at(since), enabledAt)).toBe(at("2027-06-01T00:00:00Z"));
+		}
 	});
 });
 

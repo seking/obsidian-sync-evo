@@ -11,6 +11,8 @@ For GitHub:
 
 For Dropbox, see [Dropbox](dropbox.md). For Google Drive, see [Google Drive](google-drive.md).
 
+With Dropbox and Google Drive, there is also **License key**, once the paid plan has started. See [License key](#license-key).
+
 ### The token
 
 - The token is kept in Obsidian's Keychain, not in a file of the vault.
@@ -31,6 +33,38 @@ If the vault has submodules:
 - **Contents: Read-only** is enough for those. But one token has one set of permissions for all its repositories.
 
 If the vault holds files under `.github/workflows/` that you change on the device, the token also needs **Workflows: Read and write**.
+
+### License key
+
+Sync Evo with Dropbox and Google Drive is free for now. They may become paid later: free for 3 months, and then a license key is needed. One key is for both. GitHub stays free. See [Pricing](https://github.com/seking/obsidian-sync-evo#pricing).
+
+The paid plan has not started. Until it does, the settings have no **License key**.
+
+Once it has started, **License key** is shown under "Connection" with Dropbox and Google Drive:
+
+- Enter the key on each device. It is taken when you leave the field.
+- One key is for this device, whichever vault it is entered in. It is kept in the app's local storage, not in a file of the vault.
+- Sync Evo checks the key with Dodo Payments, the seller of the keys. It sends the key, and the **Device name** as the name of this device's activation. Nothing from the vault. See [Network use and privacy](network.md#license-key).
+- One key works on up to 10 devices. Emptying the field removes the key from this device, and ends its activation with Dodo, which frees its place for another device. If you no longer have a device, write to contact@gyap.jp.
+- Below the field, Sync Evo says where this device stands:
+  - "Free until … with this account.", while the free time lasts ("Free for 3 months with this account. The day it ends is shown after the next sync.", until Sync Evo has learnt when it began),
+  - "The free time ended on …. Until …, Sync Evo only downloads.", for 30 days after it,
+  - "The free time ended on …. Sync Evo no longer syncs with …", after those 30 days,
+  - "The key is in use on this device.",
+  - "The key could not be checked since …. It works until …, and is checked again meanwhile.", when Dodo could not be reached: a key that was valid works for 14 days,
+  - "The key could not be checked. …", when Dodo could not be reached and the key has not been valid within those 14 days,
+  - "This key cannot be used.", when the key was refunded, cancelled, has ended, or is not a key of Sync Evo.
+- With your own Google client, no key is needed. See [Your own Google client](#your-own-google-client).
+
+## Your own Google client
+
+Shown with Google Drive, closed until you open it. For advanced users, and for when the Google client of Sync Evo stops working:
+
+- **Client ID** and **Client secret**: of an OAuth client of the type "TVs and Limited Input devices", from a Google Cloud project of your own.
+- Changing the client asks you to connect again. With a client of another project, the vault is uploaded again into a new folder, and the old one stays on Google Drive.
+- Empty the ID to go back to the client of Sync Evo.
+
+What it takes and what changes: see [Your own Google client](google-drive.md#your-own-google-client).
 
 ## What is not synced
 

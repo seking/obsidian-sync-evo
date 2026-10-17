@@ -1,13 +1,16 @@
 # GitHub, Dropbox or Google Drive?
 
-**No GitHub account? Use Dropbox or Google Drive.** A free account is enough. You sign in, and there is no repository or token to make.
+**No GitHub account? Use Dropbox or Google Drive.** A free account is enough. You sign in, and there is no repository or token to make. Sync Evo is free with them for now, and may later need a license key with them, after 3 months free.
 
-**Use GitHub** when you already have an account, when you use Git on a computer, or when you want every change kept for good.
+**Use GitHub** when you already have an account, when you use Git on a computer, or when you want every change kept for good. Sync Evo stays free with GitHub, for good.
+
+For now, all three are free. A paid plan for Dropbox and Google Drive will be announced before it starts. See [Pricing](https://github.com/seking/obsidian-sync-evo#pricing).
 
 ## Side by side
 
 | | GitHub | Dropbox | Google Drive |
 | --- | --- | --- | --- |
+| Price of Sync Evo | Free, for good | Free for now. May later need a license key after 3 months free ($3 a month, $24 a year, or $49 once, one key for both) | The same as Dropbox |
 | Setting up | Create a repository and a token, and enter both | Press **Connect** and allow Sync Evo | Press **Connect**, then **Open the browser**, paste the code, and allow Sync Evo |
 | Later upkeep | A token expires (after 90 days with the link in the README). Create a new one then | None, unless the connection is removed on Dropbox. Then connect again | None, unless the connection is removed in the Google Account, or more than 100 connections of the account end the oldest. Then connect again |
 | Free space | Private repositories are free. GitHub recommends keeping one under 1 GB, and it grows with the history | 2 GB on the free plan | 15 GB on a free Google account, shared with Gmail and Google Photos |
@@ -26,6 +29,7 @@ Google Drive needs Sync Evo 0.5.0 or later, which is not released yet. To try it
 
 - **You have no GitHub account**: Dropbox or Google Drive. Dropbox, if you want a note changed on two devices merged. Google Drive, if your vault is over 2 GB, or you would rather use the Google account you have.
 - **You use Git on a computer, or want a full history of your notes**: GitHub.
+- **You want Sync Evo to stay free for good**: GitHub.
 - **Your vault is over 2 GB**: Google Drive (up to what your Google account has free), a paid Dropbox plan, or GitHub if the vault is mostly notes (GitHub recommends under 1 GB, history included).
 
 You can switch later. Changing the service starts the sync over, as a first download does. No file in the vault is deleted. A file that differs from the new service's copy is replaced by it, and the vault's version is kept as a conflict file.

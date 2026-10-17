@@ -47,3 +47,13 @@ Under "Connection" in the settings, **Service** chooses between GitHub, Dropbox 
 
 - Every device that syncs the vault has to connect to the same Dropbox account and name the same folder.
 - Changing the service, the folder, or the account starts the sync over, as a first download does.
+
+## Free time and license key
+
+Sync Evo with Dropbox is free for now. It may become paid later: free for 3 months, and then a license key is needed. That will be announced before it starts. See [Pricing](https://github.com/seking/obsidian-sync-evo#pricing).
+
+Once it has started:
+
+- The 3 months count for the Dropbox account, not for each vault, and never begin before the paid plan starts.
+- They count from a small file of Sync Evo's own, `.sync-evo-since`, at the top of `Apps/Sync Evo/`, beside the folders of the vaults. Sync Evo puts it there at the first sync with the account after the paid plan has started, and the 3 months count from that day. Every device that connects to the account goes by it. Leave it there.
+- Enter the key under **License key** in the settings, on each device. See [License key](settings.md#license-key).

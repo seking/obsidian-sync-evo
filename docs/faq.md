@@ -1,5 +1,23 @@
 # FAQ
 
+## Is Sync Evo free?
+
+For now, yes, with every service. With GitHub, it stays free for good. Dropbox and Google Drive may become paid later, with a license key: $3 a month, $24 a year, or $49 once, one key for both. That will be announced in the README and in the release notes before it starts, and even then, they stay free for 3 months from the day it starts, or from your first sync with the account, if that is later. See [Pricing](https://github.com/seking/obsidian-sync-evo#pricing).
+
+## What happens when the free time ends?
+
+Once the paid plan has started: for 30 days, Sync Evo only downloads from Dropbox or Google Drive, and uploads nothing. Then it stops syncing with them. Nothing is deleted. Enter a license key in the settings to sync again, or switch the vault to GitHub, which stays free. See [License key](settings.md#license-key).
+
+## Do I need a key for each device?
+
+No. One key is for up to 10 of your devices, with Dropbox and Google Drive. Enter it in the settings on each device: each device activates it once, whichever vault it is entered in.
+
+To free a place for another device, empty the field of the key on a device that no longer needs it: that ends its activation. If you no longer have that device, write to contact@gyap.jp.
+
+## Can I get a refund?
+
+Within 14 days of the first purchase, and of each renewal of a subscription, in full and for any reason. Refunds are made through Dodo Payments. A key that was refunded no longer works. See the [terms of service](https://gyap.jp/sync-evo/terms).
+
 ## How do I get back what a merged file held before?
 
 Sync Evo keeps it in `.trash/.sync-evo-merged/` in the vault, as `<date> <name>.<extension>`. Obsidian does not show that folder. Use the file manager of the device to move the copy into a folder Obsidian shows. See [Getting a merged file's previous version back](syncing.md#getting-a-merged-files-previous-version-back).

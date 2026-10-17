@@ -17,7 +17,8 @@
 // The three months are counted per account of the service, from a time the
 // service keeps: on Google Drive the folder `Sync Evo` at the top, made by
 // the first sync of the account; on Dropbox a file Sync Evo puts at the top
-// of its app folder (`dropbox/since.ts`). What decides is the clock of the
+// of its app folder (`dropbox/since.ts`); and never from before the day
+// the plan was switched on (`countStart`). What decides is the clock of the
 // device. Turning it back, deleting that folder or file, or another account
 // starts the count again: that is accepted, as the check of the key is, on
 // a device whose code anyone can change. It asks honest users to pay.
@@ -36,12 +37,6 @@ export const PAID_ENABLED_AT: number | null = null;
 
 /** How long Dropbox and Google Drive are free, from the start of the count of an account. */
 export const FREE_MONTHS = 3;
-/**
- * The least time between the version that switches the plan on and the end
- * of the free time: a user whose three months are over by then is told
- * before anything stops.
- */
-export const NOTICE_DAYS = 14;
 /** How long, after the free time, a device still downloads, with the uploads stopped. */
 export const READ_ONLY_DAYS = 30;
 /** How many days before the end of the free time it is told, each once. */
@@ -65,11 +60,18 @@ export function addMonths(time: number, months: number): number {
 }
 
 /**
- * When the free time of an account ends: three months after the count
- * started, and no sooner than two weeks after the plan was switched on.
+ * When the count of an account starts: when the service says the account
+ * began to sync with Sync Evo, but never before the plan was switched on.
+ * Every account, of Google Drive or of Dropbox, has its three months from
+ * that day at the least, however long it synced before (2026-10-18).
  */
+export function countStart(since: number, enabledAt: number): number {
+	return Math.max(since, enabledAt);
+}
+
+/** When the free time of an account ends: three months after the count started (`countStart`). */
 export function freeUntil(since: number, enabledAt: number): number {
-	return Math.max(addMonths(since, FREE_MONTHS), enabledAt + NOTICE_DAYS * DAY_MS);
+	return addMonths(countStart(since, enabledAt), FREE_MONTHS);
 }
 
 /** What the paid plan is decided from, for one sync. */

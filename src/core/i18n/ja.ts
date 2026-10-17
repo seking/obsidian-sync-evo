@@ -67,11 +67,11 @@ export const ja = completeTranslation(en, {
 	"settings.gdriveClient.reconnect": "クライアントを変えました。Google Drive に接続し直してください。",
 	"settings.license.name": "ライセンスキー",
 	"settings.license.desc":
-		"Dropbox と Google Drive は、最初の3か月は無料で、その後はライセンスキーが要ります。1つのキーで両方を、このデバイスで使えます。GitHub はずっと無料です。",
+		"Dropbox と Google Drive は、3か月は無料で、その後はライセンスキーが要ります。1つのキーで両方を、このデバイスで使えます。GitHub はずっと無料です。",
 	"settings.license.readme": "詳しくは Sync Evo の README をご覧ください。",
 	"settings.license.buy": "キーを入手",
 	"settings.license.trial": "このアカウントでは、{date} まで無料です。",
-	"settings.license.trialUnknown": "このアカウントで最初に同期した時から、3か月は無料です。",
+	"settings.license.trialUnknown": "このアカウントでは、3か月は無料です。終わる日は、次の同期の後に表示します。",
 	"settings.license.readOnly": "無料の期間は {ended} に終わりました。{stops} までは、取得だけを行います。",
 	"settings.license.stopped": "無料の期間は {ended} に終わりました。{remote} との同期を止めています。",
 	"settings.license.ownClient": "自分の Google のクライアントを使う時は、ライセンスキーは要りません。",

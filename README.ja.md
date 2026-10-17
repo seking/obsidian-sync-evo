@@ -2,7 +2,10 @@
 
 [English](https://github.com/seking/obsidian-sync-evo/blob/main/README.md)
 
-保管庫を、すべてのデバイスで同期します。使うのは自分の GitHub・Dropbox・Google Drive のどれかで、無料です。
+保管庫を、すべてのデバイスで同期します。使うのは、自分の GitHub・Dropbox・Google Drive のどれかです。
+
+> [!NOTE]
+> **有料化を始めた後は、有料の部分があります。** 今は、Sync Evo のすべてが無料です。GitHub での同期は、ずっと無料です。Dropbox と Google Drive での同期は、いずれ有料になる可能性があり、その時はライセンスキーが要ります。キーは月 $3・年 $24・買い切り $49 で、1つのキーで両方を使えます。有料化は、この README とリリースノートで知らせてから始めます。始めた後も、Dropbox と Google Drive は、始めた日（それより後に使い始めた人は、使い始めた日）から3か月は無料です。[料金](https://github.com/seking/obsidian-sync-evo/blob/main/README.ja.md#料金)
 
 スマートフォンでもパソコンでも動きます。Git のインストールは要りません。
 
@@ -10,7 +13,7 @@
 
 ## Sync Evo の特長
 
-**自分のストレージで、無料。** ノートは、自分の GitHub のリポジトリ・Dropbox・Google Drive のどれかに保存されます。開発者にアカウントを作る必要は無く、間にサーバーもありません。
+**自分のストレージを使います。** ノートは、自分の GitHub のリポジトリ・Dropbox・Google Drive のどれかに保存されます。開発者にアカウントを作る必要は無く、間にサーバーもありません。
 
 **スマートフォンと大きな保管庫のために作りました。** 数千ファイルの最初のダウンロードは、途中で止まっても、続きから進みます。
 
@@ -24,10 +27,25 @@
 
 ## GitHub・Dropbox・Google Drive のどれか
 
-- **GitHub のアカウントが無いなら、Dropbox か Google Drive を。** [無料の Dropbox アカウント](https://www.dropbox.com/register)か、今の Google アカウントで足ります。ログインするだけで、リポジトリやトークンを作る必要はありません。
-- **GitHub が向くのは**、すでにアカウントがある時、パソコンで Git を使う時、変更をすべて残したい時です。
+- **GitHub のアカウントが無いなら、Dropbox か Google Drive を。** [無料の Dropbox アカウント](https://www.dropbox.com/register)か、今の Google アカウントで足ります。ログインするだけで、リポジトリやトークンを作る必要はありません。Sync Evo は、今は無料です。いずれ、3か月の無料の後にライセンスキーが要るようになる可能性があります。
+- **GitHub が向くのは**、すでにアカウントがある時、パソコンで Git を使う時、変更をすべて残したい時です。GitHub なら、Sync Evo はずっと無料です。
 
 [3つの比較](https://github.com/seking/obsidian-sync-evo/blob/main/docs/choosing-a-service.md)
+
+## 料金
+
+- **GitHub**：ずっと無料です。
+- **Dropbox と Google Drive**：今は無料です。いずれ有料になる可能性があり、その時は3か月の無料の後に、ライセンスキーが要ります。1つのキーで両方を使えます。キーは月 $3・年 $24・買い切り $49 で、Dodo Payments で販売します。決済と税の手続きは Dodo Payments が行います。
+- **まだ始めていません。** 有料化は、この README とリリースノートで知らせてから、後の版の Sync Evo で始めます。
+
+始めた後のしくみ：
+
+- 3か月は、Dropbox や Google のアカウントごとに、有料化を始めた日か、そのアカウントで最初に同期した日の遅い方から数えます。有料化を始めた日より前から数えることはありません。
+- 無料の期間が終わる14日前と7日前を過ぎた後の、最初の同期の時に知らせます。
+- 終わった後の30日は、取得だけを行い、送信はしません。その後は、Dropbox や Google Drive との同期を止めます。デバイスでも、Dropbox や Google Drive でも、何も消しません。
+- キーは、Sync Evo の設定に、デバイスごとに入れます。キーは Dodo Payments に問い合わせて確かめます。Dodo Payments に届かない時は、使えていたキーは14日のあいだ使えます。
+
+返金などは[利用規約](https://gyap.jp/sync-evo/terms)にあります。
 
 ## 始め方
 
@@ -48,6 +66,8 @@ Sync Evo は、まだコミュニティプラグインの一覧にありませ�
 
 ### Dropbox
 
+今は無料です。いずれ、3か月の無料の後にライセンスキーが要るようになる可能性があります。[料金](https://github.com/seking/obsidian-sync-evo/blob/main/README.ja.md#料金)
+
 1. Dropbox のアカウントが無ければ、[作ります](https://www.dropbox.com/register)。無料です。
 2. 設定 → コミュニティプラグイン → Sync Evo で、**サービス**を**Dropbox**にします。
 3. **接続する**を押し、ブラウザで Sync Evo を許可します。
@@ -56,6 +76,8 @@ Sync Evo は、まだコミュニティプラグインの一覧にありませ�
 ### Google Drive
 
 Google Drive には、Sync Evo 0.5.0 以降が要ります。0.5.0 は、まだ公開していません。今試すには、BRAT でベータを入れます。
+
+今は無料です。いずれ、3か月の無料の後にライセンスキーが要るようになる可能性があります。[料金](https://github.com/seking/obsidian-sync-evo/blob/main/README.ja.md#料金)
 
 1. 設定 → コミュニティプラグイン → Sync Evo で、**サービス**を**Google Drive**にします。
 2. **接続する**を押します。コードが表示され、コピーされます。
@@ -76,7 +98,7 @@ Sync Evo から見えるのは、Google Drive の中の Sync Evo が作ったフ
 
 ## 通信とプライバシー
 
-Sync Evo が接続するのは、GitHub（`api.github.com`、`codeload.github.com`）、Dropbox（`api.dropboxapi.com`、`content.dropboxapi.com`、`www.dropbox.com`）、Google（`oauth2.googleapis.com`、`www.googleapis.com`）だけです。Google Drive に接続する時は、ブラウザで `google.com/device` を開きます。どれも保管庫の同期に使い、通信するのは、同期する時、自動同期を有効にしている時、接続する時だけです。ほかへは何も送りません。利用状況は集めず、開発者のサーバーもありません。GitHub・Dropbox・Google のどれかのアカウントが必要です。[詳細](https://github.com/seking/obsidian-sync-evo/blob/main/docs/network.md)、[プライバシーポリシー](https://gyap.jp/sync-evo/privacy)
+Sync Evo が接続するのは、GitHub（`api.github.com`、`codeload.github.com`）、Dropbox（`api.dropboxapi.com`、`content.dropboxapi.com`、`www.dropbox.com`）、Google（`oauth2.googleapis.com`、`www.googleapis.com`）だけです。Google Drive に接続する時は、ブラウザで `google.com/device` を開きます。どれも保管庫の同期に使い、通信するのは、同期する時、自動同期を有効にしている時、接続する時だけです。有料化を始めた後は、Dropbox と Google Drive で、入れたライセンスキーを確かめるために Dodo Payments（`live.dodopayments.com`）にも接続します。送るのはキーとデバイス名で、保管庫の物は送りません。ほかへは何も送りません。利用状況は集めず、開発者のサーバーもありません。GitHub・Dropbox・Google のどれかのアカウントが必要です。[詳細](https://github.com/seking/obsidian-sync-evo/blob/main/docs/network.md)、[プライバシーポリシー](https://gyap.jp/sync-evo/privacy)
 
 ## 詳しく知る
 
