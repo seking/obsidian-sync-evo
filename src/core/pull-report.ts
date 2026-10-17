@@ -177,6 +177,15 @@ export function dateTime(time: number): string {
 	return `${at.getFullYear()}-${two(at.getMonth() + 1)}-${two(at.getDate())} ${clockTime(time)}`;
 }
 
+/**
+ * A time to come, as seen at `now`: the time of day alone on the same day,
+ * and with its date on another, or "16:00" said at 20:00 reads as a time
+ * already past.
+ */
+function timeFrom(now: number, time: number): string {
+	return new Date(now).toDateString() === new Date(time).toDateString() ? clockTime(time) : dateTime(time);
+}
+
 /** The time of day on the device, to the minute, as "14:05". */
 export function clockTime(time: number): string {
 	const at = new Date(time);
@@ -204,7 +213,7 @@ export function failureReason(t: Translate, settings: DeviceSettings, error: unk
 		if (error instanceof DriveDuplicateFolderError) return t("gdrive.duplicateFolder", { folder: error.folder });
 		if (error instanceof GoogleClientSecretMissingError) return t("gdrive.noClientSecret");
 		// The cap of the day, and not the connection: a 403 like the others.
-		if (error instanceof DriveDailyLimitError) return t("gdrive.dailyLimit", { time: clockTime(nextMinute(error.waitUntil)) });
+		if (error instanceof DriveDailyLimitError) return t("gdrive.dailyLimit", { time: timeFrom(error.at, nextMinute(error.waitUntil)) });
 		if (kind === "unauthorized") return t("check.gdrive.unauthorized");
 		if (kind === "forbidden") return t("check.gdrive.forbidden");
 		if (kind === "not-found" || kind === "branch-not-found") return t("pull.error.other", { detail });

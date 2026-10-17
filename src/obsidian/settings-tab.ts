@@ -81,6 +81,11 @@ export class SyncEvoSettingTab extends PluginSettingTab {
 	 * the settings does not close them, but for what this device leaves out.
 	 */
 	private readonly folds: Folds = new Set();
+	/**
+	 * The interval that the switch to Google Drive raised, until the screen
+	 * that the switch draws again has said so.
+	 */
+	private raisedForGdrive: number | null = null;
 
 	constructor(app: App, plugin: Plugin, host: SettingsHost) {
 		super(app, plugin);
@@ -135,6 +140,7 @@ export class SyncEvoSettingTab extends PluginSettingTab {
 					.setValue(stored.backend)
 					.onChange((value) => {
 						const backend = value === "dropbox" || value === "gdrive" ? value : "github";
+						const before = this.host.deviceSettings?.autoSync.intervalMinutes;
 						this.change((current) => {
 							if (current.backend === backend) return current;
 							// The folder of the vault starts as the name of the
@@ -146,6 +152,8 @@ export class SyncEvoSettingTab extends PluginSettingTab {
 							// Google Drive has a longer shortest interval.
 							return { ...withBackend(current, backend), dropboxFolder: folder, gdriveFolder };
 						});
+						const now = this.host.deviceSettings?.autoSync.intervalMinutes;
+						this.raisedForGdrive = backend === "gdrive" && before !== undefined && now !== undefined && now > before ? now : null;
 						this.display();
 					});
 			});
@@ -492,6 +500,11 @@ export class SyncEvoSettingTab extends PluginSettingTab {
 		// Not a warning: the number was changed as it should be. But in a
 		// colour of its own, or the change goes unnoticed.
 		const intervalRaised = interval.descEl.createDiv({ cls: "sync-evo-changed" });
+		// Said once, on the screen that the switch of the service drew.
+		if (this.raisedForGdrive !== null) {
+			intervalRaised.setText(t("settings.autoSync.interval.raisedForGdrive", { minutes: this.raisedForGdrive }));
+			this.raisedForGdrive = null;
+		}
 		showIntervalRow = (shown) => interval.settingEl.toggle(shown);
 		showIntervalRow(stored.atInterval);
 		// Puts the interval that is in use into the field: after the switch

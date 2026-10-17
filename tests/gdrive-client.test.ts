@@ -114,6 +114,19 @@ describe("calls of the Drive API", () => {
 		expect(slept.filter((ms) => ms < 60_000)).toEqual([1500, 3500]);
 	});
 
+	test("a wait of five minutes that Google asks for is waited out, with the second at random on top", async () => {
+		const slept: number[] = [];
+		const { http } = scripted(response(429, {}, { "retry-after": "300" }), response(200, { ok: 1 }));
+		expect(await client(http, slept, { random: () => 0.999 }).getJson("https://www.googleapis.com/drive/v3/files")).toEqual({ ok: 1 });
+		expect(slept).toContain(300_999);
+	});
+
+	test("a wait longer than five minutes is not waited out", async () => {
+		const { http, requests } = scripted(response(429, {}, { "retry-after": "301" }));
+		await expect(client(http).getJson("https://www.googleapis.com/drive/v3/files")).rejects.toBeInstanceOf(RateLimitedError);
+		expect(requests).toHaveLength(1);
+	});
+
 	test("the requests of the day having run out is not sent again, and waits until midnight in the Pacific time", async () => {
 		const { http, requests } = scripted(googleError(403, "dailyLimitExceeded"));
 		// 2026-10-17 10:00 in Japan: 2026-10-16 18:00 in the Pacific summer time.
@@ -125,7 +138,7 @@ describe("calls of the Drive API", () => {
 		expect(error).toBeInstanceOf(DriveDailyLimitError);
 		expect(error).toBeInstanceOf(RateLimitedError);
 		// 16:00 in Japan.
-		expect(error).toMatchObject({ kind: "rate-limited", waitUntil: Date.UTC(2026, 9, 17, 7, 0) });
+		expect(error).toMatchObject({ kind: "rate-limited", waitUntil: Date.UTC(2026, 9, 17, 7, 0), at: now });
 	});
 
 	test("every request waits for its units of the quota of the device, which clients share", async () => {

@@ -19,9 +19,11 @@
 /**
  * The units this device uses in a minute at most, apart from the burst
  * below: a tenth of the project's minute, and under a third of what one
- * user may use, so that ten devices fetching a vault for the first time at
- * the same moment still leave the project room. 500 downloads a minute: a
- * vault of 5,000 notes comes down in about ten minutes.
+ * user may use. With the burst, a device uses up to 120,000 units in a
+ * minute: eight devices fetching a vault for the first time at the same
+ * moment stay within the project's minute (960,000), and a ninth does not.
+ * 500 downloads a minute: a vault of 5,000 notes comes down in about ten
+ * minutes.
  */
 export const DRIVE_UNITS_PER_MINUTE = 100_000;
 

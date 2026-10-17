@@ -67,10 +67,15 @@ export class GoogleClientSecretMissingError extends BackendError {
  * project of its client, which every user shares (R-1). Not a wait that a
  * retry gets past, nor a matter of the connection: it ends at midnight in
  * the Pacific time (`waitUntil`), and automatic sync waits until then.
+ * `at` is when Google answered so: the end is on the next day from 16:00
+ * in Japan, and is then told with its date.
  */
 export class DriveDailyLimitError extends RateLimitedError {
-	constructor(waitUntil: number, message: string) {
+	readonly at: number;
+
+	constructor(waitUntil: number, at: number, message: string) {
 		super(waitUntil, message);
 		this.name = "DriveDailyLimitError";
+		this.at = at;
 	}
 }

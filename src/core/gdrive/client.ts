@@ -315,8 +315,10 @@ export class DriveClient {
 			}
 			const { reason, message } = errorOf(text);
 			if (reason === DAILY_REASON) {
+				const now = this.options.now();
 				throw new DriveDailyLimitError(
-					nextPacificMidnight(this.options.now()),
+					nextPacificMidnight(now),
+					now,
 					`${what}: the requests of the day to Google Drive have run out (HTTP ${response.status} ${reason})`,
 				);
 			}
@@ -325,12 +327,14 @@ export class DriveClient {
 			if (limited || failing) {
 				const stated = Number(headerOf(response, "retry-after"));
 				const jitter = Math.floor((this.options.random ?? Math.random)() * MAX_JITTER_MS);
-				const wait = (Number.isFinite(stated) && stated > 0 ? stated * 1000 : FIRST_WAIT_MS * 2 ** retries) + jitter;
-				if (retries >= maxRetries || wait > MAX_WAIT_MS) {
-					if (limited) throw new RateLimitedError(this.options.now() + wait, `${what}: Google Drive asked to wait (HTTP ${response.status} ${reason})`.trim());
+				const base = Number.isFinite(stated) && stated > 0 ? stated * 1000 : FIRST_WAIT_MS * 2 ** retries;
+				// The bound is on the wait Google asks for: the second at
+				// random must not turn a wait of five minutes into a failure.
+				if (retries >= maxRetries || base > MAX_WAIT_MS) {
+					if (limited) throw new RateLimitedError(this.options.now() + base, `${what}: Google Drive asked to wait (HTTP ${response.status} ${reason})`.trim());
 					throw new DriveApiError(what, response.status, reason, message);
 				}
-				await this.sleepUnlessCancelled(what, wait);
+				await this.sleepUnlessCancelled(what, base + jitter);
 				continue;
 			}
 			throw new DriveApiError(what, response.status, reason, message);

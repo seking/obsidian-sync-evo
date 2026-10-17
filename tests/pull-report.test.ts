@@ -1070,10 +1070,18 @@ describe("a pull that could not be carried out", () => {
 	test("with Google Drive, the requests of the day having run out says until when, and not to connect again", () => {
 		const drive: DeviceSettings = { ...settings, backend: "gdrive", gdriveFolder: "Vault", gdriveAccount: { id: "1", email: "a@example.com" } };
 		const reset = new Date(2026, 9, 17, 16, 0).getTime();
-		const error = new DriveDailyLimitError(reset, "x");
+		const error = new DriveDailyLimitError(reset, new Date(2026, 9, 17, 10, 0).getTime(), "x");
 		expect(failureReason(t, drive, error)).toBe(t("gdrive.dailyLimit", { time: "16:00" }));
 		expect(failureReason(ja, drive, error)).toContain("16:00");
 		expect(failureReason(t, drive, error)).not.toBe(t("check.gdrive.forbidden"));
+	});
+
+	test("with Google Drive, an end of the day's requests that is on the next day is told with its date", () => {
+		const drive: DeviceSettings = { ...settings, backend: "gdrive", gdriveFolder: "Vault", gdriveAccount: { id: "1", email: "a@example.com" } };
+		const reset = new Date(2026, 9, 18, 16, 0).getTime();
+		const error = new DriveDailyLimitError(reset, new Date(2026, 9, 17, 20, 0).getTime(), "x");
+		expect(failureReason(t, drive, error)).toBe(t("gdrive.dailyLimit", { time: "2026-10-18 16:00" }));
+		expect(failureReason(ja, drive, error)).toContain("2026-10-18 16:00");
 	});
 
 	test("with Dropbox, a connection Dropbox refuses or does not allow reads as Dropbox's, and names no repository", () => {

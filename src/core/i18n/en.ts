@@ -108,6 +108,7 @@ export const en = baseCatalog({
 	"settings.autoSync.interval.invalid":
 		"Enter a whole number of minutes from {min} to {max}. The previous interval is still in use.",
 	"settings.autoSync.interval.raised": "Raised to {minutes} minutes, because automatic sync now also uploads changes.",
+	"settings.autoSync.interval.raisedForGdrive": "Raised to {minutes} minutes, because Google Drive needs an interval of at least {minutes} minutes.",
 	"settings.autoSync.sends.name": "Also upload changes in automatic sync",
 	"settings.autoSync.sends.desc":
 		"When this is off, automatic sync only downloads: what you edit on this device is not uploaded until you sync manually. When it is on, each automatic sync that finds changes on this device makes a commit, so the interval is at least {sendingMin} minutes.",
