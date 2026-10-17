@@ -508,13 +508,15 @@ export class GDriveBackend implements Backend {
 		if (kept !== null) {
 			let json: unknown;
 			try {
-				json = await this.client.getJson(`${DRIVE_API}/files/${encodeURIComponent(kept)}?fields=id%2CmimeType%2Ctrashed`);
+				json = await this.client.getJson(`${DRIVE_API}/files/${encodeURIComponent(kept)}?fields=id%2CmimeType%2Ctrashed%2Cparents`);
 			} catch (error) {
 				if (error instanceof DriveApiError && error.status === 404) throw new DriveFolderGoneError(kept, "not found");
 				throw error;
 			}
 			if (!isRecord(json) || json.mimeType !== DRIVE_FOLDER_MIME) throw new DriveFolderGoneError(kept, "not a folder");
 			if (json.trashed === true) throw new DriveFolderGoneError(kept, "in the trash");
+			const parents = json.parents;
+			if (Array.isArray(parents) && typeof parents[0] === "string") await this.checkAlone(kept, parents[0]);
 			this.rootId = kept;
 			return kept;
 		}
@@ -531,6 +533,28 @@ export class GDriveBackend implements Backend {
 	 */
 	locate(): Promise<string | null> {
 		return this.root();
+	}
+
+	/**
+	 * Fails when the folder kept by its id is not the only one of its kind,
+	 * in one listing: another folder of the name in the settings beside it,
+	 * or another folder `Sync Evo` at the top of Drive beside the one it is
+	 * in. Two devices that each keep one of them would each sync with their
+	 * own, and never tell (R-3). A folder renamed on Drive is still followed
+	 * by its id: only another one of the name in the settings stops it.
+	 */
+	private async checkAlone(id: string, parent: string): Promise<void> {
+		const { folder } = this.options;
+		const items = await this.query(
+			`mimeType = '${DRIVE_FOLDER_MIME}' and trashed = false and ` +
+				`((name = ${quoted(folder)} and ${quoted(parent)} in parents) or (name = ${quoted(SYNC_EVO_FOLDER)} and 'root' in parents))`,
+			"look for folders of the same name",
+		);
+		if (items.some((item) => item.parent === parent && item.name === folder && item.id !== id)) {
+			throw new DriveDuplicateFolderError(`${SYNC_EVO_FOLDER}/${folder}`);
+		}
+		const tops = items.filter((item) => item.name === SYNC_EVO_FOLDER && item.parent !== parent);
+		if (tops.some((item) => item.id === parent) && tops.length > 1) throw new DriveDuplicateFolderError(SYNC_EVO_FOLDER);
 	}
 
 	/** The folder of the vault by its name, in the folder of Sync Evo at the top of Drive. */

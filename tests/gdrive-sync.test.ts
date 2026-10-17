@@ -11,7 +11,7 @@
 
 import { describe, expect, test } from "vitest";
 import { GDriveBackend } from "../src/core/gdrive/backend";
-import { DriveFolderGoneError } from "../src/core/gdrive/errors";
+import { DriveDuplicateFolderError, DriveFolderGoneError } from "../src/core/gdrive/errors";
 import { runPull } from "../src/core/pull";
 import { type PushDeps, type PushRunResult, runPush } from "../src/core/push";
 import { FakeDrive } from "./support/fake-gdrive";
@@ -120,12 +120,13 @@ describe("syncing two devices through Google Drive", () => {
 		const pulled = await b.pull();
 		expect(pulled.counts).toMatchObject({ fetched: 2, deleted: 1 });
 		expect(notes(b.vault)).toEqual({ "a.md": "A2", "c.md": "C" });
-		// Only the changes since the page token were asked for.
-		expect(drive.calls).not.toContain("GET files");
+		// Only the changes since the page token were asked for: no listing of everything.
+		expect(drive.calls).not.toContain("GET startPageToken");
 
 		drive.calls.length = 0;
 		expect((await b.pull()).counts).toMatchObject({ fetched: 0 });
-		expect(drive.calls).toEqual(["GET file", "GET changes"]);
+		// The folder by its id, whether it is the only one of its name, and the changes.
+		expect(drive.calls).toEqual(["GET file", "GET files", "GET changes"]);
 	});
 
 	test("a file edited on Drive keeps its id, and is fetched", async () => {
@@ -301,5 +302,60 @@ describe("syncing two devices through Google Drive", () => {
 		await a.push();
 		expect((await b.pull()).counts).toMatchObject({ fetched: 0, deleted: 0 });
 		expect(notes(b.vault)).toEqual({ "b.md": "B" });
+	});
+
+	test("a folder back from the trash beside the new one stops both devices, which keep one each", async () => {
+		const drive = new FakeDrive();
+		const a = device(drive, "Pixel");
+		a.vault.put("a.md", "A");
+		await a.pull();
+		await a.push();
+		const b = device(drive, "Pixel 2");
+		await b.pull();
+		const first = drive.idOf("Sync Evo/Vault") as string;
+
+		drive.trash("Sync Evo/Vault");
+		await expect(a.pull()).rejects.toBeInstanceOf(DriveFolderGoneError);
+		a.forget();
+		await a.pull();
+		await a.push();
+		expect(a.kept.id).not.toBe(first);
+		drive.untrash(first);
+
+		await expect(a.pull()).rejects.toBeInstanceOf(DriveDuplicateFolderError);
+		await expect(b.pull()).rejects.toMatchObject({ folder: "Sync Evo/Vault" });
+		expect(b.kept.id).toBe(first);
+	});
+
+	test("a second folder Sync Evo at the top of Drive stops a device that keeps its folder by id", async () => {
+		const drive = new FakeDrive();
+		const a = device(drive, "Pixel");
+		a.vault.put("a.md", "A");
+		await a.pull();
+		await a.push();
+		drive.makeFolder("", "Sync Evo");
+		await expect(a.pull()).rejects.toMatchObject({ folder: "Sync Evo" });
+	});
+
+	test("a folder renamed on Drive is still synced with by its id", async () => {
+		const drive = new FakeDrive();
+		const a = device(drive, "Pixel");
+		a.vault.put("a.md", "A");
+		await a.pull();
+		await a.push();
+		drive.move("Sync Evo/Vault", "Sync Evo", "Renamed");
+		a.vault.put("b.md", "B");
+		expect((await a.push()).outcome).toBe("pushed");
+		expect(Object.keys(drive.tree("Sync Evo/Renamed")).sort()).toEqual([".gitignore", "a.md", "b.md"]);
+	});
+
+	test("nothing is made on Drive before the first upload is confirmed", async () => {
+		const drive = new FakeDrive();
+		const a = device(drive, "Pixel");
+		a.vault.put("a.md", "A");
+		await a.pull();
+		expect((await a.push({ confirm: async () => "cancel" })).outcome).toBe("declined");
+		expect(drive.calls.filter((call) => call.startsWith("POST") || call.startsWith("PATCH"))).toEqual([]);
+		expect(drive.idOf("Sync Evo")).toBeUndefined();
 	});
 });

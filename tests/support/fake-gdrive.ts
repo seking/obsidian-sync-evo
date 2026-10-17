@@ -150,6 +150,17 @@ export class FakeDrive implements DriveBackendClient {
 	private query(q: string): Stored[] {
 		const all = [...this.items.values()].filter((item) => !item.trashed && !this.inTrash(item.parent));
 		if (q === "trashed = false") return all.sort((a, b) => (a.id < b.id ? -1 : 1));
+		const unquoted = (text: string): string => text.replace(/\\(.)/g, "$1");
+		const pair = /^mimeType = '([^']*)' and trashed = false and \(\(name = '((?:[^'\\]|\\.)*)' and '((?:[^'\\]|\\.)*)' in parents\) or \(name = '((?:[^'\\]|\\.)*)' and 'root' in parents\)\)$/.exec(q);
+		if (pair !== null) {
+			const [, mime, name, parent, top] = pair;
+			return all.filter(
+				(item) =>
+					item.mimeType === mime &&
+					((item.name === unquoted(name ?? "") && item.parent === unquoted(parent ?? "")) ||
+						(item.name === unquoted(top ?? "") && item.parent === this.rootId)),
+			);
+		}
 		const match = /^name = '((?:[^'\\]|\\.)*)' and '((?:[^'\\]|\\.)*)' in parents and mimeType = '([^']*)' and trashed = false$/.exec(q);
 		if (match === null) throw new Error(`a query the fake does not know: ${q}`);
 		const unquote = (text: string): string => text.replace(/\\(.)/g, "$1");
@@ -317,6 +328,14 @@ export class FakeDrive implements DriveBackendClient {
 		if (parent === undefined) throw new Error(`no folder ${folder}`);
 		const id = this.newId();
 		this.items.set(id, { id, name, mimeType: "application/vnd.google-apps.document", parent, trashed: false });
+		this.changed(id);
+	}
+
+	/** Takes the item of that id back out of the trash. */
+	untrash(id: string): void {
+		const item = this.items.get(id);
+		if (item === undefined) throw new Error(`nothing of id ${id}`);
+		item.trashed = false;
 		this.changed(id);
 	}
 
