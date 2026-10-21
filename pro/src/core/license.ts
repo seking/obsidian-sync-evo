@@ -85,8 +85,12 @@ export const DODO_TEST_PRODUCT_IDS: readonly string[] = [
 export const DODO_BUSINESS_ID = DODO_TEST_BUILD ? DODO_TEST_BUSINESS_ID : DODO_LIVE_BUSINESS_ID;
 /** The products of a key of Sync Evo: by the month, by the year, and once for good, in the mode this build asks. */
 export const DODO_PRODUCT_IDS: readonly string[] = DODO_TEST_BUILD ? DODO_TEST_PRODUCT_IDS : DODO_LIVE_PRODUCT_IDS;
-/** The page a key is bought on, shown on a desktop only. Empty until there is one. */
-export const PURCHASE_URL = "";
+/**
+ * The page a key is bought on, shown on a desktop only: the prices on
+ * gyap.jp, which link to Dodo's checkout, so that a price or a link can
+ * change without a release.
+ */
+export const PURCHASE_URL = "https://gyap.jp/sync-evo/#pricing";
 /** Where the settings send the user for the details, on every device. */
 export const README_URL = "https://github.com/seking/obsidian-sync-evo#readme";
 

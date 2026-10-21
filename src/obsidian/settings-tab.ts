@@ -490,7 +490,7 @@ export class SyncEvoSettingTab extends PluginSettingTab {
 		show(info);
 		const readme = row.descEl.createDiv();
 		readme.createEl("a", { text: t("settings.license.readme"), href: README_URL });
-		if (!Platform.isMobile && PURCHASE_URL !== "") {
+		if (!Platform.isMobile) {
 			row.addButton((button) => {
 				button.setButtonText(t("settings.license.buy")).onClick(() => {
 					window.open(PURCHASE_URL);
