@@ -51,27 +51,24 @@ export const DODO_TEST_BUILD = typeof SYNC_EVO_DODO_TEST === "boolean" && SYNC_E
 export const DODO_API = DODO_TEST_BUILD ? DODO_TEST_API : DODO_LIVE_API;
 
 /**
- * The business of Sync Evo (GYAP) on Dodo, in its live mode. Empty until
- * it is known: no key is taken until then. Whether the test mode has the
- * same id is not known yet.
+ * The business of Sync Evo (GYAP) on Dodo, in its live mode, as Dodo's
+ * business settings show it (2026-10-22). The same id as in the test mode.
  */
-export const DODO_LIVE_BUSINESS_ID = "";
+export const DODO_LIVE_BUSINESS_ID = "bus_0NpvnyuwMvGA62iaE3swK";
 /**
  * The business of Sync Evo in Dodo's test mode, as the activation of a key
  * bought there named it (2026-10-18).
  */
 export const DODO_TEST_BUSINESS_ID = "bus_0NpvnyuwMvGA62iaE3swK";
 /**
- * The products a key of Sync Evo is sold with in the live mode, which
- * cannot be bought until Dodo has verified the business. Copied from a
- * picture of Dodo's screen: compared with the text on that screen before
- * the release that switches the plan on (l and I, 0 and O).
+ * The products a key of Sync Evo is sold with in the live mode, as the
+ * text of Dodo's products page shows them (2026-10-22).
  */
 export const DODO_LIVE_PRODUCT_IDS: readonly string[] = [
 	// Once for good, $49.
 	"pdt_0Npwfs17O6R4lOSY7Q87z",
 	// A year, $24.
-	"pdt_0NpwfisGtlvF694AZlydR",
+	"pdt_0NpwfisGtlvF694AZIydR",
 	// A month, $3.
 	"pdt_0NpwfWybRvpHYSN0loBu3",
 ];
