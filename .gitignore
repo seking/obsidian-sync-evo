@@ -1,0 +1,23 @@
+# Dependencies
+node_modules/
+
+# Build output (attached to releases, not committed)
+main.js
+*.js.map
+
+# Local settings; never commit vault paths or secrets
+.env*
+!.env.example
+
+# Data written by Obsidian when the repository is used as a plugin folder
+data.json
+
+# OS and editor files
+.DS_Store
+.vscode/
+.idea/
+
+# Test and tool output
+coverage/
+*.tsbuildinfo
+npm-debug.log*

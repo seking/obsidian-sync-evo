@@ -1,0 +1,40 @@
+Sync Evo
+Copyright (C) 2026 seking
+
+Sync Evo is made of two parts, under two licenses.
+
+  Everything except the folder pro/ (the sync itself and GitHub)
+    GNU Affero General Public License, version 3 only (AGPL-3.0-only).
+    Full text: LICENSE-AGPL
+
+  The folder pro/ (Dropbox, Google Drive and the license key check)
+    Elastic License 2.0 (Elastic-2.0),
+    https://www.elastic.co/licensing/elastic-license
+    Full text: pro/LICENSE
+
+Each code file (.ts, .js, .mjs) says at its top which license it is under.
+
+The released main.js is built from both parts, so it contains code under both
+licenses. Each part in it stays under its own license. It also contains
+third-party packages under the MIT License; their notices are at the top of
+main.js.
+
+Neither part comes with any warranty.
+
+
+Additional permission under section 7 of the GNU AGPL, version 3
+
+As the copyright holder of the part of Sync Evo under the GNU Affero General
+Public License, version 3, seking grants you the following additional
+permission under section 7 of that license.
+
+You may convey a covered work that is linked or combined with the files under
+pro/ of Sync Evo (or a modified version of them), which are licensed under the
+Elastic License 2.0, whether you made the combination or received it. The
+files under pro/ do not have to be licensed under the GNU Affero General
+Public License for this; they stay under the Elastic License 2.0, and you must
+follow its terms for them. The GNU Affero General Public License still applies
+to all other parts of the combined work, including the duty to provide their
+Corresponding Source. The Corresponding Source of such a combined work
+includes the source of the files under pro/, which you may provide under the
+Elastic License 2.0.

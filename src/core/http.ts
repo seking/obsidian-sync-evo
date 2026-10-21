@@ -1,0 +1,61 @@
+/*
+ * Sync Evo
+ * Copyright (C) 2026 seking
+ *
+ * This file is free software, licensed under the GNU Affero General Public
+ * License, version 3, as part of Sync Evo. It comes with ABSOLUTELY NO
+ * WARRANTY. See LICENSE-AGPL for the full text, and LICENSE for the parts of
+ * Sync Evo under other terms.
+ *
+ * Source: https://github.com/seking/obsidian-sync-evo
+ */
+
+// What the clients of the services need from the outside world. The core
+// cannot reach the network or a timer by itself, so the plugin hands these
+// in, and tests hand in fakes.
+
+export interface HttpRequest {
+	readonly url: string;
+	readonly method: "GET" | "POST" | "PATCH" | "PUT";
+	readonly headers: Readonly<Record<string, string>>;
+	/**
+	 * Already serialised: text, or the bytes of a file that is sent as it
+	 * is. The matching `Content-Type` is among the headers.
+	 */
+	readonly body?: string | ArrayBuffer;
+	/**
+	 * How many bytes the body of the response is expected to have, where the
+	 * caller knows. A hint for the platform: one that cannot take a large
+	 * response the usual way takes it another way. Absent means not known, or small.
+	 */
+	readonly expectedBytes?: number;
+}
+
+export interface HttpResponse {
+	readonly status: number;
+	/** Names in whatever case the platform gives them. Read them with `headerOf`. */
+	readonly headers: Readonly<Record<string, string>>;
+	/** The raw body. Kept as bytes so that a zip and a JSON answer travel the same way. */
+	readonly body: ArrayBuffer;
+}
+
+/**
+ * Sends one request and answers with whatever status came back, following
+ * redirects. Rejects only when no response was obtained at all.
+ */
+export type HttpFunction = (request: HttpRequest) => Promise<HttpResponse>;
+
+/**
+ * Resolves after `ms`. Once `signal` aborts, the timer is dropped and the
+ * promise may stay pending for good.
+ */
+export type Sleep = (ms: number, signal?: AbortSignal) => Promise<void>;
+
+/** Header names differ in case between desktop and mobile. */
+export function headerOf(response: HttpResponse, name: string): string | undefined {
+	const wanted = name.toLowerCase();
+	for (const [key, value] of Object.entries(response.headers)) {
+		if (key.toLowerCase() === wanted) return value;
+	}
+	return undefined;
+}

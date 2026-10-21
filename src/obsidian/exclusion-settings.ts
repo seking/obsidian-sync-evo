@@ -1,0 +1,784 @@
+/*
+ * Sync Evo
+ * Copyright (C) 2026 seking
+ *
+ * This file is free software, licensed under the GNU Affero General Public
+ * License, version 3, as part of Sync Evo. It comes with ABSOLUTELY NO
+ * WARRANTY. See LICENSE-AGPL for the full text, and LICENSE for the parts of
+ * Sync Evo under other terms.
+ *
+ * Source: https://github.com/seking/obsidian-sync-evo
+ */
+
+// The part of the settings screen about what is not synced: the switches
+// that write the section of the root `.gitignore`, the way in to untracking
+// what its rules match, what this device alone leaves out, and the file
+// itself. Nothing is decided here. What is shown of the file is worked out
+// in `core/exclusion-settings.ts` from the file as it is, and every change of
+// it is made there, from the file as it is read again. What this device
+// leaves out is its settings' (`core/device-exclusion.ts`).
+//
+// Also the groups the whole screen is laid out in (`grouped`), and how
+// some of them fold.
+
+import {
+	AbstractInputSuggest,
+	type App,
+	ButtonComponent,
+	Notice,
+	Setting,
+	SettingGroup,
+	setIcon,
+	TextAreaComponent,
+	type TextComponent,
+} from "obsidian";
+import {
+	type DeviceExclusion,
+	type DeviceExclusionEdit,
+	deviceExclusionSummary,
+	FILE_KINDS,
+} from "../core/device-exclusion";
+import {
+	editorText,
+	type ExclusionChanged,
+	type ExclusionEdit,
+	type ExclusionScreen,
+	type ExclusionView,
+	exclusionWriteText,
+	folderToExclude,
+	SHOWN_CONFIG_ITEMS,
+	textFromEditor,
+	type UntrackList,
+	unreadableGitignoreText,
+} from "../core/exclusion-settings";
+import type { ConfigItem, FileKind, SectionState } from "../core/gitignore-section";
+import type { MessageKey, Translate } from "../core/i18n";
+import { DEFAULT_SIZE_LIMIT } from "../core/plan";
+import { megabytes, noticeTexts } from "../core/pull-report";
+import { type UntrackConfirmRequest, untrackSubmodulesText } from "../core/untrack-report";
+import { addClearButton } from "./clear-button";
+import { askUntrackIn } from "./untrack-confirm";
+
+export type ExclusionLoad =
+	/** No connection is set: there is no sync state, and nothing to show. */
+	| { readonly status: "no-connection" }
+	/** The sync state cannot be used, and the file is not written without it. */
+	| { readonly status: "no-state" }
+	/** `syncing`: a sync is running, so nothing can be changed, and what was read may be on its way out. */
+	| { readonly status: "ok"; readonly screen: ExclusionScreen; readonly syncing: boolean };
+
+/**
+ * How a change ended. Beside what the core answers (how the write went): a
+ * sync was running, the sync state could not be used, or something failed,
+ * with what it said.
+ */
+export type ExclusionChange = ExclusionChanged | "syncing" | "no-state" | { readonly failed: string };
+
+/** What this part of the screen needs from the plugin. None of it rejects. */
+export interface ExclusionHost {
+	readonly t: Translate;
+	/** Reads the root `.gitignore` and what goes with it, as they are now. */
+	exclusionScreen(): Promise<ExclusionLoad>;
+	/** Changes one thing in the section, in the file as it is read again. */
+	editExclusion(edit: ExclusionEdit): Promise<ExclusionChange>;
+	/** Saves the whole file. `opened` is the text it was shown with, or `null` when there was no file. */
+	saveGitignore(text: string, opened: string | null): Promise<ExclusionChange>;
+	/** What this device alone leaves out, as the settings have it now. `null` when they are not this version's. */
+	deviceExclusion(): DeviceExclusion | null;
+	/** Changes one thing in what this device alone leaves out, in the settings as they are now. Keeps the sync state. */
+	editDeviceExclusion(edit: DeviceExclusionEdit): void;
+	/**
+	 * What the question before untracking is drawn from, for a list of this
+	 * screen. `null` when it cannot be asked.
+	 */
+	untrackRequest(list: UntrackList): Promise<UntrackConfirmRequest | null>;
+	/**
+	 * Starts the sync that untracks the paths the user confirmed. Nothing is
+	 * awaited in it before the screen is asked to stay on (`SyncRunner.run`).
+	 * This part is drawn again when it has ended.
+	 */
+	untrack(shown: readonly string[]): void;
+	/**
+	 * Takes the notices of the syncs that stay off the screen while a
+	 * question is open, and answers what puts them back
+	 * (`SyncRunner.hideStaying`): in a narrow window they cover the button
+	 * that says no.
+	 */
+	hideNotices(): () => void;
+}
+
+// The names of the switches are those of the same options of Obsidian Sync.
+const KIND_NAMES = {
+	image: "fileTypes.images",
+	audio: "fileTypes.audio",
+	video: "fileTypes.videos",
+	pdf: "fileTypes.pdfs",
+	other: "fileTypes.others",
+} as const satisfies Record<FileKind, MessageKey>;
+
+const CONFIG_NAMES = {
+	"main-settings": "vaultConfig.main",
+	appearance: "vaultConfig.appearance",
+	"themes-and-snippets": "vaultConfig.themesAndSnippets",
+	hotkeys: "vaultConfig.hotkeys",
+	"core-plugin-list": "vaultConfig.corePluginList",
+	"core-plugin-settings": "vaultConfig.corePluginSettings",
+	"community-plugin-list": "vaultConfig.communityPluginList",
+	"community-plugins": "vaultConfig.communityPlugins",
+} as const satisfies Record<ConfigItem, MessageKey>;
+
+// What each part holds, in the words of the same switches of Obsidian Sync.
+const CONFIG_DESCS = {
+	"main-settings": "vaultConfig.main.desc",
+	appearance: "vaultConfig.appearance.desc",
+	"themes-and-snippets": "vaultConfig.themesAndSnippets.desc",
+	hotkeys: "vaultConfig.hotkeys.desc",
+	"core-plugin-list": "vaultConfig.corePluginList.desc",
+	"core-plugin-settings": "vaultConfig.corePluginSettings.desc",
+	"community-plugin-list": "vaultConfig.communityPluginList.desc",
+	"community-plugins": "vaultConfig.communityPlugins.desc",
+} as const satisfies Record<ConfigItem, MessageKey>;
+
+// What the user has to know before switching these two on.
+const CONFIG_WARNINGS = {
+	"community-plugin-list": "settings.exclusion.communityPluginList.warning",
+	"community-plugins": "settings.exclusion.communityPlugins.warning",
+} as const satisfies Partial<Record<ConfigItem, MessageKey>>;
+
+/** Offers the folders of the vault for the field a folder to leave out is typed into. */
+class FolderSuggest extends AbstractInputSuggest<string> {
+	private readonly listed: readonly string[];
+
+	constructor(app: App, inputEl: HTMLInputElement, listed: readonly string[]) {
+		super(app, inputEl);
+		this.listed = listed;
+	}
+
+	// Only the folders the app has indexed: one whose name starts with a
+	// dot is not among them, and is typed in full.
+	protected getSuggestions(query: string): string[] {
+		const wanted = query.trim().toLowerCase();
+		return this.app.vault
+			.getAllFolders(false)
+			.map((folder) => folder.path)
+			.filter((path) => path.toLowerCase().includes(wanted) && !this.listed.includes(path))
+			.sort();
+	}
+
+	renderSuggestion(folder: string, el: HTMLElement): void {
+		el.setText(folder);
+	}
+}
+
+/** What scrolls the screen `el` is on: the nearest element above it that scrolls up and down. */
+function scrollerOf(el: HTMLElement): HTMLElement | null {
+	for (let above = el.parentElement; above !== null; above = above.parentElement) {
+		const { overflowY } = el.win.getComputedStyle(above);
+		if (overflowY === "auto" || overflowY === "scroll") return above;
+	}
+	return null;
+}
+
+export class ExclusionSettings {
+	private readonly app: App;
+	private readonly el: HTMLElement;
+	private readonly host: ExclusionHost;
+	private readonly folds: Folds;
+	/** Counts the times this part was asked to be drawn, so that an answer that comes late is not put on a newer one. */
+	private drawn = 0;
+	/**
+	 * The one mark of a question about untracking: "preparing" while what it
+	 * is drawn from is read, and then what closes the dialog, while that is
+	 * open. `null` when there is none. No second question is begun while it
+	 * is set: two taps on the button, or a switch flipped while the first
+	 * is read, would put two dialogs up.
+	 */
+	private asking: "preparing" | { readonly close: () => void } | null = null;
+	/** The button that asks about untracking, as it was last drawn, and whether a sync locked it then. */
+	private untrackButton: { readonly button: ButtonComponent; readonly locked: boolean } | null = null;
+	/** Counts the questions about untracking that were begun or given up, so that one given up while it is prepared is not put up. */
+	private asked = 0;
+	/** This part was let go of (`dispose`): no question is put up any more. */
+	private disposed = false;
+
+	constructor(app: App, el: HTMLElement, host: ExclusionHost, folds: Folds) {
+		this.app = app;
+		this.el = el;
+		this.host = host;
+		this.folds = folds;
+	}
+
+	/**
+	 * This part is let go of: the screen is closed or drawn anew, or the
+	 * plugin is unloaded. A question about untracking that is open is closed,
+	 * which is a "no", and one that is being prepared is not put up.
+	 */
+	dispose(): void {
+		this.disposed = true;
+		if (this.asking !== null && this.asking !== "preparing") this.asking.close();
+	}
+
+	/**
+	 * Gives up a question about untracking, while this part stays: one that
+	 * is open is closed, which is a "no", and one that is being prepared is
+	 * not put up. For a change of the connection (`main.ts`): the question
+	 * lists the files of the remote that was left, and a yes would untrack
+	 * them on the new one.
+	 */
+	closeQuestion(): void {
+		if (this.asking === null) return;
+		if (this.asking !== "preparing") {
+			// Lowers the mark itself, through `closed`.
+			this.asking.close();
+			return;
+		}
+		this.asked += 1;
+		this.asking = null;
+		this.enableUntrackButton();
+	}
+
+	/**
+	 * Reads the file and draws this part from it. What was drawn before
+	 * stays until the answer is there, so that a switch does not make the
+	 * screen jump.
+	 *
+	 * The screen is put back where it was scrolled to. Emptying takes the
+	 * groups away from the last one, and taking away the field or the button
+	 * that has the focus lays the screen out right then, with the groups
+	 * below it gone: a screen scrolled further down than that is moved up,
+	 * and stays there.
+	 */
+	async draw(): Promise<void> {
+		this.drawn += 1;
+		const drawn = this.drawn;
+		const load = await this.host.exclusionScreen();
+		if (drawn !== this.drawn) return;
+		const scroller = scrollerOf(this.el);
+		const scrolled = scroller?.scrollTop;
+		this.el.empty();
+		this.untrackButton = null;
+		this.render(load);
+		if (scroller !== null && scrolled !== undefined) scroller.scrollTop = scrolled;
+	}
+
+	private render(load: ExclusionLoad): void {
+		const { el, host } = this;
+		const t = host.t;
+		// While there is no connection there is no sync state to ask, and
+		// asking for one would make one.
+		if (load.status === "no-connection") return;
+
+		// What has to be heeded is said under this heading, outside every
+		// group that folds.
+		const synced = grouped(el, t("settings.exclusion.heading"), t("settings.exclusion.desc"));
+		if (load.status === "no-state") {
+			warning(synced.textEl, t("settings.exclusion.noState"));
+			// What this device leaves out is no part of the file, and can
+			// be changed all the same.
+			this.showDevice(null, false);
+			return;
+		}
+		const { view, untrack, notices, addSection } = load.screen;
+		const locked = load.syncing;
+		if (locked) warning(synced.textEl, t("settings.exclusion.syncRunning"));
+
+		switch (view.kind) {
+			case "unreadable":
+				warning(synced.textEl, unreadableGitignoreText(t, view.reason, DEFAULT_SIZE_LIMIT));
+				this.showDevice(null, locked);
+				break;
+			case "unsettled":
+				warning(synced.textEl, t("settings.exclusion.unsettled"));
+				this.showDevice(null, locked);
+				break;
+			case "broken":
+				warning(synced.textEl, t("settings.exclusion.broken"));
+				this.showFixedOff(synced.listEl, view, locked);
+				this.showDevice(null, locked);
+				this.showEditor(view, locked);
+				break;
+			case "none": {
+				const add = new Setting(synced.listEl)
+					.setName(t("settings.exclusion.noSection.name"))
+					.setDesc(t("settings.exclusion.noSection.desc"));
+				if (addSection === "sync-first") {
+					note(add).setText(t("settings.exclusion.noSection.syncFirst"));
+				} else if (addSection === "offer") {
+					add.addButton((button) => {
+						button
+							.setButtonText(t("settings.exclusion.noSection.button"))
+							.setDisabled(locked)
+							.onClick(() => void this.change(host.editExclusion({ kind: "add-section" })));
+					});
+				} else {
+					const limit = megabytes(DEFAULT_SIZE_LIMIT);
+					note(add).setText(t("settings.exclusion.noSection.overLimit", { limit }));
+				}
+				this.showFixedOff(synced.listEl, view, locked);
+				this.showDevice(null, locked);
+				this.showEditor(view, locked);
+				break;
+			}
+			case "section": {
+				if (view.handEdited) warning(synced.textEl, t("settings.exclusion.handEdited"));
+				this.showFolders(
+					synced.listEl,
+					view.state.folders,
+					locked,
+					(folder) => void this.change(host.editExclusion({ kind: "add-folder", folder })),
+					(folder) => void this.change(host.editExclusion({ kind: "remove-folder", folder })),
+				);
+				// As of the last listing of the remote. Without one there is
+				// nothing to count. The count is of every rule of the file,
+				// and right below the folders is where it is looked for after
+				// one was added.
+				if (untrack !== null) this.showUntrack(synced.listEl, untrack, locked);
+				this.showFixedOff(synced.listEl, view, locked);
+				this.showConfig(view.state, locked);
+				this.showDevice(view.state, locked);
+				this.showEditor(view, locked);
+				break;
+			}
+		}
+
+		// A fixed exclusion that is off is not among these: it is listed
+		// above, from the file as it is now. Never folded: each of these
+		// is something to act on.
+		if (notices.length === 0) return;
+		const found = grouped(el, t("settings.exclusion.notices.name"), t("settings.exclusion.notices.desc")).textEl;
+		for (const text of noticeTexts(t, notices, DEFAULT_SIZE_LIMIT)) {
+			// A text that lists paths has one on each line after the first.
+			const [head = "", ...items] = text.split("\n");
+			found.createEl("p", { text: head });
+			if (items.length === 0) continue;
+			const list = found.createEl("ul");
+			for (const item of items) list.createEl("li", { text: item });
+		}
+	}
+
+	/**
+	 * How many files of the remote a rule matches, with the button that asks
+	 * about untracking them, and the line for the submodules a rule matches.
+	 * A setting of its own and not a line of the heading: the button needs
+	 * one. Nothing when there is neither.
+	 */
+	private showUntrack(el: HTMLElement, list: UntrackList, locked: boolean): void {
+		const t = this.host.t;
+		const { files, submodules } = list;
+		if (files.length === 0 && submodules.length === 0) return;
+		const setting = new Setting(el).setName(t("settings.exclusion.untrack.name"));
+		if (files.length > 0) {
+			setting.descEl.createDiv({ text: t("settings.exclusion.tracked", { count: files.length }) });
+			setting.descEl.createDiv({ text: t("settings.exclusion.untrack.desc") });
+			setting.addButton((button) => {
+				button.setButtonText(t("settings.exclusion.untrack.button")).onClick(() => void this.askUntrack(list));
+				this.untrackButton = { button, locked };
+				this.enableUntrackButton();
+			});
+		}
+		if (submodules.length > 0) setting.descEl.createDiv({ text: untrackSubmodulesText(t, submodules) });
+	}
+
+	/**
+	 * The button that asks about untracking is off while a sync runs, and
+	 * while a question is being prepared: the vault is looked at for it,
+	 * which takes a moment, and a second tap would do nothing.
+	 */
+	private enableUntrackButton(): void {
+		if (this.untrackButton === null) return;
+		const { button, locked } = this.untrackButton;
+		button.setDisabled(locked || this.asking === "preparing");
+	}
+
+	/**
+	 * Asks about untracking the files of a list, and starts it on a yes. The
+	 * question is drawn from the vault and the records as they are now.
+	 * Nothing when a question is being prepared or is open already.
+	 */
+	private async askUntrack(list: UntrackList): Promise<void> {
+		const { host } = this;
+		const t = host.t;
+		if (this.asking !== null || this.disposed) return;
+		this.asked += 1;
+		const asked = this.asked;
+		this.asking = "preparing";
+		this.enableUntrackButton();
+		const request = await host.untrackRequest(list);
+		// Given up meanwhile (`closeQuestion`): the mark was lowered there,
+		// and may be that of a newer question by now.
+		if (asked !== this.asked) return;
+		// Lowered on every way out of here that puts no dialog up.
+		this.asking = null;
+		this.enableUntrackButton();
+		if (request === null) {
+			if (!this.disposed) new Notice(t("settings.exclusion.untrack.noState"), 0);
+			return;
+		}
+		// The settings were closed while the vault was looked at: a question
+		// about a screen that is gone is not put up.
+		if (this.disposed || !this.el.isConnected) return;
+		const putBack = host.hideNotices();
+		const close = askUntrackIn(
+			this.app,
+			t,
+			request,
+			(shown) => {
+				// From the handler of the button, with nothing awaited before.
+				host.untrack(shown);
+				// A sync runs from here on: the switches are shown as locked.
+				void this.draw();
+			},
+			// Answered either way, or closed: the next question may be asked.
+			() => {
+				this.asking = null;
+				putBack();
+			},
+		);
+		this.asking = { close };
+	}
+
+	/**
+	 * What this device alone leaves out: folded, with what it is beside the
+	 * heading, to be read while it is. The switches for the kinds of file,
+	 * under a heading of their own in what the group says above them (as a
+	 * setting, that heading would be a card with nothing to switch), and the
+	 * folders.
+	 *
+	 * `section` is the state of the section of the file, where there is
+	 * one. A kind of file it leaves out was written there by an earlier
+	 * version, and a switch of a kind here takes those lines out of it: left
+	 * there, they would go on keeping out a kind this switch puts back.
+	 */
+	private showDevice(section: SectionState | null, locked: boolean): void {
+		const host = this.host;
+		const t = host.t;
+		const device = host.deviceExclusion();
+		if (device === null) return;
+		const group = grouped(this.el, t("settings.deviceExclusion.heading"), t("settings.deviceExclusion.desc"), {
+			folds: this.folds,
+			id: "device",
+			summary: deviceExclusionSummary(t, device),
+		});
+		const sectionKinds = section !== null && FILE_KINDS.some((kind) => !section.kinds[kind]);
+		const edit = (change: DeviceExclusionEdit): void => {
+			host.editDeviceExclusion(change);
+			void this.draw();
+		};
+
+		group.textEl.createDiv({ cls: "sync-evo-subheading", text: t("settings.exclusion.fileKinds.name") });
+		described(group.textEl, t("settings.exclusion.fileKinds.desc"));
+		for (const item of FILE_KINDS) {
+			new Setting(group.listEl).setName(t(KIND_NAMES[item])).addToggle((toggle) => {
+				toggle
+					.setValue(!device.kinds.includes(item))
+					.setDisabled(locked)
+					.onChange((synced) => {
+						host.editDeviceExclusion({ kind: "file-kind", item, synced });
+						if (sectionKinds) void this.change(host.editExclusion({ kind: "drop-kinds" }));
+						else void this.draw();
+					});
+			});
+		}
+		this.showFolders(
+			group.listEl,
+			device.folders,
+			locked,
+			(folder) => edit({ kind: "add-folder", folder }),
+			(folder) => edit({ kind: "remove-folder", folder }),
+		);
+	}
+
+	/**
+	 * The field a folder to leave out is added with, and the folders that are
+	 * left out, for every device or for this one: `add` and `remove` make the
+	 * change.
+	 */
+	private showFolders(
+		el: HTMLElement,
+		listed: readonly string[],
+		locked: boolean,
+		add: (folder: string) => void,
+		remove: (folder: string) => void,
+	): void {
+		const t = this.host.t;
+		const folders = new Setting(el)
+			.setName(t("settings.exclusion.folders.name"))
+			.setDesc(t("settings.exclusion.folders.desc"));
+		const foldersNote = note(folders);
+		let field: TextComponent | null = null;
+		folders.addText((text) => {
+			text.setPlaceholder(t("settings.exclusion.folders.placeholder")).setDisabled(locked);
+			// Takes the folder that is picked into the field. It is added by
+			// the button, like one that was typed.
+			const suggest = new FolderSuggest(this.app, text.inputEl, listed);
+			suggest.onSelect((folder) => {
+				suggest.setValue(folder);
+				suggest.close();
+			});
+			field = text;
+			// For a long path typed or pasted: emptied, the field adds
+			// nothing, as when the user empties it by hand.
+			if (!locked) {
+				addClearButton(folders, text, t("settings.exclusion.folders.clear"), () => {
+					suggest.close();
+					foldersNote.setText("");
+				});
+			}
+		});
+		folders.addButton((button) => {
+			button
+				.setButtonText(t("settings.exclusion.folders.add"))
+				.setDisabled(locked)
+				.onClick(() => {
+					const folder = folderToExclude(field?.getValue() ?? "");
+					if (folder === null) {
+						foldersNote.setText(t("settings.exclusion.folders.invalid"));
+						return;
+					}
+					add(folder);
+				});
+		});
+		for (const folder of listed) {
+			// A button with a cross, beside the name also on a phone (styles.css).
+			// The tooltip is also what a screen reader says of it.
+			const row = new Setting(el).setName(folder).addButton((button) => {
+				button
+					.setIcon("cross")
+					.setTooltip(t("settings.exclusion.folders.remove"))
+					.setDisabled(locked)
+					.onClick(() => remove(folder));
+			});
+			row.settingEl.addClass("sync-evo-folder-row");
+		}
+	}
+
+	/**
+	 * The switches for the parts of the configuration folder: folded, with
+	 * how many of them are on beside the heading, to be read while it is.
+	 */
+	private showConfig(state: SectionState, locked: boolean): void {
+		const host = this.host;
+		const t = host.t;
+		const count = SHOWN_CONFIG_ITEMS.filter((item) => state.config[item]).length;
+		const summary = t("settings.exclusion.config.summary", { count, total: SHOWN_CONFIG_ITEMS.length });
+		const el = grouped(this.el, t("settings.exclusion.config.name"), t("settings.exclusion.config.desc"), {
+			folds: this.folds,
+			id: "config",
+			summary,
+		}).listEl;
+		for (const item of SHOWN_CONFIG_ITEMS) {
+			const setting = new Setting(el).setName(t(CONFIG_NAMES[item]));
+			setting.descEl.createDiv({ text: t(CONFIG_DESCS[item]) });
+			if (item === "community-plugin-list" || item === "community-plugins") {
+				note(setting).setText(t(CONFIG_WARNINGS[item]));
+			}
+			setting.addToggle((toggle) => {
+				toggle
+					.setValue(state.config[item])
+					.setDisabled(locked)
+					.onChange((synced) => void this.change(host.editExclusion({ kind: "config-item", item, synced })));
+			});
+		}
+	}
+
+	/**
+	 * The fixed exclusions that are not in effect, when there are any, with
+	 * the button that puts back the lines a section lacks. Without a section
+	 * there is no such button: adding the section adds every line.
+	 */
+	private showFixedOff(el: HTMLElement, view: FileView, locked: boolean): void {
+		const host = this.host;
+		const t = host.t;
+		if (view.fixedOff.length === 0) return;
+		const setting = new Setting(el).setName(t("settings.exclusion.fixedOff.name"));
+		note(setting).setText(t("settings.exclusion.fixedOff.desc"));
+		const list = setting.descEl.createEl("ul");
+		for (const line of view.fixedOff) list.createEl("li", { text: line });
+		if (view.kind === "broken") return;
+		if (view.kind === "none") {
+			setting.descEl.createDiv({ text: t("settings.exclusion.fixedOff.undoneNoSection") });
+			return;
+		}
+		if (!view.restorable) {
+			setting.descEl.createDiv({ text: t("settings.exclusion.fixedOff.undone") });
+			return;
+		}
+		setting.descEl.createDiv({ text: t("settings.exclusion.fixedOff.restoreNote") });
+		setting.addButton((button) => {
+			button
+				.setButtonText(t("settings.exclusion.fixedOff.restore"))
+				.setDisabled(locked)
+				.onClick(() => void this.change(host.editExclusion({ kind: "restore-fixed" })));
+		});
+	}
+
+	/**
+	 * The whole file, to edit: folded, since few write rules by hand, but
+	 * drawn open while something is to be put right in it, which the
+	 * warnings above then send the user here for. Saved by the button and
+	 * not while typing: a rule half typed is another rule. `view.text` is
+	 * the file as it was read, which the save is checked against, or `null`
+	 * when there is none.
+	 */
+	private showEditor(view: FileView, locked: boolean): void {
+		const host = this.host;
+		const t = host.t;
+		const opened = view.text;
+		const el = grouped(this.el, t("settings.exclusion.editor.name"), t("settings.exclusion.editor.desc"), {
+			folds: this.folds,
+			id: "gitignore",
+			forced: view.kind !== "section" || view.fixedOff.length > 0,
+		}).textEl;
+		if (opened === null) described(el, t("settings.exclusion.editor.absent"));
+		// Not a setting with the field beside its description: beside it, a
+		// phone leaves the field a few characters of width.
+		const area = new TextAreaComponent(el.createDiv()).setValue(editorText(opened)).setDisabled(locked);
+		area.inputEl.rows = 12;
+		// As wide as the screen (`styles.css`): by its columns alone it
+		// stopped short of the edge on a phone.
+		area.inputEl.addClass("sync-evo-gitignore-editor");
+		// A phone would capitalize a rule and turn `--` and quotes into
+		// other characters.
+		area.inputEl.spellcheck = false;
+		area.inputEl.setAttr("autocapitalize", "off");
+		area.inputEl.setAttr("autocorrect", "off");
+		new ButtonComponent(el.createDiv("sync-evo-gitignore-save"))
+			.setButtonText(t("settings.exclusion.editor.save"))
+			.setCta()
+			.setDisabled(locked)
+			.onClick(() => {
+				const text = textFromEditor(area.getValue(), opened);
+				void this.change(host.saveGitignore(text, opened), t("settings.exclusion.editor.saved"));
+			});
+	}
+
+	/**
+	 * Waits for a change, tells how it went where there is something to
+	 * tell, and draws this part again from the file as it is now, whichever
+	 * way it went: a switch that wrote nothing must not stay flipped.
+	 *
+	 * Nothing is asked after it. What a new rule excludes is no longer
+	 * synced from the next sync on, and is listed below the folders, where
+	 * it can be removed from the remote.
+	 */
+	private async change(change: Promise<ExclusionChange>, written?: string): Promise<void> {
+		const t = this.host.t;
+		const result = await change;
+		if (result === "syncing") new Notice(t("settings.exclusion.write.syncing"));
+		else if (result === "no-state") new Notice(t("settings.exclusion.write.noState"), 0);
+		else if ("failed" in result) new Notice(t("settings.exclusion.write.failed", { detail: result.failed }), 0);
+		else {
+			const problem = exclusionWriteText(t, result.write, DEFAULT_SIZE_LIMIT);
+			// Until it is dismissed: nothing was written, and why is not short.
+			if (problem !== null) new Notice(problem, 0);
+			else if (result.write === "written" && written !== undefined) new Notice(written);
+		}
+		await this.draw();
+	}
+}
+
+function warning(el: HTMLElement, text: string): void {
+	el.createEl("p", { text, cls: "mod-warning" });
+}
+
+/** The views that show the file: the ones that list the fixed exclusions that are not in effect. */
+type FileView = Extract<ExclusionView, { fixedOff: readonly string[] }>;
+
+/** The groups of the screen that fold. */
+export type FoldId = "config" | "device" | "gitignore" | "symlinks" | "gdrive-client";
+
+/**
+ * The groups the user has opened; every one starts closed. Kept by the
+ * settings tab, and so until the plugin is loaded anew, and saved nowhere:
+ * closing the settings, or drawing a part again, does not close a group.
+ * Except what this device leaves out, which is closed each time the
+ * settings are opened (`SyncEvoSettingTab.display`), and stays as it is
+ * while a part is drawn again.
+ */
+export type Folds = Set<FoldId>;
+
+/** How a group folds. */
+export interface Fold {
+	readonly folds: Folds;
+	readonly id: FoldId;
+	/**
+	 * Drawn open and without the means to close it: something in it has to
+	 * be put right. What the user chose is back once it is not.
+	 */
+	readonly forced?: boolean;
+	/** Said beside the name, to be read while the group is closed. */
+	readonly summary?: string;
+}
+
+/** A group of the screen, as it is filled in. */
+export interface Group {
+	/** What the group says under its heading: outside the cards a phone draws the settings as. */
+	readonly textEl: HTMLElement;
+	/** Where the settings of the group go. Not shown while it holds none. */
+	readonly listEl: HTMLElement;
+}
+
+/**
+ * A group of the screen, drawn by the app's own `SettingGroup`: a heading
+ * (none when `name` is `null`), what it says about the group, and the
+ * settings. The heading of the app is a name alone, so the description is a
+ * text of its own between the heading and the settings: as the first setting
+ * it would be a card with nothing to switch.
+ *
+ * The app has no group that folds, so that is made here, with `fold`: the
+ * heading is then what opens and closes the group, by a click or, with the
+ * keyboard on it, by Enter or the space bar, and says which of the two it is
+ * (`aria-expanded`). Closed, only the heading is left.
+ */
+export function grouped(el: HTMLElement, name: string | null, desc: string | null, fold?: Fold): Group {
+	const group = new SettingGroup(el).addClass("sync-evo-group");
+	const listEl = group.listEl;
+	const textEl = createDiv("sync-evo-group-text");
+	listEl.before(textEl);
+	if (desc !== null) described(textEl, desc);
+	if (fold === undefined || fold.forced === true) {
+		if (name !== null) group.setHeading(name);
+		return { textEl, listEl };
+	}
+
+	const heading = createFragment();
+	const toggle = heading.createDiv({ cls: "sync-evo-fold", attr: { role: "button", tabindex: "0" } });
+	const icon = toggle.createSpan("sync-evo-fold-icon");
+	toggle.createSpan({ text: name ?? "" });
+	if (fold.summary !== undefined) toggle.createSpan({ cls: "sync-evo-fold-summary", text: fold.summary });
+	group.setHeading(heading);
+
+	let open = fold.folds.has(fold.id);
+	const show = (): void => {
+		toggle.setAttr("aria-expanded", String(open));
+		setIcon(icon, open ? "chevron-down" : "chevron-right");
+		// Hidden by `styles.css`.
+		textEl.toggleClass("sync-evo-folded", !open);
+		listEl.toggleClass("sync-evo-folded", !open);
+	};
+	const flip = (): void => {
+		open = !open;
+		if (open) fold.folds.add(fold.id);
+		else fold.folds.delete(fold.id);
+		show();
+	};
+	toggle.addEventListener("click", flip);
+	toggle.addEventListener("keydown", (event) => {
+		if (event.key !== "Enter" && event.key !== " ") return;
+		// The space bar would scroll the screen as well.
+		event.preventDefault();
+		flip();
+	});
+	show();
+	return { textEl, listEl };
+}
+
+/** A line of what a group says about itself, in the look of the description of a setting. */
+function described(el: HTMLElement, text: string): void {
+	el.createDiv({ cls: "setting-item-description", text });
+}
+
+/** A line under the description of a setting, for what the user has to heed. */
+function note(setting: Setting): HTMLElement {
+	return setting.descEl.createDiv({ cls: "mod-warning" });
+}

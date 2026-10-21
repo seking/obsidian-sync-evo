@@ -1,0 +1,47 @@
+{
+	"name": "obsidian-sync-evo",
+	"version": "0.5.0",
+	"description": "Sync Evo: sync an Obsidian vault with a GitHub repository, a Dropbox folder or a Google Drive folder.",
+	"private": true,
+	"type": "module",
+	"main": "main.js",
+	"license": "AGPL-3.0-only AND Elastic-2.0",
+	"author": "seking",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/seking/obsidian-sync-evo.git"
+	},
+	"engines": {
+		"node": ">=20.12"
+	},
+	"scripts": {
+		"dev": "node esbuild.config.mjs",
+		"build": "tsc --noEmit && tsc --noEmit -p tests && eslint . && node esbuild.config.mjs production",
+		"build:paid-test": "node esbuild.config.mjs once",
+		"test": "vitest run",
+		"lint": "eslint .",
+		"install:vault": "node scripts/install-to-vault.mjs",
+		"release:beta": "node scripts/release-beta.mjs"
+	},
+	"dependencies": {
+		"fflate": "0.8.3",
+		"ignore": "7.0.12",
+		"node-diff3": "github:seking/node-diff3#74eec91c177f38974aedd2522bf00e14bb102dc0"
+	},
+	"devDependencies": {
+		"@types/node": "25.9.9",
+		"esbuild": "0.28.2",
+		"eslint": "9.39.5",
+		"eslint-plugin-obsidianmd": "0.4.2",
+		"fake-indexeddb": "6.2.5",
+		"node-diff3-upstream": "npm:node-diff3@3.2.1",
+		"obsidian": "1.13.1",
+		"typescript": "7.0.2",
+		"vitest": "4.1.11"
+	},
+	"overrides": {
+		"eslint-plugin-obsidianmd": {
+			"typescript": "6.0.3"
+		}
+	}
+}

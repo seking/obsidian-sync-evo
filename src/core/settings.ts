@@ -1,0 +1,601 @@
+/*
+ * Sync Evo
+ * Copyright (C) 2026 seking
+ *
+ * This file is free software, licensed under the GNU Affero General Public
+ * License, version 3, as part of Sync Evo. It comes with ABSOLUTELY NO
+ * WARRANTY. See LICENSE-AGPL for the full text, and LICENSE for the parts of
+ * Sync Evo under other terms.
+ *
+ * Source: https://github.com/seking/obsidian-sync-evo
+ */
+
+// The settings one device keeps for one vault, and the rules about them that
+// need no screen: what is stored, which values are accepted, and whether a
+// change of them is a change of where the vault syncs to.
+
+import {
+	type DeviceExclusion,
+	NO_DEVICE_EXCLUSION,
+	parseDeviceExclusion,
+	serializeDeviceExclusion,
+} from "./device-exclusion";
+
+/** The remotes there are. */
+export type BackendId = "github" | "dropbox" | "gdrive";
+
+/** The Dropbox account this device connected with (R-4), for the screen and for telling a new account from the same one. */
+export interface DropboxAccountSettings {
+	/** Dropbox's `account_id`. */
+	readonly id: string;
+	readonly email: string;
+}
+
+/** The Google account this device connected to Drive with (R-1), like `DropboxAccountSettings`. */
+export interface DriveAccountSettings {
+	/** Google's `permissionId` of the user. */
+	readonly id: string;
+	readonly email: string;
+}
+
+export interface DeviceSettings {
+	readonly backend: BackendId;
+	/** `owner/name`, or whatever was typed while it is not yet in that form. */
+	readonly repository: string;
+	readonly branch: string;
+	/**
+	 * The name of a secret in the app's secret storage, never the token
+	 * itself. The settings are kept where every vault on the device can read
+	 * them, and a name gives nothing away.
+	 */
+	readonly tokenSecret: string;
+	/**
+	 * The folder of the vault inside the app folder of Dropbox, by its name
+	 * (R-4). Kept while GitHub is chosen, like the repository is while
+	 * Dropbox is. "" until Dropbox is chosen for the first time.
+	 */
+	readonly dropboxFolder: string;
+	/**
+	 * The account the last connection to Dropbox was made with. Kept when
+	 * the user disconnects, so that connecting again with the same account
+	 * keeps the sync state (`connectionChange`). The refresh token is not
+	 * here: it is kept apart (`DropboxTokenStore`), and only while connected.
+	 */
+	readonly dropboxAccount: DropboxAccountSettings | null;
+	/**
+	 * The folder of the vault in the folder `Sync Evo` at the top of Google
+	 * Drive, by its name (R-1). Kept while another service is chosen. ""
+	 * until Google Drive is chosen for the first time.
+	 */
+	readonly gdriveFolder: string;
+	/**
+	 * The account the last connection to Google Drive was made with, kept
+	 * when the user disconnects, as with Dropbox. The refresh token is kept
+	 * apart, and only while connected.
+	 */
+	readonly gdriveAccount: DriveAccountSettings | null;
+	/**
+	 * The id of the folder of the vault on Drive, once found or made: `null`
+	 * until then, and again once the folder was renamed here or is no longer
+	 * to be seen. Part of the connection (`connectionOf`): another id than
+	 * the one kept is another folder, and the sync state is discarded (R-3).
+	 */
+	readonly gdriveFolderId: string | null;
+	/**
+	 * The OAuth client of Google to connect with. Absent, which it always is
+	 * for now, the one of Sync Evo (R-1). There to add a client of the user's
+	 * own later without a change of the stored form.
+	 */
+	readonly gdriveClientId?: string;
+	readonly deviceName: string;
+	readonly autoSync: AutoSyncSettings;
+	readonly onConflict: ConflictHandling;
+	/**
+	 * What this device alone does not sync. Kept here and not in the sync
+	 * state, so that discarding that state does not start fetching what was
+	 * left out; and not in the vault, which every device and git share.
+	 */
+	readonly deviceExclusion: DeviceExclusion;
+	/**
+	 * Whether this device was told, after a sync, that what is excluded is
+	 * no longer synced where the remote holds it either: the version that
+	 * made it so changed what an upgraded device does, without a word
+	 * otherwise. Settings that a version from before stored are read as not
+	 * told; new ones have nothing to be told. Kept here, so that discarding
+	 * the sync state does not tell it again.
+	 */
+	readonly exclusionChangeTold: boolean;
+}
+
+/**
+ * What this device does with a file both sides have changed.
+ *
+ * - "copy": the remote's content goes to the file, and what the device had
+ *   is kept beside it as a file of its own.
+ * - "merge": the changes of both sides are put into the one file, line by
+ *   line. A file that does not merge is kept as with "copy".
+ */
+export type ConflictHandling = "merge" | "copy";
+
+/**
+ * A merge, also for a device that stored its settings before there was the
+ * choice. It can spoil a text without anyone noticing: what the file held
+ * before is kept (`MERGED_FOLDER`), and the user can switch to a copy.
+ */
+export const DEFAULT_ON_CONFLICT: ConflictHandling = "merge";
+
+/** What was stored as the handling of conflicts, or the default for anything that is neither of the two. */
+export function conflictHandlingOf(value: unknown): ConflictHandling {
+	return value === "merge" || value === "copy" ? value : DEFAULT_ON_CONFLICT;
+}
+
+/**
+ * When this device syncs without being told to. Never, until the user
+ * switches one of the first two on.
+ */
+export interface AutoSyncSettings {
+	/**
+	 * When the app starts, and when it comes back to the front from another
+	 * app: on a phone the second is what happens, and the first is rare.
+	 */
+	readonly onStartup: boolean;
+	readonly atInterval: boolean;
+	/** In minutes, a whole number within the bounds (`clampInterval`). Kept while `atInterval` is off. */
+	readonly intervalMinutes: number;
+	/**
+	 * Whether a sync that starts by itself also sends the changes of this
+	 * device. Off, it only pulls, and a note that is half written is not
+	 * committed behind the user's back.
+	 */
+	readonly sendsChanges: boolean;
+}
+
+export const DEFAULT_INTERVAL_MINUTES = 15;
+/**
+ * The shortest interval while automatic sync only pulls, with GitHub or
+ * Dropbox. With GitHub a pull that finds nothing new costs one request that
+ * is not counted against the quota (a 304); Dropbox counts no requests of
+ * a user against a limit that others share.
+ */
+export const MIN_INTERVAL_MINUTES = 1;
+/**
+ * The shortest interval with Google Drive, whether automatic sync sends or
+ * not. Every request is counted, even of a pull that finds nothing new
+ * (about 205 units), against the quota of the project of Sync Evo's client,
+ * which all its users share (R-1).
+ */
+export const MIN_GDRIVE_INTERVAL_MINUTES = 5;
+/**
+ * The shortest interval while automatic sync also sends. Not for the number
+ * of requests: with GitHub every push is a commit, and with Dropbox every
+ * file sent over another is a revision. A shorter interval would fill the
+ * history with notes in the middle of being written, and with Dropbox push
+ * the revision another device last synced out of the 100 that a merge looks
+ * through for its base.
+ */
+export const MIN_SENDING_INTERVAL_MINUTES = 5;
+/** A day. Longer than that is no interval any more. */
+export const MAX_INTERVAL_MINUTES = 1440;
+
+export const DEFAULT_AUTO_SYNC: AutoSyncSettings = {
+	onStartup: false,
+	atInterval: false,
+	intervalMinutes: DEFAULT_INTERVAL_MINUTES,
+	sendsChanges: false,
+};
+
+/** The shortest interval there can be, by whether automatic sync sends, and by the service. */
+export function minIntervalMinutes(sendsChanges: boolean, backend: BackendId): number {
+	const sending = sendsChanges ? MIN_SENDING_INTERVAL_MINUTES : MIN_INTERVAL_MINUTES;
+	return backend === "gdrive" ? Math.max(sending, MIN_GDRIVE_INTERVAL_MINUTES) : sending;
+}
+
+/**
+ * The interval that is used for a number of minutes: a whole number within
+ * the bounds. What is no number at all is the default.
+ */
+export function clampInterval(minutes: number, sendsChanges: boolean, backend: BackendId): number {
+	if (!Number.isFinite(minutes)) return DEFAULT_INTERVAL_MINUTES;
+	return Math.min(Math.max(Math.round(minutes), minIntervalMinutes(sendsChanges, backend)), MAX_INTERVAL_MINUTES);
+}
+
+/**
+ * What to store for the text typed into the interval field, or `null` to
+ * store nothing and keep what was there: anything but a whole number of
+ * minutes within the bounds. Not brought within them, unlike what is read
+ * from storage: the user would find another number saved than the one typed.
+ */
+export function intervalToStore(typed: string, sendsChanges: boolean, backend: BackendId): number | null {
+	const text = typed.trim();
+	if (!/^\d+$/.test(text)) return null;
+	const minutes = Number(text);
+	return minutes >= minIntervalMinutes(sendsChanges, backend) && minutes <= MAX_INTERVAL_MINUTES ? minutes : null;
+}
+
+/**
+ * The settings with "also sends" switched. Switched on, an interval below
+ * the bound for sending is raised to it; switched off, the interval stays.
+ */
+export function withSendsChanges(auto: AutoSyncSettings, sendsChanges: boolean, backend: BackendId): AutoSyncSettings {
+	return { ...auto, sendsChanges, intervalMinutes: clampInterval(auto.intervalMinutes, sendsChanges, backend) };
+}
+
+/**
+ * The settings with the service switched. An interval below the bound of
+ * the new one is raised to it; switched back, the interval stays.
+ */
+export function withBackend(settings: DeviceSettings, backend: BackendId): DeviceSettings {
+	const auto = settings.autoSync;
+	const intervalMinutes = clampInterval(auto.intervalMinutes, auto.sendsChanges, backend);
+	return { ...settings, backend, autoSync: intervalMinutes === auto.intervalMinutes ? auto : { ...auto, intervalMinutes } };
+}
+
+/**
+ * The version of the stored form. It changes when a newer Sync Evo stores
+ * something this code would misread. It only ever goes up, by whole numbers:
+ * a version that is not a number above this one is not recognised as newer,
+ * and is taken for nothing stored. A field that an older version must not
+ * drop is such a change too: that version writes back the fields it knows.
+ *
+ * The settings of automatic sync were added without a change of it. A
+ * version from before them drops them when it saves, and reads them as
+ * absent: automatic sync is then off, which is where it starts and the safe
+ * side. The handling of conflicts was added the same way: read as absent,
+ * it is "copy". So was what this device alone does not sync: read as
+ * absent, nothing is left out, and the section of `.gitignore` is looked at
+ * again for the kinds an earlier version wrote there (`kindsFromSection`).
+ * And whether the change of what an exclusion does was told: read as
+ * absent, it was not, and is told once more.
+ *
+ * Dropbox is not added that way: a version from before it would read the
+ * settings as GitHub's, with the repository entered before, and sync the
+ * sync state of Dropbox with that repository. Settings with Dropbox chosen
+ * are stored as the next version (`DROPBOX_SETTINGS_VERSION`), which such a
+ * version reads as newer and does not touch. With GitHub chosen they stay
+ * at this one, as before.
+ */
+export const SETTINGS_VERSION = 1;
+/** The version of settings with Dropbox chosen. Read by this version as its own. */
+export const DROPBOX_SETTINGS_VERSION = 2;
+/**
+ * The version of settings with Google Drive chosen, for the same reason:
+ * a version that knows Dropbox and not Drive would read them as GitHub's.
+ */
+export const GDRIVE_SETTINGS_VERSION = 3;
+
+const KNOWN_VERSIONS: readonly number[] = [SETTINGS_VERSION, DROPBOX_SETTINGS_VERSION, GDRIVE_SETTINGS_VERSION];
+
+export interface StoredSettings extends DeviceSettings {
+	readonly version: typeof SETTINGS_VERSION | typeof DROPBOX_SETTINGS_VERSION | typeof GDRIVE_SETTINGS_VERSION;
+}
+
+export type ParsedSettings =
+	| { readonly status: "ok"; readonly settings: DeviceSettings }
+	/**
+	 * What is stored was written in a later version of the format. The caller
+	 * must neither sync from it nor write over it unless the user says so: a
+	 * newer Sync Evo has put there what this one cannot keep.
+	 */
+	| { readonly status: "newer-version" };
+
+export function defaultSettings(defaultDeviceName: string): DeviceSettings {
+	return {
+		backend: "github",
+		repository: "",
+		branch: "main",
+		tokenSecret: "",
+		dropboxFolder: "",
+		dropboxAccount: null,
+		gdriveFolder: "",
+		gdriveAccount: null,
+		gdriveFolderId: null,
+		deviceName: defaultDeviceName,
+		autoSync: DEFAULT_AUTO_SYNC,
+		onConflict: DEFAULT_ON_CONFLICT,
+		deviceExclusion: NO_DEVICE_EXCLUSION,
+		// Nothing changed for a device that starts with this version.
+		exclusionChangeTold: true,
+	};
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Reads what was stored. Never throws: the settings are read while the plugin
+ * loads, and a throw there would leave the user without the screen to fix them.
+ */
+export function parseSettings(raw: unknown, defaultDeviceName: string): ParsedSettings {
+	const defaults = defaultSettings(defaultDeviceName);
+	if (isRecord(raw) && typeof raw.version === "number" && raw.version > SETTINGS_VERSION && !KNOWN_VERSIONS.includes(raw.version)) {
+		return { status: "newer-version" };
+	}
+	// Nothing stored, or something no version of Sync Evo writes. The second
+	// is taken for the first: none of it can be trusted, and without a
+	// connection nothing syncs until the user has entered one again.
+	if (!isRecord(raw) || typeof raw.version !== "number" || !KNOWN_VERSIONS.includes(raw.version)) {
+		return { status: "ok", settings: defaults };
+	}
+
+	const text = (value: unknown, fallback: string): string => (typeof value === "string" ? value : fallback);
+	const deviceName = text(raw.deviceName, "").trim();
+	const backend = raw.backend === "dropbox" || raw.backend === "gdrive" ? raw.backend : defaults.backend;
+	return {
+		status: "ok",
+		settings: {
+			backend,
+			// Stored in its form or not at all, like the screen does it.
+			repository: normalizeRepository(text(raw.repository, "")) ?? defaults.repository,
+			branch: branchToStore(text(raw.branch, "")) ?? defaults.branch,
+			tokenSecret: text(raw.tokenSecret, defaults.tokenSecret),
+			dropboxFolder: dropboxFolderToStore(text(raw.dropboxFolder, "")) ?? defaults.dropboxFolder,
+			dropboxAccount: parseDropboxAccount(raw.dropboxAccount),
+			gdriveFolder: dropboxFolderToStore(text(raw.gdriveFolder, "")) ?? defaults.gdriveFolder,
+			gdriveAccount: parseDropboxAccount(raw.gdriveAccount),
+			gdriveFolderId: typeof raw.gdriveFolderId === "string" && raw.gdriveFolderId !== "" ? raw.gdriveFolderId : null,
+			...(typeof raw.gdriveClientId === "string" && raw.gdriveClientId !== "" ? { gdriveClientId: raw.gdriveClientId } : {}),
+			deviceName: deviceNameProblem(deviceName) === null ? deviceName : defaults.deviceName,
+			autoSync: parseAutoSync(raw.autoSync, backend),
+			onConflict: conflictHandlingOf(raw.onConflict),
+			deviceExclusion: parseDeviceExclusion(raw.deviceExclusion),
+			exclusionChangeTold: raw.exclusionChangeTold === true,
+		},
+	};
+}
+
+/** An account of Dropbox or of Google: an id and an e-mail address. */
+function parseDropboxAccount(raw: unknown): DropboxAccountSettings | null {
+	if (!isRecord(raw) || typeof raw.id !== "string" || raw.id === "" || typeof raw.email !== "string") return null;
+	return { id: raw.id, email: raw.email };
+}
+
+// A switch is on only when it was stored as on: anything else, from a
+// version that knew no such switch or from a damaged value, is off.
+function parseAutoSync(raw: unknown, backend: BackendId): AutoSyncSettings {
+	if (!isRecord(raw)) return DEFAULT_AUTO_SYNC;
+	const sendsChanges = raw.sendsChanges === true;
+	const minutes = typeof raw.intervalMinutes === "number" ? raw.intervalMinutes : DEFAULT_INTERVAL_MINUTES;
+	return {
+		onStartup: raw.onStartup === true,
+		atInterval: raw.atInterval === true,
+		intervalMinutes: clampInterval(minutes, sendsChanges, backend),
+		sendsChanges,
+	};
+}
+
+export function serializeSettings(settings: DeviceSettings): StoredSettings {
+	// Field by field, so that nothing else an object happens to carry is stored.
+	return {
+		version:
+			settings.backend === "gdrive" ? GDRIVE_SETTINGS_VERSION : settings.backend === "dropbox" ? DROPBOX_SETTINGS_VERSION : SETTINGS_VERSION,
+		backend: settings.backend,
+		repository: settings.repository,
+		branch: settings.branch,
+		tokenSecret: settings.tokenSecret,
+		dropboxFolder: settings.dropboxFolder,
+		dropboxAccount: settings.dropboxAccount === null ? null : { id: settings.dropboxAccount.id, email: settings.dropboxAccount.email },
+		gdriveFolder: settings.gdriveFolder,
+		gdriveAccount: settings.gdriveAccount === null ? null : { id: settings.gdriveAccount.id, email: settings.gdriveAccount.email },
+		gdriveFolderId: settings.gdriveFolderId,
+		...(settings.gdriveClientId === undefined ? {} : { gdriveClientId: settings.gdriveClientId }),
+		deviceName: settings.deviceName,
+		autoSync: {
+			onStartup: settings.autoSync.onStartup,
+			atInterval: settings.autoSync.atInterval,
+			intervalMinutes: settings.autoSync.intervalMinutes,
+			sendsChanges: settings.autoSync.sendsChanges,
+		},
+		onConflict: settings.onConflict,
+		deviceExclusion: serializeDeviceExclusion(settings.deviceExclusion),
+		exclusionChangeTold: settings.exclusionChangeTold,
+	};
+}
+
+export interface RepositoryName {
+	readonly owner: string;
+	readonly repo: string;
+}
+
+// GitHub allows fewer characters in an owner than in a repository name. The
+// wider set is used for both: the point is to keep out what cannot be a name
+// at all, and GitHub answers for the rest.
+const NAME_PART = /^[A-Za-z0-9._-]+$/;
+
+/**
+ * Reads `owner/name`, or the address of the repository as copied from the
+ * browser. `null` for anything else.
+ */
+export function parseRepository(text: string): RepositoryName | null {
+	let rest = text.trim().replace(/^https?:\/\/(?:www\.)?github\.com\//i, "");
+	if (rest.endsWith("/")) rest = rest.slice(0, -1);
+	// The clone address ends in `.git`, and no repository name can.
+	if (rest.toLowerCase().endsWith(".git")) rest = rest.slice(0, -4);
+
+	const parts = rest.split("/");
+	const [owner, repo] = parts;
+	if (parts.length !== 2 || owner === undefined || repo === undefined) return null;
+	if (!NAME_PART.test(owner) || !NAME_PART.test(repo)) return null;
+	// These would change which path of the API a request goes to.
+	if (owner === "." || owner === ".." || repo === "." || repo === "..") return null;
+	return { owner, repo };
+}
+
+/** The form a repository is stored in, or `null` when the text does not name one. */
+export function normalizeRepository(text: string): string | null {
+	const name = parseRepository(text);
+	return name === null ? null : `${name.owner}/${name.repo}`;
+}
+
+/**
+ * What to store for the text typed into the repository field: the repository
+ * in its stored form, "" for a field left empty, or `null` to store nothing
+ * and keep what was there. Text that names no repository is not stored: it
+ * would count as no connection, and correcting it as a new one, so a slip of
+ * the finger would cost the sync state of the very repository it was.
+ * Emptying the field is the way to remove the connection on purpose.
+ */
+export function repositoryToStore(typed: string): string | null {
+	return typed.trim() === "" ? "" : normalizeRepository(typed);
+}
+
+/**
+ * What to store for the text typed into the branch field, or `null` to store
+ * nothing and keep what was there. A field left empty is not stored, for the
+ * reason a mistyped repository is not: it would count as no connection. Any
+ * other text may be the name of a branch, so it is stored as it is.
+ */
+export function branchToStore(typed: string): string | null {
+	const branch = typed.trim();
+	return branch === "" ? null : branch;
+}
+
+/**
+ * The file at the top of the app folder of Dropbox that tells when the
+ * account began to sync with Sync Evo, for the free time of the paid plan
+ * (`dropbox/since.ts`). Not a name the folder of a vault can have.
+ */
+export const DROPBOX_SINCE_FILE = ".sync-evo-since";
+
+/**
+ * What to store for the text typed into the field of the Dropbox folder, or
+ * `null` to store nothing and keep what was there: a name of one folder,
+ * without a slash, and not one of the names a path gives a meaning to, nor
+ * that of the file of the free time (`DROPBOX_SINCE_FILE`), in any case:
+ * Dropbox takes names in any case. Dropbox answers for the rest. Also for
+ * the folder on Google Drive, which has no such file, and loses nothing.
+ */
+export function dropboxFolderToStore(typed: string): string | null {
+	const name = typed.trim();
+	if (name === "" || name === "." || name === ".." || /[/\\\p{Cc}]/u.test(name)) return null;
+	if (name.toLowerCase() === DROPBOX_SINCE_FILE) return null;
+	return name;
+}
+
+export type DeviceNameProblem = "empty" | "invalid-character";
+
+// The device name becomes part of the name of a file kept from a conflict and
+// of the first line of a commit. So it takes no line break or other control
+// character, nothing a file name cannot have on some platform, and nothing
+// Obsidian does not allow in the name of a note.
+// `\p{Cc}` is the control characters: U+0000 to U+001F and U+007F to U+009F.
+const DEVICE_NAME_REJECTED = /[\p{Cc}\u2028\u2029*"\\/<>:|?#^[\]]/u;
+
+/** What is wrong with a device name, judged on the name as it would be stored: trimmed. */
+export function deviceNameProblem(name: string): DeviceNameProblem | null {
+	const trimmed = name.trim();
+	if (trimmed === "") return "empty";
+	return DEVICE_NAME_REJECTED.test(trimmed) ? "invalid-character" : null;
+}
+
+/** The fields of the app's `Platform` that tell the kind of device. */
+export interface PlatformKind {
+	readonly isIosApp: boolean;
+	readonly isAndroidApp: boolean;
+	readonly isPhone: boolean;
+	readonly isTablet: boolean;
+	readonly isMacOS: boolean;
+	readonly isWin: boolean;
+	readonly isLinux: boolean;
+}
+
+export type DefaultDeviceName = "iPhone" | "iPad" | "Android" | "Mac" | "Windows" | "Linux";
+
+export function defaultDeviceName(platform: PlatformKind): DefaultDeviceName {
+	// The mobile apps come first: on an iPhone `isMacOS` is true as well
+	// (measured on a device), so asking for the desktop systems first would
+	// name every iPhone "Mac".
+	//
+	// `isPhone` and `isTablet` are only looked at inside the iOS app. They are
+	// about the size of the screen, and the desktop app sets them too while it
+	// emulates mobile.
+	if (platform.isIosApp) return platform.isPhone ? "iPhone" : "iPad";
+	if (platform.isAndroidApp) return "Android";
+	if (platform.isMacOS) return "Mac";
+	if (platform.isWin) return "Windows";
+	// Also the answer when no field is true. The desktop app is built for
+	// three systems, and one that is neither macOS nor Windows is running the
+	// Linux build, whatever it calls itself. The name is only a default that
+	// the user can change.
+	return "Linux";
+}
+
+/** Where the vault syncs to. `repository` is always in the form `owner/name`. */
+export type Connection =
+	| { readonly backend: "github"; readonly repository: string; readonly branch: string }
+	/** A folder in the app folder of the Dropbox account of `account` (its `account_id`). */
+	| { readonly backend: "dropbox"; readonly account: string; readonly folder: string }
+	/**
+	 * A folder in `Sync Evo` at the top of the Google Drive of `account`
+	 * (its `permissionId`), and its id once known (`DeviceSettings.gdriveFolderId`).
+	 */
+	| { readonly backend: "gdrive"; readonly account: string; readonly folder: string; readonly folderId: string | null };
+
+/**
+ * The connection the settings describe, or `null` while they describe none:
+ * the repository is not in the form `owner/name`, or there is no branch.
+ * Sync must not start without one.
+ *
+ * The token is not part of it. A connection with no token fails when it is
+ * used, and replacing an expired token must not look like a new connection.
+ * Nor is the refresh token of Dropbox: the account it was of is, and stays
+ * when the user disconnects, so that connecting again with the same account
+ * is no new connection (R-4).
+ */
+export function connectionOf(settings: DeviceSettings): Connection | null {
+	if (settings.backend === "gdrive") {
+		const folder = dropboxFolderToStore(settings.gdriveFolder);
+		if (settings.gdriveAccount === null || folder === null) return null;
+		return { backend: "gdrive", account: settings.gdriveAccount.id, folder, folderId: settings.gdriveFolderId };
+	}
+	if (settings.backend === "dropbox") {
+		const folder = dropboxFolderToStore(settings.dropboxFolder);
+		if (settings.dropboxAccount === null || folder === null) return null;
+		return { backend: "dropbox", account: settings.dropboxAccount.id, folder };
+	}
+	const repository = normalizeRepository(settings.repository);
+	const branch = settings.branch.trim();
+	if (repository === null || branch === "") return null;
+	return { backend: "github", repository, branch };
+}
+
+export type ConnectionChange =
+	| "none"
+	/**
+	 * From no connection to one. The sync state is discarded for this as well,
+	 * even when the connection is the one from some time before: nothing says
+	 * that a state left behind belongs to it.
+	 */
+	| "set"
+	| "changed"
+	| "cleared";
+
+export function connectionChange(before: Connection | null, after: Connection | null): ConnectionChange {
+	if (before === null) return after === null ? "none" : "set";
+	if (after === null) return "cleared";
+	return sameConnection(before, after) ? "none" : "changed";
+}
+
+function sameConnection(before: Connection, after: Connection): boolean {
+	// GitHub takes owner and repository names in any case, so a change of case
+	// alone still names the same repository and must not cost the sync state.
+	// Branch names differ by case. Dropbox takes a folder in any case too.
+	if (before.backend === "github" && after.backend === "github") {
+		return before.repository.toLowerCase() === after.repository.toLowerCase() && before.branch === after.branch;
+	}
+	if (before.backend === "dropbox" && after.backend === "dropbox") {
+		return before.account === after.account && before.folder.toLowerCase() === after.folder.toLowerCase();
+	}
+	// Drive tells the cases of a name apart. The id of the folder is the
+	// one it was until a sync found it: found, it is no other folder, and
+	// the state of the sync that found it stays. Another id, or none after
+	// one, is another folder (R-3).
+	if (before.backend === "gdrive" && after.backend === "gdrive") {
+		return (
+			before.account === after.account &&
+			before.folder === after.folder &&
+			(before.folderId === after.folderId || before.folderId === null)
+		);
+	}
+	return false;
+}

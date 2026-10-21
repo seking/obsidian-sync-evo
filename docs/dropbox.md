@@ -1,0 +1,61 @@
+# Dropbox
+
+[日本語](https://github.com/seking/obsidian-sync-evo/blob/main/docs/ja/dropbox.md)
+
+Under "Connection" in the settings, **Service** chooses between GitHub, Dropbox and Google Drive.
+
+## The folder
+
+- Sync Evo reaches only its own folder in your Dropbox, `Apps/Sync Evo/`.
+- The name of `Apps` follows the language of your Dropbox.
+- Each vault is kept in a folder of its own there, named in the settings under **Folder**. At first, it is the name of the vault.
+
+## Setting up
+
+1. Set **Service** to **Dropbox**.
+2. Check the name under **Folder**.
+3. Check **Device name**. It is used in the names of conflict files.
+4. Press **Connect** and allow in the browser.
+5. Press **Test** under "Connection test", then run **Sync**.
+
+## Connecting
+
+- Connecting is done in the browser.
+- Press **Connect**, sign in to Dropbox if asked, and press **Allow**. The browser sends you back to Obsidian.
+- There is no token to copy.
+- **Disconnect** tells Dropbox to forget the connection, and forgets it on the device.
+- The account (its ID and e-mail address) stays in the settings. So connecting again to the same account does not start the sync over.
+
+## How it differs from GitHub
+
+**An upload is not a commit.**
+
+- The files are sent together.
+- Each file is sent only while Dropbox still holds the version this device last saw.
+- A file another device changed first is not overwritten. A file another device changed is not deleted. The upload sends the rest and says so. The next download takes that file up as a conflict.
+- An upload that is stopped after its files were sent leaves them on Dropbox. The next sync sends what is left.
+
+**Deleted files** stay in the version history of Dropbox for a while (30 days on the free plan). They are not put into a trash of Sync Evo's.
+
+**Automatic merging** finds what a file held at the last sync among its versions on Dropbox. Only the latest 100 versions are looked at. When that version is gone, or older than those, the file is kept twice instead, as a conflict file.
+
+**Upper and lower case.** Dropbox does not tell them apart.
+
+- Two files in the vault whose paths differ only in case are not uploaded.
+- A rename on Dropbox that changes only case reaches the device only when the folder is listed in full again.
+- Paths that differ only in case are not synced with any service. See [the comparison](choosing-a-service.md).
+
+## Several devices
+
+- Every device that syncs the vault has to connect to the same Dropbox account and name the same folder.
+- Changing the service, the folder, or the account starts the sync over, as a first download does.
+
+## Free time and license key
+
+Sync Evo with Dropbox is free for now. It may become paid later: free for 3 months, and then a license key is needed. That will be announced before it starts. See [Pricing](https://github.com/seking/obsidian-sync-evo#pricing).
+
+Once it has started:
+
+- The 3 months count for the Dropbox account, not for each vault, and never begin before the paid plan starts.
+- They count from a small file of Sync Evo's own, `.sync-evo-since`, at the top of `Apps/Sync Evo/`, beside the folders of the vaults. Sync Evo puts it there at the first sync with the account after the paid plan has started, and the 3 months count from that day. Every device that connects to the account goes by it. Leave it there.
+- Enter the key under **License key** in the settings, on each device. See [License key](settings.md#license-key).

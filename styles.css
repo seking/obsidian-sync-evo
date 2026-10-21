@@ -1,0 +1,170 @@
+/*
+ * The groups of the settings screen (`grouped`). The app draws them, and puts
+ * a gap between two that follow each other; a part of the screen that is
+ * filled in later has an element of its own, which that gap does not reach
+ * into.
+ */
+.sync-evo-group + .sync-evo-group,
+.sync-evo-part > .sync-evo-group:first-child {
+	margin-top: var(--size-4-6);
+}
+
+/* What a group says under its heading: in line with the heading, and closer to it than the settings are. */
+.sync-evo-group-text {
+	margin: calc(-1 * var(--size-4-2)) 0 var(--size-4-4);
+	padding: 0 var(--size-4-4);
+}
+
+.sync-evo-group-text:empty,
+.sync-evo-group > .setting-items:empty,
+.sync-evo-group > .sync-evo-folded {
+	display: none;
+}
+
+/* A heading inside what a group says, for the settings right below. */
+.sync-evo-subheading {
+	margin-top: var(--size-4-4);
+	font-weight: var(--font-semibold);
+}
+
+/* The heading of a group that folds: the mark, the name, and what is said of the group while it is closed. */
+.sync-evo-fold {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 0 var(--size-4-2);
+	/* Tall enough for a finger, without making the heading taller. */
+	margin: calc(-1 * var(--size-4-3)) 0;
+	padding: var(--size-4-3) 0;
+	cursor: pointer;
+}
+
+.sync-evo-fold:focus-visible {
+	outline: 2px solid var(--background-modifier-border-focus);
+	outline-offset: 2px;
+}
+
+.sync-evo-fold-icon {
+	display: flex;
+}
+
+.sync-evo-fold-summary {
+	color: var(--text-muted);
+	font-size: var(--font-ui-smaller);
+	font-weight: var(--font-normal);
+}
+
+/* The answer of a question that changes nothing. It is the first button of its row for the keyboard (`keyboardOn`), and is shown last: at the end of a row, and on top where a phone stacks the buttons from the bottom. */
+.modal-button-container > .sync-evo-safe-answer {
+	order: 1;
+}
+
+/* The repository in the settings: wide enough to show an owner/name. Where the description and the field share a row (a tablet, a desktop), the long description otherwise leaves the field a few letters wide. On a phone the field is already as wide as the screen, and this changes nothing. */
+.sync-evo-repository input[type="text"] {
+	min-width: min(22em, 60vw);
+}
+
+/* The editor of .gitignore in the settings: as wide as the screen. */
+.sync-evo-gitignore-editor {
+	width: 100%;
+	resize: vertical;
+}
+
+/* The button that saves it: below the editor, at the end of the line. */
+.sync-evo-gitignore-save {
+	display: flex;
+	justify-content: flex-end;
+	margin-top: var(--size-4-2);
+}
+
+/* What a switch did to another field: seen, but not a warning. */
+.sync-evo-changed {
+	color: var(--text-accent);
+	font-weight: var(--font-semibold);
+}
+
+/* The list of paths in a dialog that asks before it goes on (`pull-confirm.ts`), on a desktop: scrolled by itself. */
+.sync-evo-path-list-scrolled {
+	max-height: 30vh;
+	overflow-y: auto;
+}
+
+/* The last lines of the log (`log.ts`): selectable, wrapped to the width of a phone, and scrolled within the dialog. */
+.sync-evo-log {
+	max-height: 60vh;
+	overflow-y: auto;
+	margin: 0;
+	padding: var(--size-4-2);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: var(--radius-s);
+	font-family: var(--font-monospace);
+	font-size: var(--font-ui-smaller);
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+	user-select: text;
+	-webkit-user-select: text;
+}
+
+/*
+ * The row of an excluded folder: the name, and the button that removes it
+ * beside it. On a phone the app puts the control of a setting under its name
+ * and as wide as the screen, which would make the cross a bar of its own.
+ */
+.is-phone .modal .setting-item.sync-evo-folder-row {
+	flex-direction: row;
+	align-items: center;
+}
+
+/* A list of names: shorter rows than settings have, the name level with the button. */
+.setting-group .setting-item.sync-evo-folder-row {
+	padding-block: var(--size-4-2);
+}
+
+.setting-item.sync-evo-folder-row .setting-item-info {
+	align-self: center;
+}
+
+.setting-item.sync-evo-folder-row .setting-item-control button {
+	padding: var(--size-4-2);
+	height: auto;
+}
+
+.is-phone .modal .setting-item.sync-evo-folder-row .setting-item-control {
+	flex: 0 0 auto;
+	width: auto;
+}
+
+.is-phone .modal .setting-item.sync-evo-folder-row .setting-item-control button {
+	width: auto;
+}
+
+/* A notice of a sync that could not be carried out: told apart from the others at a glance. The whole frame: a notice is rounded, and a line on one side is lost in the curve. As specific as the app's own frame of a notice, which wins otherwise. */
+.notice-container .notice.sync-evo-notice-error {
+	border: 2px solid var(--text-error);
+}
+
+/* The screen of the results of the last syncs: one sync to a fold, each thing a paragraph, with its paths one to a line. */
+.sync-evo-result + .sync-evo-result {
+	margin-top: var(--size-4-3);
+}
+
+.sync-evo-result > summary {
+	cursor: pointer;
+	font-weight: var(--font-semibold);
+}
+
+.sync-evo-result-text {
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+	user-select: text;
+	-webkit-user-select: text;
+}
+
+/* The code to type at google.com/device, in the dialog of the connection to Google Drive. */
+.sync-evo-device-code {
+	font-family: var(--font-monospace);
+	font-size: 1.6em;
+	text-align: center;
+	user-select: all;
+	-webkit-user-select: all;
+}
