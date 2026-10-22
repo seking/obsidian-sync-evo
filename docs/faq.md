@@ -12,7 +12,7 @@ On the web, at [gyap.jp/sync-evo](https://gyap.jp/sync-evo/#pricing). On a compu
 
 ## What happens when the free time ends?
 
-For 30 days, Sync Evo only downloads from Dropbox or Google Drive, and uploads nothing. Then it stops syncing with them. Nothing is deleted. Enter a license key in the settings to sync again, or switch the vault to GitHub, which is free. See [License key](settings.md#license-key).
+For 30 days, Sync Evo only downloads from Dropbox or Google Drive, and uploads nothing. Then it stops syncing with them. Stopping deletes nothing. Enter a license key in the settings to sync again, or switch the vault to GitHub, which is free. See [License key](settings.md#license-key).
 
 ## Do I need a key for each device?
 
