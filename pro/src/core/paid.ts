@@ -19,10 +19,14 @@
 // service keeps: on Google Drive the folder `Sync Evo` at the top, made by
 // the first sync of the account; on Dropbox a file Sync Evo puts at the top
 // of its app folder (`dropbox/since.ts`); and never from before the day
-// the plan was switched on (`countStart`). What decides is the clock of the
-// device. Turning it back, deleting that folder or file, or another account
-// starts the count again: that is accepted, as the check of the key is, on
-// a device whose code anyone can change. It asks honest users to pay.
+// the plan was switched on (`countStart`). A device that first runs the
+// plan when those three months are over, or nearly, still has 14 days from
+// that day (`LATE_INSTALL_GRACE_DAYS`), so that it is told before the end.
+// What decides is the clock of the device. Turning it back, deleting that
+// folder or file, or another account starts the count again, and installing
+// Sync Evo again on the device gives it another 14 days: that is accepted,
+// as the check of the key is, on a device whose code anyone can change. It
+// asks honest users to pay.
 
 import type { Translate } from "../../../src/core/i18n";
 import type { LicenseStanding } from "./license";
@@ -70,6 +74,13 @@ export const FREE_MONTHS = 3;
 export const READ_ONLY_DAYS = 30;
 /** How many days before the end of the free time it is told, each once. */
 export const WARNING_DAYS: readonly number[] = [14, 7];
+/**
+ * How many days of the free time a device has at the least, from the day it
+ * first ran the plan (`PaidFacts.firstSeen`): the days of the first warning,
+ * so that one who installs Sync Evo long after the switch is told of the end
+ * at once, and not first held back (2026-10-22).
+ */
+export const LATE_INSTALL_GRACE_DAYS = Math.max(...WARNING_DAYS);
 
 export const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -103,6 +114,16 @@ export function freeUntil(since: number, enabledAt: number): number {
 	return addMonths(countStart(since, enabledAt), FREE_MONTHS);
 }
 
+/**
+ * When the free time ends on this device: three months after the count
+ * started (`freeUntil`), and never before `LATE_INSTALL_GRACE_DAYS` after
+ * the device first ran the plan (`firstSeen`, or `null` for not known).
+ */
+export function freeEndsAt(since: number, enabledAt: number, firstSeen: number | null): number {
+	const end = freeUntil(since, enabledAt);
+	return firstSeen === null ? end : Math.max(end, firstSeen + LATE_INSTALL_GRACE_DAYS * DAY_MS);
+}
+
 /** What the paid plan is decided from, for one sync. */
 export interface PaidFacts {
 	/** `PAID_ENABLED_AT`, given so that the tests can set it. */
@@ -117,6 +138,8 @@ export interface PaidFacts {
 	readonly licensed: boolean;
 	/** When the count of the account started, as far as this device knows, or `null` while it does not. */
 	readonly since: number | null;
+	/** When this device first ran the plan, as far as it remembers, or `null` (`freeEndsAt`). */
+	readonly firstSeen: number | null;
 	readonly now: number;
 }
 
@@ -143,7 +166,7 @@ export function paidStanding(facts: PaidFacts): PaidStanding {
 	if (facts.enabledAt === null || facts.backend === "github" || facts.licensed) return FREE;
 	if (facts.backend === "gdrive" && facts.ownClient) return FREE;
 	if (facts.since === null) return { status: "trial", endsAt: null };
-	const endsAt = freeUntil(facts.since, facts.enabledAt);
+	const endsAt = freeEndsAt(facts.since, facts.enabledAt, facts.firstSeen);
 	if (facts.now < endsAt) return { status: "trial", endsAt };
 	const stopsAt = endsAt + READ_ONLY_DAYS * DAY_MS;
 	if (facts.now < stopsAt) return { status: "read-only", endedAt: endsAt, stopsAt };

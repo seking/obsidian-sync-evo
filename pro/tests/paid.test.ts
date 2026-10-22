@@ -27,7 +27,9 @@ import {
 	dueWarning,
 	type PaidFacts,
 	countStart,
+	freeEndsAt,
 	freeUntil,
+	LATE_INSTALL_GRACE_DAYS,
 	PAID_ENABLED_AT,
 	RELEASE_PAID_ENABLED_AT,
 	PAID_CLOCK_OFFSET_DAYS,
@@ -38,6 +40,7 @@ import {
 	type PaidSyncMode,
 	paidVerdict,
 	paidWarningText,
+	WARNING_DAYS,
 } from "../src/core/paid";
 
 const at = (iso: string): number => Date.parse(iso);
@@ -108,6 +111,7 @@ describe("where a device stands", () => {
 		ownClient: false,
 		licensed: false,
 		since,
+		firstSeen: null,
 		now: since,
 		...over,
 	});
@@ -135,6 +139,60 @@ describe("where a device stands", () => {
 		expect(paidStanding(facts({ now: end }))).toEqual({ status: "read-only", endedAt: end, stopsAt });
 		expect(paidStanding(facts({ now: stopsAt - 1 }))).toEqual({ status: "read-only", endedAt: end, stopsAt });
 		expect(paidStanding(facts({ now: stopsAt }))).toEqual({ status: "stopped", endedAt: end });
+	});
+});
+
+describe("a device that first runs the plan late", () => {
+	const enabledAt = at("2027-01-01T00:00:00Z");
+	// An account that synced long before the switch: its three months end on 1 April.
+	const since = at("2026-06-01T00:00:00Z");
+	const end = at("2027-04-01T00:00:00Z");
+	const facts = (over: Partial<PaidFacts>): PaidFacts => ({
+		enabledAt,
+		backend: "dropbox",
+		ownClient: false,
+		licensed: false,
+		since,
+		firstSeen: null,
+		now: since,
+		...over,
+	});
+
+	test("has as many days as the first warning", () => {
+		expect(LATE_INSTALL_GRACE_DAYS).toBe(14);
+		expect(LATE_INSTALL_GRACE_DAYS).toBe(Math.max(...WARNING_DAYS));
+	});
+
+	test("four months after the switch, is free for 14 days from that day, and told of the end at once", () => {
+		const firstSeen = at("2027-05-01T00:00:00Z");
+		const endsAt = firstSeen + 14 * DAY_MS;
+		expect(freeEndsAt(since, enabledAt, firstSeen)).toBe(endsAt);
+		const standing = paidStanding(facts({ firstSeen, now: firstSeen }));
+		expect(standing).toEqual({ status: "trial", endsAt });
+		expect(dueWarning(standing, null, firstSeen)).toBe(14);
+		expect(paidStanding(facts({ firstSeen, now: endsAt - 7 * DAY_MS }))).toEqual({ status: "trial", endsAt });
+	});
+
+	test("downloads only for 30 days from the end of those 14, and then nothing", () => {
+		const firstSeen = at("2027-05-01T00:00:00Z");
+		const endedAt = firstSeen + 14 * DAY_MS;
+		const stopsAt = endedAt + 30 * DAY_MS;
+		expect(paidStanding(facts({ firstSeen, now: endedAt }))).toEqual({ status: "read-only", endedAt, stopsAt });
+		expect(paidStanding(facts({ firstSeen, now: stopsAt }))).toEqual({ status: "stopped", endedAt });
+	});
+
+	test("5 days before the end, has the 14 days too", () => {
+		const firstSeen = end - 5 * DAY_MS;
+		expect(paidStanding(facts({ firstSeen, now: firstSeen }))).toEqual({ status: "trial", endsAt: firstSeen + 14 * DAY_MS });
+	});
+
+	test("changes nothing for a device that ran it in time, nor for an account that began after it", () => {
+		expect(freeEndsAt(since, enabledAt, enabledAt)).toBe(end);
+		expect(freeEndsAt(since, enabledAt, end - 14 * DAY_MS)).toBe(end);
+		expect(freeEndsAt(since, enabledAt, null)).toBe(end);
+		const later = at("2027-05-01T00:00:00Z");
+		expect(freeEndsAt(later, enabledAt, later)).toBe(at("2027-08-01T00:00:00Z"));
+		expect(paidStanding(facts({ firstSeen: enabledAt, now: end }))).toEqual({ status: "read-only", endedAt: end, stopsAt: end + 30 * DAY_MS });
 	});
 });
 

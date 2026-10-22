@@ -19,7 +19,7 @@ import type { SyncHost } from "../../src/obsidian/sync-runner";
 import { MemoryStateStore } from "../../tests/support/memory-state-store";
 import type { GoogleClient } from "../src/core/gdrive/auth";
 import { DAY_MS } from "../src/core/paid";
-import { ACCOUNT_KEY, SINCE_KEY } from "../src/core/paid-gate";
+import { ACCOUNT_KEY, FIRST_SEEN_KEY, SINCE_KEY } from "../src/core/paid-gate";
 import { connectionKey } from "../src/core/paid-guard";
 import { paidGate } from "../src/obsidian/paid-plan";
 import { stubLocalStorage } from "./support/paid";
@@ -135,6 +135,8 @@ const ACCOUNT: Record<Service, string> = { dropbox: "dropbox:dbid:1", gdrive: "g
  */
 async function setup(backend: Service, since: number | null, paid = false, over: Partial<DeviceSettings> = {}) {
 	const stored = stubLocalStorage();
+	// A device that has run the plan since it was switched on: no days of a late install.
+	stored.set(FIRST_SEEN_KEY, JSON.stringify({ enabledAt: ENABLED, at: ENABLED }));
 	if (since !== null) {
 		stored.set(ACCOUNT_KEY, JSON.stringify({ [await connectionKey("refresh")]: ACCOUNT[backend] }));
 		stored.set(SINCE_KEY, JSON.stringify({ [ACCOUNT[backend]]: since }));

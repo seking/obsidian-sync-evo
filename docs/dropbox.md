@@ -58,4 +58,5 @@ Once it has started:
 
 - The 3 months count for the Dropbox account, not for each vault, and never begin before the paid plan starts.
 - They count from a small file of Sync Evo's own, `.sync-evo-since`, at the top of `Apps/Sync Evo/`, beside the folders of the vaults. Sync Evo puts it there at the first sync with the account after the paid plan has started, and the 3 months count from that day. Every device that connects to the account goes by it. Leave it there.
+- On a device where you start using Sync Evo when those 3 months are over, or nearly, it is still free for 14 days from that day, so that you are told before it ends.
 - Enter the key under **License key** in the settings, on each device. See [License key](settings.md#license-key).

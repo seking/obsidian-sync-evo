@@ -15,7 +15,7 @@ import { NO_DEVICE_EXCLUSION } from "../../src/core/device-exclusion";
 import type { HttpRequest, HttpResponse } from "../../src/core/http";
 import { DODO_LIVE_API } from "../src/core/license";
 import { DAY_MS, freeUntil, type PaidSyncMode } from "../src/core/paid";
-import { LICENSE_KEY, PaidGate, type PaidStorage, SINCE_KEY, TOLD_KEY } from "../src/core/paid-gate";
+import { FIRST_SEEN_KEY, LICENSE_KEY, PaidGate, type PaidStorage, SINCE_KEY, TOLD_KEY } from "../src/core/paid-gate";
 import { DEFAULT_AUTO_SYNC, type DeviceSettings } from "../../src/core/settings";
 
 function response(status: number, body: unknown = {}): HttpResponse {
@@ -62,8 +62,15 @@ function settings(over: Partial<DeviceSettings> = {}): DeviceSettings {
 	};
 }
 
-function gate(options: { enabledAt?: number | null; now?: number; answers?: HttpResponse[] } = {}) {
+/**
+ * A gate on a device in memory. `firstSeen`: when the device first ran the
+ * plan, the day of the switch unless given, or `null` for a device that never did.
+ */
+function gate(options: { enabledAt?: number | null; now?: number; answers?: HttpResponse[]; firstSeen?: number | null } = {}) {
 	const storage = memoryStorage();
+	const enabledAt = options.enabledAt === undefined ? ENABLED : options.enabledAt;
+	const firstSeen = options.firstSeen === undefined ? ENABLED : options.firstSeen;
+	if (enabledAt !== null && firstSeen !== null) storage.values.set(FIRST_SEEN_KEY, { enabledAt, at: firstSeen });
 	const requests: HttpRequest[] = [];
 	const answers = [...(options.answers ?? [])];
 	const clock = { now: options.now ?? SINCE };
@@ -76,7 +83,7 @@ function gate(options: { enabledAt?: number | null; now?: number; answers?: Http
 			return answer;
 		},
 		now: () => clock.now,
-		enabledAt: options.enabledAt === undefined ? ENABLED : options.enabledAt,
+		enabledAt,
 		api: DODO_LIVE_API,
 		sold: (activation) => activation.businessId === "bus_syncevo",
 	});
@@ -191,6 +198,89 @@ describe("a clock of the plan ahead of the clock (a build to try it out)", () =>
 		expect(paid.licenseStanding()).toMatchObject({ status: "grace", until: now + DAY_MS });
 		// Checked an hour ago or not, by the clock: not due.
 		expect(requests).toEqual([]);
+	});
+});
+
+describe("a device that first runs the plan late", () => {
+	// Four months after the free time of the account ended.
+	const LATE = END + 120 * DAY_MS;
+
+	test("is free for 14 days from that day, told of the end at once, and then downloads only", () => {
+		const { gate: paid, storage, clock } = gate({ firstSeen: null, now: LATE });
+		paid.sinceLearned(settings(), SINCE);
+		const first = paid.check(settings(), "push");
+		expect(first).toMatchObject({ standing: { status: "trial", endsAt: LATE + 14 * DAY_MS }, verdict: { mode: "push", note: null }, warning: 14 });
+		expect(storage.values.get(FIRST_SEEN_KEY)).toEqual({ enabledAt: ENABLED, at: LATE });
+		// The settings show the same end.
+		expect(paid.standing(settings())).toEqual({ status: "trial", endsAt: LATE + 14 * DAY_MS });
+		clock.now = LATE + 7 * DAY_MS;
+		expect(paid.check(settings(), "sync").warning).toBe(7);
+		clock.now = LATE + 14 * DAY_MS;
+		expect(paid.check(settings(), "sync").verdict).toEqual({ mode: "pull", note: "read-only" });
+		clock.now = LATE + 44 * DAY_MS;
+		expect(paid.check(settings(), "pull").verdict).toEqual({ mode: null, note: "stopped" });
+		expect(storage.values.get(FIRST_SEEN_KEY)).toEqual({ enabledAt: ENABLED, at: LATE });
+	});
+
+	test("in time, changes nothing: the end is the account's", () => {
+		const { gate: paid, clock } = gate({ firstSeen: null, now: SINCE });
+		paid.sinceLearned(settings(), SINCE);
+		expect(paid.check(settings(), "sync").standing).toEqual({ status: "trial", endsAt: END });
+		clock.now = END;
+		expect(paid.check(settings(), "sync").verdict).toEqual({ mode: "pull", note: "read-only" });
+	});
+
+	test("goes by a day kept under another day of the switch as by none", () => {
+		const { gate: paid, storage } = gate({ firstSeen: null, now: LATE });
+		storage.values.set(FIRST_SEEN_KEY, { enabledAt: ENABLED - 30 * DAY_MS, at: ENABLED });
+		paid.sinceLearned(settings(), SINCE);
+		expect(paid.check(settings(), "sync").standing).toEqual({ status: "trial", endsAt: LATE + 14 * DAY_MS });
+		expect(storage.values.get(FIRST_SEEN_KEY)).toEqual({ enabledAt: ENABLED, at: LATE });
+	});
+
+	test("keeps the day with a key that counts, so that a key that lapses later gives no new days", () => {
+		const { gate: paid, storage, clock } = gate({ firstSeen: null, now: SINCE });
+		storage.values.set(LICENSE_KEY, { key: "KEY", instanceId: "lki_1", state: "valid", validAt: SINCE, checkedAt: SINCE });
+		paid.sinceLearned(settings(), SINCE);
+		expect(paid.check(settings(), "push").standing).toEqual({ status: "free" });
+		expect(storage.values.get(FIRST_SEEN_KEY)).toEqual({ enabledAt: ENABLED, at: SINCE });
+		storage.values.delete(LICENSE_KEY);
+		clock.now = LATE;
+		expect(paid.check(settings(), "push").verdict).toEqual({ mode: null, note: "stopped" });
+	});
+
+	test("keeps nothing for GitHub, nor for Google Drive through a client of the user's own", () => {
+		const { gate: paid, storage } = gate({ firstSeen: null, now: LATE });
+		paid.check(settings({ backend: "github" }), "sync");
+		paid.check(settings({ backend: "gdrive", gdriveAccount: { id: "p1", email: "a" }, gdriveClientId: "own.apps.googleusercontent.com" }), "sync");
+		expect(storage.values.has(FIRST_SEEN_KEY)).toBe(false);
+	});
+
+	test("where nothing can be kept, has no days of its own: a day taken anew at each sync would never end", () => {
+		const { gate: paid, storage } = gate({ firstSeen: null, now: LATE });
+		paid.sinceLearned(settings(), SINCE);
+		storage.write = () => {};
+		expect(paid.check(settings(), "sync").verdict).toEqual({ mode: null, note: "stopped" });
+	});
+
+	test("in a build to try the plan out, the clock ahead goes past the 14 days too", () => {
+		const tried = (days: number) => {
+			const storage = memoryStorage();
+			const paid = new PaidGate({
+				storage,
+				http: () => Promise.reject(new Error("offline")),
+				now: () => LATE,
+				planNow: () => LATE + days * DAY_MS,
+				enabledAt: ENABLED,
+				api: DODO_LIVE_API,
+			});
+			paid.sinceLearned(settings(), SINCE);
+			return paid.check(settings(), "sync");
+		};
+		expect(tried(0)).toMatchObject({ standing: { status: "trial", endsAt: LATE + 14 * DAY_MS }, warning: 14 });
+		expect(tried(10)).toMatchObject({ standing: { status: "trial", endsAt: LATE + 14 * DAY_MS }, warning: 7 });
+		expect(tried(20).verdict).toEqual({ mode: "pull", note: "read-only" });
+		expect(tried(50).verdict).toEqual({ mode: null, note: "stopped" });
 	});
 });
 

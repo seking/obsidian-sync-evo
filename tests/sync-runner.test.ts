@@ -17,7 +17,7 @@ import { MAX_CONCURRENT_FETCH_BYTES } from "../src/core/concurrent-fetch";
 import { translatorFor } from "../src/core/i18n";
 import { DODO_LIVE_API } from "../pro/src/core/license";
 import { dayOf } from "../pro/src/core/paid";
-import { PaidGate, SINCE_KEY } from "../pro/src/core/paid-gate";
+import { FIRST_SEEN_KEY, PaidGate, SINCE_KEY } from "../pro/src/core/paid-gate";
 import { DEFAULT_AUTO_SYNC, type DeviceSettings } from "../src/core/settings";
 import { ANDROID_CONCURRENT_FETCH_BYTES } from "../src/obsidian/http-transport";
 import type { SyncResult } from "../src/core/sync-results";
@@ -941,6 +941,8 @@ describe("the paid plan of Dropbox and Google Drive", () => {
 		since.setUTCMonth(since.getUTCMonth() - 3);
 		const paid = new PaidGate({ storage, http: () => Promise.reject(new Error("offline")), now: Date.now, enabledAt, api: DODO_LIVE_API });
 		values.set(SINCE_KEY, { "gdrive:perm1": since.getTime() });
+		// A device that has run the plan since it was switched on: no days of a late install.
+		if (enabledAt !== null) values.set(FIRST_SEEN_KEY, { enabledAt, at: enabledAt });
 		Object.assign(made.host, {
 			readGdriveToken: () => "refresh",
 			gdriveClientSecret: () => "",
@@ -1016,6 +1018,7 @@ describe("the start of the free time, learned before a sync goes on", () => {
 		);
 		const values = new Map<string, unknown>();
 		const storage = { read: (key: string) => values.get(key) ?? null, write: (key: string, value: unknown) => void values.set(key, value) };
+		values.set(FIRST_SEEN_KEY, { enabledAt: ENABLED, at: ENABLED });
 		const paid = new PaidGate({ storage, http: () => Promise.reject(new Error("offline")), now: Date.now, enabledAt: ENABLED, api: DODO_LIVE_API });
 		const learned: number[] = [];
 		const host = {

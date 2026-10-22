@@ -13,8 +13,8 @@
 // The one part of the paid plan (`paid.ts`) that Dropbox and Google Drive
 // share: what a sync is let do, decided before it starts; the key of this
 // device, and the questions to Dodo about it (`license.ts`); and what this
-// device remembers in between: when the count of each account started, and
-// which warning was told.
+// device remembers in between: when the count of each account started,
+// which warning was told, and when the device first ran the plan.
 //
 // All of it is kept for the device, not for the vault: the key is bought
 // once for every vault, and the count is of the account. And none of it in
@@ -59,6 +59,13 @@ export const ACCOUNT_KEY = "sync-evo-paid-account";
  * goes by, so that it and the backend agree.
  */
 export const NAMED_KEY = "sync-evo-paid-named";
+/**
+ * When this device first ran the plan with Dropbox or Google Drive
+ * (`PaidFacts.firstSeen`), with the day of the switch it was under:
+ * `{ enabledAt, at }`. Of another day of the switch, as a build to try the
+ * plan out has, it is not this one's, and is kept anew.
+ */
+export const FIRST_SEEN_KEY = "sync-evo-paid-first-seen";
 
 export interface PaidGateDeps {
 	readonly storage: PaidStorage;
@@ -68,7 +75,9 @@ export interface PaidGateDeps {
 	/**
 	 * The time the plan is decided by: the end of the free time, the
 	 * warnings, the time of downloads alone. `now` when absent; ahead of it
-	 * in a build to try the plan out (`PAID_CLOCK_OFFSET_DAYS`).
+	 * in a build to try the plan out (`PAID_CLOCK_OFFSET_DAYS`). The day the
+	 * device first ran the plan is kept by `now`, so that being ahead of it
+	 * also goes past the days a late install has (`LATE_INSTALL_GRACE_DAYS`).
 	 */
 	readonly planNow?: () => number;
 	/** `PAID_ENABLED_AT`, given so that the tests can set it. */
@@ -148,12 +157,15 @@ export class PaidGate {
 		if (enabledAt === null) return { status: "free" };
 		const license = this.license();
 		if (facts.backend !== "github" && licenseCheckDue(license, now())) void this.checkKey(facts.deviceName);
+		// Kept whether or not a key counts: a key that lapses later has no new days from it.
+		const applies = facts.backend === "dropbox" || (facts.backend === "gdrive" && !facts.ownClient);
 		return paidStanding({
 			enabledAt,
 			backend: facts.backend,
 			ownClient: facts.ownClient,
 			licensed: licenseCounts(licenseStanding(license, now())),
 			since: facts.account === null ? null : this.since(facts.account),
+			firstSeen: applies ? this.firstSeen(enabledAt) : null,
 			now: this.planNow(),
 		});
 	}
@@ -291,6 +303,24 @@ export class PaidGate {
 		if (this.license()?.key !== stored.key) return;
 		this.deps.storage.write(LICENSE_KEY, license);
 		this.deps.log?.(`license: ${license.state}${detail === null ? "" : ` (${detail})`}`);
+	}
+
+	/**
+	 * When this device first ran the plan under `enabledAt`: kept the first
+	 * time it is asked. `null` when it cannot be kept: a day taken anew at
+	 * each sync would never end, so the free time is then the account's alone.
+	 */
+	private firstSeen(enabledAt: number): number | null {
+		const kept = this.firstSeenKept(enabledAt);
+		if (kept !== null) return kept;
+		this.deps.storage.write(FIRST_SEEN_KEY, { enabledAt, at: this.deps.now() });
+		return this.firstSeenKept(enabledAt);
+	}
+
+	private firstSeenKept(enabledAt: number): number | null {
+		const value = this.deps.storage.read(FIRST_SEEN_KEY);
+		if (!isRecord(value) || value.enabledAt !== enabledAt) return null;
+		return typeof value.at === "number" && Number.isFinite(value.at) ? value.at : null;
 	}
 
 	private since(account: string): number | null {

@@ -16,7 +16,7 @@ import { DropboxBackend } from "../src/core/dropbox/backend";
 import { dropboxSince } from "../src/core/dropbox/since";
 import { GDriveBackend } from "../src/core/gdrive/backend";
 import { DAY_MS } from "../src/core/paid";
-import { ACCOUNT_KEY, LICENSE_KEY, NAMED_KEY, SINCE_KEY } from "../src/core/paid-gate";
+import { ACCOUNT_KEY, FIRST_SEEN_KEY, LICENSE_KEY, NAMED_KEY, SINCE_KEY } from "../src/core/paid-gate";
 import { connectionKey, PaidGuard } from "../src/core/paid-guard";
 import { FakeDropbox } from "./support/fake-dropbox";
 import { FakeDrive } from "./support/fake-gdrive";
@@ -149,6 +149,8 @@ const wrote = (calls: readonly string[]): boolean => calls.some((call) => /uploa
 
 beforeEach(() => {
 	stored = stubLocalStorage();
+	// A device that has run the plan since it was switched on: no days of a late install.
+	stored.set(FIRST_SEEN_KEY, JSON.stringify({ enabledAt: ENABLED, at: ENABLED }));
 });
 
 afterEach(() => {
