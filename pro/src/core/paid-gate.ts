@@ -261,11 +261,11 @@ export class PaidGate {
 		const key = typed.trim();
 		const before = this.license();
 		if (before !== null && before.key === key) {
-			// The same key again: asked about at once when Dodo turned it
-			// down or it has no activation yet, so that one who freed an
-			// activation on Dodo does not wait for the next check. An
+			// The same key again: asked about at once unless Dodo last said it
+			// was valid, so that one who freed an activation on Dodo, or whose
+			// Dodo could not be reached, does not wait for the next check. An
 			// activation that was refused is tried again only so (`licenseCheckDue`).
-			if (before.state !== "invalid" && before.instanceId !== null) return this.licenseStanding();
+			if (before.state === "valid" && before.instanceId !== null) return this.licenseStanding();
 			await this.checking;
 			const again: StoredLicense = before.instanceId === null ? { ...before, state: "unchecked", checkedAt: null } : before;
 			this.deps.storage.write(LICENSE_KEY, again);
@@ -300,7 +300,7 @@ export class PaidGate {
 	private async ask(deviceName: string): Promise<void> {
 		const stored = this.license();
 		if (stored === null) return;
-		const { license, detail } = await checkLicense(this.deps.http, this.deps.api, stored, deviceName || "Sync Evo", this.deps.now(), this.deps.sold);
+		const { license, detail } = await checkLicense(this.deps.http, this.deps.api, stored, deviceName, this.deps.now(), this.deps.sold);
 		// The key was changed or removed while Dodo was asked.
 		if (this.license()?.key !== stored.key) return;
 		this.deps.storage.write(LICENSE_KEY, license);

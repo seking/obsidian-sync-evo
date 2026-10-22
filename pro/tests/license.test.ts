@@ -14,6 +14,7 @@ import { describe, expect, test } from "vitest";
 import type { HttpRequest, HttpResponse } from "../../src/core/http";
 import {
 	activateKey,
+	activationName,
 	checkLicense,
 	DODO_API,
 	DODO_LIVE_API,
@@ -88,6 +89,11 @@ describe("the calls to Dodo", () => {
 		[404, "NOT_FOUND", "refused"],
 		[403, "INACTIVE_LICENSE_KEY", "refused"],
 		[422, "LICENSE_KEY_LIMIT_REACHED", "refused"],
+		// A request Dodo could not read is not about the key: a name too long, or none.
+		[400, "INVALID_REQUEST_PARAMETERS", "unreachable"],
+		[422, "INVALID_REQUEST_BODY", "unreachable"],
+		[404, "X", "unreachable"],
+		[429, "LICENSE_KEY_LIMIT_REACHED", "unreachable"],
 		[429, "X", "unreachable"],
 		[500, "X", "unreachable"],
 		[503, "X", "unreachable"],
@@ -100,6 +106,18 @@ describe("the calls to Dodo", () => {
 		const blocked = await activateKey(scripted(response(403, "<html>Cloudflare</html>")).http, DODO_LIVE_API, "KEY", "Mac");
 		expect(blocked).toEqual({ status: "unreachable", detail: "HTTP 403" });
 		expect((await activateKey(scripted(response(404, { message: "m" })).http, DODO_LIVE_API, "KEY", "Mac")).status).toBe("unreachable");
+	});
+
+	test("the name of an activation is trimmed, cut to 255 characters by code point, and Sync Evo when empty", async () => {
+		const { http, requests } = scripted(response(500), response(500), response(500));
+		await activateKey(http, DODO_LIVE_API, "KEY", ` ${"a".repeat(254)}😀😀 `);
+		await activateKey(http, DODO_LIVE_API, "KEY", "  ");
+		await activateKey(http, DODO_LIVE_API, "KEY", "");
+		const names = requests.map((request) => (body(request) as { name: string }).name);
+		expect(names[0]).toBe(`${"a".repeat(254)}😀`);
+		expect(Array.from(names[0] ?? "")).toHaveLength(255);
+		expect(names.slice(1)).toEqual(["Sync Evo", "Sync Evo"]);
+		expect(activationName(" iPhone ")).toBe("iPhone");
 	});
 
 	test("an activation that gets no answer is unreachable, and so is one in a form not expected", async () => {

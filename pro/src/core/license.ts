@@ -109,7 +109,11 @@ export type Activation =
 			readonly businessId: string;
 			readonly productId: string | null;
 	  }
-	/** The key is not one Dodo takes: unknown, not active, or at its limit of activations. */
+	/**
+	 * Dodo turned the key down: unknown (NOT_FOUND), not active
+	 * (INACTIVE_LICENSE_KEY), or at its limit of activations
+	 * (LICENSE_KEY_LIMIT_REACHED). Nothing else is taken for a refusal.
+	 */
 	| { readonly status: "refused"; readonly detail: string }
 	| { readonly status: "unreachable"; readonly detail: string };
 
@@ -148,17 +152,34 @@ async function post(http: HttpFunction, api: string, path: string, body: Record<
 	}
 }
 
+/** The codes with which Dodo turns down the key of an activation. */
+const REFUSALS: ReadonlySet<string> = new Set(["NOT_FOUND", "INACTIVE_LICENSE_KEY", "LICENSE_KEY_LIMIT_REACHED"]);
+
 /**
- * Whether Dodo turned the activation down, as against not answering for it:
- * a status of 4xx but 429, which asks for a wait, with Dodo's `code` in a
- * JSON body (NOT_FOUND, INACTIVE_LICENSE_KEY, LICENSE_KEY_LIMIT_REACHED). A
- * 4xx without it comes from in front of Dodo, such as Cloudflare's blocks,
- * and a 5xx is Dodo's own trouble: the key is not held against the user for
- * either.
+ * Whether Dodo turned the key of the activation down, as against not
+ * answering for it: a 4xx but 429, which asks for a wait, with one of those
+ * codes in a JSON body. Any other 4xx is not about the key: a request Dodo
+ * could not read (INVALID_REQUEST_PARAMETERS, INVALID_REQUEST_BODY), or a
+ * block in front of Dodo, such as Cloudflare's, without a code. A 5xx is
+ * Dodo's own trouble. The key is not held against the user for any of these.
  */
 function refusal(response: HttpResponse): boolean {
 	const { status } = response;
-	return status >= 400 && status < 500 && status !== 429 && typeof jsonOf(response).code === "string";
+	const code = jsonOf(response).code;
+	return status >= 400 && status < 500 && status !== 429 && typeof code === "string" && REFUSALS.has(code);
+}
+
+/** The most characters Dodo takes in the name of an activation. */
+const NAME_MAX = 255;
+
+/**
+ * The name of the activation, as Dodo takes it: trimmed, cut to 255
+ * characters (by code point, so that no character is split), and "Sync Evo"
+ * when nothing is left.
+ */
+export function activationName(name: string): string {
+	const cut = Array.from(name.trim()).slice(0, NAME_MAX).join("").trim();
+	return cut === "" ? "Sync Evo" : cut;
 }
 
 /** The status and Dodo's `code`, for the log: never the key. */
@@ -167,9 +188,9 @@ function detailOf(response: HttpResponse): string {
 	return `HTTP ${response.status}${typeof code === "string" ? ` ${code}` : ""}`;
 }
 
-/** Activates the key for this device, under `name`. */
+/** Activates the key for this device, under `name` (see `activationName`). */
 export async function activateKey(http: HttpFunction, api: string, key: string, name: string): Promise<Activation> {
-	const sent = await post(http, api, "/licenses/activate", { license_key: key, name });
+	const sent = await post(http, api, "/licenses/activate", { license_key: key, name: activationName(name) });
 	if ("unreachable" in sent) return { status: "unreachable", detail: sent.unreachable };
 	const { response } = sent;
 	if (response.status === 200 || response.status === 201) {

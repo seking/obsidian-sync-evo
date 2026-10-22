@@ -342,6 +342,18 @@ describe("the license key", () => {
 		expect(requests[3]?.url).toBe("https://live.dodopayments.com/licenses/validate");
 	});
 
+	test("entered again while its validation got no answer, is asked about at once", async () => {
+		const { gate: paid, requests } = gate({
+			answers: [response(201, ACTIVATED), response(403, "<html>blocked</html>"), response(200, { valid: true })],
+		});
+		expect(await paid.setKey("KEY", "Mac")).toEqual({ status: "valid" });
+		await paid.checkKey("Mac");
+		expect(paid.licenseStanding()).toMatchObject({ status: "grace" });
+		expect(await paid.setKey("KEY", "Mac")).toEqual({ status: "valid" });
+		expect(requests).toHaveLength(3);
+		expect(requests[2]?.url).toBe("https://live.dodopayments.com/licenses/validate");
+	});
+
 	test("emptied, ends the activation of this device, and leaves the device", async () => {
 		const { gate: paid, storage, requests } = gate({ answers: [response(201, ACTIVATED), response(200)] });
 		await paid.setKey("KEY", "Mac");
