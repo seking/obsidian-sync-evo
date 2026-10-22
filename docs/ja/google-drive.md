@@ -2,7 +2,7 @@
 
 [English](https://github.com/seking/obsidian-sync-evo/blob/main/docs/google-drive.md)
 
-設定の「接続」の**サービス**で、GitHub・Dropbox・Google Drive から選びます。Google Drive には、Sync Evo 0.5.0 以降が要ります。0.5.0 は、まだ公開していません。今試すには、BRAT でベータを入れます。
+設定の「接続」の**サービス**で、GitHub・Dropbox・Google Drive から選びます。Google Drive には、Sync Evo 0.5.0 以降が要ります。
 
 ## フォルダ
 

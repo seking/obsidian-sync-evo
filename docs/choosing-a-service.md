@@ -27,7 +27,7 @@ With Dropbox and Google Drive, you just sign in. There is no repository or token
 
 All three have the same file size limit (38 MB). None needs the GitHub, Dropbox or Google Drive app on the device. With none of them does Sync Evo sync two paths that differ only in upper and lower case.
 
-Google Drive needs Sync Evo 0.5.0 or later, which is not released yet. To try it now, install the beta with BRAT.
+Google Drive needs Sync Evo 0.5.0 or later.
 
 You can switch later. Changing the service starts the sync over, as a first download does. No file in the vault is deleted. A file that differs from the new service's copy is replaced by it, and the vault's version is kept as a conflict file.
 

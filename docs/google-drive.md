@@ -2,7 +2,7 @@
 
 [日本語](https://github.com/seking/obsidian-sync-evo/blob/main/docs/ja/google-drive.md)
 
-Under "Connection" in the settings, **Service** chooses between GitHub, Dropbox and Google Drive. Google Drive needs Sync Evo 0.5.0 or later, which is not released yet. To try it now, install the beta with BRAT.
+Under "Connection" in the settings, **Service** chooses between GitHub, Dropbox and Google Drive. Google Drive needs Sync Evo 0.5.0 or later.
 
 ## The folder
 

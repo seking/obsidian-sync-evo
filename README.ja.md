@@ -46,7 +46,7 @@ Dropbox と Google Drive は、ログインするだけで使えます。リポ�
 - 3か月は、Dropbox や Google のアカウントごとに、有料化を始めた日か、そのアカウントで最初に同期した日の遅い方から数えます。
 - その3か月が終わった後や終わる間際に、デバイスで有料化の入った Sync Evo を初めて動かした時も、そのデバイスでは、その日から14日は無料です。終わる前に知らせるためです。
 - 無料の期間が終わる14日前と7日前を過ぎた後の、最初の同期の時に知らせます。
-- 終わった後の30日は、ダウンロードだけを行い、何もアップロードしません。その後は、Dropbox や Google Drive との同期を止めます。デバイスでも、Dropbox や Google Drive でも、何も消しません。
+- 終わった後の30日は、ダウンロードだけを行い、何もアップロードしません。その後は、Dropbox や Google Drive との同期を止めます。止めても、デバイスでも、Dropbox や Google Drive でも、何も消しません。
 - キーは、Sync Evo の設定に、デバイスごとに入れます。キーは Dodo Payments に問い合わせて確かめます。Dodo Payments に届かない時は、使えていたキーは14日のあいだ使えます。
 
 返金などは[利用規約](https://gyap.jp/sync-evo/terms)にあります。
@@ -79,7 +79,7 @@ Sync Evo は、まだコミュニティプラグインの一覧にありませ�
 
 ### Google Drive
 
-Google Drive には、Sync Evo 0.5.0 以降が要ります。0.5.0 は、まだ公開していません。今試すには、BRAT でベータを入れます。
+Google Drive には、Sync Evo 0.5.0 以降が要ります。
 
 3か月は無料で、その後はライセンスキーが要ります。[料金](https://github.com/seking/obsidian-sync-evo/blob/main/README.ja.md#料金)
 

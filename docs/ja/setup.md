@@ -5,7 +5,7 @@
 ## 要る物
 
 - Obsidian 1.11.4 以降。
-- GitHub のアカウントとリポジトリ、Dropbox のアカウント、または Google アカウント。Google Drive には、Sync Evo 0.5.0 以降が要ります。0.5.0 は、まだ公開していません。今試すには、BRAT でベータを入れます。
+- GitHub のアカウントとリポジトリ、Dropbox のアカウント、または Google アカウント。Google Drive には、Sync Evo 0.5.0 以降が要ります。
 - 開発者のアカウントは要りません。
 - Sync Evo は、GitHub では無料です。Dropbox と Google Drive では、3か月は無料で、その後はライセンスキーが要ります。[料金](https://github.com/seking/obsidian-sync-evo/blob/main/README.ja.md#料金)を見てください。
 

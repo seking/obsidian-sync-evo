@@ -5,7 +5,7 @@
 ## What you need
 
 - Obsidian 1.11.4 or later.
-- A GitHub account and a repository, a Dropbox account, or a Google account. Google Drive needs Sync Evo 0.5.0 or later, which is not released yet. To try it now, install the beta with BRAT.
+- A GitHub account and a repository, a Dropbox account, or a Google account. Google Drive needs Sync Evo 0.5.0 or later.
 - No account with the developer.
 - Sync Evo is free with GitHub. With Dropbox or Google Drive, it is free for 3 months, and then needs a license key. See [Pricing](https://github.com/seking/obsidian-sync-evo#pricing).
 
