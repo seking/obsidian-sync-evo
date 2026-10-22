@@ -107,7 +107,7 @@ Sync Evo with Google Drive is free for now. It may become paid later: free for 3
 Once it has started:
 
 - The 3 months count from the day the paid plan starts, or from the first sync with the Google account, if that is later. They count for the account, not for each vault.
-- On a device where you start using Sync Evo when those 3 months are over, or nearly, it is still free for 14 days from that day, so that you are told before it ends.
+- A device that first runs a Sync Evo with the paid plan when those 3 months are over, or nearly, is still free for 14 days from that day, so that you are told before it ends.
 - Enter the key under **License key** in the settings, on each device. See [License key](settings.md#license-key).
 - With a Google client of your own (below), no key is needed.
 

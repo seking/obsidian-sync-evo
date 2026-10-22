@@ -249,6 +249,16 @@ describe("a device that first runs the plan late", () => {
 		expect(paid.check(settings(), "push").verdict).toEqual({ mode: null, note: "stopped" });
 	});
 
+	test("keeps nothing before an account is connected: the settings shown before the login use none of the days", () => {
+		const { gate: paid, storage, clock } = gate({ firstSeen: null, now: LATE });
+		expect(paid.standing(settings({ dropboxAccount: null }))).toEqual({ status: "trial", endsAt: null });
+		expect(paid.check(settings({ dropboxAccount: null }), "sync").standing).toEqual({ status: "trial", endsAt: null });
+		expect(storage.values.has(FIRST_SEEN_KEY)).toBe(false);
+		clock.now = LATE + 20 * DAY_MS;
+		paid.sinceLearned(settings(), SINCE);
+		expect(paid.check(settings(), "sync")).toMatchObject({ standing: { status: "trial", endsAt: LATE + 34 * DAY_MS }, warning: 14 });
+	});
+
 	test("keeps nothing for GitHub, nor for Google Drive through a client of the user's own", () => {
 		const { gate: paid, storage } = gate({ firstSeen: null, now: LATE });
 		paid.check(settings({ backend: "github" }), "sync");
@@ -259,6 +269,7 @@ describe("a device that first runs the plan late", () => {
 	test("where nothing can be kept, has no days of its own: a day taken anew at each sync would never end", () => {
 		const { gate: paid, storage } = gate({ firstSeen: null, now: LATE });
 		paid.sinceLearned(settings(), SINCE);
+		// The start of the count is kept, and then nothing more can be written: the day of the device cannot.
 		storage.write = () => {};
 		expect(paid.check(settings(), "sync").verdict).toEqual({ mode: null, note: "stopped" });
 	});

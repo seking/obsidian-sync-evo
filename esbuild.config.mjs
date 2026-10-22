@@ -109,8 +109,11 @@ if (production && process.env.SYNC_EVO_DODO_TEST === "1") {
 // The day the paid plan was switched on, for a build to try the plan out
 // (pro/src/core/paid.ts): an ISO date ("2026-07-01") or milliseconds since the
 // epoch. A day in the past tries the free time, the warnings, the time of
-// downloads alone, and the stop. With SYNC_EVO_DODO_TEST=1 only, and never
-// in a production build. To try it on a device:
+// downloads alone, and the stop. Alone, it first gives the 14 days of a
+// device that first runs the plan late (LATE_INSTALL_GRACE_DAYS): the later
+// states need SYNC_EVO_PAID_CLOCK_OFFSET_DAYS of 15 or more. With
+// SYNC_EVO_DODO_TEST=1 only, and never in a production build. To try it on
+// a device:
 //
 //   SYNC_EVO_DODO_TEST=1 SYNC_EVO_PAID_ENABLED_AT=2026-07-01 npm run build:paid-test
 //   npm run install:vault

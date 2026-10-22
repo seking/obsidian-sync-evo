@@ -44,7 +44,9 @@ export const RELEASE_PAID_ENABLED_AT: number | null = null;
  * Put in by esbuild at build time (`define` in esbuild.config.mjs): the day
  * of `SYNC_EVO_PAID_ENABLED_AT`, for a build made to try the plan out on a
  * device (with `SYNC_EVO_DODO_TEST=1` only, and never a production one), or
- * `null`. A day in the past tries the states after the free time. Not
+ * `null`. A day in the past tries the states after the free time, but alone
+ * first gives the 14 days of a late install (`LATE_INSTALL_GRACE_DAYS`):
+ * past them with `SYNC_EVO_PAID_CLOCK_OFFSET_DAYS` of 15 or more. Not
  * defined in the tests.
  */
 declare const SYNC_EVO_PAID_ENABLED_AT: number | null | undefined;

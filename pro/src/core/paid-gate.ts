@@ -157,8 +157,10 @@ export class PaidGate {
 		if (enabledAt === null) return { status: "free" };
 		const license = this.license();
 		if (facts.backend !== "github" && licenseCheckDue(license, now())) void this.checkKey(facts.deviceName);
-		// Kept whether or not a key counts: a key that lapses later has no new days from it.
-		const applies = facts.backend === "dropbox" || (facts.backend === "gdrive" && !facts.ownClient);
+		// Kept whether or not a key counts: a key that lapses later has no new
+		// days from it. Not before an account is connected: the settings shown
+		// before the first login would let the days run down unused.
+		const applies = facts.account !== null && (facts.backend === "dropbox" || (facts.backend === "gdrive" && !facts.ownClient));
 		return paidStanding({
 			enabledAt,
 			backend: facts.backend,
