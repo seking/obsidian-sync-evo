@@ -85,15 +85,21 @@ describe("the calls to Dodo", () => {
 	});
 
 	test.each([
-		[404, "refused"],
-		[403, "refused"],
-		[422, "refused"],
-		[429, "unreachable"],
-		[500, "unreachable"],
-		[503, "unreachable"],
-	])("an activation answered with %i is %s", async (status, expected) => {
-		const { http } = scripted(response(status, { code: "X", message: "m" }));
+		[404, "NOT_FOUND", "refused"],
+		[403, "INACTIVE_LICENSE_KEY", "refused"],
+		[422, "LICENSE_KEY_LIMIT_REACHED", "refused"],
+		[429, "X", "unreachable"],
+		[500, "X", "unreachable"],
+		[503, "X", "unreachable"],
+	])("an activation answered with %i %s is %s", async (status, code, expected) => {
+		const { http } = scripted(response(status, { code, message: "m" }));
 		expect((await activateKey(http, DODO_LIVE_API, "KEY", "Mac")).status).toBe(expected);
+	});
+
+	test("an activation answered with a 4xx without Dodo's code is unreachable: it comes from in front of Dodo", async () => {
+		const blocked = await activateKey(scripted(response(403, "<html>Cloudflare</html>")).http, DODO_LIVE_API, "KEY", "Mac");
+		expect(blocked).toEqual({ status: "unreachable", detail: "HTTP 403" });
+		expect((await activateKey(scripted(response(404, { message: "m" })).http, DODO_LIVE_API, "KEY", "Mac")).status).toBe("unreachable");
 	});
 
 	test("an activation that gets no answer is unreachable, and so is one in a form not expected", async () => {
@@ -102,13 +108,25 @@ describe("the calls to Dodo", () => {
 	});
 
 	test("a validation asks for the activation of this device", async () => {
-		const { http, requests } = scripted(response(200, { valid: true }), response(200, { valid: false }), response(404), response(500), new Error("offline"));
+		const { http, requests } = scripted(response(200, { valid: true }), response(200, { valid: false }), response(500), new Error("offline"));
 		expect(await validateKey(http, DODO_LIVE_API, "KEY", "lki_1")).toEqual({ status: "valid" });
 		expect(requests[0]?.url).toBe("https://live.dodopayments.com/licenses/validate");
 		expect(body(requests[0])).toEqual({ license_key: "KEY", license_key_instance_id: "lki_1" });
 		expect((await validateKey(http, DODO_LIVE_API, "KEY", "lki_1")).status).toBe("invalid");
-		expect((await validateKey(http, DODO_LIVE_API, "KEY", "lki_1")).status).toBe("invalid");
 		expect((await validateKey(http, DODO_LIVE_API, "KEY", "lki_1")).status).toBe("unreachable");
+		expect((await validateKey(http, DODO_LIVE_API, "KEY", "lki_1")).status).toBe("unreachable");
+	});
+
+	test("a validation answered with a 4xx is unreachable: only valid: false says the key is not valid", async () => {
+		const { http } = scripted(
+			response(404, { code: "NOT_FOUND" }),
+			response(422, { code: "INVALID_REQUEST_BODY" }),
+			response(403, "<html>Cloudflare</html>"),
+			response(429),
+		);
+		expect(await validateKey(http, DODO_LIVE_API, "KEY", "lki_1")).toEqual({ status: "unreachable", detail: "HTTP 404 NOT_FOUND" });
+		expect(await validateKey(http, DODO_LIVE_API, "KEY", "lki_1")).toEqual({ status: "unreachable", detail: "HTTP 422 INVALID_REQUEST_BODY" });
+		expect(await validateKey(http, DODO_LIVE_API, "KEY", "lki_1")).toEqual({ status: "unreachable", detail: "HTTP 403" });
 		expect((await validateKey(http, DODO_LIVE_API, "KEY", "lki_1")).status).toBe("unreachable");
 	});
 

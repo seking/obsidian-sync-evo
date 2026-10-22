@@ -149,12 +149,16 @@ async function post(http: HttpFunction, api: string, path: string, body: Record<
 }
 
 /**
- * Whether Dodo turned the key down, as against not answering for it: any
- * status of 4xx but 429, which asks for a wait. A 5xx is Dodo's own trouble,
- * and the key is not held against the user for it.
+ * Whether Dodo turned the activation down, as against not answering for it:
+ * a status of 4xx but 429, which asks for a wait, with Dodo's `code` in a
+ * JSON body (NOT_FOUND, INACTIVE_LICENSE_KEY, LICENSE_KEY_LIMIT_REACHED). A
+ * 4xx without it comes from in front of Dodo, such as Cloudflare's blocks,
+ * and a 5xx is Dodo's own trouble: the key is not held against the user for
+ * either.
  */
-function refusal(status: number): boolean {
-	return status >= 400 && status < 500 && status !== 429;
+function refusal(response: HttpResponse): boolean {
+	const { status } = response;
+	return status >= 400 && status < 500 && status !== 429 && typeof jsonOf(response).code === "string";
 }
 
 /** The status and Dodo's `code`, for the log: never the key. */
@@ -177,11 +181,14 @@ export async function activateKey(http: HttpFunction, api: string, key: string, 
 		}
 		return { status: "activated", instanceId: json.id, businessId: json.business_id, productId };
 	}
-	if (refusal(response.status)) return { status: "refused", detail: detailOf(response) };
+	if (refusal(response)) return { status: "refused", detail: detailOf(response) };
 	return { status: "unreachable", detail: detailOf(response) };
 }
 
-/** Asks whether the key, in the activation of this device, is still valid. */
+/**
+ * Asks whether the key, in the activation of this device, is still valid.
+ * Only `valid: false` makes it "invalid"; any other answer is "unreachable".
+ */
 export async function validateKey(http: HttpFunction, api: string, key: string, instanceId: string): Promise<Validation> {
 	const sent = await post(http, api, "/licenses/validate", { license_key: key, license_key_instance_id: instanceId });
 	if ("unreachable" in sent) return { status: "unreachable", detail: sent.unreachable };
@@ -192,7 +199,8 @@ export async function validateKey(http: HttpFunction, api: string, key: string, 
 		if (valid === false) return { status: "invalid", detail: "valid: false" };
 		return { status: "unreachable", detail: "validate: the response is not in the expected form" };
 	}
-	if (refusal(response.status)) return { status: "invalid", detail: detailOf(response) };
+	// Dodo answers 200 with `valid: false` for a key it does not validate,
+	// and a 4xx only for a request it cannot read: no 4xx says the key is bad.
 	return { status: "unreachable", detail: detailOf(response) };
 }
 
