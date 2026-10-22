@@ -7,7 +7,7 @@
 - Obsidian 1.11.4 or later.
 - A GitHub account and a repository, a Dropbox account, or a Google account.
 - No account with the developer.
-- Sync Evo is free for now, with every service. With Dropbox or Google Drive, it may become paid later, after 3 months free, and that will be announced before it starts. See [Pricing](https://github.com/seking/obsidian-sync-evo#pricing).
+- Sync Evo is free with GitHub. With Dropbox or Google Drive, it is free for 3 months, and then needs a license key. See [Pricing](https://github.com/seking/obsidian-sync-evo#pricing).
 
 ## Installing
 

@@ -52,9 +52,7 @@
 
 ## 無料の期間とライセンスキー
 
-Dropbox での Sync Evo は、今は無料です。いずれ有料になる可能性があり、その時は、3か月は無料で、その後はライセンスキーが要ります。有料化は、始める前に知らせます。[料金](https://github.com/seking/obsidian-sync-evo/blob/main/README.ja.md#料金)を見てください。
-
-始めた後は、
+Dropbox での Sync Evo は、3か月は無料で、その後はライセンスキーが要ります。[料金](https://github.com/seking/obsidian-sync-evo/blob/main/README.ja.md#料金)を見てください。
 
 - 3か月は、保管庫ごとではなく、Dropbox のアカウントごとに数えます。有料化を始めた日より前から数えることはありません。
 - 3か月は、`Apps/Sync Evo/` の一番上、保管庫のフォルダの隣にある、Sync Evo 自身の小さなファイル `.sync-evo-since` から数えます。Sync Evo は、有料化を始めた後、そのアカウントで最初に同期した時に、このファイルを置きます。3か月は、その日から数えます。そのアカウントに接続するどのデバイスも、このファイルに従います。消さずに置いておいてください。

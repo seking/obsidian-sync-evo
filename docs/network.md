@@ -37,16 +37,14 @@ The privacy policy of Sync Evo is at [gyap.jp/sync-evo/privacy](https://gyap.jp/
 | Upload | `www.googleapis.com` | Added and changed files with their names, and the files to put in the trash | To send your changes |
 | Remove from Google Drive | `www.googleapis.com` | The `.gitignore`, and the files to put in the trash | To remove excluded files from Google Drive |
 
-**License key** (once the paid plan has started, with Dropbox or Google Drive, and only when a key is entered)
+**License key** (with Dropbox or Google Drive, and only when a key is entered)
 
 | Action | Host | What is sent | Why |
 | --- | --- | --- | --- |
 | Entering a key, checking it | `live.dodopayments.com` | The key, and the device name (first time) or the ID of this device's activation (later). Nothing from the vault, and nothing about your Dropbox or Google account | To activate the key for this device, and to check that it is still valid |
 | Emptying the key | `live.dodopayments.com` | The key and the ID of this device's activation | To end this device's activation |
 
-The paid plan has not started yet. Until it does, Sync Evo does not connect to Dodo Payments at all.
-
-The page you allow Sync Evo on, `www.google.com/device`, is opened in the browser. Sync Evo itself does not connect to it. **Disconnect** sends nothing.
+The page you allow Sync Evo on, `www.google.com/device`, is opened in the browser, as is the page to buy a key, `gyap.jp/sync-evo`, which **Get a key** opens on a computer. Sync Evo itself does not connect to them. **Disconnect** sends nothing.
 
 - The GitHub token is kept in Obsidian's Keychain. What lets Sync Evo reach Dropbox or Google Drive is kept in the app's local storage. The settings and the sync state stay on the device, outside the vault. Sync Evo writes no `data.json`.
 - Sync Evo never syncs its own folder.
@@ -62,7 +60,7 @@ Sync Evo makes network requests only when you:
 - remove excluded files from GitHub, Dropbox or Google Drive in its settings,
 - with Dropbox, press "Connect" or "Disconnect",
 - with Google Drive, open its settings while this device is not connected (Sync Evo asks Google for a code ahead of the press of "Connect"), or press "Connect",
-- once the paid plan has started, enter or empty a license key, or sync or open its settings with Dropbox or Google Drive while the key is due to be checked again (see [License key](#license-key)).
+- enter or empty a license key, or sync or open its settings with Dropbox or Google Drive while the key is due to be checked again (see [License key](#license-key)).
 
 When you have switched on automatic sync under "How it syncs", it also connects for the downloads and uploads it starts by itself. These ask for and send what a download and an upload do.
 
@@ -214,7 +212,7 @@ Asks whether the folder `Sync Evo` and the folder of the vault in it are there.
 
 ## License key
 
-Once the paid plan has started, a license key entered with Dropbox or Google Drive is checked with Dodo Payments (`live.dodopayments.com`), which sells the keys. Sync Evo uses Dodo's public API for keys, which takes no account and no secret of the developer's. Requests carry:
+A license key entered with Dropbox or Google Drive is checked with Dodo Payments (`live.dodopayments.com`), which sells the keys. Sync Evo uses Dodo's public API for keys, which takes no account and no secret of the developer's. Requests carry:
 
 - the key,
 - the device name from the settings, as the name of this device's activation, the first time,
@@ -226,7 +224,7 @@ They carry nothing from the vault, and nothing about your Dropbox or Google acco
 - **Checking it again.** A valid key is checked again once a day, when you sync or open the settings with Dropbox or Google Drive. When Dodo could not be reached, it is tried again after an hour. A key that was valid keeps working for 14 days without an answer. A key Dodo no longer takes is asked about once a day.
 - **Emptying the key**, or entering another, ends this device's activation.
 
-Until the paid plan has started, and with GitHub, Sync Evo never connects to Dodo Payments.
+With GitHub, and while no key is entered, Sync Evo never connects to Dodo Payments.
 
 ## Where things are kept
 

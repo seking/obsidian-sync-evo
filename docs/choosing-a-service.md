@@ -14,7 +14,7 @@ With Dropbox and Google Drive, you just sign in. There is no repository or token
 
 | | GitHub | Dropbox | Google Drive |
 | --- | --- | --- | --- |
-| Price of Sync Evo | Free for now | Free for now. May later need a license key after 3 months free ($3 a month, $24 a year, or $49 once, one key for both) | The same as Dropbox |
+| Price of Sync Evo | Free | Free for 3 months, then a license key ($3 a month, $24 a year, or $49 once, one key for both) | The same as Dropbox |
 | Setting up | Create a repository and a token, and enter both | Press **Connect** and allow Sync Evo | Press **Connect**, then **Open the browser**, paste the code, and allow Sync Evo |
 | Later upkeep | A token expires (after 90 days with the link in the README). Create a new one then | None, unless the connection is removed on Dropbox. Then connect again | None, unless the connection is removed in the Google Account, or more than 100 connections of the account end the oldest. Then connect again |
 | Free space | Private repositories are free. GitHub recommends keeping one under 1 GB, and it grows with the history | 2 GB on the free plan | 15 GB on a free Google account, shared with Gmail and Google Photos |
