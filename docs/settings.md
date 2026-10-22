@@ -13,7 +13,7 @@ For GitHub:
 
 For Dropbox, see [Dropbox](dropbox.md). For Google Drive, see [Google Drive](google-drive.md).
 
-With Dropbox and Google Drive, there is also **License key**, once the paid plan has started. See [License key](#license-key).
+With Dropbox and Google Drive, there is also **License key**. See [License key](#license-key).
 
 ### The token
 
@@ -38,13 +38,12 @@ If the vault holds files under `.github/workflows/` that you change on the devic
 
 ### License key
 
-Sync Evo with Dropbox and Google Drive is free for now. They may become paid later: free for 3 months, and then a license key is needed. One key is for both. GitHub is free for now. See [Pricing](https://github.com/seking/obsidian-sync-evo#pricing).
+Sync Evo with Dropbox and Google Drive is free for 3 months, and then a license key is needed. One key is for both. GitHub is free. See [Pricing](https://github.com/seking/obsidian-sync-evo#pricing).
 
-The paid plan has not started. Until it does, the settings have no **License key**.
+**License key** is shown under "Connection" with Dropbox and Google Drive:
 
-Once it has started, **License key** is shown under "Connection" with Dropbox and Google Drive:
-
-- Enter the key on each device. It is taken when you leave the field.
+- Buy a key on the web, at [gyap.jp/sync-evo](https://gyap.jp/sync-evo/#pricing). On a computer, **Get a key** opens that page. The settings on phones have no link to buy one, only the link "See the README of Sync Evo for details.".
+- Enter the key on each device. It is taken when you leave the field. The × beside the field ("Remove the key from this device") empties it and removes the key at once.
 - One key is for this device, whichever vault it is entered in. It is kept in the app's local storage, not in a file of the vault.
 - Sync Evo checks the key with Dodo Payments, the seller of the keys. It sends the key, and the **Device name** as the name of this device's activation. Nothing from the vault. See [Network use and privacy](network.md#license-key).
 - One key works on up to 5 devices. Emptying the field removes the key from this device, and ends its activation with Dodo, which frees its place for another device. If you no longer have a device, end its activation in the [billing portal](https://customer.dodopayments.com/login/bus_0NpvnyuwMvGA62iaE3swK) of Dodo Payments, or write to contact@gyap.jp.

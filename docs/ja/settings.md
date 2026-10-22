@@ -13,7 +13,7 @@ GitHub では、
 
 Dropbox は [Dropbox](dropbox.md)、Google Drive は [Google Drive](google-drive.md) を見てください。
 
-Dropbox と Google Drive では、有料化を始めた後は、**ライセンスキー**もあります。[ライセンスキー](#ライセンスキー)を見てください。
+Dropbox と Google Drive では、**ライセンスキー**もあります。[ライセンスキー](#ライセンスキー)を見てください。
 
 ### トークン
 
@@ -40,13 +40,12 @@ Dropbox と Google Drive では、有料化を始めた後は、**ライセン�
 
 ### ライセンスキー
 
-Dropbox と Google Drive での Sync Evo は、今は無料です。いずれ有料になる可能性があり、その時は、3か月は無料で、その後はライセンスキーが要ります。1つのキーで両方を使えます。GitHub は今は無料です。[料金](https://github.com/seking/obsidian-sync-evo/blob/main/README.ja.md#料金)を見てください。
+Dropbox と Google Drive での Sync Evo は、3か月は無料で、その後はライセンスキーが要ります。1つのキーで両方を使えます。GitHub は無料です。[料金](https://github.com/seking/obsidian-sync-evo/blob/main/README.ja.md#料金)を見てください。
 
-有料化は、まだ始めていません。始めるまでは、設定に**ライセンスキー**はありません。
+Dropbox と Google Drive で、「接続」の中に**ライセンスキー**が出ます。
 
-始めた後は、Dropbox と Google Drive で、「接続」の中に**ライセンスキー**が出ます。
-
-- キーは、デバイスごとに入れます。欄から離れた時に読み取ります。
+- キーは、ウェブの [gyap.jp/sync-evo](https://gyap.jp/sync-evo/#pricing) で買えます。パソコンでは、**キーを入手**で、このページを開きます。スマートフォンの設定には、買うためのリンクは無く、「詳しくは Sync Evo の README をご覧ください。」のリンクだけがあります。
+- キーは、デバイスごとに入れます。欄から離れた時に読み取ります。欄の横の ×（「このデバイスからキーを外す」）は、欄を空にし、すぐにキーを外します。
 - 1つのキーは、どの保管庫で入れても、このデバイスの分です。アプリのローカルストレージに保存され、保管庫のファイルには書かれません。
 - Sync Evo は、キーを売っている Dodo Payments に問い合わせて、キーを確かめます。送るのは、キーと、このデバイスのアクティベーションの名前としての**デバイス名**です。保管庫の物は送りません。[通信とプライバシー](network.md#ライセンスキー)を見てください。
 - 1つのキーは、5台までのデバイスで使えます。欄を空にすると、このデバイスからキーを外し、Dodo でのアクティベーションを終えます。空いた分は、ほかのデバイスで使えます。デバイスがもう無い時は、Dodo Payments の[請求ポータル](https://customer.dodopayments.com/login/bus_0NpvnyuwMvGA62iaE3swK)でアクティベーションを外すか、contact@gyap.jp にご連絡ください。

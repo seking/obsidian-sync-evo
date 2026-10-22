@@ -102,9 +102,7 @@ Sync Evo が Google に求めるのは、Sync Evo が自分で作ったファイ
 
 ## 無料の期間とライセンスキー
 
-Google Drive での Sync Evo は、今は無料です。いずれ有料になる可能性があり、その時は、3か月は無料で、その後はライセンスキーが要ります。有料化は、始める前に知らせます。[料金](https://github.com/seking/obsidian-sync-evo/blob/main/README.ja.md#料金)を見てください。
-
-始めた後は、
+Google Drive での Sync Evo は、3か月は無料で、その後はライセンスキーが要ります。[料金](https://github.com/seking/obsidian-sync-evo/blob/main/README.ja.md#料金)を見てください。
 
 - 3か月は、有料化を始めた日か、その Google アカウントで最初に同期した日の遅い方から数えます。保管庫ごとではなく、アカウントごとに数えます。
 - その3か月が終わった後や終わる間際に、デバイスで有料化の入った Sync Evo を初めて動かした時も、そのデバイスでは、その日から14日は無料です。終わる前に知らせるためです。

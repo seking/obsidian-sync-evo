@@ -5,7 +5,7 @@
 保管庫を、すべてのデバイスで同期します。使うのは、自分の GitHub・Dropbox・Google Drive のどれかです。
 
 > [!NOTE]
-> **有料化を始めた後は、有料の部分があります。** 今は、Sync Evo のすべてが無料です。Dropbox と Google Drive での同期は、いずれ有料になる可能性があり、その時はライセンスキーが要ります。キーは月 $3・年 $24・買い切り $49 で、1つのキーで両方を使えます。どのサービスでも、有料化は、この README とリリースノートで知らせてから始めます。始めた後も、Dropbox と Google Drive は、始めた日（それより後に使い始めた人は、使い始めた日）から3か月は無料です。[料金](https://github.com/seking/obsidian-sync-evo/blob/main/README.ja.md#料金)
+> **有料の部分があります。** GitHub は無料です。Dropbox と Google Drive は、有料化を始めた日（それより後に使い始めた人は、使い始めた日）から3か月は無料です。その後、それらと同期するには、ライセンスキーが要ります。キーは月 $3・年 $24・買い切り $49 で、1つのキーで両方を使えます。[料金](https://github.com/seking/obsidian-sync-evo/blob/main/README.ja.md#料金)
 
 スマートフォンでもパソコンでも動きます。Git のインストールは要りません。
 
@@ -36,13 +36,14 @@ Dropbox と Google Drive は、ログインするだけで使えます。リポ�
 
 ## 料金
 
-- **GitHub**：今は無料です。
-- **Dropbox と Google Drive**：今は無料です。いずれ有料になる可能性があり、その時は3か月の無料の後に、ライセンスキーが要ります。1つのキーで両方を使えます。キーは月 $3・年 $24・買い切り $49 で、Dodo Payments で販売します。決済と税の手続きは Dodo Payments が行います。
-- **まだ始めていません。** どのサービスでも、有料化は、この README とリリースノートで知らせてから、後の版の Sync Evo で始めます。
+- **GitHub**：無料です。
+- **Dropbox と Google Drive**：3か月は無料で、その後はライセンスキーが要ります。1つのキーで両方を使えます。キーは月 $3・年 $24・買い切り $49 で、Dodo Payments で販売します。決済と税の手続きは Dodo Payments が行います。
+- **キーはウェブで買えます**：[gyap.jp/sync-evo](https://gyap.jp/sync-evo/#pricing)。パソコンでは、Sync Evo の設定の**キーを入手**で、このページを開きます。スマートフォンの設定には、買うためのリンクはありません。
+- **自分の Google のクライアント**：これを使う時は、Google Drive にキーは要りません。[自分の Google のクライアント](https://github.com/seking/obsidian-sync-evo/blob/main/docs/ja/google-drive.md#自分の-google-のクライアント)を見てください。
 
-始めた後のしくみ：
+しくみ：
 
-- 3か月は、Dropbox や Google のアカウントごとに、有料化を始めた日か、そのアカウントで最初に同期した日の遅い方から数えます。有料化を始めた日より前から数えることはありません。
+- 3か月は、Dropbox や Google のアカウントごとに、有料化を始めた日か、そのアカウントで最初に同期した日の遅い方から数えます。
 - その3か月が終わった後や終わる間際に、デバイスで有料化の入った Sync Evo を初めて動かした時も、そのデバイスでは、その日から14日は無料です。終わる前に知らせるためです。
 - 無料の期間が終わる14日前と7日前を過ぎた後の、最初の同期の時に知らせます。
 - 終わった後の30日は、ダウンロードだけを行い、何もアップロードしません。その後は、Dropbox や Google Drive との同期を止めます。デバイスでも、Dropbox や Google Drive でも、何も消しません。
@@ -69,7 +70,7 @@ Sync Evo は、まだコミュニティプラグインの一覧にありませ�
 
 ### Dropbox
 
-今は無料です。いずれ、3か月の無料の後にライセンスキーが要るようになる可能性があります。[料金](https://github.com/seking/obsidian-sync-evo/blob/main/README.ja.md#料金)
+3か月は無料で、その後はライセンスキーが要ります。[料金](https://github.com/seking/obsidian-sync-evo/blob/main/README.ja.md#料金)
 
 1. Dropbox のアカウントが無ければ、[作ります](https://www.dropbox.com/register)。無料です。
 2. 設定 → コミュニティプラグイン → Sync Evo で、**サービス**を**Dropbox**にします。
@@ -80,7 +81,7 @@ Sync Evo は、まだコミュニティプラグインの一覧にありませ�
 
 Google Drive には、Sync Evo 0.5.0 以降が要ります。0.5.0 は、まだ公開していません。今試すには、BRAT でベータを入れます。
 
-今は無料です。いずれ、3か月の無料の後にライセンスキーが要るようになる可能性があります。[料金](https://github.com/seking/obsidian-sync-evo/blob/main/README.ja.md#料金)
+3か月は無料で、その後はライセンスキーが要ります。[料金](https://github.com/seking/obsidian-sync-evo/blob/main/README.ja.md#料金)
 
 1. 設定 → コミュニティプラグイン → Sync Evo で、**サービス**を**Google Drive**にします。
 2. **接続する**を押します。コードが表示され、コピーされます。
@@ -101,7 +102,7 @@ Sync Evo から見えるのは、Google Drive の中の Sync Evo が作ったフ
 
 ## 通信とプライバシー
 
-Sync Evo が接続するのは、GitHub（`api.github.com`、`codeload.github.com`）、Dropbox（`api.dropboxapi.com`、`content.dropboxapi.com`、`www.dropbox.com`）、Google（`oauth2.googleapis.com`、`www.googleapis.com`）だけです。Google Drive に接続する時は、ブラウザで `google.com/device` を開きます。どれも保管庫の同期に使い、通信するのは、同期する時、自動同期を有効にしている時、接続する時だけです。有料化を始めた後は、Dropbox と Google Drive で、入れたライセンスキーを確かめるために Dodo Payments（`live.dodopayments.com`）にも接続します。送るのはキーとデバイス名で、保管庫の物は送りません。ほかへは何も送りません。利用状況は集めず、開発者のサーバーもありません。GitHub・Dropbox・Google のどれかのアカウントが必要です。[詳細](https://github.com/seking/obsidian-sync-evo/blob/main/docs/ja/network.md)、[プライバシーポリシー](https://gyap.jp/sync-evo/privacy)
+Sync Evo が接続するのは、GitHub（`api.github.com`、`codeload.github.com`）、Dropbox（`api.dropboxapi.com`、`content.dropboxapi.com`、`www.dropbox.com`）、Google（`oauth2.googleapis.com`、`www.googleapis.com`）だけです。Google Drive に接続する時は、ブラウザで `google.com/device` を開きます。どれも保管庫の同期に使い、通信するのは、同期する時、自動同期を有効にしている時、接続する時だけです。Dropbox と Google Drive では、ライセンスキーを入れた時は、それを確かめるために Dodo Payments（`live.dodopayments.com`）にも接続します。送るのはキーとデバイス名で、保管庫の物は送りません。ほかへは何も送りません。利用状況は集めず、開発者のサーバーもありません。GitHub・Dropbox・Google のどれかのアカウントが必要です。[詳細](https://github.com/seking/obsidian-sync-evo/blob/main/docs/ja/network.md)、[プライバシーポリシー](https://gyap.jp/sync-evo/privacy)
 
 ## 詳しく知る
 

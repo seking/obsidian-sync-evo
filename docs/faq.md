@@ -4,11 +4,15 @@
 
 ## Is Sync Evo free?
 
-For now, yes, with every service. Dropbox and Google Drive may become paid later, with a license key: $3 a month, $24 a year, or $49 once, one key for both. That will be announced in the README and in the release notes before it starts, and even then, they stay free for 3 months from the day it starts, or from your first sync with the account, if that is later. See [Pricing](https://github.com/seking/obsidian-sync-evo#pricing).
+GitHub is free. Dropbox and Google Drive are free for 3 months, from the day the paid plan started, or from your first sync with the account, if that is later. Then they need a license key: $3 a month, $24 a year, or $49 once, one key for both. With your own Google client, Google Drive needs no key. See [Pricing](https://github.com/seking/obsidian-sync-evo#pricing).
+
+## Where do I buy a key?
+
+On the web, at [gyap.jp/sync-evo](https://gyap.jp/sync-evo/#pricing). On a computer, **Get a key** in the settings of Sync Evo opens that page. The settings on phones have no link to buy one. Then enter the key under **License key** in the settings. See [License key](settings.md#license-key).
 
 ## What happens when the free time ends?
 
-Once the paid plan has started: for 30 days, Sync Evo only downloads from Dropbox or Google Drive, and uploads nothing. Then it stops syncing with them. Nothing is deleted. Enter a license key in the settings to sync again, or switch the vault to GitHub, which is free for now. See [License key](settings.md#license-key).
+For 30 days, Sync Evo only downloads from Dropbox or Google Drive, and uploads nothing. Then it stops syncing with them. Nothing is deleted. Enter a license key in the settings to sync again, or switch the vault to GitHub, which is free. See [License key](settings.md#license-key).
 
 ## Do I need a key for each device?
 

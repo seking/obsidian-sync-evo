@@ -102,11 +102,9 @@ Sync Evo asks Google only for the files it made itself (the `drive.file` permiss
 
 ## Free time and license key
 
-Sync Evo with Google Drive is free for now. It may become paid later: free for 3 months, and then a license key is needed. That will be announced before it starts. See [Pricing](https://github.com/seking/obsidian-sync-evo#pricing).
+Sync Evo with Google Drive is free for 3 months, and then a license key is needed. See [Pricing](https://github.com/seking/obsidian-sync-evo#pricing).
 
-Once it has started:
-
-- The 3 months count from the day the paid plan starts, or from the first sync with the Google account, if that is later. They count for the account, not for each vault.
+- The 3 months count from the day the paid plan started, or from the first sync with the Google account, if that is later. They count for the account, not for each vault.
 - A device that first runs a Sync Evo with the paid plan when those 3 months are over, or nearly, is still free for 14 days from that day, so that you are told before it ends.
 - Enter the key under **License key** in the settings, on each device. See [License key](settings.md#license-key).
 - With a Google client of your own (below), no key is needed.
