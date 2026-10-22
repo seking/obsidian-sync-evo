@@ -14,7 +14,11 @@ Once the paid plan has started: for 30 days, Sync Evo only downloads from Dropbo
 
 No. One key is for up to 5 of your devices, with Dropbox and Google Drive. Enter it in the settings on each device: each device activates it once, whichever vault it is entered in.
 
-To free a place for another device, empty the field of the key on a device that no longer needs it: that ends its activation. If you no longer have that device, write to contact@gyap.jp.
+To free a place for another device, empty the field of the key on a device that no longer needs it: that ends its activation. If you no longer have that device, end its activation in the [billing portal](https://customer.dodopayments.com/login/bus_0NpvnyuwMvGA62iaE3swK) of Dodo Payments, where activations are listed by device name, or write to contact@gyap.jp.
+
+## How do I cancel a subscription?
+
+In the [billing portal](https://customer.dodopayments.com/login/bus_0NpvnyuwMvGA62iaE3swK) of Dodo Payments: enter the email you bought the key with, open the link it sends you, and choose the subscription. Cancelling at the next billing date keeps the key working until the end of the period you paid for. Cancelling now stops the key at once, and the rest of the period is not refunded, apart from the refund within 14 days below. You can also write to contact@gyap.jp.
 
 ## Can I get a refund?
 

@@ -47,7 +47,7 @@ Once it has started, **License key** is shown under "Connection" with Dropbox an
 - Enter the key on each device. It is taken when you leave the field.
 - One key is for this device, whichever vault it is entered in. It is kept in the app's local storage, not in a file of the vault.
 - Sync Evo checks the key with Dodo Payments, the seller of the keys. It sends the key, and the **Device name** as the name of this device's activation. Nothing from the vault. See [Network use and privacy](network.md#license-key).
-- One key works on up to 5 devices. Emptying the field removes the key from this device, and ends its activation with Dodo, which frees its place for another device. If you no longer have a device, write to contact@gyap.jp.
+- One key works on up to 5 devices. Emptying the field removes the key from this device, and ends its activation with Dodo, which frees its place for another device. If you no longer have a device, end its activation in the [billing portal](https://customer.dodopayments.com/login/bus_0NpvnyuwMvGA62iaE3swK) of Dodo Payments, or write to contact@gyap.jp.
 - Below the field, Sync Evo says where this device stands:
   - "Free until … with this account.", while the free time lasts ("Free for 3 months with this account. The day it ends is shown after the next sync.", until Sync Evo has learnt when it began),
   - "The free time ended on …. Until …, Sync Evo only downloads.", for 30 days after it,
