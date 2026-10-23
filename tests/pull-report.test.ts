@@ -781,6 +781,7 @@ describe("what the user has to know", () => {
 					{ kind: "submodule-not-sent", path: "knowledge/a.md" },
 					{ kind: "submodule-not-sent", path: "knowledge/sub/b.md" },
 					{ kind: "local-link", path: "Projects" },
+					{ kind: "renaming-left", path: "Tools.sync-evo-renaming" },
 				],
 				unwritable: [
 					{ path: "notes", reason: "blocked", inTheWay: ["notes/draft.md", "notes/sub/idea.md"], isNew: true },
@@ -826,6 +827,9 @@ describe("what the user has to know", () => {
 		// The files in its place are named on the screen of the results alone.
 		expect(report.details[8]).toBe(
 			"These files on GitHub could not be written: files that are only on this device are in their place. Move or rename those, and the next download writes these:\nnotes",
+		);
+		expect(report.details[20]).toBe(
+			'Sync Evo changed the upper and lower case of these names in two steps, and stopped in between. The name without ".sync-evo-renaming" at the end is taken by something else, or this device refused the rename, so they keep this name for now and are not synced. Move or rename what has that name, and the next sync gives them their name back:\nTools.sync-evo-renaming',
 		);
 	});
 

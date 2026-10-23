@@ -64,6 +64,7 @@ async function setup(files: Record<string, string>): Promise<Setup> {
 				paths: paths.map((path) => ({ path, key: path, state: "present" })),
 				rootHasGit: false,
 				links: [],
+				renaming: [],
 			};
 			const local = await readLocal(
 				{
@@ -298,6 +299,7 @@ describe("a file that is being typed in, for a push that started by itself", () 
 			paths: ["a.md", "b.md"].map((path) => ({ path, key: path, state: "present" })),
 			rootHasGit: false,
 			links: [],
+			renaming: [],
 		};
 
 		const local = await readLocal(

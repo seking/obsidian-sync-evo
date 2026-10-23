@@ -23,7 +23,8 @@
 // neither the remote nor a record knows. The app's index holds no such
 // path, and finding one takes listing the folders. A new file like that
 // waits for the next scan: a sync the user starts, or the one when the app
-// comes back to the front.
+// comes back to the front. So does a name a rename was left at
+// (`ScanResult.renaming`) that has no file of the index at or below it.
 
 import type { RemoteEntry } from "./backend";
 import { type Exclusion, knownPaths } from "./exclusion";
@@ -31,6 +32,7 @@ import { foldedKey, isPathFromRoot, pathKey } from "./paths";
 import type { SyncRecord } from "./plan";
 import type { PullVault } from "./pull-io";
 import { fromRoot, type ScannedPath, type ScanResult } from "./scan";
+import { renamingPathOf } from "./vault-routes";
 import type { FileStat } from "./state";
 
 /** A file as the app's index of the vault holds it. */
@@ -156,10 +158,17 @@ export async function scanLightly(input: LightScanInput): Promise<LightScanResul
 	// Without the cases, like the folders of a disk that does not tell them
 	// apart: a file the index spells otherwise than its record is that file.
 	const listed = new Set<string>();
+	// By folded path, each as the index spells it (`ScanResult.renaming`).
+	const renaming = new Map<string, string>();
 	for (const file of input.index.indexedFiles()) {
 		const path = fromRoot(file.path);
 		if (!isPathFromRoot(path)) continue;
 		listed.add(foldedKey(path));
+		const between = renamingPathOf(path);
+		if (between !== null) {
+			renaming.set(foldedKey(between), between);
+			continue;
+		}
 		if (await leftOut(path)) continue;
 		const key = pathKey(path);
 		paths.push({ path, key, state: "present" });
@@ -202,7 +211,14 @@ export async function scanLightly(input: LightScanInput): Promise<LightScanResul
 		if (found !== null && found !== "folder" && found !== "link") paths.push(found);
 	}
 
-	return { paths, rootHasGit: (await vault.stat(".git")) !== null, links, indexed, asked };
+	return {
+		paths,
+		rootHasGit: (await vault.stat(".git")) !== null,
+		links,
+		renaming: [...renaming.values()],
+		indexed,
+		asked,
+	};
 }
 
 /** What iCloud Drive leaves in the place of the file at `path` (`placeholderTarget` reads it back). */

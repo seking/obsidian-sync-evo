@@ -19,6 +19,7 @@ import type { RemoteEntry } from "./backend";
 import { type Exclusion, knownPaths } from "./exclusion";
 import { foldedKey, pathKey } from "./paths";
 import type { SyncRecord } from "./plan";
+import { isRenamingName, lastOf } from "./vault-routes";
 
 /**
  * What lists one folder. The data adapter of the app is one; unlike the
@@ -89,6 +90,13 @@ export interface ScanResult {
 	 * each is left out of `paths`, and out of the sync (`PlanInput.links`).
 	 */
 	readonly links: readonly string[];
+	/**
+	 * The names a rename in two calls went through and was left at
+	 * (`RENAMING_MARK`), as the disk spells them: files, and folders that
+	 * were not entered. Left out of `paths`, as the exclusion leaves them out
+	 * of the sync; the pull gives them back their names (`settleRenamings`).
+	 */
+	readonly renaming: readonly string[];
 }
 
 const ROOT = "/";
@@ -151,6 +159,7 @@ export async function scanVault(input: ScanInput): Promise<ScanResult> {
 
 	const paths: ScannedPath[] = [];
 	const links: string[] = [];
+	const renaming: string[] = [];
 	let rootHasGit = false;
 
 	const pending: string[] = [ROOT];
@@ -177,6 +186,10 @@ export async function scanVault(input: ScanInput): Promise<ScanResult> {
 		for (const path of files) {
 			if (folder === ROOT && foldedKey(path) === ".git") rootHasGit = true;
 			if (isLink(path, "file")) continue;
+			if (isRenamingName(lastOf(path))) {
+				renaming.push(path);
+				continue;
+			}
 			const evicted = placeholderTarget(path);
 			if (evicted !== null && !there.has(foldedKey(evicted)) && !exclusion.excludes(evicted, "file", known)) {
 				paths.push({ path: evicted, key: pathKey(evicted), state: "placeholder" });
@@ -190,6 +203,10 @@ export async function scanVault(input: ScanInput): Promise<ScanResult> {
 			const folded = foldedKey(path);
 			if (folder === ROOT && folded === ".git") rootHasGit = true;
 			if (isLink(path, "folder")) continue;
+			if (isRenamingName(lastOf(path))) {
+				renaming.push(path);
+				continue;
+			}
 			if (exclusion.excludes(path, "folder", known)) continue;
 			if (symlinks.has(folded)) continue;
 			pending.push(path);
@@ -205,7 +222,7 @@ export async function scanVault(input: ScanInput): Promise<ScanResult> {
 		}
 	}
 
-	return { paths, rootHasGit, links };
+	return { paths, rootHasGit, links, renaming };
 }
 
 // A lister may put the root in front of what it returns (`/a.md`, `./a.md`).

@@ -718,6 +718,7 @@ const NOTICE_LEVELS: { readonly [Kind in NoticeKind]: NoticeLevel } = {
 	"submodule-no-commit": "warn",
 	"submodule-not-sent": "warn",
 	"local-link": "info",
+	"renaming-left": "warn",
 };
 
 // One text per kind, which lists its paths. No `default`: a kind added
@@ -786,6 +787,8 @@ function noticeText(
 			return t("notice.submoduleNotSent", { list });
 		case "local-link":
 			return t("notice.localLink", { list });
+		case "renaming-left":
+			return t("notice.renamingLeft", { list });
 	}
 }
 

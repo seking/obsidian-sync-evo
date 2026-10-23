@@ -15,6 +15,7 @@ import { mergedCopyPath } from "../src/core/conflict-name";
 import { runPull } from "../src/core/pull";
 import type { PullDeps, PullResult } from "../src/core/pull-io";
 import { readBaseRevision } from "../src/core/state";
+import { runSync, type SyncResult } from "../src/core/sync";
 import { RoutedVault } from "../src/core/vault-access";
 import { FakeVaultPorts } from "./support/fake-vault-ports";
 import { MemoryBackend } from "./support/memory-backend";
@@ -31,6 +32,14 @@ function setup(caseSensitive: boolean): { ports: FakeVaultPorts; vault: RoutedVa
 
 const mac = (): ReturnType<typeof setup> => setup(false);
 const iphone = (): ReturnType<typeof setup> => setup(true);
+
+/** A disk that does not tell the cases apart, with renames that refuse a change of case alone. */
+function android(): ReturnType<typeof setup> {
+	const ports = new FakeVaultPorts({ caseSensitive: false, refusesCaseRename: true });
+	return { ports, vault: new RoutedVault(ports) };
+}
+
+const REFUSED = "Destination file already exists!";
 
 async function failure(promise: Promise<unknown>): Promise<string> {
 	try {
@@ -426,6 +435,135 @@ describe("rename", () => {
 		});
 	});
 
+	describe("where a change of case alone is refused", () => {
+		test("a file is renamed in two calls, through a name of its own", async () => {
+			const { ports, vault } = android();
+			ports.put("notes.md", "a");
+			await vault.rename("notes.md", "Notes.md");
+			expect(ports.calls).toEqual([
+				"renameIndexed notes.md -> Notes.md",
+				"renameIndexed notes.md -> Notes.md.sync-evo-renaming",
+				"renameIndexed Notes.md.sync-evo-renaming -> Notes.md",
+			]);
+			expect(ports.paths()).toEqual(["Notes.md"]);
+			expect(ports.text("Notes.md")).toBe("a");
+		});
+
+		test("so is a folder, with what is in it", async () => {
+			const { ports, vault } = android();
+			ports.put("notes/a.md", "a");
+			ports.put("notes/sub/b.md", "b");
+			await vault.rename("notes", "Notes");
+			expect(ports.calls).toEqual([
+				"renameIndexed notes -> Notes",
+				"renameIndexed notes -> Notes.sync-evo-renaming",
+				"renameIndexed Notes.sync-evo-renaming -> Notes",
+			]);
+			expect(ports.paths()).toEqual(["Notes/a.md", "Notes/sub/b.md"]);
+			expect(ports.folderPaths()).toEqual([".obsidian", "Notes", "Notes/sub"]);
+		});
+
+		test("and a path with a . name, on the disk all the way", async () => {
+			const { ports, vault } = android();
+			ports.put(".github/a.yml", "a");
+			await vault.rename(".github", ".GitHub");
+			expect(ports.calls).toEqual([
+				"renameOnDisk .github -> .GitHub",
+				"renameOnDisk .github -> .GitHub.sync-evo-renaming",
+				"renameOnDisk .GitHub.sync-evo-renaming -> .GitHub",
+			]);
+			expect(ports.paths()).toEqual([".GitHub/a.yml"]);
+		});
+
+		test("a file in a folder of its own, the folder spelled as the disk has it", async () => {
+			const { ports, vault } = android();
+			ports.put("Notes/a.md", "a");
+			await vault.rename("notes/a.md", "notes/A.md");
+			expect(ports.calls).toEqual([
+				"renameIndexed Notes/a.md -> Notes/A.md",
+				"renameIndexed Notes/a.md -> Notes/A.md.sync-evo-renaming",
+				"renameIndexed Notes/A.md.sync-evo-renaming -> Notes/A.md",
+			]);
+			expect(ports.paths()).toEqual(["Notes/A.md"]);
+		});
+
+		test("a rename that is no change of case is not tried again", async () => {
+			const { ports, vault } = android();
+			ports.put("a.md", "a");
+			ports.before = (call) => {
+				if (call === "renameIndexed") throw new Error("EBUSY");
+			};
+			expect(await failure(vault.rename("a.md", "b.md"))).toBe("EBUSY");
+			expect(ports.calls).toEqual([]);
+			expect(ports.paths()).toEqual(["a.md"]);
+		});
+
+		test("nor one onto another file that differs in case alone", async () => {
+			const { ports, vault } = android();
+			ports.put("a.md", "mine");
+			ports.put("b.md", "other");
+			expect(await failure(vault.rename("a.md", "B.md"))).toBe("something is at B.md");
+			expect(ports.calls).toEqual([]);
+		});
+
+		test("a change of case that fails for another reason fails, and nothing is moved", async () => {
+			const { ports, vault } = android();
+			ports.put("notes.md", "a");
+			ports.before = (call) => {
+				if (call === "renameIndexed") throw new Error("EBUSY");
+			};
+			expect(await failure(vault.rename("notes.md", "Notes.md"))).toBe("EBUSY");
+			expect(ports.calls).toEqual([]);
+			expect(ports.paths()).toEqual(["notes.md"]);
+		});
+
+		test("when the second call fails, the file is given its old name back", async () => {
+			const { ports, vault } = android();
+			ports.put("notes.md", "a");
+			ports.before = (call, path) => {
+				if (path === "Notes.md.sync-evo-renaming -> Notes.md") throw new Error("EBUSY");
+			};
+			expect(await failure(vault.rename("notes.md", "Notes.md"))).toBe(REFUSED);
+			expect(ports.calls).toEqual([
+				"renameIndexed notes.md -> Notes.md",
+				"renameIndexed notes.md -> Notes.md.sync-evo-renaming",
+				"renameIndexed Notes.md.sync-evo-renaming -> notes.md",
+			]);
+			expect(ports.paths()).toEqual(["notes.md"]);
+			expect(ports.text("notes.md")).toBe("a");
+		});
+
+		test("when that fails too, the file is left at the name between, for the next pull", async () => {
+			const { ports, vault } = android();
+			ports.put("notes.md", "a");
+			ports.before = (call, path) => {
+				if (path.startsWith("Notes.md.sync-evo-renaming ->")) throw new Error("EBUSY");
+			};
+			expect(await failure(vault.rename("notes.md", "Notes.md"))).toBe(REFUSED);
+			expect(ports.paths()).toEqual(["Notes.md.sync-evo-renaming"]);
+		});
+
+		test("a name between that is there already is not replaced", async () => {
+			const { ports, vault } = android();
+			ports.put("notes.md", "a");
+			ports.put("Notes.md.sync-evo-renaming", "left");
+			expect(await failure(vault.rename("notes.md", "Notes.md"))).toBe(REFUSED);
+			expect(ports.calls).toEqual(["renameIndexed notes.md -> Notes.md"]);
+			expect(ports.text("notes.md")).toBe("a");
+			expect(ports.text("Notes.md.sync-evo-renaming")).toBe("left");
+		});
+	});
+
+	test("where a change of case goes through in one call, a refusal is not tried again", async () => {
+		const { ports, vault } = iphone();
+		ports.put("a.md", "a");
+		ports.before = (call) => {
+			if (call === "renameIndexed") throw new Error(REFUSED);
+		};
+		expect(await failure(vault.rename("a.md", "A.md"))).toBe(REFUSED);
+		expect(ports.calls).toEqual([]);
+	});
+
 	test("nothing at the old name fails the rename", async () => {
 		expect(await failure(mac().vault.rename("a.md", "b.md"))).toBe("nothing at a.md");
 	});
@@ -621,26 +759,44 @@ describe("saveOpenEditors", () => {
 describe("a pull through the routing", () => {
 	const paths = { configDir: ".obsidian", pluginDir: ".obsidian/plugins/sync-evo" };
 
-	function harness(caseSensitive: boolean) {
-		const ports = new FakeVaultPorts({ caseSensitive });
+	function harness(caseSensitive: boolean, refusesCaseRename = false) {
+		const ports = new FakeVaultPorts({ caseSensitive, refusesCaseRename });
 		const backend = new MemoryBackend();
 		const store = new MemoryStateStore();
 		let time = Date.UTC(2026, 9, 3, 12, 0, 0);
+		const pullDeps = (): PullDeps => ({
+			store,
+			backend,
+			vault: new RoutedVault(ports),
+			paths,
+			pluginId: "sync-evo",
+			deviceName: "iPhone",
+			now: () => time,
+			confirm: async () => "proceed",
+		});
 		const pull = (over: Partial<PullDeps> = {}): Promise<PullResult> => {
 			time += 60_000;
-			return runPull({
-				store,
-				backend,
-				vault: new RoutedVault(ports),
-				paths,
-				pluginId: "sync-evo",
-				deviceName: "iPhone",
-				now: () => time,
-				confirm: async () => "proceed",
-				...over,
+			return runPull({ ...pullDeps(), ...over });
+		};
+		const sync = (): Promise<SyncResult> => {
+			time += 60_000;
+			const pulling = pullDeps();
+			return runSync({
+				pull: pulling,
+				push: {
+					store,
+					backend,
+					vault: pulling.vault,
+					paths,
+					deviceName: "Android",
+					now: () => time,
+					addSection: false,
+					confirm: async () => "proceed",
+					askEmptyVault: async () => "delete",
+				},
 			});
 		};
-		return { ports, backend, store, pull };
+		return { ports, backend, store, pull, sync };
 	}
 
 	test.each([false, true])("a first fetch writes every file through the right way (case-sensitive: %s)", async (cs) => {
@@ -777,6 +933,132 @@ describe("a pull through the routing", () => {
 		expect(result.unwritable).toEqual([]);
 		expect(ports.paths()).toEqual(["Notes/a.md", "Notes/b.md"]);
 		expect(ports.trashed).toEqual([]);
+	});
+
+	describe("where a change of case alone is refused", () => {
+		const remoteFiles = async (backend: MemoryBackend): Promise<string[]> => {
+			const listed = await backend.list(null);
+			if (!listed.changed) throw new Error("expected a listing");
+			return listed.listing.entries.map((entry) => entry.path).sort();
+		};
+
+		test("a folder renamed in case on the remote is renamed here, in two calls", async () => {
+			const { ports, backend, pull } = harness(false, true);
+			backend.commit({ "notes/a.md": "a", "notes/b.md": "b" });
+			await pull();
+			backend.commit({ "notes/a.md": null, "notes/b.md": null, "Notes/a.md": "a", "Notes/b.md": "b" });
+			ports.calls.length = 0;
+			const result = await pull();
+			expect(result.outcome).toBe("completed");
+			expect(result.unwritable).toEqual([]);
+			expect(ports.paths()).toEqual(["Notes/a.md", "Notes/b.md"]);
+			expect(ports.calls).toEqual([
+				"renameIndexed notes -> Notes",
+				"renameIndexed notes -> Notes.sync-evo-renaming",
+				"renameIndexed Notes.sync-evo-renaming -> Notes",
+			]);
+			expect(ports.trashed).toEqual([]);
+
+			ports.calls.length = 0;
+			expect((await pull()).counts).toEqual({ fetched: 0, deleted: 0, renamed: 0, conflicts: 0 });
+			expect(ports.calls).toEqual([]);
+		});
+
+		test("so is a file", async () => {
+			const { ports, backend, pull } = harness(false, true);
+			backend.commit({ "notes.md": "a" });
+			await pull();
+			backend.commit({ "notes.md": null, "Notes.md": "a2" });
+			const result = await pull();
+			expect(result.outcome).toBe("completed");
+			expect(result.unwritable).toEqual([]);
+			expect(result.conflicts).toEqual([]);
+			expect(ports.paths()).toEqual(["Notes.md"]);
+			expect(ports.text("Notes.md")).toBe("a2");
+		});
+
+		test("a file of the vault is given the spelling of the remote's, in two calls", async () => {
+			const { ports, backend, pull } = harness(false, true);
+			backend.commit({ "a.md": "a" });
+			await pull();
+			ports.put("todo.md", "same");
+			backend.commit({ "TODO.md": "same" });
+			ports.calls.length = 0;
+			const result = await pull();
+			expect(result.outcome).toBe("completed");
+			expect(result.unwritable).toEqual([]);
+			expect(result.conflicts).toEqual([]);
+			expect(ports.paths()).toEqual(["TODO.md", "a.md"]);
+			expect(ports.calls).toEqual([
+				"renameIndexed todo.md -> TODO.md",
+				"renameIndexed todo.md -> TODO.md.sync-evo-renaming",
+				"renameIndexed TODO.md.sync-evo-renaming -> TODO.md",
+			]);
+		});
+
+		test.each([
+			["a folder", "notes", "Notes"],
+			["a file", "notes.md", "Notes.md"],
+		])("%s left at the name between is given its name back by the next pull, which goes on with the rename", async (_, from, to) => {
+			const { ports, backend, pull } = harness(false, true);
+			const files: Record<string, string> = from === "notes" ? { "notes/a.md": "a", "notes/b.md": "b" } : { "notes.md": "a" };
+			backend.commit(files);
+			await pull();
+			const renamed = Object.fromEntries(Object.entries(files).map(([path, text]) => [to + path.slice(from.length), text]));
+			backend.commit({ ...Object.fromEntries(Object.keys(files).map((path) => [path, null])), ...renamed });
+			// The pull stopped between the two calls.
+			await ports.renameOnDisk(from, `${to}.sync-evo-renaming`);
+			ports.calls.length = 0;
+
+			const result = await pull();
+			expect(result.outcome).toBe("completed");
+			expect(result.unwritable).toEqual([]);
+			expect(result.conflicts).toEqual([]);
+			expect(result.notices).toEqual([]);
+			expect(ports.calls).toEqual([`renameIndexed ${to}.sync-evo-renaming -> ${to}`]);
+			expect(ports.paths()).toEqual(Object.keys(renamed).sort());
+			expect(ports.trashed).toEqual([]);
+
+			ports.calls.length = 0;
+			expect((await pull()).counts).toEqual({ fetched: 0, deleted: 0, renamed: 0, conflicts: 0 });
+			expect(ports.calls).toEqual([]);
+		});
+
+		test("a name between whose name is taken stays, is told once, and is not sent", async () => {
+			const { ports, backend, sync } = harness(false, true);
+			backend.commit({ "a.md": "a" });
+			await sync();
+			ports.put("Tools.sync-evo-renaming/x.md", "x");
+			ports.put("tools/y.md", "y");
+			ports.calls.length = 0;
+
+			const first = await sync();
+			expect(first.pull.outcome).toBe("completed");
+			expect(first.pull.notices).toEqual([{ kind: "renaming-left", path: "Tools.sync-evo-renaming" }]);
+			expect(ports.paths()).toEqual(["Tools.sync-evo-renaming/x.md", "a.md", "tools/y.md"]);
+			expect(await remoteFiles(backend)).toEqual(["a.md", "tools/y.md"]);
+
+			// Tried again, and not told again.
+			const second = await sync();
+			expect(second.pull.notices).toEqual([]);
+			expect(ports.paths()).toEqual(["Tools.sync-evo-renaming/x.md", "a.md", "tools/y.md"]);
+
+			// Given back once the name is free, and sent as the folder it is.
+			await ports.renameOnDisk("tools", "other");
+			await sync();
+			expect(ports.paths()).toEqual(["Tools/x.md", "a.md", "other/y.md"]);
+			expect(await remoteFiles(backend)).toEqual(["Tools/x.md", "a.md", "other/y.md"]);
+		});
+
+		test("so is a file left at the name between, and it is not sent", async () => {
+			const { ports, backend, sync } = harness(false, true);
+			backend.commit({ "a.md": "a" });
+			await sync();
+			ports.put("Notes.md.sync-evo-renaming", "n");
+			ports.put("notes.md", "other");
+			await sync();
+			expect(await remoteFiles(backend)).toEqual(["a.md", "notes.md"]);
+		});
 	});
 
 	test("a file renamed in case onto a name another file has, where the cases are told apart", async () => {

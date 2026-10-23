@@ -18,9 +18,13 @@ import {
 	joinPath,
 	lastOf,
 	parentOf,
+	isRenamingName,
 	pickSpelling,
+	renamingPath,
+	renamingPathOf,
 	trashOptionOf,
 	trashRoute,
+	withoutRenamingMark,
 } from "../src/core/vault-routes";
 
 const NFC = "が.md".normalize("NFC");
@@ -149,5 +153,28 @@ describe("differOnlyInSpelling", () => {
 	test("another name", () => {
 		expect(differOnlyInSpelling("a.md", "a.conflict-from-Mac-20261003-221500.md")).toBe(false);
 		expect(differOnlyInSpelling("notes/a.md", "other/a.md")).toBe(false);
+	});
+});
+
+describe("the names a rename goes through", () => {
+	test("the mark is put at the end of the last name, and taken off again", () => {
+		expect(renamingPath("notes/Tools")).toBe("notes/Tools.sync-evo-renaming");
+		expect(renamingPath(".GitHub")).toBe(".GitHub.sync-evo-renaming");
+		expect(withoutRenamingMark("notes/Tools.sync-evo-renaming")).toBe("notes/Tools");
+		expect(isDotPath(renamingPath("notes/Tools"))).toBe(false);
+	});
+
+	test.each([
+		["Tools.sync-evo-renaming", "Tools.sync-evo-renaming"],
+		["Tools.sync-evo-renaming/a/b.md", "Tools.sync-evo-renaming"],
+		["a/B.md.Sync-Evo-Renaming", "a/B.md.Sync-Evo-Renaming"],
+		["X.sync-evo-renaming/Y.sync-evo-renaming/z.md", "X.sync-evo-renaming"],
+		["Tools/a.md", null],
+		[".sync-evo-renaming", null],
+		["a/.sync-evo-renaming/b.md", null],
+		["Tools.sync-evo-renaming.md", null],
+	])("%s is at or below %j", (path, expected) => {
+		expect(renamingPathOf(path)).toBe(expected);
+		expect(isRenamingName(lastOf(path))).toBe(expected === path);
 	});
 });

@@ -142,8 +142,9 @@ export type SkipReason =
 	 */
 	| "too-large"
 	/**
-	 * One of the two things that are never synced: a `.git` ("dot-git") or
-	 * the plugin's own folder ("own-folder"). An "own-folder" skip that lists
+	 * One of the three things that are never synced: a `.git` ("dot-git"),
+	 * the plugin's own folder ("own-folder"), or a name a rename went through
+	 * ("renaming"). An "own-folder" skip that lists
 	 * remote entries is how the caller learns that the remote holds that folder.
 	 */
 	| HardExclusion
@@ -181,7 +182,7 @@ export interface PlanInput {
 	readonly records: readonly SyncRecord[];
 	/**
 	 * What is left out of the sync. The same object the scan that produced
-	 * `local` was given. Required, so that the two things that are never
+	 * `local` was given. Required, so that the three things that are never
 	 * synced cannot be forgotten.
 	 */
 	readonly exclusion: Exclusion;
@@ -295,7 +296,7 @@ export function planSync(input: PlanInput): SyncPlan {
 
 		// Paths that must not be touched on either side, whatever the three
 		// sides hold, are turned away here, before the three-way comparison:
-		// the two fixed exclusions, and what a rule excludes. A path that is
+		// the three fixed exclusions, and what a rule excludes. A path that is
 		// not one comes first: the exclusion refuses it. A path that is held
 		// comes before the rules, so that its record, whose write marker is
 		// still there, is not stored again for a mark.

@@ -52,7 +52,7 @@ import { tidyConflictCopies } from "./conflict-tidy";
 import { createExclusion, type Exclusion } from "./exclusion";
 import { GITIGNORE_WRITE_KEY, settleGitignoreWrite } from "./gitignore-file";
 import { firstFetchFiles, hasFirstFetchQuestion, isFirstFetchConfirmed, markFirstFetchConfirmed } from "./first-fetch";
-import { lightCheckLine, scanLightly } from "./light-scan";
+import { lightCheckLine, type LightScanResult, scanLightly } from "./light-scan";
 import { type LocalRead, readLocal, withLinksRead } from "./local-read";
 import {
 	type NoticeKind,
@@ -114,6 +114,7 @@ import {
 } from "./state";
 import { countingLister, diskTimes, fullCheckLine, PhaseClock } from "./timing";
 import { withListedStats } from "./listed-stats";
+import { withoutRenamingMark } from "./vault-routes";
 
 export type * from "./pull-io";
 
@@ -235,6 +236,8 @@ class PullRun {
 	private recoveredPush: PushCounts | null = null;
 	/** How many files such a push took out of the remote, when it was one that untracked. */
 	private recoveredUntrack: number | null = null;
+	/** The names a rename was left at that could not be given back (`settleRenamings`). */
+	private readonly renamingLeft: string[] = [];
 
 	/** How long the pull spent in each phase, for the log. */
 	private readonly clock: PhaseClock;
@@ -441,6 +444,34 @@ class PullRun {
 		if (this.held.has(GITIGNORE)) return;
 		this.held.add(GITIGNORE);
 		this.tally.deferred.push({ path: GITIGNORE, reason: "unreadable" });
+	}
+
+	/**
+	 * Gives the names a rename in two calls was left at
+	 * (`RoutedVault.rename`) back their names: the mark is taken off, in one
+	 * call, which is no change of case alone and goes through. What the
+	 * rename was for is then as if it had been done in one call and the pull
+	 * stopped after it, which the plan goes on with (`applyFolderRename`,
+	 * `renameSeen` in `pull-apply.ts`). One whose name is taken by something
+	 * else, or that the vault does not let go, stays, is told
+	 * ("renaming-left"), and is tried again by the next pull. Answers
+	 * whether any was given back.
+	 */
+	private async settleRenamings(paths: readonly string[]): Promise<boolean> {
+		const { deps } = this;
+		let given = false;
+		for (const path of paths) {
+			const name = withoutRenamingMark(path);
+			try {
+				await deps.vault.rename(path, name);
+				given = true;
+				deps.log?.(`pull: gave ${path} back its name ${name}`);
+			} catch (error) {
+				this.renamingLeft.push(path);
+				deps.log?.(`pull: left ${path}, not given back its name ${name}: ${error instanceof Error ? error.message : String(error)}`);
+			}
+		}
+		return given;
 	}
 
 	/**
@@ -1082,11 +1113,21 @@ class PullRun {
 		this.progress("scanning");
 		const began = deps.now();
 		const scanned = { exclusion, remote: listing.entries, records };
-		const light =
-			deps.index === undefined ? null : await scanLightly({ ...scanned, index: deps.index, vault: deps.vault });
 		const statsLister = deps.listedStats === undefined ? null : withListedStats(deps.vault, deps.listedStats);
 		const lister = countingLister(statsLister ?? deps.vault);
-		const found = light ?? (await scanVault({ ...scanned, lister }));
+		const scanOnce = async (): Promise<{ light: LightScanResult | null; found: ScanResult }> => {
+			const light =
+				deps.index === undefined ? null : await scanLightly({ ...scanned, index: deps.index, vault: deps.vault });
+			return { light, found: light ?? (await scanVault({ ...scanned, lister })) };
+		};
+		let { light, found } = await scanOnce();
+		// Found by the scan, which lists every folder anyway, and not by a
+		// look of its own before it: such a name is rare, and the vault is
+		// scanned again only when one was given back. Not when the pull
+		// starts over, which changes nothing before the user said yes.
+		if (deps.discardState === undefined && (await this.settleRenamings(found.renaming))) {
+			({ light, found } = await scanOnce());
+		}
 		const scanMs = deps.now() - began;
 		const local = await readLocal(
 			{
@@ -1337,7 +1378,7 @@ class PullRun {
 			remote,
 			local,
 			records: records.filter((record) => foldedKey(record.path) === GITIGNORE),
-			// No rule applies to the root `.gitignore`, and the two fixed
+			// No rule applies to the root `.gitignore`, and the three fixed
 			// exclusions cannot match it.
 			exclusion: createExclusion({ ...deps.paths, gitignore: null }),
 			sizeLimit: this.sizeLimit,
@@ -1405,6 +1446,7 @@ class PullRun {
 		// What it does find is told. Forgetting is left to a pull that scans.
 		if (deps.index !== undefined) current.push(...remembered);
 		if (scan.rootHasGit) add("git-at-root", ".git");
+		for (const path of this.renamingLeft) add("renaming-left", path);
 		for (const path of scan.links) add("local-link", path);
 		// By the rules this pull went by, which are the ones the root
 		// `.gitignore` has once it is done (`gitignoreAfter`). A `.gitignore`

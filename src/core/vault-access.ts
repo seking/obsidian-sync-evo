@@ -33,6 +33,7 @@ import {
 	lastOf,
 	parentOf,
 	pickSpelling,
+	renamingPath,
 	trashOptionOf,
 	trashRoute,
 } from "./vault-routes";
@@ -301,6 +302,17 @@ export class RoutedVault<Handle> implements PullVault {
 	 * one file and the rename is a change of its spelling. On a disk that
 	 * tells the cases apart, a `Notes.md` beside `notes.md` comes out as
 	 * its own name, and the rename fails.
+	 *
+	 * Such a change of spelling is one call where the platform takes it.
+	 * Android's does not: its disk does not tell the cases apart, and its
+	 * rename refuses a new name it finds something at, the file itself
+	 * among them. Only when that one call fails is the rename made in two,
+	 * through a name of its own (`renamingPath`): `notes` → `Notes.<mark>` →
+	 * `Notes`. Not by what the failure says, which is the app's and may
+	 * change. A rename that fails for another reason fails the same way
+	 * twice: the first of the two calls fails as well, or the second, and
+	 * then the name is given back. A name that was left between the two is
+	 * given back by the next pull (`settleRenamings`), and is never synced.
 	 */
 	async rename(from: string, to: string): Promise<void> {
 		const { ports } = this;
@@ -312,9 +324,11 @@ export class RoutedVault<Handle> implements PullVault {
 		const source = (await ports.stat(from)) === null ? null : await this.spelledOnDisk(from);
 		if (source === null) throw new Error(`nothing at ${from}`);
 
+		let itself = false;
 		if ((await ports.stat(to)) !== null) {
 			const taken = differOnlyInSpelling(from, to) ? await this.spelledOnDisk(to) : null;
 			if (taken !== source) throw new Error(`something is at ${to}`);
+			itself = true;
 		}
 
 		// The folders on the way keep the spelling they have; the last name
@@ -322,9 +336,48 @@ export class RoutedVault<Handle> implements PullVault {
 		const target = joinPath(await this.ensureFolder(parentOf(to)), lastOf(to));
 		if (target === source) return;
 
+		try {
+			await this.renameOnce(source, target);
+		} catch (error) {
+			if (!itself) throw error;
+			await this.renameInTwo(source, target, error);
+		}
+	}
+
+	/**
+	 * The second try of a change of spelling the platform refused
+	 * (`rename`). Fails with what the first try failed with, and leaves the
+	 * file at its old name where it can be given back.
+	 */
+	private async renameInTwo(source: string, target: string, refusal: unknown): Promise<void> {
+		const between = renamingPath(target);
+		// Left by a rename before, and not given back yet: the rename would replace it.
+		if ((await this.ports.stat(between)) !== null) throw refusal;
+		try {
+			await this.renameOnce(source, between);
+		} catch {
+			throw refusal;
+		}
+		try {
+			await this.renameOnce(between, target);
+		} catch {
+			try {
+				await this.renameOnce(between, source);
+			} catch {
+				// Left between the two, for the next pull to give back.
+			}
+			throw refusal;
+		}
+	}
+
+	/**
+	 * One call: the index's rename for what the index holds, the disk's for
+	 * the rest.
+	 */
+	private async renameOnce(source: string, target: string): Promise<void> {
 		const indexed = isDotPath(source) || isDotPath(target) ? null : this.indexed(source);
-		if (indexed !== null) await ports.renameIndexed(indexed.handle, target);
-		else await ports.renameOnDisk(source, target);
+		if (indexed !== null) await this.ports.renameIndexed(indexed.handle, target);
+		else await this.ports.renameOnDisk(source, target);
 	}
 
 	async trash(path: string, mode: TrashMode): Promise<void> {

@@ -19,7 +19,7 @@
 // (`device-exclusion.ts`), read the same way and apart from it. Unlike git,
 // a rule cuts a path off from the sync also where the remote holds it or it
 // has a record: it is neither sent nor fetched, and its deletion on either
-// side is not carried over. Below the rules is a floor of two things no
+// side is not carried over. Below the rules is a floor of three things no
 // rule can change. Nothing here reads or writes a file; the text of
 // `.gitignore` is handed in.
 //
@@ -41,6 +41,7 @@ import {
 } from "./gitignore-section";
 import { type DeviceExclusion, deviceExclusionLines } from "./device-exclusion";
 import { foldedKey, isPathFromRoot, pathKey } from "./paths";
+import { renamingPathOf } from "./vault-routes";
 
 /**
  * A folder is told from a file by the caller, since nothing here looks at a
@@ -49,15 +50,19 @@ import { foldedKey, isPathFromRoot, pathKey } from "./paths";
 export type PathType = "file" | "folder";
 
 /**
- * The two things that are never synced, whatever the rules say and whatever
+ * The three things that are never synced, whatever the rules say and whatever
  * the remote holds: never read, written, sent, or deleted.
  *
  * - "dot-git": a `.git` at any depth and everything below it. It is not
  *   content of the vault, and a git host does not take it.
  * - "own-folder": the folder Sync Evo itself is installed in. Writing the
  *   `main.js` of another device there would be the plugin updating itself.
+ * - "renaming": a name a rename in two calls went through
+ *   (`RENAMING_MARK`), and everything below it. It is a file or a folder of
+ *   the vault under a name of the moment, which the next pull gives back
+ *   (`settleRenamings`); sent, it would reach the other devices as a copy.
  */
-export type HardExclusion = "dot-git" | "own-folder";
+export type HardExclusion = "dot-git" | "own-folder" | "renaming";
 
 /** What the app knows about the vault that the exclusion depends on. */
 export interface ExclusionPaths {
@@ -75,7 +80,7 @@ export interface ExclusionInput extends ExclusionPaths {
 }
 
 export interface Exclusion {
-	/** Which of the two fixed exclusions `path` falls under, if any. */
+	/** Which of the three fixed exclusions `path` falls under, if any. */
 	hardExclusionOf(path: string): HardExclusion | undefined;
 
 	/**
@@ -103,7 +108,7 @@ export interface Exclusion {
 	matchesGitignore(path: string, type: PathType): boolean;
 
 	/**
-	 * Whether `path` is left out of the sync: one of the two fixed
+	 * Whether `path` is left out of the sync: one of the three fixed
 	 * exclusions, or a rule matches it (`matchesRule`). What the remote holds
 	 * and what has a record does not change that: a rule cuts the path off
 	 * from the remote, and nothing is sent, fetched, or deleted for it on
@@ -175,11 +180,12 @@ export function createExclusion(input: ExclusionInput): Exclusion {
 
 	// Compared without case, unlike the keys of the three sides. On a file
 	// system that does not tell the cases apart `.GIT` is `.git`, and taking
-	// a folder for one of these two by mistake only means it is not synced.
+	// a folder for one of these three by mistake only means it is not synced.
 	const hardExclusionOf = (path: string): HardExclusion | undefined => {
 		const folded = foldedKey(checkedKey(path));
 		if (folded.split("/").includes(".git")) return "dot-git";
 		if (folded === ownFolder || folded.startsWith(`${ownFolder}/`)) return "own-folder";
+		if (renamingPathOf(folded) !== null) return "renaming";
 		return undefined;
 	};
 
@@ -226,7 +232,7 @@ export function createExclusion(input: ExclusionInput): Exclusion {
  * and sent to every device. Where a copy would be made, the content goes to
  * the `.trash/` of the vault instead (`pull-apply.ts`).
  *
- * Without the cases, like the two fixed exclusions: most vaults are on a
+ * Without the cases, like the three fixed exclusions: most vaults are on a
  * file system that does not tell them apart.
  */
 export function isInConfigDir(path: string, configDir: string): boolean {
@@ -275,7 +281,7 @@ export function fixedExclusionsOff(exclusion: Pick<Exclusion, "matchesGitignore"
  * git on a computer still does, the way git keeps tracking a file that is
  * added to `.gitignore` later; this is the list to show for that.
  *
- * Not in it: what the two fixed exclusions cover, which are not synced
+ * Not in it: what the three fixed exclusions cover, which are not synced
  * whatever the remote holds; a submodule and what lies below one, which is
  * for git on a Mac to take out; and a path nothing can be decided about.
  * What a user can take out of the remote is one list more
@@ -336,7 +342,8 @@ export interface Untrackable<T> {
  * out: the other devices sync it, and would take its deletion from the
  * remote for one of their own.
  *
- * Not in it: a `.git` and what lies below it, which no tree holds; what lies
+ * Not in it: a `.git` and what lies below it, which no tree holds; a name a
+ * rename went through, which no device sends; what lies
  * below a submodule; and a path nothing can be decided about. A submodule
  * itself is answered apart, when a rule matches it. The tree holds one line
  * for it and nothing of what is below, so it is asked about as a file and as
@@ -353,7 +360,7 @@ export function untrackableFiles<T extends { readonly path: string; readonly kin
 		const key = pathKey(entry.path);
 		if (!isPathFromRoot(key) || isBelowSubmodule(key)) continue;
 		const hard = exclusion.hardExclusionOf(key);
-		if (hard === "dot-git") continue;
+		if (hard === "dot-git" || hard === "renaming") continue;
 		if (entry.kind === "submodule") {
 			if (exclusion.matchesGitignore(key, "file") || exclusion.matchesGitignore(key, "folder")) submodules.push(entry.path);
 		} else if (exclusion.matchesGitignore(key, "file")) {
@@ -396,7 +403,7 @@ export function untrackableByAddedLines<T extends { readonly path: string; reado
  * which is not what git on a Mac does with them. Each path once, as the
  * remote spells it where it holds it, sorted.
  *
- * Not in it: one below either of the two fixed exclusions; one below a
+ * Not in it: one below any of the three fixed exclusions; one below a
  * submodule, whose rules are for the repository it is; and one that a rule
  * matches, itself or a folder above it: a `knowledge/.gitignore` inside a
  * folder the root leaves out would otherwise be told on every device for

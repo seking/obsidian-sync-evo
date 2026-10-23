@@ -96,6 +96,12 @@ import type { StateStore } from "./state";
  *   Windows), which is not synced, nor what lies below it
  *   (`ScanResult.links`). The path is the link's. Found on a desktop
  *   alone, by a scan or a light check.
+ * - "renaming-left": a rename of a change of case alone, made in two calls
+ *   where the platform refuses it in one (`RoutedVault.rename`), stopped
+ *   between the two, and the name it was left at could not be given back
+ *   (`settleRenamings` in `pull.ts`): something else has the name, or the
+ *   vault refused. Not synced under that name. The path is the one it was
+ *   left at. Found by a pull alone, which tries it again every time.
  *
  * A new kind is a new name here and a text in the catalog.
  */
@@ -120,6 +126,7 @@ export const NOTICE_KINDS = [
 	"submodule-no-commit",
 	"submodule-not-sent",
 	"local-link",
+	"renaming-left",
 ] as const;
 
 export type NoticeKind = (typeof NOTICE_KINDS)[number];
