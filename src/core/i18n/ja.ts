@@ -310,7 +310,7 @@ export const ja = completeTranslation(en, {
 	"notice.ownFolderOnRemote":
 		"{remote} に Sync Evo 自身のフォルダがあります。Sync Evo はこのフォルダを同期しません。{remote} でも、このデバイスでも、そのままにします。ほかのファイルは、通常どおり同期されます。{remote} から消すには、Sync Evo の設定画面で「{remote} から削除」を行います（.gitignore にこのフォルダの行がある時）：\n{list}",
 	"notice.gitAtRoot":
-		"この保管庫のルートに .git があり、git のリポジトリになっています。このデバイスでは、git か Obsidian Git プラグインで同期してください。Sync Evo がアップロードした内容を git は知らないため、次の git pull が止まります。Sync Evo は、その間も同期を続けます。",
+		"この保管庫のルートに .git があり、Git のリポジトリになっています。このデバイスでは、Git（または Obsidian Git プラグイン）と Sync Evo のどちらか一方だけを使ってください。Sync Evo が同期した内容を Git は知らないため、次の pull が止まります。このデバイスを Sync Evo に移したのなら、Obsidian Git を止め、要らなくなった時に .git のフォルダを消してください。Sync Evo は、その間も同期を続けます。FAQ の「デバイスを Git から Sync Evo に移す」を見てください。",
 
 	"notice.remotePathCollision":
 		"{remote} に、大文字と小文字だけ、または Unicode の正規化（NFC と NFD）だけが違うパスがあります。区別できないデバイスがあるため、このデバイスにはどれも書き込みません。{remote} で名前を変えてください：\n{list}",
