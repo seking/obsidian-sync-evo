@@ -717,11 +717,29 @@ describe("the two fixed exclusions", () => {
 	});
 
 	test.each([
+		"Tools.sync-evo-renaming",
+		"Tools.sync-evo-renaming/a.md",
+		"notes/Notes.md.sync-evo-renaming",
+		".GitHub.sync-evo-renaming/ci.yml",
+		"Tools.SYNC-EVO-RENAMING/a.md",
+	])("%s is a name a rename went through, whatever the rules say and whatever the remote holds", (path) => {
+		for (const gitignore of [null, undoEverything]) {
+			const exclusion = exclusionFor(gitignore);
+			expect(exclusion.hardExclusionOf(path)).toBe("renaming");
+			expect(exclusion.excludes(path, "file", known)).toBe(true);
+			expect(exclusion.excludes(path, "folder", known)).toBe(true);
+		}
+	});
+
+	test.each([
 		".gitignore",
 		".gitmodules",
 		".gitattributes",
 		".github/workflows/ci.yml",
 		"notes/.gitkeep",
+		".sync-evo-renaming",
+		"sync-evo-renaming.md",
+		"Tools.sync-evo-renaming.md",
 		"a.git",
 		"git/config",
 		".obsidian/plugins/sync-evo-2/main.js",

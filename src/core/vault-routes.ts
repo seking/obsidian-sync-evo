@@ -129,3 +129,41 @@ export function pickSpelling(names: readonly string[], wanted: string): string |
 export function differOnlyInSpelling(from: string, to: string): boolean {
 	return foldedKey(from) === foldedKey(to);
 }
+
+/**
+ * What is put at the end of a name to make the name a rename goes through
+ * where the app refuses a change of case alone (`RoutedVault.rename`):
+ * `Tools` → `Tools.sync-evo-renaming` → `Tools`. Not at the start, so that a
+ * path keeps the way it goes (`isDotPath`). Of characters every platform
+ * takes in a name, and in no form a conflict copy has.
+ */
+export const RENAMING_MARK = ".sync-evo-renaming";
+
+/** The path a rename of `path` onto its own name in another case goes through. */
+export function renamingPath(path: string): string {
+	return `${path}${RENAMING_MARK}`;
+}
+
+/**
+ * Whether a name is one a rename went through (`RENAMING_MARK`). Without the
+ * cases, like the fixed exclusions: such a name is never synced.
+ */
+export function isRenamingName(name: string): boolean {
+	return name.length > RENAMING_MARK.length && foldedKey(name).endsWith(RENAMING_MARK);
+}
+
+/**
+ * The path a rename went through that `path` is at or below, or `null` for
+ * none: `Tools.sync-evo-renaming/a.md` gives `Tools.sync-evo-renaming`. The
+ * one nearest the root, when there are more.
+ */
+export function renamingPathOf(path: string): string | null {
+	const parts = path.split("/");
+	const at = parts.findIndex(isRenamingName);
+	return at === -1 ? null : parts.slice(0, at + 1).join("/");
+}
+
+/** The path a rename that went through `path` was to: the mark taken off its end. */
+export function withoutRenamingMark(path: string): string {
+	return path.slice(0, path.length - RENAMING_MARK.length);
+}

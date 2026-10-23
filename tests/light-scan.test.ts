@@ -378,6 +378,21 @@ describe("a disk that tells NFC from NFD", () => {
 	});
 });
 
+describe("a name a rename went through", () => {
+	test("is told apart by both, each name once, and its files are left out", async () => {
+		const s = setup({
+			"a.md": "A",
+			"Tools.sync-evo-renaming/b.md": "B",
+			"Tools.sync-evo-renaming/sub/c.md": "C",
+			"notes/Notes.md.sync-evo-renaming": "N",
+		});
+		for (const result of [await light(s), await full(s)]) {
+			expect(result.paths.map((entry) => entry.path)).toEqual(["a.md"]);
+			expect([...result.renaming].sort()).toEqual(["Tools.sync-evo-renaming", "notes/Notes.md.sync-evo-renaming"]);
+		}
+	});
+});
+
 describe("a .git at the vault root", () => {
 	test.each<[string, Record<string, string>, boolean]>([
 		["a folder", { "a.md": "A", ".git/HEAD": "ref" }, true],

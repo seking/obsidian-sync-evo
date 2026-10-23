@@ -59,12 +59,11 @@ A submodule that is excluded, such as one in an excluded folder, is not download
 
 ### Renames that change only case
 
-On Android, a rename made on another device that changes only upper and lower case (`tools/` to `Tools/`) is not applied.
+Obsidian on Android refuses a rename that changes only upper and lower case (`tools/` to `Tools/`). Sync Evo then makes it in two steps, through a name with `.sync-evo-renaming` at the end: `tools` → `Tools.sync-evo-renaming` → `Tools`.
 
-- The download skips the path and says so.
-- The upload holds the file back.
-- Nothing is lost, but the path stays unsynced.
-- The two notices come back on every sync.
+- A name with `.sync-evo-renaming` at the end is never synced.
+- If a sync stops between the two steps, the next sync gives the name back, and goes on with the rename.
+- If something else has taken the name in the meantime, the file or folder keeps the name with `.sync-evo-renaming`, and Sync Evo tells you once. Move or rename what has the name, and the next sync gives it back.
 
 ### Downloads one file at a time
 

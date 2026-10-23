@@ -26,6 +26,9 @@ export interface FakeTrashed {
  *   whatever its case and keeps the spelling it has. With `true` (an
  *   iPhone) two names that differ in case are two files. NFC and NFD of one
  *   name are one file on both, and are listed in NFC.
+ * - With `refusesCaseRename` as well (Android, with `caseSensitive: false`)
+ *   both renames refuse a new name the disk finds the thing itself at, as
+ *   Android's do: a change of case alone fails, before anything is moved.
  * - The index holds every path without a `.` name, under the spelling the
  *   disk has, and finds it by that exact spelling only. It follows every
  *   change of the disk, unless `indexFollows` is turned off.
@@ -39,6 +42,7 @@ export interface FakeTrashed {
 export class FakeVaultPorts implements VaultPorts<string> {
 	configDir = ".obsidian";
 	readonly caseSensitive: boolean;
+	readonly refusesCaseRename: boolean;
 	readonly calls: string[] = [];
 	readonly trashed: FakeTrashed[] = [];
 	/** What `trashOption` answers. */
@@ -58,8 +62,9 @@ export class FakeVaultPorts implements VaultPorts<string> {
 	private readonly index = new Map<string, "file" | "folder">();
 	private clock = 1000;
 
-	constructor(options: { caseSensitive: boolean }) {
+	constructor(options: { caseSensitive: boolean; refusesCaseRename?: boolean }) {
 		this.caseSensitive = options.caseSensitive;
+		this.refusesCaseRename = options.refusesCaseRename ?? false;
 		this.folders.add(".obsidian");
 	}
 
@@ -301,6 +306,7 @@ export class FakeVaultPorts implements VaultPorts<string> {
 
 	private move(from: string, to: string): void {
 		const source = this.resolve(from);
+		if (this.refusesCaseRename && this.resolve(to) === source) throw new Error("Destination file already exists!");
 		const isFile = this.files.has(source);
 		if (!isFile && !this.folders.has(source)) throw new Error(`ENOENT: ${from}`);
 		const parent = parentOf(to);

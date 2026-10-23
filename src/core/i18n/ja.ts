@@ -354,6 +354,8 @@ export const ja = completeTranslation(en, {
 		"このバージョンの Sync Evo から、除外している物は、{remote} にあっても同期しません。{remote} にある {count} 件のファイルを、このデバイスでは同期しなくなりました。全デバイスで除外している物は、Sync Evo の設定画面の「除外していて、{remote} に残っているファイル」で見られます。",
 	"notice.localLink":
 		"保管庫の中に、リンク（シンボリックリンク、ジャンクション）があります。Sync Evo は、リンクとその中を同期しません。{remote} でも、このデバイス（リンクの先）でも、そのままにします。ほかは通常どおり同期します：\n{list}",
+	"notice.renamingLeft":
+		"Sync Evo は、次の名前の大文字と小文字を2回に分けて変え、その途中で止まりました。末尾の「.sync-evo-renaming」を除いた名前に別の物があるか、このデバイスが改名を断ったため、今はこの名前のままにしていて、同期しません。その名前にある物を移すか名前を変えると、次の同期で元の名前に戻します：\n{list}",
 	"notice.nestedGitignore.brief": "下位のフォルダの .gitignore {count} 件は、規則として読みません。",
 	"notice.submodule.brief": "サブモジュール {count} 件の中身は、ダウンロードできません。",
 	"notice.localLink.brief": "保管庫の中のリンク {count} 件は、同期しません。",
