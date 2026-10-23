@@ -1,5 +1,7 @@
 # Sync Evo
 
+[![CI](https://github.com/seking/obsidian-sync-evo/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/seking/obsidian-sync-evo/actions/workflows/ci.yml)
+
 [English](https://github.com/seking/obsidian-sync-evo/blob/main/README.md)
 
 保管庫を、すべてのデバイスで同期します。使うのは、自分の GitHub・Dropbox・Google Drive のどれかです。

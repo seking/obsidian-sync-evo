@@ -1,5 +1,7 @@
 # Sync Evo
 
+[![CI](https://github.com/seking/obsidian-sync-evo/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/seking/obsidian-sync-evo/actions/workflows/ci.yml)
+
 [日本語](https://github.com/seking/obsidian-sync-evo/blob/main/README.ja.md)
 
 Sync your vault across all your devices, through your own GitHub, Dropbox or Google Drive.
