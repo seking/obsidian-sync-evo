@@ -1024,40 +1024,171 @@ describe("a pull through the routing", () => {
 			expect(ports.calls).toEqual([]);
 		});
 
-		test("a name between whose name is taken stays, is told once, and is not sent", async () => {
-			const { ports, backend, sync } = harness(false, true);
-			backend.commit({ "a.md": "a" });
-			await sync();
-			ports.put("Tools.sync-evo-renaming/x.md", "x");
-			ports.put("tools/y.md", "y");
-			ports.calls.length = 0;
+		// What a rename of `notes` to `Notes` that stopped between its two
+		// calls leaves: the records and the vault as before it, the folder at
+		// the name between.
+		async function leftBetween(h: ReturnType<typeof harness>): Promise<void> {
+			h.backend.commit({ "notes/a.md": "a", "notes/b.md": "b" });
+			await h.sync();
+			h.backend.commit({ "notes/a.md": null, "notes/b.md": null, "Notes/a.md": "a", "Notes/b.md": "b" });
+			await h.ports.renameOnDisk("notes", "Notes.sync-evo-renaming");
+			h.ports.calls.length = 0;
+		}
 
-			const first = await sync();
-			expect(first.pull.outcome).toBe("completed");
-			expect(first.pull.notices).toEqual([{ kind: "renaming-left", path: "Tools.sync-evo-renaming" }]);
-			expect(ports.paths()).toEqual(["Tools.sync-evo-renaming/x.md", "a.md", "tools/y.md"]);
-			expect(await remoteFiles(backend)).toEqual(["a.md", "tools/y.md"]);
+		const records = async (store: MemoryStateStore): Promise<string[]> =>
+			(await store.readRecords()).map((record) => record.path).sort();
+
+		test("a name between whose name is taken stays, is told once, and what is at its name waits", async () => {
+			const h = harness(false, true);
+			await leftBetween(h);
+			h.ports.put("notes/y.md", "y");
+			h.ports.calls.length = 0;
+
+			const first = await h.sync();
+			expect(first.pull.outcome).toBe("incomplete");
+			expect(first.pull.notices).toEqual([{ kind: "renaming-left", path: "Notes.sync-evo-renaming" }]);
+			expect(first.pull.deferred).toEqual([
+				{ path: "Notes/a.md", reason: "depends-on-deferred" },
+				{ path: "Notes/b.md", reason: "depends-on-deferred" },
+			]);
+			// Nothing fetched to the name, and the records stay.
+			expect(h.ports.paths()).toEqual(["Notes.sync-evo-renaming/a.md", "Notes.sync-evo-renaming/b.md", "notes/y.md"]);
+			expect(await records(h.store)).toEqual(["notes/a.md", "notes/b.md"]);
+			expect(await remoteFiles(h.backend)).toEqual(["Notes/a.md", "Notes/b.md"]);
 
 			// Tried again, and not told again.
-			const second = await sync();
+			const second = await h.sync();
+			expect(second.pull.outcome).toBe("incomplete");
 			expect(second.pull.notices).toEqual([]);
-			expect(ports.paths()).toEqual(["Tools.sync-evo-renaming/x.md", "a.md", "tools/y.md"]);
+			expect(h.ports.paths()).toEqual(["Notes.sync-evo-renaming/a.md", "Notes.sync-evo-renaming/b.md", "notes/y.md"]);
+			expect(await records(h.store)).toEqual(["notes/a.md", "notes/b.md"]);
 
-			// Given back once the name is free, and sent as the folder it is.
-			await ports.renameOnDisk("tools", "other");
-			await sync();
-			expect(ports.paths()).toEqual(["Tools/x.md", "a.md", "other/y.md"]);
-			expect(await remoteFiles(backend)).toEqual(["Tools/x.md", "a.md", "other/y.md"]);
+			// Given back once the name is free, and the rename goes on.
+			await h.ports.renameOnDisk("notes", "other");
+			h.ports.calls.length = 0;
+			const third = await h.sync();
+			expect(third.pull.outcome).toBe("completed");
+			expect(third.pull.counts).toEqual({ fetched: 0, deleted: 0, renamed: 0, conflicts: 0 });
+			expect(h.ports.calls).toEqual(["renameIndexed Notes.sync-evo-renaming -> Notes"]);
+			expect(h.ports.paths()).toEqual(["Notes/a.md", "Notes/b.md", "other/y.md"]);
+			expect(await records(h.store)).toEqual(["Notes/a.md", "Notes/b.md", "other/y.md"]);
+			expect(await remoteFiles(h.backend)).toEqual(["Notes/a.md", "Notes/b.md", "other/y.md"]);
 		});
 
-		test("so is a file left at the name between, and it is not sent", async () => {
+		test("a name between the vault refuses to give back once is given back by the next sync, which goes on with the rename", async () => {
+			const h = harness(false, true);
+			await leftBetween(h);
+			h.ports.before = (_, path) => {
+				if (path === "Notes.sync-evo-renaming -> Notes") throw new Error("EBUSY");
+			};
+
+			const first = await h.sync();
+			expect(first.pull.outcome).toBe("incomplete");
+			expect(first.pull.notices).toEqual([{ kind: "renaming-left", path: "Notes.sync-evo-renaming" }]);
+			expect(first.pull.counts).toEqual({ fetched: 0, deleted: 0, renamed: 0, conflicts: 0 });
+			expect(h.ports.paths()).toEqual(["Notes.sync-evo-renaming/a.md", "Notes.sync-evo-renaming/b.md"]);
+			expect(await records(h.store)).toEqual(["notes/a.md", "notes/b.md"]);
+			expect(first.push?.outcome).toBe("nothing-to-push");
+
+			h.ports.before = undefined;
+			h.ports.calls.length = 0;
+			const second = await h.sync();
+			expect(second.pull.outcome).toBe("completed");
+			expect(second.pull.counts).toEqual({ fetched: 0, deleted: 0, renamed: 0, conflicts: 0 });
+			expect(second.pull.notices).toEqual([]);
+			expect(h.ports.calls).toEqual(["renameIndexed Notes.sync-evo-renaming -> Notes"]);
+			expect(h.ports.paths()).toEqual(["Notes/a.md", "Notes/b.md"]);
+			expect(await records(h.store)).toEqual(["Notes/a.md", "Notes/b.md"]);
+			expect(await remoteFiles(h.backend)).toEqual(["Notes/a.md", "Notes/b.md"]);
+		});
+
+		test("a rename whose second call and whose way back both fail is gone on with by the next sync", async () => {
+			const h = harness(false, true);
+			h.backend.commit({ "notes/a.md": "a", "notes/b.md": "b" });
+			await h.sync();
+			h.backend.commit({ "notes/a.md": null, "notes/b.md": null, "Notes/a.md": "a", "Notes/b.md": "b" });
+			h.ports.before = (_, path) => {
+				if (path.startsWith("Notes.sync-evo-renaming -> ")) throw new Error("EBUSY");
+			};
+			h.ports.calls.length = 0;
+
+			const first = await h.sync();
+			expect(h.ports.calls).toEqual(["renameIndexed notes -> Notes", "renameIndexed notes -> Notes.sync-evo-renaming"]);
+			expect(first.pull.counts).toEqual({ fetched: 0, deleted: 0, renamed: 0, conflicts: 0 });
+			expect(h.ports.paths()).toEqual(["Notes.sync-evo-renaming/a.md", "Notes.sync-evo-renaming/b.md"]);
+			expect(await records(h.store)).toEqual(["notes/a.md", "notes/b.md"]);
+			expect(await remoteFiles(h.backend)).toEqual(["Notes/a.md", "Notes/b.md"]);
+
+			h.ports.before = undefined;
+			h.ports.calls.length = 0;
+			const second = await h.sync();
+			expect(second.pull.outcome).toBe("completed");
+			expect(second.pull.counts).toEqual({ fetched: 0, deleted: 0, renamed: 0, conflicts: 0 });
+			expect(h.ports.calls).toEqual(["renameIndexed Notes.sync-evo-renaming -> Notes"]);
+			expect(h.ports.paths()).toEqual(["Notes/a.md", "Notes/b.md"]);
+			expect(await records(h.store)).toEqual(["Notes/a.md", "Notes/b.md"]);
+		});
+
+		test("a pull that starts over gives a name between back once the user said yes, and compares it under its name", async () => {
+			const h = harness(false, true);
+			await leftBetween(h);
+			const discardState = async (seed: Parameters<NonNullable<PullDeps["discardState"]>>[0]) => {
+				await h.store.startOver(seed);
+				return h.store;
+			};
+
+			// Nothing is changed before the answer.
+			const declined = await h.pull({ discardState, confirm: async () => "cancel" });
+			expect(declined.outcome).toBe("declined");
+			expect(h.ports.calls).toEqual([]);
+			expect(h.ports.paths()).toEqual(["Notes.sync-evo-renaming/a.md", "Notes.sync-evo-renaming/b.md"]);
+
+			const result = await h.pull({ discardState });
+			expect(result.outcome).toBe("completed");
+			expect(result.counts).toEqual({ fetched: 0, deleted: 0, renamed: 0, conflicts: 0 });
+			expect(h.ports.calls).toEqual(["renameIndexed Notes.sync-evo-renaming -> Notes"]);
+			expect(h.ports.paths()).toEqual(["Notes/a.md", "Notes/b.md"]);
+			expect(await records(h.store)).toEqual(["Notes/a.md", "Notes/b.md"]);
+		});
+
+		test("a light check finds a name between in the index, and gives it back", async () => {
+			const h = harness(false, true);
+			await leftBetween(h);
+			// The app's index: every file without a `.` name.
+			const index = {
+				indexedFiles: () =>
+					h.ports
+						.paths()
+						.filter((path) => !path.split("/").some((name) => name.startsWith(".")))
+						.map((path) => ({ path, mtime: 0, size: 0 })),
+			};
+
+			const result = await h.pull({ index });
+			expect(result.outcome).toBe("completed");
+			expect(result.counts).toEqual({ fetched: 0, deleted: 0, renamed: 0, conflicts: 0 });
+			expect(h.ports.calls).toEqual(["renameIndexed Notes.sync-evo-renaming -> Notes"]);
+			expect(h.ports.paths()).toEqual(["Notes/a.md", "Notes/b.md"]);
+			expect(await records(h.store)).toEqual(["Notes/a.md", "Notes/b.md"]);
+		});
+
+		test.each([
+			["a file", "Notes.md.sync-evo-renaming"],
+			["a folder", "Tools.sync-evo-renaming/x.md"],
+		])("%s of the user's whose name ends so is left as it is, not told, and not sent", async (_, path) => {
 			const { ports, backend, sync } = harness(false, true);
 			backend.commit({ "a.md": "a" });
 			await sync();
-			ports.put("Notes.md.sync-evo-renaming", "n");
-			ports.put("notes.md", "other");
-			await sync();
-			expect(await remoteFiles(backend)).toEqual(["a.md", "notes.md"]);
+			ports.put(path, "mine");
+			ports.calls.length = 0;
+
+			for (let round = 0; round < 2; round++) {
+				const result = await sync();
+				expect(result.pull.outcome).toBe("completed");
+				expect(result.pull.notices).toEqual([]);
+				expect(ports.calls).toEqual([]);
+				expect(ports.paths()).toEqual([path, "a.md"]);
+				expect(await remoteFiles(backend)).toEqual(["a.md"]);
+			}
 		});
 	});
 

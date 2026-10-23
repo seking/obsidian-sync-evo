@@ -238,6 +238,8 @@ class PullRun {
 	private recoveredUntrack: number | null = null;
 	/** The names a rename was left at that could not be given back (`settleRenamings`). */
 	private readonly renamingLeft: string[] = [];
+	/** Whether the sync state was discarded, once the user said yes to starting over. */
+	private discarded = false;
 
 	/** How long the pull spent in each phase, for the log. */
 	private readonly clock: PhaseClock;
@@ -452,15 +454,27 @@ class PullRun {
 	 * call, which is no change of case alone and goes through. What the
 	 * rename was for is then as if it had been done in one call and the pull
 	 * stopped after it, which the plan goes on with (`applyFolderRename`,
-	 * `renameSeen` in `pull-apply.ts`). One whose name is taken by something
-	 * else, or that the vault does not let go, stays, is told
-	 * ("renaming-left"), and is tried again by the next pull. Answers
-	 * whether any was given back.
+	 * `renameSeen` in `pull-apply.ts`). Answers whether any was given back.
+	 *
+	 * Only a name Sync Evo put there (`renamingsToGiveBack`). A name of the
+	 * user's that happens to end in the mark is left as it is, and not told:
+	 * it is not synced either way, like a `.git`.
+	 *
+	 * One whose name is taken by something else, or that the vault does not
+	 * let go, stays, is told ("renaming-left"), and is tried again by the
+	 * next pull. Until then, what the remote and the records have at its
+	 * name and below waits (`holdRenamingLeft`).
 	 */
-	private async settleRenamings(paths: readonly string[]): Promise<boolean> {
+	private async settleRenamings(
+		found: readonly string[],
+		remote: readonly { readonly path: string }[],
+		records: readonly { readonly path: string }[],
+	): Promise<boolean> {
 		const { deps } = this;
+		// Found again by a second survey, and told once.
+		this.renamingLeft.length = 0;
 		let given = false;
-		for (const path of paths) {
+		for (const path of renamingsToGiveBack(found, remote, records)) {
 			const name = withoutRenamingMark(path);
 			try {
 				await deps.vault.rename(path, name);
@@ -468,10 +482,36 @@ class PullRun {
 				deps.log?.(`pull: gave ${path} back its name ${name}`);
 			} catch (error) {
 				this.renamingLeft.push(path);
+				this.holdRenamingLeft(name, remote, records);
 				deps.log?.(`pull: left ${path}, not given back its name ${name}: ${error instanceof Error ? error.message : String(error)}`);
 			}
 		}
 		return given;
+	}
+
+	/**
+	 * Keeps out of the plan (`PlanInput.held`) what the remote and the
+	 * records have at `name` and below, a name a rename was left short of,
+	 * and puts it off: the record stays, and nothing is fetched or deleted.
+	 * Planned as usual, the records would read as deleted in the vault, the
+	 * remote's files would be fetched to `name`, and the name could never be
+	 * given back. The pull is not done while it is so, and the push after it
+	 * leaves the paths alone (`pathsToHold` in `sync.ts`). Once the name is
+	 * given back, the plan goes on with the rename.
+	 */
+	private holdRenamingLeft(
+		name: string,
+		remote: readonly { readonly path: string }[],
+		records: readonly { readonly path: string }[],
+	): void {
+		const folded = foldedKey(name);
+		for (const { path } of [...remote, ...records]) {
+			const key = foldedKey(path);
+			if (key !== folded && !key.startsWith(`${folded}/`)) continue;
+			if (this.held.has(key)) continue;
+			this.held.add(key);
+			this.unread.push({ path, reason: "depends-on-deferred" });
+		}
 	}
 
 	/**
@@ -893,6 +933,12 @@ class PullRun {
 					const seed: StateSeed = { listing, markers: this.unsettled, meta };
 					store = await deps.discardState(seed);
 					this.store = store;
+					this.discarded = true;
+					// The names a rename was left at are given back now, by
+					// the survey below, and compared under their names. Left,
+					// the files fetched to their names would keep them from
+					// ever being given back.
+					if (renamingsToGiveBack(scan.renaming, listing.entries, []).length > 0) settled = true;
 				}
 				// Before anything is changed, so that a first fetch that stops
 				// halfway goes on without asking again. When there was nothing
@@ -1124,8 +1170,12 @@ class PullRun {
 		// Found by the scan, which lists every folder anyway, and not by a
 		// look of its own before it: such a name is rare, and the vault is
 		// scanned again only when one was given back. Not when the pull
-		// starts over, which changes nothing before the user said yes.
-		if (deps.discardState === undefined && (await this.settleRenamings(found.renaming))) {
+		// starts over until the user said yes: the vault is not changed
+		// before that.
+		if (
+			(deps.discardState === undefined || this.discarded) &&
+			(await this.settleRenamings(found.renaming, listing.entries, records))
+		) {
 			({ light, found } = await scanOnce());
 		}
 		const scanMs = deps.now() - began;
@@ -1698,4 +1748,29 @@ function blockedPath(skip: PullSkip): string {
 
 function trimSlashes(path: string): string {
 	return path.replace(/^\/+|\/+$/g, "");
+}
+
+/**
+ * Of the names a rename was left at that the scan found (`ScanResult.renaming`),
+ * the ones Sync Evo put there: whose name without the mark the remote or a
+ * record has, as a file or as a folder of one. Compared without the cases:
+ * the rename was to the remote's spelling, and the record has the one from
+ * before. A rename of Sync Evo's is only ever made to a path the remote
+ * has, and a record stays until its rename is done (`holdRenamingLeft`).
+ * What is left out: a file that had no record (a spelling of the vault's
+ * own, given the remote's) and that the remote deleted since. It stays
+ * under the name between, not synced, and nothing of it is lost.
+ */
+function renamingsToGiveBack(
+	found: readonly string[],
+	remote: readonly { readonly path: string }[],
+	records: readonly { readonly path: string }[],
+): string[] {
+	if (found.length === 0) return [];
+	const known = new Set<string>();
+	for (const { path } of [...remote, ...records]) {
+		const parts = foldedKey(path).split("/");
+		for (let end = 1; end <= parts.length; end++) known.add(parts.slice(0, end).join("/"));
+	}
+	return found.filter((path) => known.has(foldedKey(withoutRenamingMark(path))));
 }

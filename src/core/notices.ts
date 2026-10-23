@@ -100,8 +100,10 @@ import type { StateStore } from "./state";
  *   where the platform refuses it in one (`RoutedVault.rename`), stopped
  *   between the two, and the name it was left at could not be given back
  *   (`settleRenamings` in `pull.ts`): something else has the name, or the
- *   vault refused. Not synced under that name. The path is the one it was
- *   left at. Found by a pull alone, which tries it again every time.
+ *   vault refused. Not synced under that name, and what the remote and the
+ *   records have at the name waits. The path is the one it was left at.
+ *   Found by a pull alone, which tries it again every time. Not told of a
+ *   name of the user's that happens to end so.
  *
  * A new kind is a new name here and a text in the catalog.
  */

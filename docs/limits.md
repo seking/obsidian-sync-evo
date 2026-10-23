@@ -63,7 +63,9 @@ Obsidian on Android refuses a rename that changes only upper and lower case (`to
 
 - A name with `.sync-evo-renaming` at the end is never synced.
 - If a sync stops between the two steps, the next sync gives the name back, and goes on with the rename.
-- If something else has taken the name in the meantime, the file or folder keeps the name with `.sync-evo-renaming`, and Sync Evo tells you once. Move or rename what has the name, and the next sync gives it back.
+- Only a name Sync Evo put there is given back. A file or folder you named so yourself is left as it is, and is not synced.
+- If something else has taken the name in the meantime, the file or folder keeps the name with `.sync-evo-renaming`, and Sync Evo tells you once. Until it is given back, nothing is downloaded to the name or deleted there, and the sync is not complete. Move or rename what has the name, and the next sync gives it back.
+- A file you changed while it had the name with `.sync-evo-renaming` may then be kept twice: the remote's version keeps the name, and yours is kept as a conflict file in `_conflicts/`.
 
 ### Downloads one file at a time
 
