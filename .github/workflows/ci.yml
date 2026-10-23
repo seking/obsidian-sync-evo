@@ -5,7 +5,9 @@
 name: CI
 
 on:
+  # Branches only: a release's tag is the commit already built on its branch.
   push:
+    branches: ["**"]
   pull_request:
 
 permissions:
