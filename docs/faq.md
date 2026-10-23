@@ -34,7 +34,7 @@ In the folder `_conflicts/` at the root of the vault, as `<date> <name> (<device
 
 ## Switching a device from Git to Sync Evo
 
-Use Git (or the Obsidian Git plugin) or Sync Evo on a device, not both. Git does not learn of what Sync Evo sends, so its next pull on that device would stop. Other devices can keep using Git on the same repository.
+Use Git (or the Obsidian Git plugin) or Sync Evo on a device, not both. To Git, what Sync Evo syncs looks like changes not yet committed, so on that device its pulls can stop, and its commits can take them in. Other devices can keep using Git on the same repository.
 
 To move a device to Sync Evo, for automatic sync on a phone for example:
 
