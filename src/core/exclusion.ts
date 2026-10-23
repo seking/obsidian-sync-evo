@@ -61,6 +61,7 @@ export type PathType = "file" | "folder";
  *   (`RENAMING_MARK`), and everything below it. It is a file or a folder of
  *   the vault under a name of the moment, which the next pull gives back
  *   (`settleRenamings`); sent, it would reach the other devices as a copy.
+ *   A name of the user's that happens to end so is not synced either.
  */
 export type HardExclusion = "dot-git" | "own-folder" | "renaming";
 

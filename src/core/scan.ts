@@ -94,7 +94,8 @@ export interface ScanResult {
 	 * The names a rename in two calls went through and was left at
 	 * (`RENAMING_MARK`), as the disk spells them: files, and folders that
 	 * were not entered. Left out of `paths`, as the exclusion leaves them out
-	 * of the sync; the pull gives them back their names (`settleRenamings`).
+	 * of the sync; the pull gives those Sync Evo put there back their names
+	 * (`settleRenamings`).
 	 */
 	readonly renaming: readonly string[];
 }
