@@ -347,7 +347,7 @@ export const en = baseCatalog({
 	"notice.ownFolderOnRemote":
 		"Sync Evo's own folder is on {remote}. Sync Evo never syncs that folder: it is left as it is, on {remote} and on this device. Everything else is synced as usual. To remove the folder, use \"Remove from {remote}\" in the settings of Sync Evo (while .gitignore has the line for that folder):\n{list}",
 	"notice.gitAtRoot":
-		"This vault has a .git at its root, so it is a Git repository. Use Git (or the Obsidian Git plugin) or Sync Evo on this device, not both: Git does not learn of what Sync Evo syncs, and its next pull would stop. If you moved this device to Sync Evo, turn off Obsidian Git, and delete the .git folder once you no longer need it. Sync Evo keeps syncing in the meantime. See \"Switching a device from Git to Sync Evo\" in the FAQ.",
+		"This vault has a .git at its root, so it is a Git repository. Use Git (or the Obsidian Git plugin) or Sync Evo on this device, not both: to Git, what Sync Evo syncs looks like changes of its own not yet committed, so its pulls can stop, and its commits can take them in. If you moved this device to Sync Evo, stop using Git here (turn off Obsidian Git), and delete the .git folder once you no longer need it. Sync Evo keeps syncing either way. See \"Switching a device from Git to Sync Evo\" in the FAQ.",
 
 	"notice.remotePathCollision":
 		"There are paths on {remote} that differ only in upper and lower case, or only in their Unicode form (NFC and NFD). Not every device can keep such paths apart, so none of them is written here. Rename them on {remote}:\n{list}",
