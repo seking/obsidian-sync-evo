@@ -355,7 +355,7 @@ export const ja = completeTranslation(en, {
 	"notice.localLink":
 		"保管庫の中に、リンク（シンボリックリンク、ジャンクション）があります。Sync Evo は、リンクとその中を同期しません。{remote} でも、このデバイス（リンクの先）でも、そのままにします。ほかは通常どおり同期します：\n{list}",
 	"notice.renamingLeft":
-		"Sync Evo は、次の名前の大文字と小文字を2回に分けて変え、その途中で止まりました。末尾の「.sync-evo-renaming」を除いた名前に別の物があるか、このデバイスが改名を断ったため、今はこの名前のままにしていて、同期しません。その名前にある物を移すか名前を変えると、次の同期で元の名前に戻します：\n{list}",
+		"Sync Evo は、次の名前の大文字と小文字を2回に分けて変え、その途中で止まりました。末尾の「.sync-evo-renaming」を除いた名前に別の物があるか、このデバイスが改名を断ったため、今はこの名前のままにしていて、同期しません。元の名前に戻すまでは、末尾を除いた名前とその下の物も、同期しません。その名前にある物を移すか名前を変えると、次の同期で元の名前に戻します：\n{list}",
 	"notice.nestedGitignore.brief": "下位のフォルダの .gitignore {count} 件は、規則として読みません。",
 	"notice.submodule.brief": "サブモジュール {count} 件の中身は、ダウンロードできません。",
 	"notice.localLink.brief": "保管庫の中のリンク {count} 件は、同期しません。",
@@ -469,6 +469,8 @@ export const ja = completeTranslation(en, {
 		"このデバイスのファイル {count} 件を読めませんでした。そのままにしてあります。ファイルを確かめてから、もう一度同期してください：\n{list}",
 	"pull.waitingForUnread":
 		"ほかに {count} 件のファイルも、上のファイルの後に回したため、ダウンロードしていません。上のファイルが片付くと、次の同期でダウンロードします。",
+	"pull.waitingAlone":
+		"{count} 件のファイルを、ダウンロードも削除もせず、次の同期に回しました。Sync Evo が知らせた、このデバイスの物が片付くのを待っています。",
 	"pull.conflicts": "このデバイスのファイル {count} 件の内容を、競合ファイルとして残しました：\n{list}",
 	"pull.conflict.conflict": "{copy}（競合。{path} は {remote} の内容になりました）",
 	"pull.conflict.becameSymlink":

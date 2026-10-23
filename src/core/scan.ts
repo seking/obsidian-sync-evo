@@ -16,7 +16,7 @@
 // the result into the local side of the sync decision.
 
 import type { RemoteEntry } from "./backend";
-import { type Exclusion, knownPaths } from "./exclusion";
+import { type Exclusion, knownPaths, type PathType } from "./exclusion";
 import { foldedKey, pathKey } from "./paths";
 import type { SyncRecord } from "./plan";
 import { isRenamingName, lastOf } from "./vault-routes";
@@ -97,7 +97,17 @@ export interface ScanResult {
 	 * of the sync; the pull gives those Sync Evo put there back their names
 	 * (`settleRenamings`).
 	 */
-	readonly renaming: readonly string[];
+	readonly renaming: readonly RenamingFound[];
+}
+
+/**
+ * A name a rename was left at (`ScanResult.renaming`), and whether it is a
+ * file or a folder: a file is given back only to a file, and a folder only
+ * to a folder (`renamingsToGiveBack` in `pull.ts`).
+ */
+export interface RenamingFound {
+	readonly path: string;
+	readonly type: PathType;
 }
 
 const ROOT = "/";
@@ -160,7 +170,7 @@ export async function scanVault(input: ScanInput): Promise<ScanResult> {
 
 	const paths: ScannedPath[] = [];
 	const links: string[] = [];
-	const renaming: string[] = [];
+	const renaming: RenamingFound[] = [];
 	let rootHasGit = false;
 
 	const pending: string[] = [ROOT];
@@ -188,7 +198,7 @@ export async function scanVault(input: ScanInput): Promise<ScanResult> {
 			if (folder === ROOT && foldedKey(path) === ".git") rootHasGit = true;
 			if (isLink(path, "file")) continue;
 			if (isRenamingName(lastOf(path))) {
-				renaming.push(path);
+				renaming.push({ path, type: "file" });
 				continue;
 			}
 			const evicted = placeholderTarget(path);
@@ -205,7 +215,7 @@ export async function scanVault(input: ScanInput): Promise<ScanResult> {
 			if (folder === ROOT && folded === ".git") rootHasGit = true;
 			if (isLink(path, "folder")) continue;
 			if (isRenamingName(lastOf(path))) {
-				renaming.push(path);
+				renaming.push({ path, type: "folder" });
 				continue;
 			}
 			if (exclusion.excludes(path, "folder", known)) continue;

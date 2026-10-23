@@ -397,7 +397,7 @@ export const en = baseCatalog({
 	"notice.localLink":
 		"This vault has links in it (symbolic links, or junctions). Sync Evo does not sync a link or what is in it, and leaves it as it is, on {remote} and on this device, where it points to. Everything else is synced as usual:\n{list}",
 	"notice.renamingLeft":
-		"Sync Evo changed the upper and lower case of these names in two steps, and stopped in between. The name without \".sync-evo-renaming\" at the end is taken by something else, or this device refused the rename, so they keep this name for now and are not synced. Move or rename what has that name, and the next sync gives them their name back:\n{list}",
+		"Sync Evo changed the upper and lower case of these names in two steps, and stopped in between. The name without \".sync-evo-renaming\" at the end is taken by something else, or this device refused the rename, so they keep this name for now and are not synced. Nor is anything at or below the name without it, until they have their name back. Move or rename what has that name, and the next sync gives them their name back:\n{list}",
 	"notice.nestedGitignore.brief": {
 		one: "{count} .gitignore in a subfolder is not read as rules.",
 		other: "{count} .gitignore files in subfolders are not read as rules.",
@@ -554,6 +554,10 @@ export const en = baseCatalog({
 	"pull.waitingForUnread": {
 		one: "{count} other file was not downloaded either, since it comes after the files above. Once those are seen to, the next sync downloads it.",
 		other: "{count} other files were not downloaded either, since they come after the files above. Once those are seen to, the next sync downloads them.",
+	},
+	"pull.waitingAlone": {
+		one: "{count} file was not downloaded or deleted, and is left for the next sync. It waits for something Sync Evo told you about to be seen to on this device.",
+		other: "{count} files were not downloaded or deleted, and are left for the next sync. They wait for something Sync Evo told you about to be seen to on this device.",
 	},
 	"pull.conflicts": {
 		one: "The content of {count} file on this device was kept as a conflict file:\n{list}",
