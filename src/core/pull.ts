@@ -97,7 +97,7 @@ import {
 	planPull,
 	pullLosses,
 } from "./pull-plan";
-import { fromRoot, type ScanResult, scanVault } from "./scan";
+import { fromRoot, type RenamingFound, type ScanResult, scanVault } from "./scan";
 import {
 	BASE_REVISION_KEY,
 	copiedPathOf,
@@ -174,6 +174,14 @@ interface Survey {
 }
 
 const GITIGNORE = ".gitignore";
+
+/**
+ * How many names a rename was left at, one inside the other, a pull gives
+ * back (`settleRenamings`), each with a scan of its own. Each of them is a
+ * pull that stopped between its two calls, so more than a few is not
+ * expected; past it, the next pull goes on.
+ */
+const RENAMING_DEPTH = 8;
 
 /**
  * Pulls. Resolves with what happened, also when the pull did not get to the
@@ -463,27 +471,37 @@ class PullRun {
 	 * One whose name is taken by something else, or that the vault does not
 	 * let go, stays, is told ("renaming-left"), and is tried again by the
 	 * next pull. Until then, what the remote and the records have at its
-	 * name and below waits (`holdRenamingLeft`).
+	 * name and below waits (`holdRenamingLeft`). So does one that is not
+	 * tried (`giveBack` false), or that this survey tried already: found
+	 * again by the scan after another was given back, it is not tried twice.
+	 * The list of the ones left is emptied by the caller, once a survey.
 	 */
 	private async settleRenamings(
-		found: readonly string[],
+		found: readonly RenamingFound[],
 		remote: readonly { readonly path: string }[],
 		records: readonly { readonly path: string }[],
+		giveBack: boolean,
 	): Promise<boolean> {
 		const { deps } = this;
-		// Found again by a second survey, and told once.
-		this.renamingLeft.length = 0;
 		let given = false;
 		for (const path of renamingsToGiveBack(found, remote, records)) {
 			const name = withoutRenamingMark(path);
+			const left = (why: string): void => {
+				this.renamingLeft.push(path);
+				this.holdRenamingLeft(name, remote, records);
+				deps.log?.(`pull: left ${path}, not given back its name ${name}: ${why}`);
+			};
+			if (this.renamingLeft.some((other) => foldedKey(other) === foldedKey(path))) continue;
+			if (!giveBack) {
+				left("too deep");
+				continue;
+			}
 			try {
 				await deps.vault.rename(path, name);
 				given = true;
 				deps.log?.(`pull: gave ${path} back its name ${name}`);
 			} catch (error) {
-				this.renamingLeft.push(path);
-				this.holdRenamingLeft(name, remote, records);
-				deps.log?.(`pull: left ${path}, not given back its name ${name}: ${error instanceof Error ? error.message : String(error)}`);
+				left(error instanceof Error ? error.message : String(error));
 			}
 		}
 		return given;
@@ -1172,11 +1190,22 @@ class PullRun {
 		// scanned again only when one was given back. Not when the pull
 		// starts over until the user said yes: the vault is not changed
 		// before that.
-		if (
-			(deps.discardState === undefined || this.discarded) &&
-			(await this.settleRenamings(found.renaming, listing.entries, records))
-		) {
-			({ light, found } = await scanOnce());
+		//
+		// The scan does not go into a folder at such a name, so one inside
+		// it (a rename of `a/b` and then of `a`, each stopped between) is
+		// found by the scan after it was given back, and given back in turn.
+		// Left, what the records have below it would read as deleted, and
+		// what the remote has would be fetched to its name. Every scan goes
+		// by `settleRenamings`, the last too: past `RENAMING_DEPTH`, what is
+		// still to give back waits for the next pull, which goes on from it.
+		// Found again by a second survey, and told once.
+		this.renamingLeft.length = 0;
+		if (deps.discardState === undefined || this.discarded) {
+			for (let depth = 1; ; depth++) {
+				const given = await this.settleRenamings(found.renaming, listing.entries, records, depth <= RENAMING_DEPTH);
+				if (!given) break;
+				({ light, found } = await scanOnce());
+			}
 		}
 		const scanMs = deps.now() - began;
 		const local = await readLocal(
@@ -1753,24 +1782,35 @@ function trimSlashes(path: string): string {
 /**
  * Of the names a rename was left at that the scan found (`ScanResult.renaming`),
  * the ones Sync Evo put there: whose name without the mark the remote or a
- * record has, as a file or as a folder of one. Compared without the cases:
+ * record has as what it is. A file is given back where they have a file at
+ * the name, and a folder where they have paths below the name: a file of
+ * the user's at the name of a folder (`Notes.sync-evo-renaming` beside
+ * `Notes/a.md`) is no rename of Sync Evo's. Compared without the cases:
  * the rename was to the remote's spelling, and the record has the one from
  * before. A rename of Sync Evo's is only ever made to a path the remote
  * has, and a record stays until its rename is done (`holdRenamingLeft`).
  * What is left out: a file that had no record (a spelling of the vault's
  * own, given the remote's) and that the remote deleted since. It stays
- * under the name between, not synced, and nothing of it is lost.
+ * under the name between, not synced, and nothing of it is lost. Nothing
+ * is written down of a rename between its two calls, so a name the user
+ * made by putting the mark at a name the remote has cannot be told from
+ * one of Sync Evo's, and is given back.
  */
 function renamingsToGiveBack(
-	found: readonly string[],
+	found: readonly RenamingFound[],
 	remote: readonly { readonly path: string }[],
 	records: readonly { readonly path: string }[],
 ): string[] {
 	if (found.length === 0) return [];
-	const known = new Set<string>();
+	const files = new Set<string>();
+	const folders = new Set<string>();
 	for (const { path } of [...remote, ...records]) {
-		const parts = foldedKey(path).split("/");
-		for (let end = 1; end <= parts.length; end++) known.add(parts.slice(0, end).join("/"));
+		const key = foldedKey(path);
+		files.add(key);
+		const parts = key.split("/");
+		for (let end = 1; end < parts.length; end++) folders.add(parts.slice(0, end).join("/"));
 	}
-	return found.filter((path) => known.has(foldedKey(withoutRenamingMark(path))));
+	return found
+		.filter(({ path, type }) => (type === "file" ? files : folders).has(foldedKey(withoutRenamingMark(path))))
+		.map(({ path }) => path);
 }

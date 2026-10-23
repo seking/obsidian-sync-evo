@@ -379,7 +379,7 @@ describe("a disk that tells NFC from NFD", () => {
 });
 
 describe("a name a rename went through", () => {
-	test("is told apart by both, each name once, and its files are left out", async () => {
+	test("is told apart by both, each name once and as a file or a folder, and its files are left out", async () => {
 		const s = setup({
 			"a.md": "A",
 			"Tools.sync-evo-renaming/b.md": "B",
@@ -388,7 +388,10 @@ describe("a name a rename went through", () => {
 		});
 		for (const result of [await light(s), await full(s)]) {
 			expect(result.paths.map((entry) => entry.path)).toEqual(["a.md"]);
-			expect([...result.renaming].sort()).toEqual(["Tools.sync-evo-renaming", "notes/Notes.md.sync-evo-renaming"]);
+			expect([...result.renaming].sort((a, b) => (a.path < b.path ? -1 : 1))).toEqual([
+				{ path: "Tools.sync-evo-renaming", type: "folder" },
+				{ path: "notes/Notes.md.sync-evo-renaming", type: "file" },
+			]);
 		}
 	});
 });

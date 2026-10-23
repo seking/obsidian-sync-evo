@@ -558,6 +558,28 @@ describe("files left for the next sync", () => {
 		);
 	});
 
+	// What they wait for is told by a notice, once ("renaming-left"), and
+	// the pulls after it are not done either.
+	test("files that wait where nothing else was put off are counted on their own", () => {
+		const waiting = result({
+			outcome: "incomplete",
+			deferred: [
+				{ path: "Notes/a.md", reason: "depends-on-deferred" },
+				{ path: "Notes/b.md", reason: "depends-on-deferred" },
+			],
+		});
+		expect(pullReport(t, waiting, options).details).toEqual([
+			"2 files were not downloaded or deleted, and are left for the next sync. They wait for something Sync Evo told you about to be seen to on this device.",
+		]);
+		expect(pullReport(ja, waiting, options).details).toEqual([
+			"2 件のファイルを、ダウンロードも削除もせず、次の同期に回しました。Sync Evo が知らせた、このデバイスの物が片付くのを待っています。",
+		]);
+		const one = result({ outcome: "incomplete", deferred: [{ path: "Notes/a.md", reason: "depends-on-deferred" }] });
+		expect(pullReport(t, one, options).details).toEqual([
+			"1 file was not downloaded or deleted, and is left for the next sync. It waits for something Sync Evo told you about to be seen to on this device.",
+		]);
+	});
+
 	test("a pull that was declined left nothing for later, and says nothing of that", () => {
 		const report = pullReport(
 			t,
@@ -829,7 +851,7 @@ describe("what the user has to know", () => {
 			"These files on GitHub could not be written: files that are only on this device are in their place. Move or rename those, and the next download writes these:\nnotes",
 		);
 		expect(report.details[20]).toBe(
-			'Sync Evo changed the upper and lower case of these names in two steps, and stopped in between. The name without ".sync-evo-renaming" at the end is taken by something else, or this device refused the rename, so they keep this name for now and are not synced. Move or rename what has that name, and the next sync gives them their name back:\nTools.sync-evo-renaming',
+			'Sync Evo changed the upper and lower case of these names in two steps, and stopped in between. The name without ".sync-evo-renaming" at the end is taken by something else, or this device refused the rename, so they keep this name for now and are not synced. Nor is anything at or below the name without it, until they have their name back. Move or rename what has that name, and the next sync gives them their name back:\nTools.sync-evo-renaming',
 		);
 	});
 

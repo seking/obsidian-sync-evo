@@ -88,11 +88,14 @@ describe("what the scan finds", () => {
 		expect(result.paths).toEqual([{ path: nfd, key: nfc, state: "present" }]);
 	});
 
-	test("a name a rename went through is told apart, and not entered", async () => {
+	test("a name a rename went through is told apart, as a file or a folder, and not entered", async () => {
 		const vault = new MemoryVault(["a.md", "Tools.sync-evo-renaming/b.md", "notes/Notes.md.sync-evo-renaming"]);
 		const result = await scan(vault);
 		expect(found(result)).toEqual(["a.md"]);
-		expect([...result.renaming].sort()).toEqual(["Tools.sync-evo-renaming", "notes/Notes.md.sync-evo-renaming"]);
+		expect([...result.renaming].sort((a, b) => (a.path < b.path ? -1 : 1))).toEqual([
+			{ path: "Tools.sync-evo-renaming", type: "folder" },
+			{ path: "notes/Notes.md.sync-evo-renaming", type: "file" },
+		]);
 		expect(vault.listed).not.toContain("Tools.sync-evo-renaming");
 	});
 

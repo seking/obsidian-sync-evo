@@ -1190,6 +1190,93 @@ describe("a pull through the routing", () => {
 				expect(await remoteFiles(backend)).toEqual(["a.md"]);
 			}
 		});
+
+		// Given back as what it is: a file only to a file of the remote's or
+		// the records', and a folder only to a folder with paths below it.
+		test.each([
+			["a file of the user's at the name of a folder", { "Notes/a.md": "a", "Notes/b.md": "b" }, "Notes.sync-evo-renaming", { "Notes/a.md": "a2" }],
+			["a folder of the user's at the name of a file", { "Notes.md": "n" }, "Notes.md.sync-evo-renaming/x.md", { "Notes.md": "n2" }],
+		])("%s, with the mark, is left as it is, and what is at the name syncs", async (_, files, path, changes) => {
+			const { ports, backend, sync } = harness(false, true);
+			backend.commit({ ...files, "x.md": "x" });
+			await sync();
+			ports.put(path, "mine");
+			backend.commit({ ...changes, "x.md": "x2" });
+			ports.calls.length = 0;
+
+			for (let round = 0; round < 2; round++) {
+				const result = await sync();
+				expect(result.pull.outcome).toBe("completed");
+				expect(result.pull.notices).toEqual([]);
+				expect(result.pull.deferred).toEqual([]);
+				expect(ports.calls.filter((call) => call.includes(".sync-evo-renaming"))).toEqual([]);
+				expect(ports.paths()).toContain(path);
+			}
+			for (const [changed, text] of Object.entries(changes)) expect(ports.text(changed)).toBe(text);
+			expect(ports.text("x.md")).toBe("x2");
+			expect(await remoteFiles(backend)).toEqual([...Object.keys(files), "x.md"].sort());
+		});
+
+		test("names between, one inside the other, are all given back by one pull, which goes on with the renames", async () => {
+			const h = harness(false, true);
+			h.backend.commit({ "a/b/c.md": "c", "a/d.md": "d" });
+			await h.sync();
+			h.backend.commit({ "a/b/c.md": null, "a/d.md": null, "A/B/c.md": "c", "A/d.md": "d" });
+			// Two pulls that stopped between the two calls: of `a/b`, then of `a`.
+			await h.ports.renameOnDisk("a/b", "a/B.sync-evo-renaming");
+			await h.ports.renameOnDisk("a", "A.sync-evo-renaming");
+			h.ports.calls.length = 0;
+
+			const first = await h.sync();
+			expect(first.pull.outcome).toBe("completed");
+			expect(first.pull.counts).toEqual({ fetched: 0, deleted: 0, renamed: 0, conflicts: 0 });
+			expect(first.pull.notices).toEqual([]);
+			expect(h.ports.calls).toEqual([
+				"renameIndexed A.sync-evo-renaming -> A",
+				"renameIndexed A/B.sync-evo-renaming -> A/B",
+			]);
+			expect(h.ports.paths()).toEqual(["A/B/c.md", "A/d.md"]);
+			expect(await records(h.store)).toEqual(["A/B/c.md", "A/d.md"]);
+			expect(await remoteFiles(h.backend)).toEqual(["A/B/c.md", "A/d.md"]);
+
+			h.ports.calls.length = 0;
+			const second = await h.sync();
+			expect(second.pull.outcome).toBe("completed");
+			expect(h.ports.calls).toEqual([]);
+		});
+
+		test("names between deeper than a pull gives back wait, and the next pull goes on from them", async () => {
+			const h = harness(false, true);
+			const depth = 9;
+			const lower = Array.from({ length: depth }, (_, at) => `d${at}`);
+			const upper = lower.map((name) => name.toUpperCase());
+			const file = (names: string[]): string => `${names.join("/")}/f.md`;
+			h.backend.commit({ [file(lower)]: "f" });
+			await h.sync();
+			h.backend.commit({ [file(lower)]: null, [file(upper)]: "f" });
+			// From the inside out, each a pull that stopped between its two calls.
+			for (let at = depth - 1; at >= 0; at--) {
+				const parent = lower.slice(0, at);
+				await h.ports.renameOnDisk([...parent, lower[at]].join("/"), [...parent, `${upper[at]}.sync-evo-renaming`].join("/"));
+			}
+			h.ports.calls.length = 0;
+
+			const first = await h.sync();
+			expect(h.ports.calls).toHaveLength(depth - 1);
+			const left = `${upper.join("/")}.sync-evo-renaming`;
+			expect(first.pull.outcome).toBe("incomplete");
+			expect(first.pull.notices).toEqual([{ kind: "renaming-left", path: left }]);
+			expect(first.pull.deferred).toEqual([{ path: file(upper), reason: "depends-on-deferred" }]);
+			expect(h.ports.paths()).toEqual([`${left}/f.md`]);
+			expect(await records(h.store)).toEqual([file(lower)]);
+
+			h.ports.calls.length = 0;
+			const second = await h.sync();
+			expect(second.pull.outcome).toBe("completed");
+			expect(h.ports.calls).toEqual([`renameIndexed ${left} -> ${upper.join("/")}`]);
+			expect(h.ports.paths()).toEqual([file(upper)]);
+			expect(await records(h.store)).toEqual([file(upper)]);
+		});
 	});
 
 	test("a file renamed in case onto a name another file has, where the cases are told apart", async () => {

@@ -618,7 +618,11 @@ function incompleteText(t: Translate, result: PullResult, settings: DeviceSettin
  *
  * `countWaiting`: whether the files that only wait for one of these are
  * counted here, in a text of their own after them. They are when no other
- * text counts them (`incompleteText`), so that they are told at all.
+ * text counts them (`incompleteText`), so that they are told at all. So
+ * are files that wait where nothing else was put off: what they wait for
+ * is told by a notice, once (a name a rename was left at, "renaming-left"),
+ * and the pull is not done until it is seen to. Not where a file is being
+ * edited: the next sync takes it, and there is nothing to know.
  */
 function unreadTexts(t: Translate, result: PullResult, countWaiting: boolean): ((limit: number) => string)[] {
 	const texts: ((limit: number) => string)[] = [];
@@ -633,7 +637,10 @@ function unreadTexts(t: Translate, result: PullResult, countWaiting: boolean): (
 		texts.push((limit) => t("pull.unreadable", { count: unreadable.length, list: listText(t, unreadable, limit) }));
 	}
 	const waiting = pathsOf("depends-on-deferred").length;
-	if (countWaiting && texts.length > 0 && waiting > 0) texts.push(() => t("pull.waitingForUnread", { count: waiting }));
+	if (countWaiting && waiting > 0) {
+		if (texts.length > 0) texts.push(() => t("pull.waitingForUnread", { count: waiting }));
+		else if (result.deferred.length === waiting) texts.push(() => t("pull.waitingAlone", { count: waiting }));
+	}
 	return texts;
 }
 

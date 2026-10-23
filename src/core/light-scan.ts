@@ -31,7 +31,7 @@ import { type Exclusion, knownPaths } from "./exclusion";
 import { foldedKey, isPathFromRoot, pathKey } from "./paths";
 import type { SyncRecord } from "./plan";
 import type { PullVault } from "./pull-io";
-import { fromRoot, type ScannedPath, type ScanResult } from "./scan";
+import { fromRoot, type RenamingFound, type ScannedPath, type ScanResult } from "./scan";
 import { renamingPathOf } from "./vault-routes";
 import type { FileStat } from "./state";
 
@@ -158,15 +158,16 @@ export async function scanLightly(input: LightScanInput): Promise<LightScanResul
 	// Without the cases, like the folders of a disk that does not tell them
 	// apart: a file the index spells otherwise than its record is that file.
 	const listed = new Set<string>();
-	// By folded path, each as the index spells it (`ScanResult.renaming`).
-	const renaming = new Map<string, string>();
+	// By folded path, each as the index spells it (`ScanResult.renaming`):
+	// a file of the index itself, or a folder a file of it is below.
+	const renaming = new Map<string, RenamingFound>();
 	for (const file of input.index.indexedFiles()) {
 		const path = fromRoot(file.path);
 		if (!isPathFromRoot(path)) continue;
 		listed.add(foldedKey(path));
 		const between = renamingPathOf(path);
 		if (between !== null) {
-			renaming.set(foldedKey(between), between);
+			renaming.set(foldedKey(between), { path: between, type: between === path ? "file" : "folder" });
 			continue;
 		}
 		if (await leftOut(path)) continue;
