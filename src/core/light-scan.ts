@@ -181,7 +181,7 @@ export async function scanLightly(input: LightScanInput): Promise<LightScanResul
 		if (await leftOut(path)) continue;
 		const key = pathKey(path);
 		paths.push({ path, key, state: "present" });
-		indexed.set(key, { mtime: file.mtime, size: file.size });
+		if (!there.untold.has(key)) indexed.set(key, { mtime: file.mtime, size: file.size });
 	}
 
 	let asked = 0;
@@ -252,16 +252,28 @@ export async function scanLightly(input: LightScanInput): Promise<LightScanResul
  * Twice, the app can hold a path as two of its objects: in NFC and in NFD,
  * or once the old spelling is left beside the new one and the remote
  * changes the case back. Listed twice, it would be two files at one key.
- * The first is kept: the two are the one file of the disk.
+ * The first is kept: the two are the one file of the disk. Where the two
+ * differ in time or size, the key is told among `untold`, and its time and
+ * size are not taken from the index: the app may tell the one of them of a
+ * change and not the other, and the one kept could be the one left behind,
+ * which would hold a file the user has changed as unchanged. Whoever reads
+ * that file asks the disk.
  */
 async function onDisk(
 	indexedFiles: readonly IndexedFile[],
 	vault: Pick<PullVault, "list">,
-): Promise<{ readonly files: readonly IndexedFile[]; readonly notOnDisk: number }> {
+): Promise<{
+	readonly files: readonly IndexedFile[];
+	readonly notOnDisk: number;
+	readonly untold: ReadonlySet<string>;
+}> {
 	const once = new Map<string, IndexedFile>();
+	const untold = new Set<string>();
 	for (const file of indexedFiles) {
 		const key = pathKey(fromRoot(file.path));
-		if (!once.has(key)) once.set(key, file);
+		const first = once.get(key);
+		if (first === undefined) once.set(key, file);
+		else if (first.mtime !== file.mtime || first.size !== file.size) untold.add(key);
 	}
 	const files = [...once.values()];
 	// The path itself and each folder on the way to it.
@@ -277,7 +289,7 @@ async function onDisk(
 			spellings.set(key, known);
 		}
 	}
-	if ([...spellings.values()].every((known) => known.size === 1)) return { files, notOnDisk: 0 };
+	if ([...spellings.values()].every((known) => known.size === 1)) return { files, notOnDisk: 0, untold };
 
 	// The names right in each folder, as the disk spells them. Listed once.
 	const listings = new Map<string, Promise<Set<string>>>();
@@ -307,7 +319,7 @@ async function onDisk(
 		}
 		if (there) kept.push(file);
 	}
-	return { files: kept, notOnDisk: files.length - kept.length };
+	return { files: kept, notOnDisk: files.length - kept.length, untold };
 }
 
 /** What iCloud Drive leaves in the place of the file at `path` (`placeholderTarget` reads it back). */

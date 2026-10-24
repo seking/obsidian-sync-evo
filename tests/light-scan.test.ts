@@ -468,6 +468,38 @@ describe("a path the index has in two cases", () => {
 		expect(result.notOnDisk).toBe(0);
 	});
 
+	test("a path the index holds twice at one time and size is told by the index", async () => {
+		const nfc = "notes/ガイド.md";
+		const s = setup({ [nfc]: "G" });
+		const at = (path: string) => ({ path, mtime: 111, size: 1 });
+		const index = { indexedFiles: () => [at(nfc.normalize("NFD")), at(nfc)] };
+
+		const result = await scanLightly({ index, vault: s.vault, ...sides({}) });
+
+		expect([...result.indexed]).toEqual([[nfc, { mtime: 111, size: 1 }]]);
+	});
+
+	// The app tells one of its two objects of a change, and not the other.
+	test.each([
+		["time", { mtime: 222, size: 1 }],
+		["size", { mtime: 111, size: 2 }],
+	])("a path the index holds twice at two %ss is listed once and left to the disk", async (_name, other) => {
+		const nfc = "notes/ガイド.md";
+		const s = setup({ [nfc]: "G", "a.md": "A" });
+		const index = {
+			indexedFiles: () => [
+				{ path: nfc.normalize("NFD"), mtime: 111, size: 1 },
+				{ path: nfc, ...other },
+				{ path: "a.md", mtime: 333, size: 1 },
+			],
+		};
+
+		const result = await scanLightly({ index, vault: s.vault, ...sides({}) });
+
+		expect(found(result)).toEqual(["a.md", nfc.normalize("NFD")].sort());
+		expect([...result.indexed]).toEqual([["a.md", { mtime: 333, size: 1 }]]);
+	});
+
 	// The old spelling left in the index, and the remote's case taken back:
 	// the app can then hold two of its objects at the one spelling.
 	test("a path the index holds twice in one spelling is listed once, beside an old spelling left out", async () => {
@@ -570,6 +602,27 @@ describe("the sync decision after a light check", () => {
 		const plan = (local: LocalRead) => planPush({ ...input, local: byPath(local.entries), sizeLimit: SIZE_LIMIT, held });
 		expect(plan(lightLocal)).toEqual(plan(fullLocal));
 		expect(plan(lightLocal).deletes).toEqual([]);
+	});
+
+	// The old of the app's two objects first, at the record's time and size:
+	// taken from the index, it would hold the user's edit as unchanged.
+	test("a file the index holds twice at two sizes is read from the disk, and its edit is sent", async () => {
+		const nfc = "notes/ガイド.md";
+		const { listing, records } = inSync({ [nfc]: "G" });
+		const s = setup({ [nfc]: "GG" });
+		const index = {
+			indexedFiles: () => [
+				{ path: nfc.normalize("NFD"), mtime: BEFORE, size: 1 },
+				{ path: nfc, mtime: BEFORE, size: 2 },
+			],
+		};
+		const input = { exclusion: rules(), remote: listing.entries, records };
+
+		const local = await read(s, await scanLightly({ ...input, index, vault: s.vault }), records, listing);
+
+		expect(local.entries.map((entry) => entry.hash)).toEqual([blobHash("GG")]);
+		const plan = planPush({ ...input, local: byPath(local.entries), sizeLimit: SIZE_LIMIT, held: new Set() });
+		expect(plan.sends.map((send) => send.path)).toEqual([nfc]);
 	});
 
 	test("the plan of a pull is the same one too", async () => {
