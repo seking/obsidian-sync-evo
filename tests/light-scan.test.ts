@@ -333,7 +333,10 @@ describe("a disk that tells NFC from NFD", () => {
 			asked.push(path);
 			return files.includes(path) ? ({ type: "file", mtime: BEFORE, size: 1 } as const) : null;
 		};
-		return { asked, vault: { stat } };
+		const list = (): never => {
+			throw new Error("not listed");
+		};
+		return { asked, vault: { stat, list } };
 	}
 	const none = { indexedFiles: () => [] };
 
@@ -393,6 +396,48 @@ describe("a name a rename went through", () => {
 				{ path: "notes/Notes.md.sync-evo-renaming", type: "file" },
 			]);
 		}
+	});
+});
+
+describe("a path the index has in two cases", () => {
+	// As Android's index can be after a change of case alone: the old
+	// spelling put back beside the new one.
+	test("is listed as the disk spells it, and the old spelling is left out", async () => {
+		const s = setup({ "notes/Todo.md": "T", "a.md": "A" });
+		s.index.set("notes/todo.md", BEFORE, 1);
+
+		const result = await light(s, { recorded: ["notes/todo.md"] });
+
+		expect(found(result)).toEqual(["a.md", "notes/Todo.md"]);
+		expect(s.ops.filter((op) => op.startsWith("list"))).toEqual(["list notes"]);
+	});
+
+	test("so is a folder on the way, with every file below the old spelling", async () => {
+		const s = setup({ "Tools/also-exec.sh": "X", "Tools/run.sh": "R" });
+		s.index.set("tools/also-exec.sh", BEFORE, 1);
+		s.index.set("tools/old.sh", BEFORE, 1);
+
+		const result = await light(s);
+
+		expect(found(result)).toEqual(["Tools/also-exec.sh", "Tools/run.sh"]);
+		expect(s.ops.filter((op) => op.startsWith("list"))).toEqual(["list /", "list Tools"]);
+	});
+
+	test("on a disk that tells the cases apart and has both, both are listed", async () => {
+		const files = { "notes/Todo.md": "T", "notes/todo.md": "t", "Tools/a.sh": "A", "tools/b.sh": "B" };
+		const s = setup(files, { caseSensitive: true });
+
+		const result = await light(s);
+
+		expect(found(result)).toEqual(["Tools/a.sh", "notes/Todo.md", "notes/todo.md", "tools/b.sh"]);
+	});
+
+	test("the disk is not listed where no two paths differ in case alone", async () => {
+		const s = setup({ "notes/Todo.md": "T", "Notes.md": "N", "tools/a.sh": "A" });
+
+		await light(s);
+
+		expect(s.ops.filter((op) => op.startsWith("list"))).toEqual([]);
 	});
 });
 
