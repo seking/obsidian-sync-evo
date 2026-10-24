@@ -17,6 +17,7 @@
 import {
 	type App,
 	type DataAdapter,
+	type Events,
 	FileSystemAdapter,
 	Platform,
 	type TAbstractFile,
@@ -26,7 +27,7 @@ import {
 	type View,
 } from "obsidian";
 import type { PullVault } from "../core/pull-io";
-import { type OpenEditor, RoutedVault, type VaultPorts } from "../core/vault-access";
+import { type OpenEditor, type RawWait, RoutedVault, type VaultPorts } from "../core/vault-access";
 import type { PhoneListing } from "./folder-stats";
 import { type LinkFs, linkPorts } from "./vault-links";
 
@@ -74,6 +75,33 @@ function linkPortsOf(adapter: DataAdapter): Pick<VaultPorts<TAbstractFile>, "lin
 	return linkPorts(load("fs") as LinkFs, adapter.getBasePath());
 }
 
+/**
+ * A wait for the `raw` event of the vault (`VaultPorts.untilRaw`). The
+ * event is not part of the public API: the app sends it with the path of a
+ * change on the disk as it begins to look at it. It is listened for through
+ * the `on` every `Events` has, which takes any name.
+ */
+function untilRawOf(vault: Vault): (heard: (path: string) => boolean, ms: number) => RawWait {
+	return (heard, ms) => {
+		let end = (): void => {};
+		const ended = new Promise<void>((resolve) => {
+			const ref = (vault as Events).on("raw", (path: unknown) => {
+				if (typeof path === "string" && heard(path)) end();
+			});
+			const timer = window.setTimeout(() => end(), ms);
+			let over = false;
+			end = () => {
+				if (over) return;
+				over = true;
+				window.clearTimeout(timer);
+				vault.offref(ref);
+				resolve();
+			};
+		});
+		return { ended, stop: () => end() };
+	};
+}
+
 // A handle of the wrong type is a mistake of the caller, not a state of the vault.
 function fileOf(item: TAbstractFile): TFile {
 	if (item instanceof TFile) return item;
@@ -119,6 +147,7 @@ export function vaultPortsOf(app: App, phone?: PhoneListing): VaultPorts<TAbstra
 		renameIndexed: (item, to) => vault.rename(item, to),
 		trashBySetting: (item) => fileManager.trashFile(item),
 		trashToVault: (item) => vault.trash(item, false),
+		untilRaw: untilRawOf(vault),
 
 		trashOption: () => readTrashOption(vault),
 		openEditors: () => {
