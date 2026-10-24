@@ -856,7 +856,7 @@ describe("what the user has to know", () => {
 			'Sync Evo changed the upper and lower case of these names in two steps, and stopped in between. The name without ".sync-evo-renaming" at the end is taken by something else, or this device refused the rename, so they keep this name for now and are not synced. Nor is anything at or below the name without it, until they have their name back. Move or rename what has that name, and the next sync gives them their name back:\nTools.sync-evo-renaming',
 		);
 		expect(report.details[21]).toBe(
-			"Sync Evo changed the upper and lower case of the names of these folders. Until Obsidian is restarted, each may also show in the file list under its old spelling. Do not delete the one with the old spelling: that deletes the real folder, with everything in it. Once Obsidian is restarted, the old spelling is gone:\nTools\nTools/Sub",
+			"Sync Evo changed the upper and lower case of the names of these folders. On Android, until Obsidian is restarted, each may also show in the file list under its old spelling. Do not delete the one with the old spelling: that deletes the real folder, with everything in it. Once Obsidian is restarted, the old spelling is gone:\nTools\nTools/Sub",
 		);
 	});
 
@@ -882,7 +882,7 @@ describe("what the user has to know", () => {
 	test("a folder whose case was changed in two calls, in Japanese", () => {
 		const report = pullReport(ja, result({ notices: [{ kind: "case-renamed-folder", path: "Tools" }] }), options);
 		expect(report.details).toEqual([
-			"Sync Evo は、次のフォルダの名前の大文字と小文字を変えました。Obsidian を再起動するまで、このフォルダが古い綴りでも一覧に見えることがあります。古い綴りの方を消さないでください。中身ごと、本物のフォルダが消えます。再起動すると、古い綴りは見えなくなります：\nTools",
+			"Sync Evo は、次のフォルダの名前の大文字と小文字を変えました。Android の Obsidian では、再起動するまで、それぞれが古い綴りでも一覧に見えることがあります。古い綴りの方を消さないでください。中身ごと、本物のフォルダが消えます。再起動すると、古い綴りは見えなくなります：\nTools",
 		]);
 	});
 

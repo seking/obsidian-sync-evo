@@ -399,7 +399,7 @@ export const en = baseCatalog({
 	"notice.renamingLeft":
 		"Sync Evo changed the upper and lower case of these names in two steps, and stopped in between. The name without \".sync-evo-renaming\" at the end is taken by something else, or this device refused the rename, so they keep this name for now and are not synced. Nor is anything at or below the name without it, until they have their name back. Move or rename what has that name, and the next sync gives them their name back:\n{list}",
 	"notice.caseRenamedFolder":
-		"Sync Evo changed the upper and lower case of the names of these folders. Until Obsidian is restarted, each may also show in the file list under its old spelling. Do not delete the one with the old spelling: that deletes the real folder, with everything in it. Once Obsidian is restarted, the old spelling is gone:\n{list}",
+		"Sync Evo changed the upper and lower case of the names of these folders. On Android, until Obsidian is restarted, each may also show in the file list under its old spelling. Do not delete the one with the old spelling: that deletes the real folder, with everything in it. Once Obsidian is restarted, the old spelling is gone:\n{list}",
 	"notice.nestedGitignore.brief": {
 		one: "{count} .gitignore in a subfolder is not read as rules.",
 		other: "{count} .gitignore files in subfolders are not read as rules.",
