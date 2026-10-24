@@ -1630,6 +1630,8 @@ class PullRun {
 		if (tally.pluginNotListed) {
 			show.push({ kind: "plugin-not-listed", path: `${trimSlashes(deps.paths.configDir)}/community-plugins.json` });
 		}
+		// Nor this: it is about the rename, until the app starts again.
+		for (const path of deps.vault.caseRenamedFolders?.() ?? []) show.push({ kind: "case-renamed-folder", path });
 		return show;
 	}
 

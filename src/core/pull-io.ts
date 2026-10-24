@@ -85,6 +85,14 @@ export interface PullVault extends FolderLister, LinkProbe {
 	 * is spelled afterwards has to look.
 	 */
 	rename(from: string, to: string): Promise<void>;
+	/**
+	 * The folders whose case a rename changed in two calls, where the
+	 * platform refused it in one (`RoutedVault.rename`), as they are spelled
+	 * now. Android's app can take the old spelling back into its index after
+	 * such a rename, until it starts again ("case-renamed-folder"). Absent
+	 * where a vault never renames in two.
+	 */
+	caseRenamedFolders?(): readonly string[];
 	/** Takes a file out of the vault. */
 	trash(path: string, mode: TrashMode): Promise<void>;
 	/**
@@ -615,7 +623,8 @@ export interface PullResult {
 	readonly newSymlinks: readonly string[];
 	/**
 	 * The one-time notices that apply for the first time, already
-	 * remembered; and "plugin-not-listed", which is told every time.
+	 * remembered; and "plugin-not-listed" and "case-renamed-folder", which
+	 * are told every time.
 	 */
 	readonly notices: readonly NoticeRef[];
 	/** Whether views were closed while the pull wrote, and reopened since. */

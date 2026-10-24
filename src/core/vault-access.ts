@@ -164,6 +164,13 @@ export class RoutedVault<Handle> implements PullVault {
 	 */
 	private readonly dotFolders = new Map<string, string>();
 
+	/**
+	 * The folders whose case a rename changed in two calls, as spelled
+	 * after it (`caseRenamedFolders`). Kept for the life of this vault,
+	 * which is one sync.
+	 */
+	private readonly renamedInTwo: string[] = [];
+
 	constructor(ports: VaultPorts<Handle>) {
 		this.ports = ports;
 		const { linksIn, isLink } = ports;
@@ -347,8 +354,9 @@ export class RoutedVault<Handle> implements PullVault {
 		await this.refuseLinks(to);
 		// Asked of the disk first: the listing alone would take a name that
 		// differs in case for this one, also where it is another file.
-		const source = (await ports.stat(from)) === null ? null : await this.spelledOnDisk(from);
-		if (source === null) throw new Error(`nothing at ${from}`);
+		const stat = await ports.stat(from);
+		const source = stat === null ? null : await this.spelledOnDisk(from);
+		if (stat === null || source === null) throw new Error(`nothing at ${from}`);
 
 		let itself = false;
 		if ((await ports.stat(to)) !== null) {
@@ -367,7 +375,13 @@ export class RoutedVault<Handle> implements PullVault {
 		} catch (error) {
 			if (!itself) throw error;
 			await this.renameInTwo(source, target, error);
+			// A file's old name was not seen to come back; a `.` name is not in the index.
+			if (stat.type === "folder" && !isDotPath(target)) this.renamedInTwo.push(target);
 		}
+	}
+
+	caseRenamedFolders(): readonly string[] {
+		return this.renamedInTwo;
 	}
 
 	/**
@@ -396,6 +410,14 @@ export class RoutedVault<Handle> implements PullVault {
 		// words one after the other, so by the word of the name between it
 		// has begun to look at the old name. Both are waited for, in case
 		// they come the other way round.
+		//
+		// The wait keeps the old name from coming back only by the app's
+		// look at it after the rename. It does not keep the app from
+		// telling of the old name later: on Android, a write in a folder
+		// renamed so is told under the old name as well, until the app
+		// starts again, and the index takes the old spelling of the folder
+		// back beside the new one (2026-10-24). Nothing here can stop that;
+		// the pull tells the user of such a folder ("case-renamed-folder").
 		const listen = isDotPath(source) ? undefined : this.ports.untilRaw;
 		const unheard = new Set([pathKey(source), pathKey(between)]);
 		const wait = listen?.((path) => {

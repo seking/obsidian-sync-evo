@@ -804,6 +804,8 @@ describe("what the user has to know", () => {
 					{ kind: "submodule-not-sent", path: "knowledge/sub/b.md" },
 					{ kind: "local-link", path: "Projects" },
 					{ kind: "renaming-left", path: "Tools.sync-evo-renaming" },
+					{ kind: "case-renamed-folder", path: "Tools" },
+					{ kind: "case-renamed-folder", path: "Tools/Sub" },
 				],
 				unwritable: [
 					{ path: "notes", reason: "blocked", inTheWay: ["notes/draft.md", "notes/sub/idea.md"], isNew: true },
@@ -853,6 +855,9 @@ describe("what the user has to know", () => {
 		expect(report.details[20]).toBe(
 			'Sync Evo changed the upper and lower case of these names in two steps, and stopped in between. The name without ".sync-evo-renaming" at the end is taken by something else, or this device refused the rename, so they keep this name for now and are not synced. Nor is anything at or below the name without it, until they have their name back. Move or rename what has that name, and the next sync gives them their name back:\nTools.sync-evo-renaming',
 		);
+		expect(report.details[21]).toBe(
+			"Sync Evo changed the upper and lower case of the names of these folders. Until Obsidian is restarted, each may also show in the file list under its old spelling. Do not delete the one with the old spelling: that deletes the real folder, with everything in it. Once Obsidian is restarted, the old spelling is gone:\nTools\nTools/Sub",
+		);
 	});
 
 	test("the notices that follow from the rules, in Japanese: one text per kind, and every line that is off", () => {
@@ -871,6 +876,13 @@ describe("what the user has to know", () => {
 			"下位のフォルダに .gitignore があります。Sync Evo は、これらを通常のファイルとして同期しますが、規則としては読みません。何を同期するかは、保管庫のルートの .gitignore だけで決まります。パソコンの git はこれらの規則も使うため、同じ保管庫でも効き方が違います。要る規則は、ルートの .gitignore に書いてください：\nnotes/.gitignore",
 			// Not cut off at five, like a list of paths: which lines are off is what there is to tell.
 			`ゴミ箱、画面の配置のファイル、OS が残すファイルなど、除外していた物が、今は同期されます。下に示す .gitignore の行（Sync Evo が管理する行）で除外していましたが、その行が消されたか、後ろの行で打ち消されています。Sync Evo 自身のフォルダだけは、Sync Evo は同期しませんが、パソコンの git ではコミットされます。消した行は、Sync Evo の設定画面で元に戻せます。! で始まる行で打ち消している時は、その行を直してください：\n${off.join("\n")}`,
+		]);
+	});
+
+	test("a folder whose case was changed in two calls, in Japanese", () => {
+		const report = pullReport(ja, result({ notices: [{ kind: "case-renamed-folder", path: "Tools" }] }), options);
+		expect(report.details).toEqual([
+			"Sync Evo は、次のフォルダの名前の大文字と小文字を変えました。Obsidian を再起動するまで、このフォルダが古い綴りでも一覧に見えることがあります。古い綴りの方を消さないでください。中身ごと、本物のフォルダが消えます。再起動すると、古い綴りは見えなくなります：\nTools",
 		]);
 	});
 
