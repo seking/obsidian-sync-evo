@@ -171,6 +171,13 @@ export class RoutedVault<Handle> implements PullVault {
 	 */
 	private readonly renamedInTwo: string[] = [];
 
+	/**
+	 * How many waits of the second of two renames ran to the end without
+	 * the app's word (`rawWaitsTimedOut`). Kept for the life of this vault,
+	 * which is one sync.
+	 */
+	private rawTimeouts = 0;
+
 	constructor(ports: VaultPorts<Handle>) {
 		this.ports = ports;
 		const { linksIn, isLink } = ports;
@@ -384,6 +391,10 @@ export class RoutedVault<Handle> implements PullVault {
 		return this.renamedInTwo;
 	}
 
+	rawWaitsTimedOut(): number {
+		return this.rawTimeouts;
+	}
+
 	/**
 	 * The second try of a change of spelling the platform refused
 	 * (`rename`). Fails with what the first try failed with, and leaves the
@@ -431,6 +442,8 @@ export class RoutedVault<Handle> implements PullVault {
 			throw refusal;
 		}
 		await wait?.ended;
+		// Not both heard of: the wait ran to its end.
+		if (wait !== undefined && unheard.size > 0) this.rawTimeouts += 1;
 		try {
 			await this.renameOnce(between, target);
 		} catch {

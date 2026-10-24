@@ -620,6 +620,7 @@ describe("rename", () => {
 			expect(ports.paths()).toEqual(["Notes.md"]);
 			expect(ports.rawEnds).toEqual(["Notes.md.sync-evo-renaming"]);
 			expect(ports.rawListening()).toBe(0);
+			expect(vault.rawWaitsTimedOut()).toBe(0);
 		});
 
 		test("the name between heard first is not enough either: the old name is waited for too", async () => {
@@ -677,6 +678,31 @@ describe("rename", () => {
 			expect(ports.calls).toHaveLength(3);
 			expect(ports.paths()).toEqual(["Notes.md"]);
 			expect(ports.rawEnds).toEqual(["timeout"]);
+			expect(vault.rawWaitsTimedOut()).toBe(1);
+		});
+
+		test("a wait that ran out is counted, and one that heard both is not", async () => {
+			vi.useFakeTimers();
+			const { ports, vault } = androidHearing();
+			ports.put("notes.md", "a");
+			ports.put("todo.md", "t");
+			ports.put("done.md", "d");
+			const heard = vault.rename("notes.md", "Notes.md");
+			await vi.advanceTimersByTimeAsync(0);
+			ports.raw("notes.md");
+			ports.raw("Notes.md.sync-evo-renaming");
+			await heard;
+			// The old name alone, and the time runs out.
+			const half = vault.rename("todo.md", "TODO.md");
+			await vi.advanceTimersByTimeAsync(0);
+			ports.raw("todo.md");
+			await vi.advanceTimersByTimeAsync(3000);
+			await half;
+			const none = vault.rename("done.md", "Done.md");
+			await vi.advanceTimersByTimeAsync(3000);
+			await none;
+			expect(ports.rawEnds).toEqual(["Notes.md.sync-evo-renaming", "timeout", "timeout"]);
+			expect(vault.rawWaitsTimedOut()).toBe(2);
 		});
 
 		test("a first call that fails stops the listening", async () => {
@@ -688,6 +714,7 @@ describe("rename", () => {
 			expect(await failure(vault.rename("notes.md", "Notes.md"))).toBe(REFUSED);
 			expect(ports.rawEnds).toEqual(["stop"]);
 			expect(ports.rawListening()).toBe(0);
+			expect(vault.rawWaitsTimedOut()).toBe(0);
 		});
 
 		test("the old name given back after a second call that fails is not waited for", async () => {
@@ -928,8 +955,8 @@ describe("saveOpenEditors", () => {
 describe("a pull through the routing", () => {
 	const paths = { configDir: ".obsidian", pluginDir: ".obsidian/plugins/sync-evo" };
 
-	function harness(caseSensitive: boolean, refusesCaseRename = false) {
-		const ports = new FakeVaultPorts({ caseSensitive, refusesCaseRename });
+	function harness(caseSensitive: boolean, refusesCaseRename = false, hearsRaw = false) {
+		const ports = new FakeVaultPorts({ caseSensitive, refusesCaseRename, hearsRaw });
 		const backend = new MemoryBackend();
 		const store = new MemoryStateStore();
 		let time = Date.UTC(2026, 9, 3, 12, 0, 0);
@@ -1138,6 +1165,32 @@ describe("a pull through the routing", () => {
 			expect(again.counts).toEqual({ fetched: 0, deleted: 0, renamed: 0, conflicts: 0 });
 			expect(again.notices).toEqual([]);
 			expect(ports.calls).toEqual([]);
+		});
+
+		test("a wait for the app's word that ran out is counted in the pull's last line, and only then", async () => {
+			const { ports, backend, pull } = harness(false, true, true);
+			backend.commit({ "notes/a.md": "a", "todo.md": "t" });
+			await pull();
+			const last = async (): Promise<string> => {
+				const lines: string[] = [];
+				vi.useFakeTimers();
+				try {
+					const pulled = pull({ log: (line) => lines.push(line) });
+					await vi.advanceTimersByTimeAsync(10_000);
+					expect((await pulled).outcome).toBe("completed");
+				} finally {
+					vi.useRealTimers();
+				}
+				return lines.filter((line) => line.startsWith("pull: completed in ")).join("\n");
+			};
+
+			backend.commit({ "notes/a.md": null, "Notes/a.md": "a", "todo.md": null, "TODO.md": "t" });
+			expect(await last()).toMatch(/^pull: completed in \d+ ms.*, 2 raw waits timed out$/);
+			expect(ports.paths()).toEqual(["Notes/a.md", "TODO.md"]);
+			expect(ports.rawEnds).toEqual(["timeout", "timeout"]);
+
+			backend.commit({ "b.md": "b" });
+			expect(await last()).not.toMatch(/raw waits/);
 		});
 
 		test("so is a file, and nothing is told of it", async () => {

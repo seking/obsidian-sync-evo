@@ -1093,7 +1093,9 @@ class PullRun {
 		rewritten: boolean,
 		extra: Partial<PullResult>,
 	): PullResult {
-		this.deps.log?.(`pull: ${outcome} in ${this.clock.line()}`);
+		const timedOut = this.deps.vault.rawWaitsTimedOut?.() ?? 0;
+		const rawWaits = timedOut === 0 ? "" : `, ${timedOut} raw waits timed out`;
+		this.deps.log?.(`pull: ${outcome} in ${this.clock.line()}${rawWaits}`);
 		const { tally } = this;
 		// A path is new when its notice is shown by this pull.
 		const shown = new Set<string>();

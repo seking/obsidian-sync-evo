@@ -93,6 +93,14 @@ export interface PullVault extends FolderLister, LinkProbe {
 	 * where a vault never renames in two.
 	 */
 	caseRenamedFolders?(): readonly string[];
+	/**
+	 * How many times the second of two renames waited for the app's word
+	 * of the first until the time ran out (`RoutedVault.renameInTwo`).
+	 * Only logged: a count that is not 0 on every such rename would say
+	 * that the app no longer tells of a rename as it did. Absent where a
+	 * vault never waits.
+	 */
+	rawWaitsTimedOut?(): number;
 	/** Takes a file out of the vault. */
 	trash(path: string, mode: TrashMode): Promise<void>;
 	/**
