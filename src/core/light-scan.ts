@@ -32,7 +32,7 @@ import { foldedKey, isPathFromRoot, pathKey } from "./paths";
 import type { SyncRecord } from "./plan";
 import type { PullVault } from "./pull-io";
 import { fromRoot, type RenamingFound, type ScannedPath, type ScanResult } from "./scan";
-import { renamingPathOf } from "./vault-routes";
+import { foldersTo, lastOf, parentOf, renamingPathOf } from "./vault-routes";
 import type { FileStat } from "./state";
 
 /** A file as the app's index of the vault holds it. */
@@ -56,10 +56,11 @@ export interface VaultIndex {
 export interface LightScanInput {
 	readonly index: VaultIndex;
 	/**
-	 * The disk, for the few paths the index says nothing of, and for which
-	 * folders are links.
+	 * The disk, for the few paths the index says nothing of, for which
+	 * folders are links, and for how a path is spelled where the index has
+	 * it in two cases.
 	 */
-	readonly vault: Pick<PullVault, "stat" | "isLink">;
+	readonly vault: Pick<PullVault, "list" | "stat" | "isLink">;
 	/** The same three the scan is given (`ScanInput`). */
 	readonly exclusion: Exclusion;
 	readonly remote: readonly RemoteEntry[];
@@ -114,6 +115,10 @@ export interface LightScanResult extends ScanResult {
  * Android) can hold the file under the other. Asked for under one spelling
  * alone, such a file would read as deleted. It is listed as it was found.
  *
+ * Where two paths of the index differ in case alone, or the folders on the
+ * way to them do, the disk is asked which of the spellings it has
+ * (`onDisk`).
+ *
  * A failure of the disk to answer fails the whole check, like a folder
  * that cannot be listed: a list with a hole would read as deletions.
  */
@@ -161,7 +166,7 @@ export async function scanLightly(input: LightScanInput): Promise<LightScanResul
 	// By folded path, each as the index spells it (`ScanResult.renaming`):
 	// a file of the index itself, or a folder a file of it is below.
 	const renaming = new Map<string, RenamingFound>();
-	for (const file of input.index.indexedFiles()) {
+	for (const file of await onDisk(input.index.indexedFiles(), vault)) {
 		const path = fromRoot(file.path);
 		if (!isPathFromRoot(path)) continue;
 		listed.add(foldedKey(path));
@@ -220,6 +225,70 @@ export async function scanLightly(input: LightScanInput): Promise<LightScanResul
 		indexed,
 		asked,
 	};
+}
+
+/**
+ * The files of the index, less those at a spelling the disk does not have.
+ *
+ * After a change of case alone, the app can hold the old spelling beside
+ * the new one, where its disk does not tell the cases apart: Android looks
+ * at the old name of a rename it was told of, and when that is after the
+ * second of the two renames (`RoutedVault.rename`), the disk finds the file
+ * at it and the app puts the old name back. Listed, the old name would be a
+ * new file that differs from another in case alone, which the push refuses
+ * to send until the app starts again.
+ *
+ * Only where the index has one path, or one folder on the way, in two
+ * cases is the folder above it listed, and a spelling the listing does not
+ * hold left out, with everything below it. A disk that tells the cases
+ * apart and has both keeps both. Elsewhere the disk is not asked, and the
+ * check costs what it did.
+ */
+async function onDisk(files: readonly IndexedFile[], vault: Pick<PullVault, "list">): Promise<readonly IndexedFile[]> {
+	// The path itself and each folder on the way to it.
+	const steps = (path: string): string[] => [...foldersTo(path), path];
+	// The spellings the index has, by folded path.
+	const spellings = new Map<string, Set<string>>();
+	for (const file of files) {
+		const path = pathKey(fromRoot(file.path));
+		for (const step of isPathFromRoot(path) ? steps(path) : []) {
+			const key = foldedKey(step);
+			const known = spellings.get(key) ?? new Set<string>();
+			known.add(step);
+			spellings.set(key, known);
+		}
+	}
+	if ([...spellings.values()].every((known) => known.size === 1)) return files;
+
+	// The names right in each folder, as the disk spells them. Listed once.
+	const listings = new Map<string, Promise<Set<string>>>();
+	const namesIn = (folder: string): Promise<Set<string>> => {
+		const before = listings.get(folder);
+		if (before !== undefined) return before;
+		const names = (async () => {
+			const listing = await vault.list(folder === "" ? "/" : folder);
+			// Only the last part is read: a lister builds the rest from the folder it was asked for.
+			return new Set([...listing.files, ...listing.folders].map((path) => pathKey(lastOf(path))));
+		})();
+		listings.set(folder, names);
+		return names;
+	};
+
+	const kept: IndexedFile[] = [];
+	for (const file of files) {
+		const path = pathKey(fromRoot(file.path));
+		let there = true;
+		// From the top down, so that a folder is listed as the disk spells it.
+		for (const step of isPathFromRoot(path) ? steps(path) : []) {
+			if ((spellings.get(foldedKey(step))?.size ?? 0) < 2) continue;
+			if (!(await namesIn(parentOf(step))).has(lastOf(step))) {
+				there = false;
+				break;
+			}
+		}
+		if (there) kept.push(file);
+	}
+	return kept;
 }
 
 /** What iCloud Drive leaves in the place of the file at `path` (`placeholderTarget` reads it back). */
