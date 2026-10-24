@@ -118,9 +118,9 @@ export interface VaultPorts<Handle> {
 	/**
 	 * Begins to listen for the index's `raw` event: the app's word that it
 	 * has begun to look at a change on the disk, with the path the change
-	 * was at, spelled as the app spells paths. The wait ends at the first
-	 * such event `heard` answers `true` for, or after `ms` without one, and
-	 * stops listening as it ends. Absent where it is not listened for, and
+	 * was at, spelled as the app spells paths. `heard` is asked of each
+	 * such event in turn, and the wait ends at the first it answers `true`
+	 * for, or after `ms` without one, and stops listening as it ends. Absent where it is not listened for, and
 	 * there nothing waits for it.
 	 */
 	readonly untilRaw?: (heard: (path: string) => boolean, ms: number) => RawWait;
@@ -386,8 +386,22 @@ export class RoutedVault<Handle> implements PullVault {
 		// app has begun to look. Listened for before the first, so that the
 		// word is not missed. Never for a `.` name, which the index does
 		// not hold.
+		//
+		// The word of the old name alone does not end the wait: the pull
+		// saves the editor open at it before the rename (`look`), and the word of
+		// that write can come after the listening began. The name between
+		// is Sync Evo's own and was not there before, so its word is of the
+		// first rename alone. The disk tells of the old name before the new
+		// (inotify's MOVED_FROM and MOVED_TO), and the app looks at its
+		// words one after the other, so by the word of the name between it
+		// has begun to look at the old name. Both are waited for, in case
+		// they come the other way round.
 		const listen = isDotPath(source) ? undefined : this.ports.untilRaw;
-		const wait = listen?.((path) => pathKey(fromRoot(path)) === pathKey(source), RAW_WAIT_MS);
+		const unheard = new Set([pathKey(source), pathKey(between)]);
+		const wait = listen?.((path) => {
+			unheard.delete(pathKey(fromRoot(path)));
+			return unheard.size === 0;
+		}, RAW_WAIT_MS);
 		try {
 			await this.renameOnce(source, between);
 		} catch {

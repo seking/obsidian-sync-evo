@@ -76,6 +76,8 @@ export interface LightScanResult extends ScanResult {
 	readonly indexed: ReadonlyMap<string, FileStat>;
 	/** How many paths the index did not list and the disk was asked about. */
 	readonly asked: number;
+	/** How many files of the index were left out at a spelling the disk does not have (`onDisk`). */
+	readonly notOnDisk: number;
 }
 
 /**
@@ -166,7 +168,8 @@ export async function scanLightly(input: LightScanInput): Promise<LightScanResul
 	// By folded path, each as the index spells it (`ScanResult.renaming`):
 	// a file of the index itself, or a folder a file of it is below.
 	const renaming = new Map<string, RenamingFound>();
-	for (const file of await onDisk(input.index.indexedFiles(), vault)) {
+	const there = await onDisk(input.index.indexedFiles(), vault);
+	for (const file of there.files) {
 		const path = fromRoot(file.path);
 		if (!isPathFromRoot(path)) continue;
 		listed.add(foldedKey(path));
@@ -224,11 +227,13 @@ export async function scanLightly(input: LightScanInput): Promise<LightScanResul
 		renaming: [...renaming.values()],
 		indexed,
 		asked,
+		notOnDisk: there.notOnDisk,
 	};
 }
 
 /**
- * The files of the index, less those at a spelling the disk does not have.
+ * The files of the index, less those at a spelling the disk does not have,
+ * and how many those were. A path the index holds twice is kept once.
  *
  * After a change of case alone, the app can hold the old spelling beside
  * the new one, where its disk does not tell the cases apart: Android looks
@@ -243,8 +248,22 @@ export async function scanLightly(input: LightScanInput): Promise<LightScanResul
  * hold left out, with everything below it. A disk that tells the cases
  * apart and has both keeps both. Elsewhere the disk is not asked, and the
  * check costs what it did.
+ *
+ * Twice, the app can hold a path as two of its objects: in NFC and in NFD,
+ * or once the old spelling is left beside the new one and the remote
+ * changes the case back. Listed twice, it would be two files at one key.
+ * The first is kept: the two are the one file of the disk.
  */
-async function onDisk(files: readonly IndexedFile[], vault: Pick<PullVault, "list">): Promise<readonly IndexedFile[]> {
+async function onDisk(
+	indexedFiles: readonly IndexedFile[],
+	vault: Pick<PullVault, "list">,
+): Promise<{ readonly files: readonly IndexedFile[]; readonly notOnDisk: number }> {
+	const once = new Map<string, IndexedFile>();
+	for (const file of indexedFiles) {
+		const key = pathKey(fromRoot(file.path));
+		if (!once.has(key)) once.set(key, file);
+	}
+	const files = [...once.values()];
 	// The path itself and each folder on the way to it.
 	const steps = (path: string): string[] => [...foldersTo(path), path];
 	// The spellings the index has, by folded path.
@@ -258,7 +277,7 @@ async function onDisk(files: readonly IndexedFile[], vault: Pick<PullVault, "lis
 			spellings.set(key, known);
 		}
 	}
-	if ([...spellings.values()].every((known) => known.size === 1)) return files;
+	if ([...spellings.values()].every((known) => known.size === 1)) return { files, notOnDisk: 0 };
 
 	// The names right in each folder, as the disk spells them. Listed once.
 	const listings = new Map<string, Promise<Set<string>>>();
@@ -288,7 +307,7 @@ async function onDisk(files: readonly IndexedFile[], vault: Pick<PullVault, "lis
 		}
 		if (there) kept.push(file);
 	}
-	return kept;
+	return { files: kept, notOnDisk: files.length - kept.length };
 }
 
 /** What iCloud Drive leaves in the place of the file at `path` (`placeholderTarget` reads it back). */
@@ -303,11 +322,14 @@ function placeholderOf(path: string): string {
  * about because the index did not settle them (`LocalRead.statted`), how
  * many were read and hashed, and how long the vault's side of the sync took. It is how the check is
  * seen to be light on a device, and the index to agree with the disk.
+ * Where the index held a spelling the disk does not have, how many such
+ * files were left out (`onDisk`), and only there: it is seldom.
  */
 export function lightCheckLine(
-	scan: Pick<LightScanResult, "paths" | "asked">,
+	scan: Pick<LightScanResult, "paths" | "asked" | "notOnDisk">,
 	local: { readonly statted: number; readonly hashed: number },
 	milliseconds: number,
 ): string {
-	return `light check: ${scan.paths.length} files, ${scan.asked} not in the index, ${local.statted} asked of the disk, ${local.hashed} hashed, ${milliseconds} ms`;
+	const notOnDisk = scan.notOnDisk === 0 ? "" : `, ${scan.notOnDisk} not on disk`;
+	return `light check: ${scan.paths.length} files, ${scan.asked} not in the index${notOnDisk}, ${local.statted} asked of the disk, ${local.hashed} hashed, ${milliseconds} ms`;
 }
