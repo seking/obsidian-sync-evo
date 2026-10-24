@@ -43,6 +43,14 @@ export interface FolderListing {
 	readonly folders: readonly string[];
 }
 
+/** A wait for the index's word of a change on the disk (`VaultPorts.untilRaw`). */
+export interface RawWait {
+	/** Resolves when the wait has ended, for whichever reason. Never rejects. */
+	readonly ended: Promise<void>;
+	/** Ends the wait now. Again, it does nothing. */
+	stop(): void;
+}
+
 /** What the app's index holds at a path. `handle` is the app's own object for it. */
 export interface IndexedItem<Handle> {
 	readonly type: "file" | "folder";
@@ -107,6 +115,15 @@ export interface VaultPorts<Handle> {
 	trashBySetting(item: Handle): Promise<void>;
 	/** Into the `.trash/` of the vault, whatever the setting. */
 	trashToVault(item: Handle): Promise<void>;
+	/**
+	 * Begins to listen for the index's `raw` event: the app's word that it
+	 * has begun to look at a change on the disk, with the path the change
+	 * was at, spelled as the app spells paths. The wait ends at the first
+	 * such event `heard` answers `true` for, or after `ms` without one, and
+	 * stops listening as it ends. Absent where it is not listened for, and
+	 * there nothing waits for it.
+	 */
+	readonly untilRaw?: (heard: (path: string) => boolean, ms: number) => RawWait;
 
 	/** The app's setting for deleted files, unchecked. */
 	trashOption(): unknown;
@@ -116,6 +133,14 @@ export interface VaultPorts<Handle> {
 
 /** The root, as the pull names it and as the app spells the path of its root folder. */
 const ROOT = "/";
+
+/**
+ * How long the second of two renames waits for the app to begin to look at
+ * the first (`renameInTwo`). On Android it began within a quarter of a
+ * second (2026-10-24); a wait that runs to the end only makes the rename
+ * slow.
+ */
+const RAW_WAIT_MS = 3000;
 
 export class RoutedVault<Handle> implements PullVault {
 	private readonly ports: VaultPorts<Handle>;
@@ -308,8 +333,9 @@ export class RoutedVault<Handle> implements PullVault {
 	 * rename refuses a new name it finds something at, the file itself
 	 * among them. Only when that one call fails is the rename made in two,
 	 * through a name of its own (`renamingPath`): `notes` → `Notes.<mark>` →
-	 * `Notes`. Not by what the failure says, which is the app's and may
-	 * change. A rename that fails for another reason fails the same way
+	 * `Notes`, the second once the app has begun to look at the first
+	 * (`renameInTwo`). Not by what the failure says, which is the app's and
+	 * may change. A rename that fails for another reason fails the same way
 	 * twice: the first of the two calls fails as well, or the second, and
 	 * then the name is given back. A name that was left between the two is
 	 * given back by the next pull (`settleRenamings`), and is never synced.
@@ -353,11 +379,22 @@ export class RoutedVault<Handle> implements PullVault {
 		const between = renamingPath(target);
 		// Left by a rename before, and not given back yet: the rename would replace it.
 		if ((await this.ports.stat(between)) !== null) throw refusal;
+		// Android looks at the old name of a rename some time after it, and
+		// asks the disk what is there. After the second rename, the disk
+		// finds the file at it in the new spelling, and the index takes the
+		// old name back beside the new one. So the second waits until the
+		// app has begun to look. Listened for before the first, so that the
+		// word is not missed. Never for a `.` name, which the index does
+		// not hold.
+		const listen = isDotPath(source) ? undefined : this.ports.untilRaw;
+		const wait = listen?.((path) => pathKey(fromRoot(path)) === pathKey(source), RAW_WAIT_MS);
 		try {
 			await this.renameOnce(source, between);
 		} catch {
+			wait?.stop();
 			throw refusal;
 		}
+		await wait?.ended;
 		try {
 			await this.renameOnce(between, target);
 		} catch {

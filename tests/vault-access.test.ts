@@ -10,7 +10,7 @@
  * Source: https://github.com/seking/obsidian-sync-evo
  */
 
-import { describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { mergedCopyPath } from "../src/core/conflict-name";
 import { runPull } from "../src/core/pull";
 import type { PullDeps, PullResult } from "../src/core/pull-io";
@@ -39,7 +39,18 @@ function android(): ReturnType<typeof setup> {
 	return { ports, vault: new RoutedVault(ports) };
 }
 
+/** `android`, with the app's `raw` event listened for. */
+function androidHearing(): ReturnType<typeof setup> {
+	const ports = new FakeVaultPorts({ caseSensitive: false, refusesCaseRename: true, hearsRaw: true });
+	return { ports, vault: new RoutedVault(ports) };
+}
+
 const REFUSED = "Destination file already exists!";
+
+/** Lets every call that can go on go on. */
+const settle = async (): Promise<void> => {
+	for (let turn = 0; turn < 5; turn++) await new Promise((resolve) => setTimeout(resolve, 0));
+};
 
 async function failure(promise: Promise<unknown>): Promise<string> {
 	try {
@@ -551,6 +562,102 @@ describe("rename", () => {
 			expect(ports.calls).toEqual(["renameIndexed notes.md -> Notes.md"]);
 			expect(ports.text("notes.md")).toBe("a");
 			expect(ports.text("Notes.md.sync-evo-renaming")).toBe("left");
+		});
+	});
+
+	describe("where the app's word of a change is listened for", () => {
+		afterEach(() => {
+			vi.useRealTimers();
+		});
+
+		test("the second call waits until the app has begun to look at the old name", async () => {
+			const { ports, vault } = androidHearing();
+			ports.put("notes.md", "a");
+			const renamed = vault.rename("notes.md", "Notes.md");
+			await settle();
+			expect(ports.calls).toEqual([
+				"renameIndexed notes.md -> Notes.md",
+				"renameIndexed notes.md -> Notes.md.sync-evo-renaming",
+			]);
+			// Of another path, it is not the word waited for.
+			ports.raw("other.md");
+			ports.raw("Notes.md.sync-evo-renaming");
+			await settle();
+			expect(ports.calls).toHaveLength(2);
+
+			ports.raw("notes.md");
+			await renamed;
+			expect(ports.calls[2]).toBe("renameIndexed Notes.md.sync-evo-renaming -> Notes.md");
+			expect(ports.paths()).toEqual(["Notes.md"]);
+			expect(ports.rawEnds).toEqual(["notes.md"]);
+			expect(ports.rawListening()).toBe(0);
+		});
+
+		test("the old name is heard in either normalization", async () => {
+			const { ports, vault } = androidHearing();
+			ports.put("café.md".normalize("NFC"), "a");
+			const renamed = vault.rename("café.md".normalize("NFC"), "Café.md".normalize("NFC"));
+			await settle();
+			ports.raw("café.md".normalize("NFD"));
+			await renamed;
+			expect(ports.paths()).toEqual(["Café.md".normalize("NFC")]);
+			expect(ports.rawEnds).toEqual(["café.md".normalize("NFD")]);
+		});
+
+		test("without the word, the second call is made after a few seconds", async () => {
+			vi.useFakeTimers();
+			const { ports, vault } = androidHearing();
+			ports.put("notes.md", "a");
+			const renamed = vault.rename("notes.md", "Notes.md");
+			await vi.advanceTimersByTimeAsync(2999);
+			expect(ports.calls).toHaveLength(2);
+			await vi.advanceTimersByTimeAsync(1);
+			await renamed;
+			expect(ports.calls).toHaveLength(3);
+			expect(ports.paths()).toEqual(["Notes.md"]);
+			expect(ports.rawEnds).toEqual(["timeout"]);
+		});
+
+		test("a first call that fails stops the listening", async () => {
+			const { ports, vault } = androidHearing();
+			ports.put("notes.md", "a");
+			ports.before = (call, path) => {
+				if (path === "notes.md -> Notes.md.sync-evo-renaming") throw new Error("EBUSY");
+			};
+			expect(await failure(vault.rename("notes.md", "Notes.md"))).toBe(REFUSED);
+			expect(ports.rawEnds).toEqual(["stop"]);
+			expect(ports.rawListening()).toBe(0);
+		});
+
+		test("the old name given back after a second call that fails is not waited for", async () => {
+			const { ports, vault } = androidHearing();
+			ports.put("notes.md", "a");
+			ports.before = (call, path) => {
+				if (path === "Notes.md.sync-evo-renaming -> Notes.md") throw new Error("EBUSY");
+			};
+			const renamed = failure(vault.rename("notes.md", "Notes.md"));
+			await settle();
+			ports.raw("notes.md");
+			expect(await renamed).toBe(REFUSED);
+			expect(ports.calls[2]).toBe("renameIndexed Notes.md.sync-evo-renaming -> notes.md");
+			expect(ports.rawEnds).toEqual(["notes.md"]);
+			expect(ports.rawListening()).toBe(0);
+		});
+
+		test("a path with a . name is not waited for: the index does not hold it", async () => {
+			const { ports, vault } = androidHearing();
+			ports.put(".github/a.yml", "a");
+			await vault.rename(".github", ".GitHub");
+			expect(ports.paths()).toEqual([".GitHub/a.yml"]);
+			expect(ports.rawEnds).toEqual([]);
+		});
+
+		test("a change of case that goes through in one call is not waited for", async () => {
+			const ports = new FakeVaultPorts({ caseSensitive: false, hearsRaw: true });
+			ports.put("notes.md", "a");
+			await new RoutedVault(ports).rename("notes.md", "Notes.md");
+			expect(ports.calls).toEqual(["renameIndexed notes.md -> Notes.md"]);
+			expect(ports.rawEnds).toEqual([]);
 		});
 	});
 

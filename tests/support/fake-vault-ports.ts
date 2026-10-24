@@ -11,7 +11,7 @@
  */
 
 import type { VaultStat } from "../../src/core/pull-io";
-import type { FolderListing, IndexedItem, OpenEditor, VaultPorts } from "../../src/core/vault-access";
+import type { FolderListing, IndexedItem, OpenEditor, RawWait, VaultPorts } from "../../src/core/vault-access";
 
 export interface FakeTrashed {
 	readonly path: string;
@@ -36,6 +36,9 @@ export interface FakeTrashed {
  *   does `createFolder`.
  * - The renames replace what is at the new name without a word, as the
  *   worst of the platforms would.
+ * - With `hearsRaw`, `untilRaw` is there, and the index's `raw` event is
+ *   sent by the test (`raw`), never by a change: when the app sends it is
+ *   the app's. The time a wait runs out at is the timer's of the test.
  *
  * Every call that changes something is noted in `calls`.
  */
@@ -56,16 +59,21 @@ export class FakeVaultPorts implements VaultPorts<string> {
 	editors: OpenEditor[] = [];
 	/** Called before a disk or index call, with its name; throw from it to fail the call. */
 	before: ((call: string, path: string) => void) | undefined;
+	readonly untilRaw?: (heard: (path: string) => boolean, ms: number) => RawWait;
+	/** Why each wait ended, in order: the path of the `raw` event, `timeout`, or `stop`. */
+	readonly rawEnds: string[] = [];
 
 	private readonly files = new Map<string, Uint8Array>();
 	private readonly folders = new Set<string>();
 	private readonly index = new Map<string, "file" | "folder">();
 	private clock = 1000;
+	private readonly rawListeners = new Set<(path: string) => void>();
 
-	constructor(options: { caseSensitive: boolean; refusesCaseRename?: boolean }) {
+	constructor(options: { caseSensitive: boolean; refusesCaseRename?: boolean; hearsRaw?: boolean }) {
 		this.caseSensitive = options.caseSensitive;
 		this.refusesCaseRename = options.refusesCaseRename ?? false;
 		this.folders.add(".obsidian");
+		if (options.hearsRaw === true) this.untilRaw = (heard, ms) => this.waitForRaw(heard, ms);
 	}
 
 	// -----------------------------------------------------------------------
@@ -108,6 +116,16 @@ export class FakeVaultPorts implements VaultPorts<string> {
 		const visible = (path: string): boolean => !path.split("/").some((part) => part.startsWith("."));
 		for (const path of this.folders) if (visible(path)) this.index.set(path, "folder");
 		for (const path of this.files.keys()) if (visible(path)) this.index.set(path, "file");
+	}
+
+	/** Sends the index's `raw` event at `path`. */
+	raw(path: string): void {
+		for (const listener of [...this.rawListeners]) listener(path);
+	}
+
+	/** How many waits for a `raw` event are listening. */
+	rawListening(): number {
+		return this.rawListeners.size;
 	}
 
 	// -----------------------------------------------------------------------
@@ -238,6 +256,24 @@ export class FakeVaultPorts implements VaultPorts<string> {
 	}
 
 	// -----------------------------------------------------------------------
+
+	private waitForRaw(heard: (path: string) => boolean, ms: number): RawWait {
+		let end = (_why: string): void => {};
+		const ended = new Promise<void>((resolve) => {
+			const listener = (path: string): void => {
+				if (heard(path)) end(path);
+			};
+			this.rawListeners.add(listener);
+			const timer = setTimeout(() => end("timeout"), ms);
+			end = (why) => {
+				if (!this.rawListeners.delete(listener)) return;
+				clearTimeout(timer);
+				this.rawEnds.push(why);
+				resolve();
+			};
+		});
+		return { ended, stop: () => end("stop") };
+	}
 
 	private note(call: string, path: string): void {
 		this.before?.(call, path);
