@@ -570,7 +570,7 @@ describe("rename", () => {
 			vi.useRealTimers();
 		});
 
-		test("the second call waits until the app has begun to look at the old name", async () => {
+		test("the second call waits until the app has begun to look at the old name and the name between", async () => {
 			const { ports, vault } = androidHearing();
 			ports.put("notes.md", "a");
 			const renamed = vault.rename("notes.md", "Notes.md");
@@ -579,29 +579,61 @@ describe("rename", () => {
 				"renameIndexed notes.md -> Notes.md",
 				"renameIndexed notes.md -> Notes.md.sync-evo-renaming",
 			]);
-			// Of another path, it is not the word waited for.
+			// Of another path, it is not the word waited for, and the old name alone is not enough.
 			ports.raw("other.md");
+			ports.raw("notes.md");
+			await settle();
+			expect(ports.calls).toHaveLength(2);
+
+			ports.raw("Notes.md.sync-evo-renaming");
+			await renamed;
+			expect(ports.calls[2]).toBe("renameIndexed Notes.md.sync-evo-renaming -> Notes.md");
+			expect(ports.paths()).toEqual(["Notes.md"]);
+			expect(ports.rawEnds).toEqual(["Notes.md.sync-evo-renaming"]);
+			expect(ports.rawListening()).toBe(0);
+		});
+
+		test("the name between heard first is not enough either: the old name is waited for too", async () => {
+			const { ports, vault } = androidHearing();
+			ports.put("notes.md", "a");
+			const renamed = vault.rename("notes.md", "Notes.md");
+			await settle();
 			ports.raw("Notes.md.sync-evo-renaming");
 			await settle();
 			expect(ports.calls).toHaveLength(2);
 
 			ports.raw("notes.md");
 			await renamed;
-			expect(ports.calls[2]).toBe("renameIndexed Notes.md.sync-evo-renaming -> Notes.md");
 			expect(ports.paths()).toEqual(["Notes.md"]);
 			expect(ports.rawEnds).toEqual(["notes.md"]);
-			expect(ports.rawListening()).toBe(0);
 		});
 
-		test("the old name is heard in either normalization", async () => {
+		test("the word of an editor saved at the old name, heard as the first call is made, does not end the wait", async () => {
+			const { ports, vault } = androidHearing();
+			ports.put("notes.md", "a");
+			ports.before = (call, path) => {
+				if (path === "notes.md -> Notes.md.sync-evo-renaming") ports.raw("notes.md");
+			};
+			const renamed = vault.rename("notes.md", "Notes.md");
+			await settle();
+			expect(ports.calls).toHaveLength(2);
+
+			ports.raw("Notes.md.sync-evo-renaming");
+			await renamed;
+			expect(ports.calls[2]).toBe("renameIndexed Notes.md.sync-evo-renaming -> Notes.md");
+			expect(ports.rawEnds).toEqual(["Notes.md.sync-evo-renaming"]);
+		});
+
+		test("the old name and the name between are heard in either normalization", async () => {
 			const { ports, vault } = androidHearing();
 			ports.put("café.md".normalize("NFC"), "a");
 			const renamed = vault.rename("café.md".normalize("NFC"), "Café.md".normalize("NFC"));
 			await settle();
 			ports.raw("café.md".normalize("NFD"));
+			ports.raw("Café.md.sync-evo-renaming".normalize("NFD"));
 			await renamed;
 			expect(ports.paths()).toEqual(["Café.md".normalize("NFC")]);
-			expect(ports.rawEnds).toEqual(["café.md".normalize("NFD")]);
+			expect(ports.rawEnds).toEqual(["Café.md.sync-evo-renaming".normalize("NFD")]);
 		});
 
 		test("without the word, the second call is made after a few seconds", async () => {
@@ -638,9 +670,10 @@ describe("rename", () => {
 			const renamed = failure(vault.rename("notes.md", "Notes.md"));
 			await settle();
 			ports.raw("notes.md");
+			ports.raw("Notes.md.sync-evo-renaming");
 			expect(await renamed).toBe(REFUSED);
 			expect(ports.calls[2]).toBe("renameIndexed Notes.md.sync-evo-renaming -> notes.md");
-			expect(ports.rawEnds).toEqual(["notes.md"]);
+			expect(ports.rawEnds).toEqual(["Notes.md.sync-evo-renaming"]);
 			expect(ports.rawListening()).toBe(0);
 		});
 

@@ -410,6 +410,7 @@ describe("a path the index has in two cases", () => {
 
 		expect(found(result)).toEqual(["a.md", "notes/Todo.md"]);
 		expect(s.ops.filter((op) => op.startsWith("list"))).toEqual(["list notes"]);
+		expect(result.notOnDisk).toBe(1);
 	});
 
 	test("so is a folder on the way, with every file below the old spelling", async () => {
@@ -421,6 +422,7 @@ describe("a path the index has in two cases", () => {
 
 		expect(found(result)).toEqual(["Tools/also-exec.sh", "Tools/run.sh"]);
 		expect(s.ops.filter((op) => op.startsWith("list"))).toEqual(["list /", "list Tools"]);
+		expect(result.notOnDisk).toBe(2);
 	});
 
 	test("on a disk that tells the cases apart and has both, both are listed", async () => {
@@ -430,6 +432,7 @@ describe("a path the index has in two cases", () => {
 		const result = await light(s);
 
 		expect(found(result)).toEqual(["Tools/a.sh", "notes/Todo.md", "notes/todo.md", "tools/b.sh"]);
+		expect(result.notOnDisk).toBe(0);
 	});
 
 	test("the disk is not listed where no two paths differ in case alone", async () => {
@@ -438,6 +441,44 @@ describe("a path the index has in two cases", () => {
 		await light(s);
 
 		expect(s.ops.filter((op) => op.startsWith("list"))).toEqual([]);
+	});
+
+	test("two spellings that differ in NFC and NFD alone are no two cases: nothing is left out, and the disk is not listed", async () => {
+		const nfc = "notes/ガイド.md";
+		const nfd = nfc.normalize("NFD");
+		const s = setup({ [nfc]: "G" });
+		s.index.drop(nfc);
+		s.index.set(nfd, BEFORE, 1);
+
+		const result = await light(s);
+
+		expect(result.paths).toEqual([{ path: nfd, key: nfc, state: "present" }]);
+		expect(s.ops.filter((op) => op.startsWith("list"))).toEqual([]);
+		expect(result.notOnDisk).toBe(0);
+	});
+
+	test("a path the index holds twice, in NFC and in NFD, is listed once", async () => {
+		const nfc = "notes/ガイド.md";
+		const s = setup({ [nfc]: "G" });
+		s.index.set(nfc.normalize("NFD"), BEFORE, 1);
+
+		const result = await light(s);
+
+		expect(result.paths).toEqual([{ path: nfc, key: nfc, state: "present" }]);
+		expect(result.notOnDisk).toBe(0);
+	});
+
+	// The old spelling left in the index, and the remote's case taken back:
+	// the app can then hold two of its objects at the one spelling.
+	test("a path the index holds twice in one spelling is listed once, beside an old spelling left out", async () => {
+		const s = setup({ "notes/todo.md": "t" });
+		const at = (path: string) => ({ path, mtime: BEFORE, size: 1 });
+		const index = { indexedFiles: () => [at("notes/todo.md"), at("notes/Todo.md"), at("notes/todo.md")] };
+
+		const result = await scanLightly({ index, vault: s.vault, ...sides({}) });
+
+		expect(found(result)).toEqual(["notes/todo.md"]);
+		expect(result.notOnDisk).toBe(1);
 	});
 });
 
@@ -555,9 +596,16 @@ describe("the sync decision after a light check", () => {
 
 describe("the line a light check logs", () => {
 	test("counts the files, what the index did not settle, and the time", () => {
-		const scan = { paths: [{ path: "a", key: "a", state: "present" as const }], asked: 3 };
+		const scan = { paths: [{ path: "a", key: "a", state: "present" as const }], asked: 3, notOnDisk: 0 };
 		expect(lightCheckLine(scan, { statted: 4, hashed: 2 }, 17)).toBe(
 			"light check: 1 files, 3 not in the index, 4 asked of the disk, 2 hashed, 17 ms",
+		);
+	});
+
+	test("and the files of the index left out at a spelling the disk does not have, where there are any", () => {
+		const scan = { paths: [{ path: "a", key: "a", state: "present" as const }], asked: 3, notOnDisk: 2 };
+		expect(lightCheckLine(scan, { statted: 4, hashed: 2 }, 17)).toBe(
+			"light check: 1 files, 3 not in the index, 2 not on disk, 4 asked of the disk, 2 hashed, 17 ms",
 		);
 	});
 });
