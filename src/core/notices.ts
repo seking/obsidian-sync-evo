@@ -104,6 +104,14 @@ import type { StateStore } from "./state";
  *   records have at the name waits. The path is the one it was left at.
  *   Found by a pull alone, which tries it again every time. Not told of a
  *   name of the user's that happens to end so.
+ * - "case-renamed-folder": this pull changed the case of a folder in two
+ *   calls (`RoutedVault.rename`). Android's app goes on telling of writes
+ *   in it under the old spelling as well, and its index then holds the
+ *   folder twice until the app starts again; deleting the old spelling
+ *   deletes the folder. The path is the new spelling. Like
+ *   "plugin-not-listed", never remembered: it is about a rename, and is
+ *   told by the pull that made it. Not of a name given back
+ *   (`settleRenamings`), which is one call.
  *
  * A new kind is a new name here and a text in the catalog.
  */
@@ -129,6 +137,7 @@ export const NOTICE_KINDS = [
 	"submodule-not-sent",
 	"local-link",
 	"renaming-left",
+	"case-renamed-folder",
 ] as const;
 
 export type NoticeKind = (typeof NOTICE_KINDS)[number];

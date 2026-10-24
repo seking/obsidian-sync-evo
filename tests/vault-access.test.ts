@@ -394,6 +394,17 @@ describe("rename", () => {
 		});
 	});
 
+	test.each([
+		["where the cases are not told apart", mac],
+		["where the cases are told apart", iphone],
+	])("a folder renamed in one call is not kept %s", async (_, device) => {
+		const { ports, vault } = device();
+		ports.put("notes/a.md", "a");
+		await vault.rename("notes", "Notes");
+		expect(ports.paths()).toEqual(["Notes/a.md"]);
+		expect(vault.caseRenamedFolders()).toEqual([]);
+	});
+
 	describe("where the cases are told apart", () => {
 		test("a change of case is a rename like any other", async () => {
 			const { ports, vault } = iphone();
@@ -552,6 +563,24 @@ describe("rename", () => {
 			};
 			expect(await failure(vault.rename("notes.md", "Notes.md"))).toBe(REFUSED);
 			expect(ports.paths()).toEqual(["Notes.md.sync-evo-renaming"]);
+		});
+
+		test("a folder renamed in two calls is kept, as spelled now; a file, a . name, and a rename that failed are not", async () => {
+			const { ports, vault } = android();
+			ports.put("notes/a.md", "a");
+			ports.put("notes/sub/b.md", "b");
+			ports.put("todo.md", "t");
+			ports.put(".github/a.yml", "y");
+			ports.put("busy/c.md", "c");
+			ports.before = (call, path) => {
+				if (path === "Busy.sync-evo-renaming -> Busy") throw new Error("EBUSY");
+			};
+			await vault.rename("notes", "Notes");
+			await vault.rename("Notes/sub", "Notes/Sub");
+			await vault.rename("todo.md", "TODO.md");
+			await vault.rename(".github", ".GitHub");
+			expect(await failure(vault.rename("busy", "Busy"))).toBe(REFUSED);
+			expect(vault.caseRenamedFolders()).toEqual(["Notes", "Notes/Sub"]);
 		});
 
 		test("a name between that is there already is not replaced", async () => {
@@ -1061,6 +1090,7 @@ describe("a pull through the routing", () => {
 		expect(ports.paths()).toEqual(["Notes/a.md", "Notes/b.md"]);
 		expect(ports.calls).toEqual(["renameIndexed notes -> Notes"]);
 		expect(ports.trashed).toEqual([]);
+		expect(result.notices).toEqual([]);
 	});
 
 	test("the same where the cases are told apart", async () => {
@@ -1073,6 +1103,7 @@ describe("a pull through the routing", () => {
 		expect(result.unwritable).toEqual([]);
 		expect(ports.paths()).toEqual(["Notes/a.md", "Notes/b.md"]);
 		expect(ports.trashed).toEqual([]);
+		expect(result.notices).toEqual([]);
 	});
 
 	describe("where a change of case alone is refused", () => {
@@ -1098,13 +1129,18 @@ describe("a pull through the routing", () => {
 				"renameIndexed Notes.sync-evo-renaming -> Notes",
 			]);
 			expect(ports.trashed).toEqual([]);
+			// The old spelling may show again in the app's list until it starts again.
+			expect(result.notices).toEqual([{ kind: "case-renamed-folder", path: "Notes" }]);
 
+			// Told by the pull that renamed it alone.
 			ports.calls.length = 0;
-			expect((await pull()).counts).toEqual({ fetched: 0, deleted: 0, renamed: 0, conflicts: 0 });
+			const again = await pull();
+			expect(again.counts).toEqual({ fetched: 0, deleted: 0, renamed: 0, conflicts: 0 });
+			expect(again.notices).toEqual([]);
 			expect(ports.calls).toEqual([]);
 		});
 
-		test("so is a file", async () => {
+		test("so is a file, and nothing is told of it", async () => {
 			const { ports, backend, pull } = harness(false, true);
 			backend.commit({ "notes.md": "a" });
 			await pull();
@@ -1115,6 +1151,7 @@ describe("a pull through the routing", () => {
 			expect(result.conflicts).toEqual([]);
 			expect(ports.paths()).toEqual(["Notes.md"]);
 			expect(ports.text("Notes.md")).toBe("a2");
+			expect(result.notices).toEqual([]);
 		});
 
 		test("a file of the vault is given the spelling of the remote's, in two calls", async () => {

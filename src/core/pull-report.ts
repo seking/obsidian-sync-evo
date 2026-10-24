@@ -726,6 +726,7 @@ const NOTICE_LEVELS: { readonly [Kind in NoticeKind]: NoticeLevel } = {
 	"submodule-not-sent": "warn",
 	"local-link": "info",
 	"renaming-left": "warn",
+	"case-renamed-folder": "warn",
 };
 
 // One text per kind, which lists its paths. No `default`: a kind added
@@ -796,6 +797,8 @@ function noticeText(
 			return t("notice.localLink", { list });
 		case "renaming-left":
 			return t("notice.renamingLeft", { list });
+		case "case-renamed-folder":
+			return t("notice.caseRenamedFolder", { list });
 	}
 }
 

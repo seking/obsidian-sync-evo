@@ -61,6 +61,15 @@ A submodule that is excluded, such as one in an excluded folder, is not download
 
 Obsidian on Android refuses a rename that changes only upper and lower case (`tools/` to `Tools/`). Sync Evo then makes it in two steps, through a name with `.sync-evo-renaming` at the end: `tools` → `Tools.sync-evo-renaming` → `Tools`.
 
+The rename goes through. For a folder, though, Obsidian may also show it under its old spelling in the file list (`tools/` next to `Tools/`) until Obsidian is restarted. Sync Evo tells you so after the sync that renamed it.
+
+- Do not delete the one with the old spelling. Both are the same folder, so that deletes the real folder, with everything in it.
+- Restarting Obsidian makes the old spelling go away.
+- Uploads are not affected.
+- The cause is in Obsidian on Android: after the rename, it goes on reporting writes in the folder under the old name as well. Sync Evo cannot prevent it.
+
+**How the two steps work.**
+
 - A name with `.sync-evo-renaming` at the end is never synced.
 - If a sync stops between the two steps, the next sync gives the name back, and goes on with the rename.
 - Sync Evo writes nothing down between the two steps, so it tells the names it put there by what the remote and the last sync have: a file is given back where they have a file at the name without `.sync-evo-renaming`, and a folder where they have files in a folder of that name. Names one inside the other are given back too.
