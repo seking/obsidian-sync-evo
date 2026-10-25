@@ -6799,6 +6799,72 @@ describe("a pull with the light check", () => {
 		expect(ops.filter((op) => !op.includes(".git"))).toEqual(["list /"]);
 	});
 
+	// As on an iPad, where the app answers for a link another app put in the
+	// vault as for a file, and fails when it is asked of it.
+	test("a path the disk fails to answer for is left as it is, the rest is pulled, and the pull ends incomplete", async () => {
+		const { h, index } = await lightly(files);
+		h.backend.commit({ ".github/ci.yml": "ci from the Mac", "a.md": "A from the Mac" });
+		h.vault.before = (op, path) => {
+			if (op === "stat" && path === ".github/ci.yml") throw new Error("EIO");
+		};
+
+		const result = await h.pull({ index });
+
+		expect(result).toMatchObject({
+			outcome: "incomplete",
+			counts: { fetched: 1, deleted: 0 },
+			deferred: [{ path: ".github/ci.yml", reason: "unreadable" }],
+		});
+		expect(h.vault.snapshot()).toMatchObject({ ".github/ci.yml": "ci", "a.md": "A from the Mac" });
+
+		// Answered again, the file is fetched.
+		h.vault.before = undefined;
+		expect(await h.pull({ index })).toMatchObject({ outcome: "completed", counts: { fetched: 1 }, deferred: [] });
+		expect(h.vault.text(".github/ci.yml")).toBe("ci from the Mac");
+	});
+
+	test("a path the remote deleted is not deleted while the disk fails to answer for it, and is by the next pull", async () => {
+		const { h, index } = await lightly(files);
+		h.backend.commit({ ".github/ci.yml": null });
+		h.vault.before = (op, path) => {
+			if (op === "stat" && path === ".github/ci.yml") throw new Error("EIO");
+		};
+
+		const result = await h.pull({ index });
+
+		expect(result).toMatchObject({
+			outcome: "incomplete",
+			counts: { deleted: 0 },
+			deferred: [{ path: ".github/ci.yml", reason: "unreadable" }],
+		});
+		h.vault.before = undefined;
+		expect(h.vault.text(".github/ci.yml")).toBe("ci");
+
+		expect(await h.pull({ index })).toMatchObject({ outcome: "completed", counts: { deleted: 1 }, deferred: [] });
+		expect(h.vault.paths()).not.toContain(".github/ci.yml");
+	});
+
+	test("a path the remote renamed is not renamed while the disk fails to answer for it, and the new one is fetched", async () => {
+		const { h, index, ops } = await lightly(files);
+		h.backend.commit({ ".github/ci.yml": null, ".github/build.yml": "ci" });
+		h.vault.before = (op, path) => {
+			ops.push(`${op} ${path}`);
+			if (op === "stat" && path === ".github/ci.yml") throw new Error("EIO");
+		};
+
+		const result = await h.pull({ index });
+
+		expect(result).toMatchObject({ outcome: "incomplete", deferred: [{ path: ".github/ci.yml", reason: "unreadable" }] });
+		expect(ops.filter((op) => op.startsWith("rename"))).toEqual([]);
+		h.vault.before = undefined;
+		expect(h.vault.text(".github/ci.yml")).toBe("ci");
+		expect(h.vault.text(".github/build.yml")).toBe("ci");
+
+		expect(await h.pull({ index })).toMatchObject({ outcome: "completed", deferred: [] });
+		expect(h.vault.paths()).not.toContain(".github/ci.yml");
+		expect(h.vault.text(".github/build.yml")).toBe("ci");
+	});
+
 	test("what the remote changed is fetched, deleted and added as after a scan", async () => {
 		const { h, index } = await lightly(files);
 		const head = h.backend.commit({ "a.md": "A2", "notes/b.md": null, "new/n.md": "N", ".github/ci.yml": "ci2" });

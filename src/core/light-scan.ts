@@ -30,7 +30,7 @@ import type { RemoteEntry } from "./backend";
 import { type Exclusion, knownPaths } from "./exclusion";
 import { foldedKey, isPathFromRoot, pathKey } from "./paths";
 import type { SyncRecord } from "./plan";
-import type { PullVault } from "./pull-io";
+import type { PullVault, VaultStat } from "./pull-io";
 import { fromRoot, type RenamingFound, type ScannedPath, type ScanResult } from "./scan";
 import { foldersTo, lastOf, parentOf, renamingPathOf } from "./vault-routes";
 import type { FileStat } from "./state";
@@ -121,8 +121,19 @@ export interface LightScanResult extends ScanResult {
  * way to them do, the disk is asked which of the spellings it has
  * (`onDisk`).
  *
- * A failure of the disk to answer fails the whole check, like a folder
- * that cannot be listed: a list with a hole would read as deletions.
+ * A path the disk fails to answer for is no reason to fail the check of
+ * all the others. It is not left out either: a list with a hole would read
+ * as deletions. Such a path is listed as one whose file cannot be read
+ * (`ScannedPath` "unreadable"), as the record or the remote spells it, and
+ * kept out of the sync like a file the scan found and could not read. So
+ * is a file of the index below a folder that cannot be listed where its
+ * spelling is asked (`onDisk`). A disk that answers for nothing does not
+ * fail this check either: every path it was asked about is held, so nothing
+ * is sent or deleted for one. That is the check alone; the sync fails
+ * before it all the same, where the root `.gitignore` is asked of the disk
+ * (`rootGitignore` in `push.ts` and `pull.ts`). On a phone, the app answers for a link another
+ * app put in the vault as for a file, and can fail when it is asked of it
+ * (seen on an iPad: "The file "skills" couldn't be opened").
  */
 export async function scanLightly(input: LightScanInput): Promise<LightScanResult> {
 	const { exclusion, vault } = input;
@@ -180,6 +191,10 @@ export async function scanLightly(input: LightScanInput): Promise<LightScanResul
 		}
 		if (await leftOut(path)) continue;
 		const key = pathKey(path);
+		if (there.unlisted.has(key)) {
+			paths.push({ path, key, state: "unreadable" });
+			continue;
+		}
 		paths.push({ path, key, state: "present" });
 		if (!there.untold.has(key)) indexed.set(key, { mtime: file.mtime, size: file.size });
 	}
@@ -196,8 +211,15 @@ export async function scanLightly(input: LightScanInput): Promise<LightScanResul
 		const key = pathKey(path);
 		const spellings = [...new Set([path, path.normalize("NFD"), key])];
 		let found: ScannedPath | "folder" | "link" | null = null;
+		// Whether the disk failed to answer for a spelling: then nothing
+		// found at the others does not mean that the file is gone.
+		let failed = false;
 		for (const spelled of spellings) {
-			const stat = await vault.stat(spelled);
+			const stat = await statOrFailed(vault, spelled);
+			if (stat === "failed") {
+				failed = true;
+				continue;
+			}
 			if (stat === null) {
 				// A link whose target is gone: the disk has nothing to stat there.
 				if (await isLink(spelled, "file")) {
@@ -212,17 +234,29 @@ export async function scanLightly(input: LightScanInput): Promise<LightScanResul
 			break;
 		}
 		for (const spelled of found === null ? spellings : []) {
-			const placeholder = await vault.stat(placeholderOf(spelled));
-			if (placeholder === null || placeholder.type !== "file") continue;
+			const placeholder = await statOrFailed(vault, placeholderOf(spelled));
+			if (placeholder === "failed") failed = true;
+			if (placeholder === "failed" || placeholder === null || placeholder.type !== "file") continue;
 			found = { path: spelled, key, state: "placeholder" };
 			break;
+		}
+		// Also where another spelling is a folder or a link: the one the disk
+		// failed to answer for may be the record's file, and left out it
+		// would read as deleted.
+		if (failed && (found === null || found === "folder" || found === "link")) {
+			found = { path, key, state: "unreadable" };
 		}
 		if (found !== null && found !== "folder" && found !== "link") paths.push(found);
 	}
 
+	// Not there, when the disk fails to answer: all it decides is a notice,
+	// and a light check forgets no notice it does not find (`pull.ts`), so
+	// one told by an earlier sync stays. Taken as there, it would tell one
+	// that no scan finds a reason for.
+	const git = await statOrFailed(vault, ".git");
 	return {
 		paths,
-		rootHasGit: (await vault.stat(".git")) !== null,
+		rootHasGit: git !== null && git !== "failed",
 		links,
 		renaming: [...renaming.values()],
 		indexed,
@@ -258,6 +292,12 @@ export async function scanLightly(input: LightScanInput): Promise<LightScanResul
  * change and not the other, and the one kept could be the one left behind,
  * which would hold a file the user has changed as unchanged. Whoever reads
  * that file asks the disk.
+ *
+ * A folder that cannot be listed tells nothing of the spellings below it.
+ * Each file whose spelling was to be asked of it is kept, and told among
+ * `unlisted`: left out, the spelling the disk has would read as deleted,
+ * and listed as it is, the one it does not have would be a new file. The
+ * caller lists it as a file that cannot be read, which neither is.
  */
 async function onDisk(
 	indexedFiles: readonly IndexedFile[],
@@ -266,6 +306,7 @@ async function onDisk(
 	readonly files: readonly IndexedFile[];
 	readonly notOnDisk: number;
 	readonly untold: ReadonlySet<string>;
+	readonly unlisted: ReadonlySet<string>;
 }> {
 	const once = new Map<string, IndexedFile>();
 	const untold = new Set<string>();
@@ -289,15 +330,22 @@ async function onDisk(
 			spellings.set(key, known);
 		}
 	}
-	if ([...spellings.values()].every((known) => known.size === 1)) return { files, notOnDisk: 0, untold };
+	const unlisted = new Set<string>();
+	if ([...spellings.values()].every((known) => known.size === 1)) return { files, notOnDisk: 0, untold, unlisted };
 
-	// The names right in each folder, as the disk spells them. Listed once.
-	const listings = new Map<string, Promise<Set<string>>>();
-	const namesIn = (folder: string): Promise<Set<string>> => {
+	// The names right in each folder, as the disk spells them, or `null`
+	// where it cannot be listed. Listed once.
+	const listings = new Map<string, Promise<Set<string> | null>>();
+	const namesIn = (folder: string): Promise<Set<string> | null> => {
 		const before = listings.get(folder);
 		if (before !== undefined) return before;
 		const names = (async () => {
-			const listing = await vault.list(folder === "" ? "/" : folder);
+			let listing: Awaited<ReturnType<typeof vault.list>>;
+			try {
+				listing = await vault.list(folder === "" ? "/" : folder);
+			} catch {
+				return null;
+			}
 			// Only the last part is read: a lister builds the rest from the folder it was asked for.
 			return new Set([...listing.files, ...listing.folders].map((path) => pathKey(lastOf(path))));
 		})();
@@ -312,14 +360,28 @@ async function onDisk(
 		// From the top down, so that a folder is listed as the disk spells it.
 		for (const step of isPathFromRoot(path) ? steps(path) : []) {
 			if ((spellings.get(foldedKey(step))?.size ?? 0) < 2) continue;
-			if (!(await namesIn(parentOf(step))).has(lastOf(step))) {
+			const names = await namesIn(parentOf(step));
+			if (names === null) {
+				unlisted.add(path);
+				break;
+			}
+			if (!names.has(lastOf(step))) {
 				there = false;
 				break;
 			}
 		}
 		if (there) kept.push(file);
 	}
-	return { files: kept, notOnDisk: files.length - kept.length, untold };
+	return { files: kept, notOnDisk: files.length - kept.length, untold, unlisted };
+}
+
+/** What the disk has at `path`, or "failed" where it fails to answer (`scanLightly`). */
+async function statOrFailed(vault: Pick<PullVault, "stat">, path: string): Promise<VaultStat | null | "failed"> {
+	try {
+		return await vault.stat(path);
+	} catch {
+		return "failed";
+	}
 }
 
 /** What iCloud Drive leaves in the place of the file at `path` (`placeholderTarget` reads it back). */

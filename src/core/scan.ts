@@ -32,7 +32,10 @@ export interface FolderLister {
 	/**
 	 * The links of the vault (symbolic links, and junctions on Windows) that
 	 * are right in the folder, as paths from the vault root. Absent where
-	 * links cannot be told (a phone), and there `list` is all there is.
+	 * links cannot be told (a phone), and there `list` is all there is. The
+	 * Obsidian of a phone makes no link, but another app can put one in the
+	 * vault; the app answers for it as for a file, and can fail when it is
+	 * asked of it.
 	 */
 	linksIn?(folder: string): Promise<readonly string[]>;
 }
@@ -56,13 +59,17 @@ export interface LinkProbe {
  *   side of the sync decision lists it without a hash and keeps it out of
  *   the plan (`PlanInput.held`); left out, it would read as deleted, and a
  *   push would delete it on the remote.
+ * - "unreadable": the disk failed to answer for the path, so what is there
+ *   is not known (only the light check lists one, `scanLightly`). Whoever
+ *   makes the local side lists it as a file that cannot be read
+ *   (`LocalRead.unreadable`): not sent, not deleted, not written over.
  */
 export interface ScannedPath {
 	/** Path from the vault root, spelled as the lister returned it. */
 	readonly path: string;
 	/** `pathKey(path)`. */
 	readonly key: string;
-	readonly state: "present" | "placeholder";
+	readonly state: "present" | "placeholder" | "unreadable";
 }
 
 export interface ScanInput {

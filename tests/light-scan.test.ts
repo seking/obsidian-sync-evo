@@ -313,12 +313,64 @@ describe("the paths the index does not hold", () => {
 		expect(result.asked).toBe(0);
 	});
 
-	test("a disk that cannot answer fails the check instead of reading as a deletion", async () => {
-		const s = setup({ "a.md": "A", ".x/c.md": "C" });
+	// As the app of an iPad was seen to fail at a link another app put in
+	// the vault: "The file "skills" couldn't be opened".
+	test("a path the disk fails to answer for is listed as one that cannot be read, and the rest as before", async () => {
+		const s = setup({ "a.md": "A", ".x/c.md": "C", ".claude/skills": "../skills" });
 		s.vault.before = (op, path) => {
-			if (op === "stat" && path === ".x/c.md") throw new Error("EIO");
+			if (op === "stat" && path === ".claude/skills") throw new Error("The file “skills” couldn’t be opened.");
 		};
-		await expect(light(s, { recorded: [".x/c.md"] })).rejects.toThrow("EIO");
+
+		const result = await light(s, { recorded: [".x/c.md", ".claude/skills"] });
+
+		expect(sorted(result)).toEqual([
+			{ path: ".claude/skills", key: ".claude/skills", state: "unreadable" },
+			{ path: ".x/c.md", key: ".x/c.md", state: "present" },
+			{ path: "a.md", key: "a.md", state: "present" },
+		]);
+		expect(result.indexed.has(".claude/skills")).toBe(false);
+	});
+
+	test("so is one only the remote knows, and one whose placeholder the disk fails to answer for", async () => {
+		const s = setup({ "a.md": "A" });
+		s.vault.before = (op, path) => {
+			if (op === "stat" && (path === ".x/new.yml" || path === ".x/.gone.md.icloud")) throw new Error("EIO");
+		};
+
+		const result = await light(s, { remote: [".x/new.yml"], recorded: [".x/gone.md"] });
+
+		expect(sorted(result)).toEqual([
+			{ path: ".x/gone.md", key: ".x/gone.md", state: "unreadable" },
+			{ path: ".x/new.yml", key: ".x/new.yml", state: "unreadable" },
+			{ path: "a.md", key: "a.md", state: "present" },
+		]);
+	});
+
+	test("a file found at another spelling is listed as found, though the disk failed to answer for the first", async () => {
+		const nfc = ".x/ガイド.md";
+		const nfd = nfc.normalize("NFD");
+		const s = setup({ [nfd]: "G" }, { caseSensitive: true });
+		s.vault.before = (op, path) => {
+			if (op === "stat" && path === nfc) throw new Error("EIO");
+		};
+
+		const result = await light(s, { recorded: [nfc] });
+
+		expect(result.paths).toEqual([{ path: nfd, key: nfc, state: "present" }]);
+	});
+
+	// Left out, the record's file would read as deleted.
+	test("one the disk fails to answer for at a spelling, with a folder at another, is listed as one that cannot be read", async () => {
+		const nfc = ".x/ガイド.md";
+		const nfd = nfc.normalize("NFD");
+		const s = setup({ [`${nfd}/inner.md`]: "I" }, { caseSensitive: true });
+		s.vault.before = (op, path) => {
+			if (op === "stat" && path === nfc) throw new Error("EIO");
+		};
+
+		const result = await light(s, { recorded: [nfc] });
+
+		expect(result.paths).toEqual([{ path: nfc, key: nfc, state: "unreadable" }]);
 	});
 });
 
@@ -502,6 +554,24 @@ describe("a path the index has in two cases", () => {
 
 	// The old spelling left in the index, and the remote's case taken back:
 	// the app can then hold two of its objects at the one spelling.
+	test("below a folder that cannot be listed, both spellings are listed as ones that cannot be read", async () => {
+		const s = setup({ "notes/Todo.md": "T", "a.md": "A" });
+		s.index.set("notes/todo.md", BEFORE, 1);
+		s.vault.before = (op, path) => {
+			if (op === "list" && path === "notes") throw new Error("EIO");
+		};
+
+		const result = await light(s, { recorded: ["notes/todo.md"] });
+
+		expect(sorted(result)).toEqual([
+			{ path: "a.md", key: "a.md", state: "present" },
+			{ path: "notes/Todo.md", key: "notes/Todo.md", state: "unreadable" },
+			{ path: "notes/todo.md", key: "notes/todo.md", state: "unreadable" },
+		]);
+		expect([...result.indexed.keys()]).toEqual(["a.md"]);
+		expect(result.notOnDisk).toBe(0);
+	});
+
 	test("a path the index holds twice in one spelling is listed once, beside an old spelling left out", async () => {
 		const s = setup({ "notes/todo.md": "t" });
 		const at = (path: string) => ({ path, mtime: BEFORE, size: 1 });
@@ -523,6 +593,17 @@ describe("a .git at the vault root", () => {
 		const s = setup(files);
 		expect((await light(s)).rootHasGit).toBe(expected);
 		expect((await full(s)).rootHasGit).toBe(expected);
+	});
+
+	// All it decides is a notice, which a light check does not forget.
+	test("is not told when the disk fails to answer for it", async () => {
+		const s = setup({ "a.md": "A", ".git/HEAD": "ref" });
+		s.vault.before = (op, path) => {
+			if (op === "stat" && path === ".git") throw new Error("EIO");
+		};
+		const result = await light(s);
+		expect(result.rootHasGit).toBe(false);
+		expect(found(result)).toEqual(["a.md"]);
 	});
 });
 

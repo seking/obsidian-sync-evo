@@ -4557,6 +4557,85 @@ describe("a push with the light check", () => {
 		expect(await readNotices(h.store)).toEqual(expect.arrayContaining([nested, deep]));
 	});
 
+	test("a path the disk fails to answer for is told as one that cannot be read: not sent, not deleted, and the rest is sent", async () => {
+		const h = await synced({ ...files, ".x/c.md": "C" });
+		const index = new MemoryIndex(h.vault);
+		h.vault.put(".x/c.md", "C2");
+		h.vault.put("a.md", "A2");
+		h.vault.before = (op, path) => {
+			if (op === "stat" && path === ".x/c.md") throw new Error("EIO");
+		};
+
+		const result = await h.push({ index });
+
+		expect(result).toMatchObject({
+			outcome: "pushed",
+			counts: { added: 0, modified: 1, deleted: 0 },
+			leftOut: [{ path: ".x/c.md", reason: "unreadable" }],
+		});
+		expect(await h.remote()).toMatchObject({ ".x/c.md": "C", "a.md": "A2" });
+		expect((await h.records())[".x/c.md"]).toBe(blobHash("C"));
+
+		// Answered again, the file is sent.
+		h.vault.before = undefined;
+		expect(await h.push({ index })).toMatchObject({ outcome: "pushed", counts: { modified: 1 }, leftOut: [] });
+		expect((await h.remote())[".x/c.md"]).toBe("C2");
+	});
+
+	// The link another app put in the vault of an iPad, which the remote and
+	// the records hold as a symlink: the sync has nothing to read of it.
+	test.each([
+		["the light check", true],
+		["a scan", false],
+	])("a symlink of the remote that the disk fails at is not looked at: with %s, the pull completes and nothing is told", async (_name, lightly) => {
+		const h = await synced(
+			{ ...files, ".claude/skills": "../skills", "skills/x.md": "X" },
+			{ kinds: { ".claude/skills": "symlink" } },
+		);
+		h.vault.put(".claude/skills", "../skills");
+		const index = new MemoryIndex(h.vault);
+		const options = lightly ? { index } : {};
+		h.backend.commit({ "a.md": "A from the Mac" });
+		h.vault.put("notes/b.md", "B2");
+		h.vault.before = (op, path) => {
+			if ((op === "stat" || op === "read") && path === ".claude/skills") {
+				throw new Error("The file “skills” couldn’t be opened.");
+			}
+		};
+
+		const pull = await h.pull(options);
+
+		expect(pull).toMatchObject({ outcome: "completed", counts: { fetched: 1 }, deferred: [] });
+		expect(await h.base()).toBe(h.backend.revision);
+		const push = await h.push(options);
+		expect(push).toMatchObject({ outcome: "pushed", counts: { added: 0, modified: 1, deleted: 0 }, leftOut: [] });
+		expect(await h.remote()).toMatchObject({ ".claude/skills": "../skills", "a.md": "A from the Mac", "notes/b.md": "B2" });
+		expect(await readNotices(h.store)).not.toContainEqual(expect.objectContaining({ path: ".claude/skills" }));
+	});
+
+	test("a file of the index whose folder cannot be listed for its spelling is neither sent nor deleted, at either spelling", async () => {
+		const h = await synced({ ...files, "notes/Todo.md": "T" });
+		const index = new MemoryIndex(h.vault);
+		// The old spelling of a change of case, put back beside the new one.
+		index.set("notes/todo.md", 1, 1);
+		h.vault.put("a.md", "A2");
+		h.vault.before = (op, path) => {
+			if (op === "list" && path === "notes") throw new Error("EIO");
+		};
+
+		const result = await h.push({ index });
+
+		expect(result).toMatchObject({ outcome: "pushed", counts: { added: 0, modified: 1, deleted: 0 } });
+		expect(result.leftOut).toEqual(
+			expect.arrayContaining([
+				{ path: "notes/Todo.md", reason: "unreadable" },
+				{ path: "notes/todo.md", reason: "unreadable" },
+			]),
+		);
+		expect(await h.remote()).toMatchObject({ "notes/Todo.md": "T", "notes/b.md": "B", "a.md": "A2" });
+		expect((await h.remote())["notes/todo.md"]).toBeUndefined();
+	});
+
 	test("a question it comes to can be left for later like any other", async () => {
 		const h = await synced(files, { firstPush: true });
 		const index = new MemoryIndex(h.vault);

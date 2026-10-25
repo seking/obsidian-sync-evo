@@ -64,9 +64,12 @@ function editorOf(view: View): OpenEditor | null {
 
 /**
  * How to tell the links of the vault, on a desktop (`linkPorts`). Nothing
- * elsewhere: the mobile app has no Node, and its user has no means to make
- * a link. The app itself does not tell them: it lists a link to a folder as
- * a folder.
+ * elsewhere: the mobile app has no Node. Its Obsidian makes no link, but
+ * another app can put one in the vault (seen on an iPad). The app itself
+ * does not tell them: it lists a link to a folder as a folder, and on a
+ * phone it answers for a link as for a file and can fail when it is asked
+ * of it. Where the remote holds a link, the sync does not read the path;
+ * elsewhere it takes it as a file that cannot be read.
  */
 function linkPortsOf(adapter: DataAdapter): Pick<VaultPorts<TAbstractFile>, "linksIn" | "isLink" | "listOnDisk"> {
 	if (!Platform.isDesktopApp || !(adapter instanceof FileSystemAdapter)) return {};

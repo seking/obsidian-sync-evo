@@ -95,11 +95,12 @@ export interface LocalRead {
 	 */
 	readonly beingEdited: string[];
 	/**
-	 * The files that are there and could not be read. Each is listed in
-	 * `entries` without a hash, for the caller to keep out of the plan
-	 * (`PlanInput.held`): nothing is known of its content, so it is not
-	 * sent, not deleted on the remote, and not written over or deleted
-	 * here. One file that cannot be read is no reason to fail the sync of
+	 * The files that are there and could not be read, and the paths the
+	 * disk failed to answer for when they were listed (`ScannedPath`
+	 * "unreadable"). Each is listed in `entries` without a hash, for the
+	 * caller to keep out of the plan (`PlanInput.held`): nothing is known
+	 * of its content, so it is not sent, not deleted on the remote, and not
+	 * written over or deleted here. One file that cannot be read is no reason to fail the sync of
 	 * all the others.
 	 */
 	readonly unreadable: string[];
@@ -221,6 +222,27 @@ export async function readLocal(
 			entries.push({ path, hash: "" });
 			continue;
 		}
+		// A symlink of the remote, which no record holds as a file: the plan
+		// turns the path away as a symlink before it compares anything, so
+		// what is here is not needed. Not looked at, nor told: on a phone the
+		// app answers for a link another app put in the vault as for a file,
+		// and fails to read it, which as an unreadable file would leave
+		// every pull incomplete. A record of a file keeps it looked at: the
+		// pull compares the file with it when the remote turned it into a
+		// symlink (`planSymlink`). So does a remote that turned the symlink
+		// into a file, and a record of one that the remote no longer holds.
+		const record = byKey.get(key);
+		if (remoteByKey.get(key)?.kind === "symlink" && record?.kind !== "file") {
+			entries.push({ path, hash: "" });
+			continue;
+		}
+		// The disk failed to answer for it when it was listed. Not asked
+		// again: what is there is not known, as of a file that cannot be read.
+		if (scanned.state === "unreadable") {
+			entries.push({ path, hash: "" });
+			unreadable.push(path);
+			continue;
+		}
 		// Whether an editor wrote the file just now. The index may not have
 		// heard of that write yet, so it is not asked about this file.
 		let justSaved = false;
@@ -238,7 +260,6 @@ export async function readLocal(
 			}
 			justSaved = result === "saved";
 		}
-		const record = byKey.get(key);
 		const inIndex = justSaved ? undefined : deps.indexed?.get(key);
 		if (
 			record !== undefined &&
