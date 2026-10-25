@@ -276,8 +276,8 @@ describe("the section a push added to .gitignore", () => {
 		const question = pushQuestion(t, target, { ...request, sectionAdded: added });
 		expect(question.parts.slice(1)).toEqual([
 			{
-				text: "Sync Evo added rules for what is not synced to the .gitignore of this vault (4 lines). You can change them in the Sync Evo settings.",
-				folded: { paths: { shown: lines, more: 0 }, notes: [outside, "This upload includes the change.", unwanted] },
+				text: "Sync Evo added 2 rules for what is not synced to the .gitignore of this vault. You can change them in the Sync Evo settings.",
+				folded: { paths: { shown: lines, more: 0 }, notes: [unwanted, outside, "This upload includes the change."] },
 			},
 			{ text: "1 file to add:", paths: { shown: ["new.md"], more: 0 } },
 			{ text: "1 file to modify:", paths: { shown: [".gitignore"], more: 0 } },
@@ -295,7 +295,7 @@ describe("the section a push added to .gitignore", () => {
 		const tracked = Array.from({ length: 7 }, (_, index) => `.trash/${index}.md`);
 		const question = pushQuestion(t, target, { ...request, sectionAdded: { ...added, tracked } });
 		expect(question.parts[2]).toEqual({
-			text: "7 files that these lines exclude are on GitHub. Sync Evo no longer syncs them on any device:",
+			text: "7 files that the rules Sync Evo added exclude are on GitHub. Sync Evo no longer syncs them on any device:",
 			paths: { shown: tracked.slice(0, 5), more: 2 },
 		});
 		// With where they can be taken out of the remote.
@@ -304,7 +304,7 @@ describe("the section a push added to .gitignore", () => {
 		});
 		expect(question.parts).toHaveLength(6);
 		const one = pushQuestion(t, target, { ...request, sectionAdded: { ...added, tracked: [".DS_Store"] } });
-		expect(one.parts[2]?.text).toBe("1 file that these lines exclude is on GitHub. Sync Evo no longer syncs it on any device:");
+		expect(one.parts[2]?.text).toBe("1 file that the rules Sync Evo added exclude is on GitHub. Sync Evo no longer syncs it on any device:");
 	});
 
 	test("a .gitignore that was made says so, and nothing about the rest of the file; no empty one is promised for an empty remote", () => {
@@ -312,15 +312,22 @@ describe("the section a push added to .gitignore", () => {
 		expect(question.parts.slice(1, 3)).toEqual([
 			{ text: "The repository is empty." },
 			{
-				text: "This vault had no .gitignore, so Sync Evo created one with rules for what is not synced (4 lines). You can change them in the Sync Evo settings.",
-				folded: { paths: { shown: lines, more: 0 }, notes: ["This upload includes the change.", unwanted] },
+				text: "This vault had no .gitignore, so Sync Evo created one with 2 rules for what is not synced. You can change them in the Sync Evo settings.",
+				folded: { paths: { shown: lines, more: 0 }, notes: [unwanted, "This upload includes the change."] },
 			},
 		]);
-		// Every line is in the fold, however many, up to what a list of the question holds.
-		const many = Array.from({ length: 60 }, (_, index) => `line ${index}`);
+		// Every line is in the fold, however many, up to what a list of the
+		// question holds. The rules are counted, and what is left out of the
+		// list is counted the same way: the markers are not rules.
+		const rules = Array.from({ length: 60 }, (_, index) => `rule${index}/`);
+		const many = [lines[0] ?? "", ...rules, lines[3] ?? ""];
 		const long = pushQuestion(t, target, { ...request, sectionAdded: { ...added, lines: many } });
-		expect(long.parts[1]?.text).toContain("(60 lines)");
-		expect(long.parts[1]?.folded?.paths).toEqual({ shown: many.slice(0, 50), more: 10 });
+		expect(long.parts[1]?.text).toContain("added 60 rules");
+		expect(long.parts[1]?.folded?.paths).toEqual({ shown: many.slice(0, 50), more: 11 });
+		const one = pushQuestion(t, target, { ...request, sectionAdded: { ...added, lines: [lines[0] ?? "", "/.trash/", lines[3] ?? ""] } });
+		expect(one.parts[1]?.text).toBe(
+			"Sync Evo added 1 rule for what is not synced to the .gitignore of this vault. You can change it in the Sync Evo settings.",
+		);
 	});
 
 	test("the question in Japanese", () => {
@@ -328,22 +335,22 @@ describe("the section a push added to .gitignore", () => {
 		const question = pushQuestion(ja, target, { ...request, sectionAdded: { ...added, tracked } });
 		expect(question.parts.slice(1, 3)).toEqual([
 			{
-				text: "この保管庫の .gitignore に、同期しない物の規則を足しました（4 行）。Sync Evo の設定画面で変えられます。",
+				text: "この保管庫の .gitignore に、同期しない物の規則（2 件）を足しました。Sync Evo の設定画面で変えられます。",
 				folded: {
 					paths: { shown: lines, more: 0 },
 					notes: [
+						"Sync Evo が管理する行です。要らない時は、最初と最後の行（# で始まる2行）だけを残して、間の行を消してください。その2行も消すと、次の同期でまた足します。",
 						".gitignore のほかの部分は、変えていません。",
 						"この変更は、今回のアップロードに入ります。",
-						"Sync Evo が管理する行です。要らない時は、最初と最後の行（# で始まる2行）だけを残して、間の行を消してください。その2行も消すと、次の同期でまた足します。",
 					],
 				},
 			},
-			{ text: "これらの行で除外しているファイルが、GitHub に 1 件あります。どのデバイスの Sync Evo も、これらを同期しなくなります：", paths: { shown: tracked, more: 0 } },
+			{ text: "Sync Evo が足した規則で除外しているファイルが、GitHub に 1 件あります。どのデバイスの Sync Evo も、これらを同期しなくなります：", paths: { shown: tracked, more: 0 } },
 		]);
 		expect(question.note).toBe("やめた場合は、何もアップロードしません。.gitignore に足した行は、このデバイスに残り、次のアップロードに入ります。");
 		const created = pushQuestion(ja, target, { ...request, sectionAdded: { ...added, created: true } });
 		expect(created.parts[1]?.text).toBe(
-			"この保管庫に .gitignore が無かったので、同期しない物の規則で作りました（4 行）。Sync Evo の設定画面で変えられます。",
+			"この保管庫に .gitignore が無かったので、同期しない物の規則（2 件）を書いて作りました。Sync Evo の設定画面で変えられます。",
 		);
 	});
 
@@ -371,7 +378,7 @@ describe("the section a push added to .gitignore", () => {
 		const text = sectionAddedText(t, { ...added, tracked }, "sent");
 		expect(
 			text.endsWith(
-				`\n6 files that these lines exclude are on GitHub. Sync Evo no longer syncs them on any device:\n${tracked.slice(0, 3).join("\n")}\n…and 3 more\nTo remove them from GitHub, use \"Remove from GitHub\" in the Sync Evo settings. The files on devices that use Sync Evo stay.`,
+				`\n6 files that the rules Sync Evo added exclude are on GitHub. Sync Evo no longer syncs them on any device:\n${tracked.slice(0, 3).join("\n")}\n…and 3 more\nTo remove them from GitHub, use \"Remove from GitHub\" in the Sync Evo settings. The files on devices that use Sync Evo stay.`,
 			),
 		).toBe(true);
 	});
@@ -431,7 +438,7 @@ describe("the section a push added to .gitignore", () => {
 				...lines,
 				"この変更は、まだアップロードしていません。次の同期でアップロードします。",
 				"これらの行は、Sync Evo の設定画面で変えられます。要らない時は、最初と最後の行（# で始まる2行）だけを残して、間の行を消してください。その2行も消すと、次の同期でまた足します。",
-				"これらの行で除外しているファイルが、GitHub に 1 件あります。どのデバイスの Sync Evo も、これらを同期しなくなります：",
+				"Sync Evo が足した規則で除外しているファイルが、GitHub に 1 件あります。どのデバイスの Sync Evo も、これらを同期しなくなります：",
 				".DS_Store",
 				"GitHub から消すには、Sync Evo の設定画面で「GitHub から削除」を行います。Sync Evo のデバイスのファイルは残ります。",
 			].join("\n"),

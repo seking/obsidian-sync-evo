@@ -14,7 +14,7 @@ import { type App, ButtonComponent, Modal, Platform } from "obsidian";
 import type { Translate } from "../core/i18n";
 import type { ConfirmPull, PullAnswer, PullConfirmRequest } from "../core/pull-io";
 import type { PullLoss } from "../core/pull-plan";
-import { type CappedList, CONFIRM_LIST_LIMIT, capList, firstFetchQuestion } from "../core/pull-report";
+import { type CappedList, CONFIRM_LIST_LIMIT, capList, firstFetchQuestion, type QuestionPart } from "../core/pull-report";
 import type { RemotePlace } from "../core/remote-place";
 
 /** Where a pull fetches from, as the question before a first fetch names it. */
@@ -115,10 +115,7 @@ class PullConfirmModal extends Modal {
 		if (firstFetch !== null) {
 			const question = firstFetchQuestion(t, this.target, firstFetch);
 			this.setTitle(question.title);
-			for (const part of question.parts) {
-				contentEl.createEl("p", { text: part.text });
-				if (part.paths !== undefined) this.list(part.paths);
-			}
+			for (const part of question.parts) renderQuestionPart(contentEl, t, part);
 			note = question.note;
 		}
 
@@ -168,6 +165,29 @@ class PullConfirmModal extends Modal {
 	private list(paths: CappedList<string>): void {
 		renderPathList(this.contentEl, this.t, paths);
 	}
+}
+
+/**
+ * A part of a question in a dialog: its paragraph and the paths under it,
+ * or, folded, the line that opens it with what it shows once opened.
+ * `phoneStart` is for the paths, as `renderPathList` takes it.
+ */
+export function renderQuestionPart(
+	container: HTMLElement,
+	t: Translate,
+	part: QuestionPart,
+	phoneStart?: number,
+): void {
+	if (part.folded !== undefined) {
+		// The browser's own: pressed, or Enter on it, opens and closes it.
+		const fold = container.createEl("details", { cls: "sync-evo-question-fold" });
+		fold.createEl("summary", { text: part.text });
+		renderPathList(fold, t, part.folded.paths, phoneStart);
+		for (const text of part.folded.notes) fold.createEl("p", { text });
+		return;
+	}
+	container.createEl("p", { text: part.text });
+	if (part.paths !== undefined) renderPathList(container, t, part.paths, phoneStart);
 }
 
 /**

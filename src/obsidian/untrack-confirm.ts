@@ -13,7 +13,7 @@
 import { type App, ButtonComponent, Modal } from "obsidian";
 import type { Translate } from "../core/i18n";
 import { type UntrackConfirmRequest, type UntrackQuestion, untrackQuestion } from "../core/untrack-report";
-import { keyboardOn, renderPathList } from "./pull-confirm";
+import { keyboardOn, renderQuestionPart } from "./pull-confirm";
 
 /** How many paths of a list a phone is shown before the rest is asked for: the buttons are below the lists. */
 const PHONE_LIST_START = 10;
@@ -69,10 +69,7 @@ class UntrackConfirmModal extends Modal {
 		contentEl.empty();
 
 		this.setTitle(question.title);
-		for (const part of question.parts) {
-			contentEl.createEl("p", { text: part.text });
-			if (part.paths !== undefined) renderPathList(contentEl, t, part.paths, PHONE_LIST_START);
-		}
+		for (const part of question.parts) renderQuestionPart(contentEl, t, part, PHONE_LIST_START);
 
 		const buttons = contentEl.createDiv({ cls: "modal-button-container" });
 		new ButtonComponent(buttons)

@@ -72,7 +72,8 @@ export interface QuestionPart {
 	 * Shown only once the text is pressed: the text is then the one line
 	 * that stands for them, and these are under it. For what is long and
 	 * read only by who wants to, so that a phone does not have to be
-	 * scrolled past it to the lists and the buttons.
+	 * scrolled past it to the lists and the buttons. Every dialog draws it
+	 * (`renderQuestionPart`), though only the push's question has one yet.
 	 */
 	readonly folded?: FoldedPart;
 }

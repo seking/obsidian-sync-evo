@@ -429,14 +429,15 @@ export const en = baseCatalog({
 	"section.added.created":
 		"This vault had no .gitignore, so Sync Evo created one with the lines below. They are the lines Sync Evo manages, and say what is not synced:",
 	// The one line the question before a first push folds the lines to;
-	// pressed, it shows them, with the paragraphs below.
+	// pressed, it shows them, with the paragraphs below. It counts the rules:
+	// the two lines that mark them are not counted.
 	"section.added.introFolded": {
-		one: "Sync Evo added rules for what is not synced to the .gitignore of this vault ({count} line). You can change them in the Sync Evo settings.",
-		other: "Sync Evo added rules for what is not synced to the .gitignore of this vault ({count} lines). You can change them in the Sync Evo settings.",
+		one: "Sync Evo added {count} rule for what is not synced to the .gitignore of this vault. You can change it in the Sync Evo settings.",
+		other: "Sync Evo added {count} rules for what is not synced to the .gitignore of this vault. You can change them in the Sync Evo settings.",
 	},
 	"section.added.createdFolded": {
-		one: "This vault had no .gitignore, so Sync Evo created one with rules for what is not synced ({count} line). You can change them in the Sync Evo settings.",
-		other: "This vault had no .gitignore, so Sync Evo created one with rules for what is not synced ({count} lines). You can change them in the Sync Evo settings.",
+		one: "This vault had no .gitignore, so Sync Evo created one with {count} rule for what is not synced. You can change it in the Sync Evo settings.",
+		other: "This vault had no .gitignore, so Sync Evo created one with {count} rules for what is not synced. You can change them in the Sync Evo settings.",
 	},
 	"section.added.unwanted":
 		"These are the lines Sync Evo manages. If you do not want them, delete the lines in between and keep the first and the last line (the two that start with #): if those two are deleted as well, the next sync adds the lines again.",
@@ -449,8 +450,8 @@ export const en = baseCatalog({
 	"section.added.howTo":
 		"You can change these lines in the Sync Evo settings. If you do not want them, delete the lines in between and keep the first and the last line (the two that start with #): if those two are deleted as well, the next sync adds the lines again.",
 	"section.added.tracked": {
-		one: "{count} file that these lines exclude is on {remote}. Sync Evo no longer syncs it on any device:",
-		other: "{count} files that these lines exclude are on {remote}. Sync Evo no longer syncs them on any device:",
+		one: "{count} file that the rules Sync Evo added exclude is on {remote}. Sync Evo no longer syncs it on any device:",
+		other: "{count} files that the rules Sync Evo added exclude are on {remote}. Sync Evo no longer syncs them on any device:",
 	},
 	"section.added.brief": "Sync Evo added the lines it manages to .gitignore.",
 	"section.added.untrackHint":

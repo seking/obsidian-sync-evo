@@ -17,6 +17,7 @@
 import type { Translate } from "./i18n";
 import type { PushFailure } from "./push-failure";
 import {
+	type CappedList,
 	CONFIRM_LIST_LIMIT,
 	NOTICE_LIST_LIMIT,
 	capList,
@@ -120,13 +121,14 @@ export function pushQuestion(
 		}
 		// Before the lists: the `.gitignore` is in one of them because of this.
 		if (request.sectionAdded !== undefined) {
-			// Folded to one line: some 30 lines, which are what a phone had
-			// to be scrolled past to the files and the buttons.
+			// Folded to one line: 15 lines by default, which are what a phone
+			// had to be scrolled past to the files and the buttons.
 			const section = request.sectionAdded;
-			const count = section.lines.length;
 			parts.push({
-				text: t(section.created ? "section.added.createdFolded" : "section.added.introFolded", { count }),
-				folded: { paths: capList(section.lines, CONFIRM_LIST_LIMIT), notes: sectionFoldedNotes(t, section) },
+				text: t(section.created ? "section.added.createdFolded" : "section.added.introFolded", {
+					count: section.lines.filter(isRule).length,
+				}),
+				folded: { paths: sectionFoldedList(section.lines), notes: sectionFoldedNotes(t, section) },
 			});
 			if (section.tracked.length > 0) {
 				const text = t("section.added.tracked", { count: section.tracked.length });
@@ -267,7 +269,22 @@ function sectionNotes(t: Translate, section: SectionAdded, delivery: SectionDeli
  * it is opened. Where to change the lines is in that line, so not here.
  */
 function sectionFoldedNotes(t: Translate, section: SectionAdded): string[] {
-	return [...(section.created ? [] : [t("section.added.outside")]), t("section.added.sends"), t("section.added.unwanted")];
+	return [t("section.added.unwanted"), ...(section.created ? [] : [t("section.added.outside")]), t("section.added.sends")];
+}
+
+// A rule of .gitignore: not a comment, such as the two markers, and not blank.
+function isRule(line: string): boolean {
+	return !line.startsWith("#") && line.trim() !== "";
+}
+
+/**
+ * Every line of the section, up to what a list of the question holds. What
+ * is left out is counted in rules, as the line that stands for the section
+ * counts them: the marker at the end is not one.
+ */
+function sectionFoldedList(lines: readonly string[]): CappedList<string> {
+	const { shown } = capList(lines, CONFIRM_LIST_LIMIT);
+	return { shown, more: lines.slice(shown.length).filter(isRule).length };
 }
 
 /** The text for a push that was stopped. Nothing of it shows on the remote. */

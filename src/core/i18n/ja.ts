@@ -372,8 +372,8 @@ export const ja = completeTranslation(en, {
 		"この保管庫の .gitignore の先頭に、下の行を足しました。Sync Evo が管理する行で、同期しない物を決めます：",
 	"section.added.created":
 		"この保管庫に .gitignore が無かったので、下の行で作りました。Sync Evo が管理する行で、同期しない物を決めます：",
-	"section.added.introFolded": "この保管庫の .gitignore に、同期しない物の規則を足しました（{count} 行）。Sync Evo の設定画面で変えられます。",
-	"section.added.createdFolded": "この保管庫に .gitignore が無かったので、同期しない物の規則で作りました（{count} 行）。Sync Evo の設定画面で変えられます。",
+	"section.added.introFolded": "この保管庫の .gitignore に、同期しない物の規則（{count} 件）を足しました。Sync Evo の設定画面で変えられます。",
+	"section.added.createdFolded": "この保管庫に .gitignore が無かったので、同期しない物の規則（{count} 件）を書いて作りました。Sync Evo の設定画面で変えられます。",
 	"section.added.unwanted":
 		"Sync Evo が管理する行です。要らない時は、最初と最後の行（# で始まる2行）だけを残して、間の行を消してください。その2行も消すと、次の同期でまた足します。",
 	"section.added.outside": ".gitignore のほかの部分は、変えていません。",
@@ -383,7 +383,7 @@ export const ja = completeTranslation(en, {
 	"section.added.unknown": "この変更は、今回アップロードできなかったかもしれません。次の同期で確かめて、まだならアップロードします。",
 	"section.added.howTo":
 		"これらの行は、Sync Evo の設定画面で変えられます。要らない時は、最初と最後の行（# で始まる2行）だけを残して、間の行を消してください。その2行も消すと、次の同期でまた足します。",
-	"section.added.tracked": "これらの行で除外しているファイルが、{remote} に {count} 件あります。どのデバイスの Sync Evo も、これらを同期しなくなります：",
+	"section.added.tracked": "Sync Evo が足した規則で除外しているファイルが、{remote} に {count} 件あります。どのデバイスの Sync Evo も、これらを同期しなくなります：",
 	"section.added.brief": ".gitignore に、Sync Evo が管理する行を足しました。",
 	"section.added.untrackHint": "{remote} から消すには、Sync Evo の設定画面で「{remote} から削除」を行います。Sync Evo のデバイスのファイルは残ります。",
 

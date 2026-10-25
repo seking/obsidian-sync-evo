@@ -14,7 +14,7 @@ import { type App, ButtonComponent, Modal } from "obsidian";
 import type { Translate } from "../core/i18n";
 import type { ConfirmPush, PushAnswer, PushConfirmRequest } from "../core/push";
 import { pushQuestion } from "../core/push-report";
-import { closeWhenAborted, keyboardOn, type PullTarget, renderPathList } from "./pull-confirm";
+import { closeWhenAborted, keyboardOn, type PullTarget, renderQuestionPart } from "./pull-confirm";
 
 /** Asks in a dialog. Closing it in any way but a button is "cancel". */
 export function confirmPushIn(app: App, t: Translate, target: PullTarget, signal?: AbortSignal): ConfirmPush {
@@ -62,18 +62,7 @@ class PushConfirmModal extends Modal {
 
 		const question = pushQuestion(t, this.target, this.request);
 		this.setTitle(question.title);
-		for (const part of question.parts) {
-			if (part.folded !== undefined) {
-				// The browser's own: pressed, or Enter on it, opens and closes it.
-				const fold = contentEl.createEl("details", { cls: "sync-evo-question-fold" });
-				fold.createEl("summary", { text: part.text });
-				renderPathList(fold, t, part.folded.paths);
-				for (const text of part.folded.notes) fold.createEl("p", { text });
-				continue;
-			}
-			contentEl.createEl("p", { text: part.text });
-			if (part.paths !== undefined) renderPathList(contentEl, t, part.paths);
-		}
+		for (const part of question.parts) renderQuestionPart(contentEl, t, part);
 		contentEl.createEl("p", { text: question.note });
 
 		const buttons = contentEl.createDiv({ cls: "modal-button-container" });
