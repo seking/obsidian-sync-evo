@@ -375,6 +375,20 @@ describe("a push that started by itself", () => {
 		expect(refused("x", "y")).not.toBe(refused("x"));
 	});
 
+	test("new files with a path that differs only in case stand, and are told again only for other files", () => {
+		const collided = (...paths: string[]): AutoReport =>
+			push({
+				outcome: "nothing-to-push",
+				refused: paths.map((path) => ({ path, reason: "case-collision" }) as PushRunResult["refused"][number]),
+			});
+		const report = collided("Case.md");
+		expect(report.cause).toBe(`push:case-collision#${filesDigest(["Case.md"])}`);
+		expect(report.standing).toHaveLength(1);
+		expect(report.standing[0]?.text).toContain("differs only in upper and lower case");
+		expect(collided("a.md", "b.md").cause).toBe(collided("b.md", "a.md").cause);
+		expect(collided("a.md", "b.md").cause).not.toBe(collided("a.md").cause);
+	});
+
 	test("a file that is left out for another reason now is another cause", () => {
 		const cause = (reason: "too-large" | "unreadable"): string | null => push({ leftOut: [{ path: "a.bin", reason }] }).cause;
 		expect(cause("too-large")).not.toBe(cause("unreadable"));

@@ -11,7 +11,7 @@
  */
 
 import { describe, expect, test } from "vitest";
-import { LOG_LINES_KEPT, LogRing, logText } from "../src/core/log-ring";
+import { type DeviceFlags, deviceText, LOG_LINES_KEPT, logCopyText, LogRing, logText } from "../src/core/log-ring";
 
 // Built from the parts of a local time, so that the text is the same in
 // whatever time zone the tests run.
@@ -72,5 +72,51 @@ describe("the lines as text", () => {
 
 	test("nothing for no lines", () => {
 		expect(logText([])).toBe("");
+	});
+});
+
+describe("a copy of the log", () => {
+	const context = { version: "0.5.0", obsidianVersion: "1.11.4", device: "phone (Android)", service: "Dropbox" };
+
+	test("starts with the version, the app, the device and the service, then a blank line, then the lines", () => {
+		const text = logCopyText(context, [{ at: at(9, 5, 7), message: "sync: started" }]);
+		expect(text.split("\n")).toEqual([
+			"Sync Evo 0.5.0",
+			"Obsidian 1.11.4",
+			"Device: phone (Android)",
+			"Service: Dropbox",
+			"",
+			"10-03 09:05:07 sync: started",
+		]);
+	});
+
+	test("has the lines at the top also with no lines", () => {
+		expect(logCopyText(context, []).startsWith("Sync Evo 0.5.0\nObsidian 1.11.4\n")).toBe(true);
+	});
+});
+
+describe("the device, as a copy of the log names it", () => {
+	const none: DeviceFlags = {
+		isPhone: false,
+		isTablet: false,
+		isIosApp: false,
+		isAndroidApp: false,
+		isMacOS: false,
+		isWin: false,
+		isLinux: false,
+	};
+
+	test.each<[string, Partial<DeviceFlags>]>([
+		// The app on iPhone says it is macOS as well.
+		["phone (iOS)", { isPhone: true, isIosApp: true, isMacOS: true }],
+		["tablet (iOS)", { isTablet: true, isIosApp: true, isMacOS: true }],
+		["phone (Android)", { isPhone: true, isAndroidApp: true }],
+		["tablet (Android)", { isTablet: true, isAndroidApp: true }],
+		["desktop (macOS)", { isMacOS: true }],
+		["desktop (Windows)", { isWin: true }],
+		["desktop (Linux)", { isLinux: true }],
+		["desktop (unknown system)", {}],
+	])("%s", (text, flags) => {
+		expect(deviceText({ ...none, ...flags })).toBe(text);
 	});
 });

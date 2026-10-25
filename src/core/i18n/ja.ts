@@ -96,7 +96,8 @@ export const ja = completeTranslation(en, {
 	"settings.branch.empty": "ブランチを入力してください。前のブランチのままになっています。",
 	"settings.token.name": "トークン",
 	"settings.token.desc":
-		"このリポジトリの Contents の読み書きを許可した fine-grained personal access token です。Obsidian のキーチェーンに保存され、保管庫のファイルには書かれません。ほかの保管庫から使えるかは、デバイスによります。",
+		"このリポジトリの Contents の読み書きを許可した fine-grained personal access token です。Obsidian のキーチェーンに保存され、保管庫のファイルには書かれません。iPhone と Android では、デバイスのどの保管庫からも同じシークレットを使えます。パソコンでは、保管庫ごとに別です。",
+	"settings.token.create": "GitHub でトークンを作る（そのページで、このリポジトリを選びます）",
 	"settings.deviceName.name": "デバイス名",
 	"settings.deviceName.desc": "コミットメッセージと、競合ファイルの名前に使われます。",
 	"settings.deviceName.empty": "名前を入力してください。前の名前のままになっています。",
@@ -306,6 +307,8 @@ export const ja = completeTranslation(en, {
 	"check.noTokenSecret": "先に、トークンを保存したシークレットを選んでください。",
 	"check.noTokenValue":
 		"シークレット {name} に値がありません。トークンをこの名前で保存するか、別のシークレットを選んでください。",
+	"check.notSetUp":
+		"Sync Evo の設定が、まだ済んでいません。Sync Evo の設定画面で、同期するサービス（GitHub、Dropbox、Google Drive）を選び、求められる項目を入れてください。",
 
 	"notice.ownFolderOnRemote":
 		"{remote} に Sync Evo 自身のフォルダがあります。Sync Evo はこのフォルダを同期しません。{remote} でも、このデバイスでも、そのままにします。ほかのファイルは、通常どおり同期されます。{remote} から消すには、Sync Evo の設定画面で「{remote} から削除」を行います（.gitignore にこのフォルダの行がある時）：\n{list}",
@@ -362,6 +365,7 @@ export const ja = completeTranslation(en, {
 	"notice.submodule.brief": "サブモジュール {count} 件の中身は、ダウンロードできません。",
 	"notice.localLink.brief": "保管庫の中のリンク {count} 件は、同期しません。",
 	"notice.seeResults": "全部は、コマンド「前回の同期の結果を表示」で見られます。",
+	"notice.openSettings": "設定を開く",
 
 	"section.added.intro":
 		"この保管庫の .gitignore の先頭に、下の行を足しました。Sync Evo が管理する行で、同期しない物を決めます：",
@@ -551,6 +555,8 @@ export const ja = completeTranslation(en, {
 		"{count} 件のファイルを、アップロードしていません。ダウンロードが済んでいないか、開いているファイルを保存できませんでした。もう一度同期してください：\n{list}",
 	"push.remoteInTheWay":
 		"{count} 件のファイルを、アップロードしていません。その場所に、このデバイスがまだダウンロードしていないファイルかフォルダが、{remote} にあります。先にダウンロードを行ってから、もう一度アップロードしてください：\n{list}",
+	"push.caseCollision":
+		"{count} 件の新しいファイルを、アップロードしていません。{remote} のほかのパス、またはほかの新しいファイルと、大文字と小文字だけが違い、区別できないデバイスがあるためです。名前を変えると、次の同期でアップロードします：\n{list}",
 	"push.notDownloaded":
 		"{count} 件の新しいファイルを、アップロードしていません。中身がこのデバイスに無いためです（クラウドドライブが仮のファイルだけを置いています）。クラウドドライブのアプリでこのデバイスに保存してから、もう一度同期してください：\n{list}",
 	"push.grownTooLarge":

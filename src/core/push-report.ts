@@ -373,6 +373,13 @@ export function pushDetails(t: Translate, result: PushRunResult, options: PushRe
 	if (inTheWay.length > 0) {
 		standing((limit) => t("push.remoteInTheWay", { count: inTheWay.length, list: listText(t, inTheWay, limit) }));
 	}
+	// Told by every push like the one before, and not as the notice of the
+	// same files (`noticeDetails` below), which is told once: else a push
+	// after the first would say that nothing was sent, and nowhere why.
+	const collided = caseCollisions(result);
+	if (collided.length > 0) {
+		standing((limit) => t("push.caseCollision", { count: collided.length, list: listText(t, collided, limit) }));
+	}
 	// A new file a cloud drive keeps is told apart: it is the cloud drive
 	// the user has to see to, and the next push alone changes nothing.
 	const leftOut = (...reasons: LeftOutReason[]): string[] =>
@@ -428,8 +435,14 @@ export function pushDetails(t: Translate, result: PushRunResult, options: PushRe
 			),
 		);
 	}
-	details.push(...noticeDetails(t, result.notices, options.sizeLimit));
+	const notices = result.notices.filter((notice) => notice.kind !== "local-path-collision");
+	details.push(...noticeDetails(t, notices, options.sizeLimit));
 	return details;
+}
+
+/** The new files a push did not send for a path that differs only in case from another (`PushRefusalReason`). */
+export function caseCollisions(result: PushRunResult): string[] {
+	return result.refused.filter((file) => file.reason === "case-collision").map((file) => file.path);
 }
 
 function summaryText(t: Translate, result: PushRunResult, connectionChanged: boolean): string {

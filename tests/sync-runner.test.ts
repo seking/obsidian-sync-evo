@@ -38,6 +38,10 @@ const app = vi.hoisted(() => ({
 	hiddenAt: [] as number[],
 	/** Every notice that was made to look as an error (`sync-evo-notice-error`), by its text, in order. */
 	errors: [] as string[],
+	/** How long every notice was asked to stay, in order: 0 until it is tapped, `undefined` for the app's own time. */
+	durations: [] as (number | undefined)[],
+	/** Every button put on a notice, with the text of that notice, in order. */
+	buttons: [] as { notice: string; label: string; click: () => void }[],
 	/** Answers a request: rejects like a device without a network unless a test says otherwise. */
 	request: (_params?: { url: string; body?: unknown }): Promise<unknown> => Promise.reject(new Error("net::ERR_INTERNET_DISCONNECTED")),
 	requests: 0,
@@ -57,12 +61,21 @@ vi.mock("obsidian", () => {
 	class Notice {
 		private readonly text: string;
 		private readonly at: number;
-		/** Only what the runner touches of it: the classes it is given. */
+		/** Only what the runner touches of it: the classes it is given, and a button under the text. */
 		readonly containerEl: { classList: { add(name: string): void } };
-		constructor(text: string) {
+		readonly messageEl: unknown;
+		constructor(text: string, duration?: number) {
 			this.text = text;
 			this.at = app.notices.length;
 			app.notices.push(text);
+			app.durations.push(duration);
+			this.messageEl = {
+				createDiv: () => ({
+					createEl: (_tag: string, { text: label }: { text: string }) => ({
+						addEventListener: (_type: string, click: () => void) => app.buttons.push({ notice: text, label, click }),
+					}),
+				}),
+			};
 			this.containerEl = {
 				classList: {
 					add: (name: string) => {
@@ -249,6 +262,8 @@ beforeEach(() => {
 	app.hidden.length = 0;
 	app.hiddenAt.length = 0;
 	app.errors.length = 0;
+	app.durations.length = 0;
+	app.buttons.length = 0;
 	app.requests = 0;
 	app.platform.isAndroidApp = false;
 	app.backends.length = 0;
@@ -446,6 +461,54 @@ describe("a sync that started by itself, with settings that are not ready", () =
 		tokens["github-token"] = "github_pat_SECRET";
 		await runner.runAuto("full");
 		expect(app.notices).toEqual([expect.stringContaining("github-token"), HEADING + OFFLINE]);
+	});
+});
+
+describe("a sync the user starts, with settings that are not ready", () => {
+	test("says what is missing in a notice that stays, with a button that opens the settings of Sync Evo", async () => {
+		const { runner, tokens, host, state } = setup();
+		tokens["github-token"] = null;
+		const opened: string[] = [];
+		Object.assign(host.app, { setting: { open: () => opened.push("open"), openTabById: (id: string) => opened.push(id) } });
+
+		await runner.run("sync");
+
+		expect(app.notices).toEqual([expect.stringContaining("github-token")]);
+		expect(app.durations).toEqual([0]);
+		expect(app.errors).toEqual([]);
+		expect(app.buttons.map(({ notice, label }) => ({ notice, label }))).toEqual([{ notice: app.notices[0], label: "Open settings" }]);
+		expect(state.opens).toBe(0);
+		app.buttons[0]?.click();
+		expect(opened).toEqual(["open", "sync-evo"]);
+	});
+
+	test("with the settings as every vault starts, it asks for the service first, not for a repository of GitHub", async () => {
+		const { runner } = setup({ repository: "", tokenSecret: "" });
+		await runner.run("sync");
+		expect(app.notices).toEqual([
+			"Sync Evo is not set up yet. In the Sync Evo settings, choose the service to sync with (GitHub, Dropbox or Google Drive), then fill in what it asks for.",
+		]);
+		expect(app.buttons).toHaveLength(1);
+	});
+
+	test("with a service chosen, it says what that one lacks", async () => {
+		const { runner } = setup({ repository: "", tokenSecret: "", backend: "dropbox", dropboxFolder: "notes" });
+		await runner.run("sync");
+		expect(app.notices).toEqual([expect.stringContaining("not connected to Dropbox")]);
+	});
+
+	test("an app without the way to open its settings is not failed by the button", async () => {
+		const { runner } = setup({ repository: "" });
+		await runner.run("sync");
+		expect(() => app.buttons[0]?.click()).not.toThrow();
+	});
+
+	test("a sync that started by itself puts up no button, and goes by the notice it told once", async () => {
+		const { runner } = setup({ repository: "", tokenSecret: "" });
+		await runner.runAuto("full");
+		expect(app.notices).toEqual([expect.stringMatching(/^Automatic sync:\n/)]);
+		expect(app.notices[0]).not.toContain("not set up yet");
+		expect(app.buttons).toEqual([]);
 	});
 });
 

@@ -66,6 +66,7 @@ body:
       label: Sync log
       description: |
         Run **Sync Evo: Show sync log** from the command palette, press **Copy all**, and paste it here. **Sync Evo: Show the last sync results** has a **Copy all** too. (In Japanese: 「Sync Evo: 同期ログを表示」「Sync Evo: 前回の同期の結果を表示」「すべてコピー」.)
+        The copy starts with the versions of Sync Evo and Obsidian, the device and the service.
         The log is lost when Obsidian is closed or Sync Evo is updated, so copy it soon after the problem.
         It holds the names of files and folders. Replace any name you would rather not show (with `note-1.md`, for example). It never holds the token; do not add one.
       render: text

@@ -19,6 +19,7 @@ With Dropbox and Google Drive, there is also **License key**, once the paid plan
 
 - The token is kept in Obsidian's Keychain, not in a file of the vault.
 - The settings hold only the name it is saved under.
+- Under **Token**, a link opens the page of GitHub that makes one, with the name, the expiry (90 days) and **Contents: Read and write** filled in. Choose the repository on that page.
 - On iPhone and Android, every vault on the device can link the same secret.
 - On Windows and Mac, each vault has its own. A vault that is removed from the list of vaults and opened again asks for the token again.
 

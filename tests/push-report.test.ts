@@ -14,7 +14,7 @@ import { describe, expect, test } from "vitest";
 import { NO_DEVICE_EXCLUSION } from "../src/core/device-exclusion";
 import { BackendError } from "../src/core/backend";
 import { translatorFor } from "../src/core/i18n";
-import { pullReport } from "../src/core/pull-report";
+import { type PartReport, pullReport } from "../src/core/pull-report";
 import type { PullResult } from "../src/core/pull";
 import type { PushRunResult } from "../src/core/push";
 import {
@@ -537,10 +537,11 @@ describe("how a push ended", () => {
 		expect(report.details.length).toBe(5);
 		expect(report.details[0]).toContain("there is a file or a folder in its place on GitHub");
 		expect(report.details[0]?.endsWith("\na")).toBe(true);
-		expect(report.details[1]).toContain("changed or could not be read while the upload ran");
-		expect(report.details[2]).toBe("Files over 50 MB are not synced. They are skipped and left as they are, on GitHub and on this device:\nbig.mov");
-		expect(report.details[3]).toContain("differ only in upper and lower case");
-		expect(report.details[3]?.endsWith("\ncase.md")).toBe(true);
+		// The collision is told once, as what was not sent, and not again as its notice.
+		expect(report.details[1]).toContain("differs only in upper and lower case");
+		expect(report.details[1]?.endsWith("\ncase.md")).toBe(true);
+		expect(report.details[2]).toContain("changed or could not be read while the upload ran");
+		expect(report.details[3]).toBe("Files over 50 MB are not synced. They are skipped and left as they are, on GitHub and on this device:\nbig.mov");
 		expect(report.details[4]).toContain("was therefore not deleted on GitHub either");
 		expect(report.details[4]?.endsWith("\nDrafts/a.md")).toBe(true);
 	});
@@ -631,9 +632,46 @@ describe("how a push ended", () => {
 		);
 	});
 
-	test("a collision that was told before is not told again", () => {
-		const report = pushReport(t, result({ refused: [{ path: "case.md", reason: "case-collision" }] }), options);
-		expect(report.details).toEqual([]);
+	test("a collision is told by every push for as long as it lasts, with the files, and not only by its notice", () => {
+		// The notice was told before and is remembered: the push has none
+		// to tell. The summary still says that nothing was sent, and the
+		// detail says why (2026-10-16, Android).
+		const said = (translate: typeof t): PartReport =>
+			pushPart(
+				translate,
+				result({
+					outcome: "nothing-to-push",
+					revision: null,
+					refused: [
+						{ path: "Case.md", reason: "case-collision" },
+						{ path: "notes/x.md", reason: "case-collision" },
+					],
+				}),
+				options,
+			);
+		const part = said(t);
+		expect(part.summary).toBe("Nothing was uploaded. Some files cannot be uploaded; the notices say why.");
+		expect(part.details).toHaveLength(1);
+		expect(part.details[0]).toMatchObject({ level: "warn", standing: true });
+		expect(part.details[0]?.text).toBe(
+			"2 new files were not uploaded: their paths differ only in upper and lower case from another path on GitHub, or from another new file, and not every device can keep such paths apart. Rename them, and the next sync uploads them:\nCase.md\nnotes/x.md",
+		);
+		expect(said(ja).details[0]?.text).toBe(
+			"2 件の新しいファイルを、アップロードしていません。GitHub のほかのパス、またはほかの新しいファイルと、大文字と小文字だけが違い、区別できないデバイスがあるためです。名前を変えると、次の同期でアップロードします：\nCase.md\nnotes/x.md",
+		);
+	});
+
+	test("a collision whose notice is told by this push is told once", () => {
+		const report = pushReport(
+			t,
+			result({
+				refused: [{ path: "case.md", reason: "case-collision" }],
+				notices: [{ kind: "local-path-collision", path: "case.md" }],
+			}),
+			options,
+		);
+		expect(report.details).toHaveLength(1);
+		expect(report.details[0]).toContain("1 new file was not uploaded: its path differs only in upper and lower case");
 	});
 });
 

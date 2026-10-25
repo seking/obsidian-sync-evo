@@ -40,7 +40,7 @@ import {
 	stateProblemText,
 } from "./pull-report";
 import type { PushRunResult } from "./push";
-import { pushDetails, type PushReportOptions, pushSummaryText } from "./push-report";
+import { caseCollisions, pushDetails, type PushReportOptions, pushSummaryText } from "./push-report";
 import { cut, paragraphs, type ResultItem, resultItem, type ShownNotice } from "./sync-results";
 
 /**
@@ -191,6 +191,8 @@ export function pushAutoReport(t: Translate, result: PushRunResult, options: Pus
 	if (result.held.length > 0) causes.push(`push:held#${filesDigest(result.held)}`);
 	const inTheWay = result.refused.filter((file) => file.reason === "remote-in-the-way").map((file) => file.path);
 	if (inTheWay.length > 0) causes.push(`push:in-the-way#${filesDigest(inTheWay)}`);
+	const collided = caseCollisions(result);
+	if (collided.length > 0) causes.push(`push:case-collision#${filesDigest(collided)}`);
 	const leftOut = [...new Set(result.leftOut.map((file) => file.reason))].sort();
 	if (leftOut.length > 0) {
 		// With the reason of each: a file that is left out for another

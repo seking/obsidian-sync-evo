@@ -109,7 +109,9 @@ export const en = baseCatalog({
 	"settings.branch.empty": "Enter a branch. The previous branch is still in use.",
 	"settings.token.name": "Token",
 	"settings.token.desc":
-		"A fine-grained personal access token with Contents read and write on the repository. It is kept in Obsidian's Keychain, and not in a file of the vault. Whether the other vaults on this device can use it depends on the device.",
+		"A fine-grained personal access token with Contents read and write on this repository. It is kept in Obsidian's Keychain, not in a file of the vault. On iPhone and Android, every vault on the device can use the same secret; on a computer, each vault has its own.",
+	// A link to the page of GitHub that makes the token, filled in but for the repository.
+	"settings.token.create": "Create a token on GitHub (choose this repository on that page)",
 	"settings.deviceName.name": "Device name",
 	"settings.deviceName.desc": "It appears in commit messages and in the names of conflict files.",
 	"settings.deviceName.empty": "Enter a name. The previous name is still in use.",
@@ -341,6 +343,10 @@ export const en = baseCatalog({
 	"check.noBranch": "Enter a branch first.",
 	"check.noTokenSecret": "Select the secret that holds the token first.",
 	"check.noTokenValue": "The secret {name} has no value. Save the token under it, or select another secret.",
+	// A sync started with the settings as every vault starts with them:
+	// which service is meant is not known yet.
+	"check.notSetUp":
+		"Sync Evo is not set up yet. In the Sync Evo settings, choose the service to sync with (GitHub, Dropbox or Google Drive), then fill in what it asks for.",
 
 	// Things the user is told once, and again only after they went away and
 	// came back. Neither stops the sync.
@@ -414,6 +420,9 @@ export const en = baseCatalog({
 	},
 	// The last line of a notice that leaves something out.
 	"notice.seeResults": "Everything is in \"Show the last sync results\" (a command).",
+	// The button on a notice of a sync that could not start for what the
+	// settings lack.
+	"notice.openSettings": "Open settings",
 
 	"section.added.intro":
 		"Sync Evo added the lines below to the top of the .gitignore of this vault. They are the lines Sync Evo manages, and say what is not synced:",
@@ -688,6 +697,10 @@ export const en = baseCatalog({
 	"push.remoteInTheWay": {
 		one: "{count} file was not uploaded: there is a file or a folder in its place on {remote} that this device has not downloaded yet. Download first, then upload again:\n{list}",
 		other: "{count} files were not uploaded: there are files or folders in their place on {remote} that this device has not downloaded yet. Download first, then upload again:\n{list}",
+	},
+	"push.caseCollision": {
+		one: "{count} new file was not uploaded: its path differs only in upper and lower case from another path on {remote}, or from another new file, and not every device can keep such paths apart. Rename it, and the next sync uploads it:\n{list}",
+		other: "{count} new files were not uploaded: their paths differ only in upper and lower case from another path on {remote}, or from another new file, and not every device can keep such paths apart. Rename them, and the next sync uploads them:\n{list}",
 	},
 	"push.notDownloaded": {
 		one: "{count} new file was not uploaded: it is not on this device yet (a cloud drive keeps only a placeholder). Have the cloud drive keep it on this device, then sync again:\n{list}",

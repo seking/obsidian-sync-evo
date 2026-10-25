@@ -397,6 +397,15 @@ export interface RepositoryName {
 	readonly repo: string;
 }
 
+/**
+ * The page of GitHub that makes a fine-grained token, with its name, its
+ * expiry (90 days) and Contents: Read and write filled in. The repository
+ * cannot be: it is chosen on the page. The same link as in the README and
+ * in `docs/setup.md`, which a test holds them to.
+ */
+export const NEW_TOKEN_URL =
+	"https://github.com/settings/personal-access-tokens/new?name=Sync+Evo&description=Obsidian+Sync+Evo&expires_in=90&contents=write";
+
 // GitHub allows fewer characters in an owner than in a repository name. The
 // wider set is used for both: the point is to keep out what cannot be a name
 // at all, and GitHub answers for the rest.

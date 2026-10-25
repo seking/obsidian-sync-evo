@@ -137,7 +137,16 @@ export default class SyncEvoPlugin extends Plugin implements SettingsHost, SyncH
 		this.addCommand({
 			id: "show-log",
 			name: this.t("command.showLog"),
-			callback: () => showLog(this.app, this.t, () => this.hideNotices()),
+			callback: () =>
+				showLog(
+					this.app,
+					this.t,
+					{
+						version: this.manifest.version,
+						service: this.deviceSettings === null ? "unknown" : remoteName(this.deviceSettings.backend),
+					},
+					() => this.hideNotices(),
+				),
 		});
 		// Every file of what the last syncs told, which a notice lists the
 		// first few of.

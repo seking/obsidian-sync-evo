@@ -42,7 +42,7 @@ import {
 	writeAutoSyncMemory,
 } from "../core/auto-sync";
 import { BackendError } from "../core/backend";
-import { connectionCheckText, prepareCheck } from "../core/connection-check";
+import { connectionCheckText, nothingEntered, prepareCheck } from "../core/connection-check";
 import type { DeviceExclusion } from "../core/device-exclusion";
 import type { ExclusionPaths } from "../core/exclusion";
 import { excludedOnRemoteCount } from "../core/exclusion-settings";
@@ -191,6 +191,29 @@ const PROGRESS_INTERVAL_MS = 200;
 // that takes longer is then seen to be running, and can be stopped.
 const AUTO_PROGRESS_DELAY_MS = 5000;
 
+/** A button on a notice, with what a tap on it does. */
+interface NoticeAction {
+	readonly label: string;
+	readonly run: () => void;
+}
+
+/**
+ * The settings of the app, as far as they are opened here. Not in the
+ * types of the API, which have no way to open them; the app has had these
+ * two for long, and a version without them gets no settings opened.
+ */
+interface AppSettings {
+	open?(): void;
+	openTabById?(id: string): unknown;
+}
+
+/** Opens the settings of the app on the tab of this plugin. */
+function openSettings(app: App, id: string): void {
+	const setting = (app as App & { setting?: AppSettings }).setting;
+	setting?.open?.();
+	setting?.openTabById?.(id);
+}
+
 /** How many of the notices that stay are kept track of, for taking them away while a question is asked. */
 const STAYING_NOTICES = 12;
 
@@ -289,7 +312,7 @@ export class SyncRunner {
 	 */
 	private questions: Notice[] = [];
 	/** The notices of this plugin that stay until they are tapped, with their text and level (`whileAsking`). */
-	private staying: { notice: Notice; text: string; level: NoticeLevel }[] = [];
+	private staying: { notice: Notice; text: string; level: NoticeLevel; action: NoticeAction | undefined }[] = [];
 	/** What the running sync has told, with every path, for the screen of the results. */
 	private told: ResultItem[] = [];
 	/** How each part of the running sync ended, for the screen of the results. */
@@ -488,8 +511,13 @@ export class SyncRunner {
 		);
 		if (prepared.status === "not-ready") {
 			const text = connectionCheckText(t, settings, prepared);
-			if (auto === null) new Notice(text);
-			else {
+			if (auto === null) {
+				// Stays, with the way to the settings on it: a sync the user
+				// started has nothing else to show, and nothing is kept for
+				// the screen of the results.
+				const shown = nothingEntered(settings) ? t("check.notSetUp") : text;
+				this.show(shown, 0, "warn", { label: t("notice.openSettings"), run: () => openSettings(host.app, host.manifest.id) });
+			} else {
 				// With a repository and a branch there is a connection, and a
 				// sync state to remember this in. Without, none is ever opened.
 				// Dropbox is connected once it was: the account stays when
@@ -1419,14 +1447,22 @@ export class SyncRunner {
 			: stoppedText(t, this.connectionChanged);
 	}
 
-	/** Puts up a notice. One that tells of an error looks apart from the others (`styles.css`). */
-	private show(text: string, duration?: number, level: NoticeLevel = "info"): Notice | null {
+	/**
+	 * Puts up a notice. One that tells of an error looks apart from the
+	 * others (`styles.css`). `action`: a button under the text. A tap on it
+	 * is a tap on the notice too, which takes the notice away.
+	 */
+	private show(text: string, duration?: number, level: NoticeLevel = "info", action?: NoticeAction): Notice | null {
 		if (this.stopped) return null;
 		const notice = new Notice(text, duration);
 		if (level === "error") (notice.containerEl as HTMLElement | undefined)?.classList.add("sync-evo-notice-error");
+		if (action !== undefined) {
+			const button = (notice.messageEl as HTMLElement | undefined)?.createDiv().createEl("button", { text: action.label });
+			button?.addEventListener("click", () => action.run());
+		}
 		// Those that stay until they are tapped, for `whileAsking`. The
 		// oldest are let go of: by then they are long read, or long gone.
-		if (duration === 0) this.staying = [...this.staying, { notice, text, level }].slice(-STAYING_NOTICES);
+		if (duration === 0) this.staying = [...this.staying, { notice, text, level, action }].slice(-STAYING_NOTICES);
 		return notice;
 	}
 
@@ -1461,8 +1497,8 @@ export class SyncRunner {
 		this.staying = [];
 		for (const { notice } of hidden) notice.hide();
 		return () => {
-			for (const { notice: before, text, level } of hidden) {
-				const notice = this.show(text, 0, level);
+			for (const { notice: before, text, level, action } of hidden) {
+				const notice = this.show(text, 0, level, action);
 				// A question of automatic sync is still one: a sync the user
 				// starts takes it down (`hideQuestions`).
 				const at = this.questions.indexOf(before);

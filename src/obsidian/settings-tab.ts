@@ -31,6 +31,7 @@ import {
 	MAX_INTERVAL_MINUTES,
 	MIN_SENDING_INTERVAL_MINUTES,
 	minIntervalMinutes,
+	NEW_TOKEN_URL,
 	repositoryToStore,
 	withBackend,
 	withSendsChanges,
@@ -246,10 +247,10 @@ export class SyncEvoSettingTab extends PluginSettingTab {
 
 			// The app's own control: it lists the secrets saved on the device and
 			// lets the user add one. Only the chosen name comes back.
-			new Setting(connection)
-				.setName(t("settings.token.name"))
-				.setDesc(t("settings.token.desc"))
-				.addComponent((el) =>
+			const token = new Setting(connection).setName(t("settings.token.name")).setDesc(t("settings.token.desc"));
+			// The first thing someone new has to make, on GitHub.
+			token.descEl.createDiv().createEl("a", { text: t("settings.token.create"), href: NEW_TOKEN_URL });
+			token.addComponent((el) =>
 					new SecretComponent(this.app, el).setValue(stored.tokenSecret).onChange((name) => {
 						this.change((current) => ({ ...current, tokenSecret: name }));
 					}),

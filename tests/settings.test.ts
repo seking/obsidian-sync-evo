@@ -10,6 +10,7 @@
  * Source: https://github.com/seking/obsidian-sync-evo
  */
 
+import { readFileSync } from "node:fs";
 import { describe, expect, test } from "vitest";
 import { NO_DEVICE_EXCLUSION } from "../src/core/device-exclusion";
 import {
@@ -18,6 +19,7 @@ import {
 	type Connection,
 	connectionChange,
 	connectionOf,
+	NEW_TOKEN_URL,
 	DEFAULT_AUTO_SYNC,
 	defaultDeviceName,
 	defaultSettings,
@@ -750,3 +752,23 @@ describe("Google Drive in the settings", () => {
 	});
 });
 
+
+describe("the link that makes a token", () => {
+	test("is the one the README and the setup guide give, in both languages", () => {
+		for (const name of ["README.md", "README.ja.md", "docs/setup.md", "docs/ja/setup.md"]) {
+			const text = readFileSync(new URL(`../${name}`, import.meta.url), "utf8");
+			expect(text, name).toContain(`(${NEW_TOKEN_URL})`);
+		}
+	});
+
+	test("fills in the name, the expiry and Contents: Read and write", () => {
+		const url = new URL(NEW_TOKEN_URL);
+		expect(url.origin + url.pathname).toBe("https://github.com/settings/personal-access-tokens/new");
+		expect(Object.fromEntries(url.searchParams)).toEqual({
+			name: "Sync Evo",
+			description: "Obsidian Sync Evo",
+			expires_in: "90",
+			contents: "write",
+		});
+	});
+});

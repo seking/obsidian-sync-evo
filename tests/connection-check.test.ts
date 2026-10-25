@@ -20,6 +20,7 @@ import {
 	checkDropboxFolder,
 	connectionCheckText,
 	isSuccess,
+	nothingEntered,
 	prepareCheck,
 	runConnectionCheck,
 } from "../src/core/connection-check";
@@ -27,7 +28,7 @@ import { DropboxApiError } from "../pro/src/core/dropbox/client";
 import { GitHubClient, type HeadResult } from "../src/core/github/client";
 import type { HttpRequest, HttpResponse } from "../src/core/http";
 import { translatorFor } from "../src/core/i18n";
-import { DEFAULT_AUTO_SYNC, type DeviceSettings } from "../src/core/settings";
+import { DEFAULT_AUTO_SYNC, defaultSettings, type DeviceSettings } from "../src/core/settings";
 
 const TOKEN = "github_pat_SECRET0123456789";
 const A = "a".repeat(40);
@@ -246,6 +247,29 @@ describe("the whole check, through the GitHub client", () => {
 			() => clientOf({ status: "empty" }),
 		);
 		expect(outcome).toEqual({ status: "failed", kind: "other", detail: "storage is locked" });
+	});
+});
+
+describe("settings that nothing was entered in yet", () => {
+	const untouched = settings({ repository: "", tokenSecret: "" });
+
+	test("are those every vault starts with", () => {
+		expect(nothingEntered(defaultSettings("iPhone"))).toBe(true);
+		expect(nothingEntered(untouched)).toBe(true);
+		// Not entered: the branch is there from the start.
+		expect(nothingEntered({ ...untouched, branch: "work" })).toBe(true);
+		expect(nothingEntered({ ...untouched, repository: "  " })).toBe(true);
+	});
+
+	test.each<[string, Partial<DeviceSettings>]>([
+		["a repository", { repository: "octo/notes" }],
+		["a secret", { tokenSecret: "github-token" }],
+		["Dropbox chosen", { backend: "dropbox" }],
+		["Google Drive chosen", { backend: "gdrive" }],
+		["Dropbox connected once, with GitHub chosen again", { dropboxAccount: { id: "dbid:1", email: "a@example.com" } }],
+		["Google Drive connected once, with GitHub chosen again", { gdriveAccount: { id: "1", email: "a@example.com" } }],
+	])("are not, with %s", (_name, over) => {
+		expect(nothingEntered({ ...untouched, ...over })).toBe(false);
 	});
 });
 

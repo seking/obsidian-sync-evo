@@ -65,3 +65,62 @@ export function logTime(at: number): string {
 export function logText(lines: readonly LogLine[]): string {
 	return lines.map(({ at, message }) => `${logTime(at)} ${message}`).join("\n");
 }
+
+/**
+ * What the device is, as `Platform` of the app tells it: its kind and its
+ * system. On iPhone and iPad the app also says it is macOS, so the app of
+ * iOS is asked first.
+ */
+export interface DeviceFlags {
+	readonly isPhone: boolean;
+	readonly isTablet: boolean;
+	readonly isIosApp: boolean;
+	readonly isAndroidApp: boolean;
+	readonly isMacOS: boolean;
+	readonly isWin: boolean;
+	readonly isLinux: boolean;
+}
+
+/** The device, as a line of a report puts it: "phone (Android)", say. */
+export function deviceText(flags: DeviceFlags): string {
+	const kind = flags.isPhone ? "phone" : flags.isTablet ? "tablet" : "desktop";
+	const system = flags.isIosApp
+		? "iOS"
+		: flags.isAndroidApp
+			? "Android"
+			: flags.isMacOS
+				? "macOS"
+				: flags.isWin
+					? "Windows"
+					: flags.isLinux
+						? "Linux"
+						: "unknown system";
+	return `${kind} (${system})`;
+}
+
+/** What a report of a problem asks for, to be put above the lines of a copy of the log. */
+export interface LogContext {
+	/** Of Sync Evo. */
+	readonly version: string;
+	/** Of the app, as its API gives it. */
+	readonly obsidianVersion: string;
+	/** `deviceText`. */
+	readonly device: string;
+	/** The service chosen in the settings, or "unknown" where they cannot be read. */
+	readonly service: string;
+}
+
+/**
+ * The lines as a copy of the log has them: first what they were written on
+ * and with, then a blank line, then the lines (`logText`). In English, like
+ * the lines, in every language.
+ */
+export function logCopyText(context: LogContext, lines: readonly LogLine[]): string {
+	const head = [
+		`Sync Evo ${context.version}`,
+		`Obsidian ${context.obsidianVersion}`,
+		`Device: ${context.device}`,
+		`Service: ${context.service}`,
+	];
+	return [...head, "", logText(lines)].join("\n");
+}

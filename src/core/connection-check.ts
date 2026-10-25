@@ -143,6 +143,23 @@ export function prepareCheck(
 	return { status: "ready", target: { owner: repository.owner, repo: repository.repo, branch, token } };
 }
 
+/**
+ * Whether the settings are still as every vault starts with: GitHub, with
+ * no repository and no secret chosen, and neither Dropbox nor Google Drive
+ * ever connected. Nothing then says which service was meant, and the text
+ * of what is missing first, the repository of GitHub, would send someone
+ * who means Dropbox or Google Drive the wrong way.
+ */
+export function nothingEntered(settings: DeviceSettings): boolean {
+	return (
+		settings.backend === "github" &&
+		settings.repository.trim() === "" &&
+		settings.tokenSecret === "" &&
+		settings.dropboxAccount === null &&
+		settings.gdriveAccount === null
+	);
+}
+
 export type CheckOutcome = ConnectionCheck | { readonly status: "not-ready"; readonly reason: NotReadyReason };
 
 /**

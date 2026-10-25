@@ -10,9 +10,9 @@
  * Source: https://github.com/seking/obsidian-sync-evo
  */
 
-import { type App, ButtonComponent, Modal, Notice } from "obsidian";
+import { apiVersion, type App, ButtonComponent, Modal, Notice, Platform } from "obsidian";
 import type { Translate } from "../core/i18n";
-import { type LogLine, LogRing, logText } from "../core/log-ring";
+import { deviceText, logCopyText, type LogContext, LogRing } from "../core/log-ring";
 
 // The lines of this run of the app, in memory only (`log-ring.ts`). They
 // are what the console got, and no more: a line must never carry the token.
@@ -25,13 +25,21 @@ export const log = (message: string): void => {
 };
 
 /**
- * Shows the lines that are kept, as they are at this moment. `hideNotices`
+ * Shows the lines that are kept, as they are at this moment, under what
+ * they were written on and with: the version of Sync Evo and the service
+ * are the plugin's to say, the rest is asked of the app here. `hideNotices`
  * takes the notices of the syncs that stay off the screen while the dialog
  * is open, and answers what puts them back (`SyncRunner.hideStaying`): they
  * would lie over its top.
  */
-export function showLog(app: App, t: Translate, hideNotices?: () => () => void): void {
-	new LogModal(app, t, ring.lines(), hideNotices).open();
+export function showLog(
+	app: App,
+	t: Translate,
+	plugin: Pick<LogContext, "version" | "service">,
+	hideNotices?: () => () => void,
+): void {
+	const context: LogContext = { ...plugin, obsidianVersion: apiVersion, device: deviceText(Platform) };
+	new LogModal(app, t, logCopyText(context, ring.lines()), ring.lines().length === 0, hideNotices).open();
 }
 
 /**
@@ -41,14 +49,17 @@ export function showLog(app: App, t: Translate, hideNotices?: () => () => void):
  */
 class LogModal extends Modal {
 	private readonly t: Translate;
-	private readonly lines: readonly LogLine[];
+	/** As it is copied (`logCopyText`). */
+	private readonly text: string;
+	private readonly empty: boolean;
 	private readonly hideNotices: (() => () => void) | undefined;
 	private putBack: (() => void) | null = null;
 
-	constructor(app: App, t: Translate, lines: readonly LogLine[], hideNotices?: () => () => void) {
+	constructor(app: App, t: Translate, text: string, empty: boolean, hideNotices?: () => () => void) {
 		super(app);
 		this.t = t;
-		this.lines = lines;
+		this.text = text;
+		this.empty = empty;
 		this.hideNotices = hideNotices;
 	}
 
@@ -59,12 +70,13 @@ class LogModal extends Modal {
 		this.setTitle(t("log.title"));
 		contentEl.createEl("p", { text: t("log.desc") });
 
-		if (this.lines.length === 0) {
+		if (this.empty) {
 			contentEl.createEl("p", { text: t("log.empty") });
 			return;
 		}
-		const text = logText(this.lines);
-		// The log itself is in English, in every language.
+		const { text } = this;
+		// The log itself is in English, in every language. Shown as it is
+		// copied, so that what goes into a report is what is seen here.
 		const shown = contentEl.createEl("pre", { cls: "sync-evo-log", text });
 
 		const buttons = contentEl.createDiv({ cls: "modal-button-container" });
