@@ -127,6 +127,8 @@ Sync Evo stops and asks before it goes on when:
 | Upload changes to GitHub (or Dropbox, or Google Drive) | Only uploads to the remote. |
 | Start over (download everything from GitHub, Dropbox or Google Drive again) | Compares the vault with the remote again, as a first download does. No file is deleted. |
 | Stop the sync | Stops a running sync. |
+| Show sync log | Shows what Sync Evo has done since it was loaded, with **Copy all** for a bug report. |
+| Show the last sync results | Shows the last syncs that had something to tell, with every file. |
 
 Upload:
 

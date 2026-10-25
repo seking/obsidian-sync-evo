@@ -70,10 +70,34 @@ Sync Evo was removed in your Google Account, or this device's connection ended f
 
 Keep only one of them: put the other one in the trash on Google Drive, and sync again on every device. See [When the folder is not as it was](google-drive.md#when-the-folder-is-not-as-it-was).
 
+## How do I go back to an earlier version of Sync Evo?
+
+> [!WARNING]
+> On the device you go back on, finish a sync first. Do not go back while a sync is left stopped half way.
+
+A sync that stopped in the middle of a merge is finished by the next sync. An earlier version does not know that, and may write over the merged note with the service's version. The note as it was is then left only in `.trash/.sync-evo-merged/`. To go back on every device, do the same on each.
+
+You can go back to a version listed on the [releases page](https://github.com/seking/obsidian-sync-evo/releases). A version not listed there cannot be installed.
+
+If you installed Sync Evo with BRAT:
+
+1. In Settings → BRAT, choose the version to go back to for Sync Evo.
+2. If BRAT offers no way to choose it there, remove Sync Evo from its list of beta plugins. Then press **Add beta plugin**, enter `https://github.com/seking/obsidian-sync-evo`, and choose that version instead of the latest.
+3. Turn Sync Evo off and on in Settings → Community plugins, or restart Obsidian.
+
+If you installed it from the community plugin directory:
+
+1. On the releases page, open the version to go back to, and download `main.js`, `manifest.json` and `styles.css`.
+2. Put them into the folder `.obsidian/plugins/sync-evo/` of the vault, in place of the files there. The folder is hidden. On a Mac, press `⌘⇧.` in Finder to show it. On Android, choose "Show hidden files" in the file manager. The Files app on iPhone and iPad does not show it, so use BRAT there.
+3. Restart Obsidian. Do not press **Update** for Sync Evo while you want to stay on that version.
+
+A vault set to Dropbox needs Sync Evo 0.4.0 or later, and one set to Google Drive needs 0.5.0 or later. An earlier version does not sync it, and leaves its settings as they are.
+
 ## How do I report a bug?
 
-Open an [issue](https://github.com/seking/obsidian-sync-evo/issues). Do not put a token, or a file name you would rather keep private, into a report.
+Open an [issue](https://github.com/seking/obsidian-sync-evo/issues), and choose **Bug report**. It asks for the version, the device, the service, the steps, and the sync log: run **Sync Evo: Show sync log** and press **Copy all**. You may write in English or in Japanese.
+
+Do not put a token into a report. The log holds file names: replace any you would rather keep private. For a security problem, do not open an issue: see [SECURITY.md](https://github.com/seking/obsidian-sync-evo/blob/main/SECURITY.md).
 
 <!-- TODO: My token expired. What do I do? -->
-<!-- TODO: How do I go back to a previous version of Sync Evo? -->
 <!-- TODO: How do I move from another sync plugin? -->

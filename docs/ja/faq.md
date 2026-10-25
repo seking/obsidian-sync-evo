@@ -70,10 +70,34 @@ Google アカウントで Sync Evo を外したか、ほかの理由でこのデ
 
 1つだけを残してください。もう1つを Google Drive でゴミ箱に入れて、どのデバイスでも、もう一度同期します。[フォルダが前と違う時](google-drive.md#フォルダが前と違う時)を見てください。
 
+## Sync Evo を前のバージョンに戻すには？
+
+> [!WARNING]
+> 戻すデバイスで、同期を最後まで終えてから戻してください。途中で止まった同期のまま戻さないでください。
+
+統合の途中で止まった同期は、次の同期が仕上げます。前のバージョンはそれを知らず、統合したノートをサービスの内容で上書きすることがあります。その時、元のノートは `.trash/.sync-evo-merged/` にしか残りません。全デバイスを戻すなら、それぞれのデバイスで同じようにしてください。
+
+戻せるのは、[リリースのページ](https://github.com/seking/obsidian-sync-evo/releases)にあるバージョンです。そこに無いバージョンは入れられません。
+
+BRAT でインストールした時：
+
+1. 設定 → BRAT で、Sync Evo の戻したいバージョンを選びます。
+2. そこで選べない時は、ベータプラグインの一覧から Sync Evo を外します。次に**Add beta plugin**を押し、`https://github.com/seking/obsidian-sync-evo` を入力して、最新の代わりにそのバージョンを選びます。
+3. 設定 → コミュニティプラグインで Sync Evo をオフにしてからオンにするか、Obsidian を再起動します。
+
+コミュニティプラグインの一覧からインストールした時：
+
+1. リリースのページで戻したいバージョンを開き、`main.js`・`manifest.json`・`styles.css` をダウンロードします。
+2. 保管庫の `.obsidian/plugins/sync-evo/` のフォルダに、今あるファイルと置き換えて入れます。このフォルダは隠れています。Mac では、Finder で `⌘⇧.` を押すと見えます。Android では、ファイル管理のアプリのメニューで「隠しファイルを表示」を選びます。iPhone と iPad の「ファイル」アプリには出ないので、BRAT を使ってください。
+3. Obsidian を再起動します。そのバージョンのままにしたい間は、Sync Evo の**更新**を押さないでください。
+
+Dropbox にした保管庫には Sync Evo 0.4.0 以降が、Google Drive にした保管庫には 0.5.0 以降が要ります。それより前のバージョンは、その保管庫を同期せず、設定もそのままにします。
+
 ## バグはどう報告しますか？
 
-[issue](https://github.com/seking/obsidian-sync-evo/issues) を開いてください。報告には、トークンや人に見せたくないファイル名を書かないでください。
+[issue](https://github.com/seking/obsidian-sync-evo/issues) を開き、**Bug report** を選んでください。バージョン、デバイス、サービス、手順、同期ログを尋ねます。同期ログは、**Sync Evo: 同期ログを表示**を実行して、**すべてコピー**を押すと写せます。日本語で書いて構いません。
+
+報告にトークンを書かないでください。同期ログにはファイル名が入ります。人に見せたくない名前は、伏せてください。セキュリティの問題は issue にせず、[SECURITY.md](https://github.com/seking/obsidian-sync-evo/blob/main/SECURITY.md) を見てください。
 
 <!-- TODO: My token expired. What do I do? -->
-<!-- TODO: How do I go back to a previous version of Sync Evo? -->
 <!-- TODO: How do I move from another sync plugin? -->

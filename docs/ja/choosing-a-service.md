@@ -23,7 +23,7 @@ Dropbox と Google Drive は、ログインするだけで使えます。リポ�
 | Sync Evo の外で足したファイル | 同期します（Git で push した物など） | まだ試していません | 見えません。Sync Evo から見えるのは、Sync Evo が作ったファイルだけです |
 | Android での、大きな保管庫の最初のダウンロード | 約5,000ファイルを超えると、GitHub の1時間ごとの上限を待つため、1時間以上かかることがあります | GitHub のような1時間ごとの上限はありません。待つのは、Dropbox が待つよう求めた時だけです。大きな保管庫では、まだ試していません | GitHub のような1時間ごとの上限はありません。待つのは、Google が待つよう求めた時だけです。大きな保管庫では、まだ試していません |
 | パソコンの Git | 同じリポジトリで使えます | 使えません | 使えません |
-| 試した環境 | iPhone と Mac。基本の同期は Android・iPad・Windows でも。Linux ではまだ | Android と iPhone。パソコンではまだ | Android。iPhone とパソコンではまだ |
+| 試した環境 | iPhone と Mac。基本の同期は Android・iPad・Windows でも。Linux ではまだ | Android と iPhone。パソコンではまだ | Android と iPhone。パソコンではまだ |
 
 ファイルの大きさの上限は、3つとも同じです（38 MB）。どれも、デバイスに GitHub・Dropbox・Google Drive のアプリは要りません。どれでも、大文字と小文字だけが違う2つのパスを、Sync Evo は同期しません。
 

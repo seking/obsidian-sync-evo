@@ -79,4 +79,4 @@ Sync Evo has two parts, under two licenses (see [LICENSE](LICENSE)).
 
 ## Bugs and requests
 
-Report a bug or ask for a feature in the [issues](https://github.com/seking/obsidian-sync-evo/issues). Do not put a token, or a file name you would rather keep private, into a report.
+Report a bug or ask for a feature in the [issues](https://github.com/seking/obsidian-sync-evo/issues). Do not put a token, or a file name you would rather keep private, into a report. Report a security problem privately, as [SECURITY.md](SECURITY.md) says.

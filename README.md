@@ -27,6 +27,15 @@ It works on phones and computers alike, with no Git to install.
 
 **Quiet automatic sync.** If you turn it on, Sync Evo syncs on startup and at an interval, and says nothing when all is well.
 
+## How your notes are kept safe
+
+- A note changed on two devices is merged, or kept twice, with the device's version in `_conflicts/`. Before a merge, the note as it was is kept in `.trash/`.
+- Sync Evo stops and asks before it deletes many files, before a device's first upload, when the first download finds files that differ, and when the history on GitHub was rewritten.
+- An upload does not write over a file that changed on the service since this device last downloaded. With Google Drive it rarely can, and the other version stays in Drive's version history.
+- An interrupted download goes on from where it stopped. So does an upload to GitHub or Google Drive.
+
+[How syncing works](https://github.com/seking/obsidian-sync-evo/blob/main/docs/syncing.md)
+
 ## GitHub, Dropbox or Google Drive?
 
 - **You have a GitHub account**: use GitHub.
@@ -100,6 +109,7 @@ Sync Evo sees only the files it made in your Google Drive. [Details](https://git
 - A vault in iCloud Drive works, but support is experimental. [Details](https://github.com/seking/obsidian-sync-evo/blob/main/docs/icloud.md)
 - Syncing "Installed community plugins" runs plugin code from your other devices. [Details](https://github.com/seking/obsidian-sync-evo/blob/main/docs/settings.md#installed-community-plugins)
 - If you sync the "Active community plugin list", keep Sync Evo enabled on every device. [Why](https://github.com/seking/obsidian-sync-evo/blob/main/docs/settings.md#active-community-plugin-list)
+- To go back to an earlier version of Sync Evo, first finish a sync on that device. [How](https://github.com/seking/obsidian-sync-evo/blob/main/docs/faq.md#how-do-i-go-back-to-an-earlier-version-of-sync-evo)
 
 ## Network and privacy
 
@@ -121,7 +131,7 @@ Sync Evo connects only to GitHub (`api.github.com`, `codeload.github.com`), Drop
 
 ## Help
 
-See the [FAQ](https://github.com/seking/obsidian-sync-evo/blob/main/docs/faq.md), or open an [issue](https://github.com/seking/obsidian-sync-evo/issues). Do not put a token or a private file name into a report.
+See the [FAQ](https://github.com/seking/obsidian-sync-evo/blob/main/docs/faq.md), or open an [issue](https://github.com/seking/obsidian-sync-evo/issues). Do not put a token or a private file name into a report. To report a security problem privately, see [SECURITY.md](https://github.com/seking/obsidian-sync-evo/blob/main/SECURITY.md).
 
 ## License
 

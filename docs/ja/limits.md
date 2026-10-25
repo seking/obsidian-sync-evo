@@ -95,4 +95,4 @@ Android では、いつも1ファイルずつダウンロードします。コ�
 - 基本の同期は、Android のスマートフォン1台（Pixel 6a）、iPad 1台、Windows 11 のパソコン1台でも試しました。
 - Linux では、まだ試していません。
 - Dropbox は、Android のスマートフォン1台と iPhone 1台で試しました。パソコンでは、まだです。
-- Google Drive は、Android のスマートフォン1台（Pixel 6a）で試しました。iPhone とパソコンでは、まだです。
+- Google Drive は、Android のスマートフォン1台（Pixel 6a）と iPhone 1台で試しました。パソコンでは、まだです。

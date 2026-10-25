@@ -23,7 +23,7 @@ With Dropbox and Google Drive, you just sign in. There is no repository or token
 | Files added outside Sync Evo | Synced (pushed with Git, for one) | Not yet tried | Not seen: Sync Evo sees only the files it made |
 | First download of a large vault on Android | Over about 5,000 files, it waits for GitHub's hourly limit and can take over an hour | No hourly limit like GitHub's. Sync Evo waits only when Dropbox asks it to. Not yet tried with a large vault | No hourly limit like GitHub's. Sync Evo waits only when Google asks it to. Not yet tried with a large vault |
 | Git on a computer | Works on the same repository | Not available | Not available |
-| Tested on | iPhone and Mac. Basic syncs on Android, iPad and Windows. Not on Linux | Android and iPhone. Not yet on a computer | Android. Not yet on an iPhone or a computer |
+| Tested on | iPhone and Mac. Basic syncs on Android, iPad and Windows. Not on Linux | Android and iPhone. Not yet on a computer | Android and iPhone. Not yet on a computer |
 
 All three have the same file size limit (38 MB). None needs the GitHub, Dropbox or Google Drive app on the device. With none of them does Sync Evo sync two paths that differ only in upper and lower case.
 

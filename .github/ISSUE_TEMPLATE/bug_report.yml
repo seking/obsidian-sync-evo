@@ -1,0 +1,71 @@
+name: Bug report
+description: Something in Sync Evo does not work as it should.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        You may write in English or in Japanese. 日本語で書いても構いません。
+
+        Do not paste a token, a license key or any other secret. To report a security problem, do not use this form: see [SECURITY.md](https://github.com/seking/obsidian-sync-evo/blob/main/SECURITY.md).
+
+        The [FAQ](https://github.com/seking/obsidian-sync-evo/blob/main/docs/faq.md) may already have the answer.
+  - type: input
+    id: version
+    attributes:
+      label: Sync Evo version
+      description: Shown under Sync Evo in Settings → Community plugins.
+      placeholder: "0.5.0"
+    validations:
+      required: true
+  - type: input
+    id: device
+    attributes:
+      label: Device and OS
+      description: The device where it happened, its OS, and the version of Obsidian if you know it.
+      placeholder: "Pixel 6a, Android 16, Obsidian 1.12.4"
+    validations:
+      required: true
+  - type: dropdown
+    id: service
+    attributes:
+      label: Service
+      description: As chosen under "Connection" in the settings of Sync Evo.
+      options:
+        - GitHub
+        - Dropbox
+        - Google Drive
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps
+      description: What you did, one step at a time.
+      placeholder: |
+        1. Changed a note on the phone.
+        2. Pressed Sync.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: What happened
+      description: The notice Sync Evo showed, if any, word for word.
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: Sync log
+      description: |
+        Run **Sync Evo: Show sync log** from the command palette, press **Copy all**, and paste it here. **Sync Evo: Show the last sync results** has a **Copy all** too. (In Japanese: 「Sync Evo: 同期ログを表示」「Sync Evo: 前回の同期の結果を表示」「すべてコピー」.)
+        The log is lost when Obsidian is closed or Sync Evo is updated, so copy it soon after the problem.
+        It holds the names of files and folders. Replace any name you would rather not show (with `note-1.md`, for example). It never holds the token; do not add one.
+      render: text

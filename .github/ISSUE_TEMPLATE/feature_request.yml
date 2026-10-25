@@ -1,0 +1,33 @@
+name: Feature request
+description: Suggest something Sync Evo could do.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        You may write in English or in Japanese. 日本語で書いても構いません。
+
+        If someone has already asked for the same thing, add a 👍 to that issue instead of opening a new one.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What you want to do
+      description: What you are trying to do, and what gets in the way today.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would help
+      description: How Sync Evo could do it, if you have an idea.
+  - type: dropdown
+    id: service
+    attributes:
+      label: Service
+      description: The service it is about, if any.
+      multiple: true
+      options:
+        - GitHub
+        - Dropbox
+        - Google Drive
+        - Any

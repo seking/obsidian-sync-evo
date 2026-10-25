@@ -27,6 +27,15 @@
 
 **自動同期は、邪魔をしません。** 有効にすると、起動時と一定の間隔で同期します。問題が無い時は、何も知らせません。
 
+## ノートを失わないしくみ
+
+- 2台のデバイスで変えたノートは、統合するか、両方を残します。デバイスの方は `_conflicts/` に残ります。統合する前の内容は `.trash/` に残します。
+- 多くのファイルを削除する前、デバイスで最初にアップロードする前、最初のダウンロードで内容の違うファイルが見つかった時、GitHub の履歴が書き換えられた時は、止まって確認します。
+- このデバイスが最後にダウンロードした後にサービスで変わったファイルを、アップロードで上書きしません。Google Drive ではまれに上書きし得ますが、もう一方の内容は Google Drive のファイルのバージョン履歴に残ります。
+- 途中で止まったダウンロードは、続きから進みます。GitHub と Google Drive へのアップロードも同じです。
+
+[同期のしくみ](https://github.com/seking/obsidian-sync-evo/blob/main/docs/ja/syncing.md)
+
 ## GitHub・Dropbox・Google Drive のどれか
 
 - **GitHub のアカウントがある**：GitHub を。
@@ -100,6 +109,7 @@ Sync Evo から見えるのは、Google Drive の中の Sync Evo が作ったフ
 - iCloud Drive の保管庫も使えますが、対応は試験的です。[詳細](https://github.com/seking/obsidian-sync-evo/blob/main/docs/ja/icloud.md)
 - 「インストールされているコミュニティプラグイン」を同期すると、ほかのデバイスから来たプラグインのコードが動きます。[詳細](https://github.com/seking/obsidian-sync-evo/blob/main/docs/ja/settings.md#インストールされているコミュニティプラグイン)
 - 「アクティブなコミュニティプラグインのリスト」を同期するなら、全デバイスで Sync Evo を有効にしておいてください。[理由](https://github.com/seking/obsidian-sync-evo/blob/main/docs/ja/settings.md#アクティブなコミュニティプラグインのリスト)
+- Sync Evo を前のバージョンに戻す時は、そのデバイスで同期を最後まで終えてから戻してください。[手順](https://github.com/seking/obsidian-sync-evo/blob/main/docs/ja/faq.md#sync-evo-を前のバージョンに戻すには)
 
 ## 通信とプライバシー
 
@@ -121,7 +131,7 @@ Sync Evo が接続するのは、GitHub（`api.github.com`、`codeload.github.co
 
 ## ヘルプ
 
-[よくある質問](https://github.com/seking/obsidian-sync-evo/blob/main/docs/ja/faq.md)を見るか、[issue](https://github.com/seking/obsidian-sync-evo/issues) を開いてください。報告には、トークンや人に見せたくないファイル名を書かないでください。
+[よくある質問](https://github.com/seking/obsidian-sync-evo/blob/main/docs/ja/faq.md)を見るか、[issue](https://github.com/seking/obsidian-sync-evo/issues) を開いてください。報告には、トークンや人に見せたくないファイル名を書かないでください。セキュリティの問題は、公開せずに報告してください。方法は [SECURITY.md](https://github.com/seking/obsidian-sync-evo/blob/main/SECURITY.md) にあります。
 
 ## ライセンス
 

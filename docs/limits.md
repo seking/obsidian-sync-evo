@@ -95,4 +95,4 @@ Files of 2 MB and more are downloaded with the WebView's `fetch`, which does not
 - The basic sync was also tried on one Android phone (a Pixel 6a), one iPad, and one Windows 11 PC.
 - It has not been tried on Linux.
 - Dropbox was tried on one Android phone and one iPhone, and not yet on a desktop.
-- Google Drive was tried on one Android phone (a Pixel 6a), and not yet on an iPhone or a desktop.
+- Google Drive was tried on one Android phone (a Pixel 6a) and one iPhone, and not yet on a desktop.
