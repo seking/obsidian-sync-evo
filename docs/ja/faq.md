@@ -99,5 +99,14 @@ Dropbox にした保管庫には Sync Evo 0.4.0 以降が、Google Drive にし�
 
 報告にトークンを書かないでください。同期ログにはファイル名が入ります。人に見せたくない名前は、伏せてください。セキュリティの問題は issue にせず、[SECURITY.md](https://github.com/seking/obsidian-sync-evo/blob/main/SECURITY.md) を見てください。
 
-<!-- TODO: My token expired. What do I do? -->
+## GitHub のトークンの期限が切れました。どうすればよいですか？
+
+fine-grained のトークンは、作った時に決めた日で切れます。設定画面と README のリンクでは 90日ですが、ほかの日数を選んだかもしれません。その日を過ぎると、同期が「GitHub がトークンを受け付けませんでした」で失敗し、接続のテストも同じになります。デバイスでも GitHub でも、何も変わりません。
+
+1. GitHub で [Fine-grained tokens](https://github.com/settings/personal-access-tokens) を開き、そのトークンを開いて **Regenerate token** を押します。リポジトリと権限はそのままで、新しい期限を選べます。Sync Evo の設定画面の**トークン**の下のリンクで、新しく作っても構いません。
+2. 新しいトークンをコピーし、**トークン**で選んでいるシークレットの値として、前の値の代わりに保存します。新しいシークレットとして保存して、それを選んでも構いません。
+3. **接続のテスト**の**テスト**を押してから、同期します。同期は前の続きから進みます。
+
+デバイスごとに行ってください。トークンは、デバイスごとに保存されています。
+
 <!-- TODO: How do I move from another sync plugin? -->

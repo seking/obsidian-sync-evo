@@ -99,5 +99,14 @@ Open an [issue](https://github.com/seking/obsidian-sync-evo/issues), and choose 
 
 Do not put a token into a report. The log holds file names: replace any you would rather keep private. For a security problem, do not open an issue: see [SECURITY.md](https://github.com/seking/obsidian-sync-evo/blob/main/SECURITY.md).
 
-<!-- TODO: My token expired. What do I do? -->
+## My GitHub token expired. What do I do?
+
+A fine-grained token ends on the day chosen when it was made. The link in the settings and in the README sets 90 days, but you may have chosen another. After that day, a sync fails with "GitHub rejected the token", and so does the connection test. Nothing is changed, on the device or on GitHub.
+
+1. On GitHub, open [Fine-grained tokens](https://github.com/settings/personal-access-tokens), open the token, and press **Regenerate token**. It keeps the repository and the permissions, and you choose a new expiry. Or make a new token with the link under **Token** in the Sync Evo settings.
+2. Copy the new token, and save it as the value of the secret chosen under **Token**, in place of the old one. Or save it as a new secret, and choose that one.
+3. Press **Test** under **Connection test**, then sync. The sync goes on where it was.
+
+Do this on each device: every device keeps its own copy of the token.
+
 <!-- TODO: How do I move from another sync plugin? -->

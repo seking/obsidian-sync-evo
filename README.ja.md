@@ -131,7 +131,7 @@ Sync Evo が接続するのは、GitHub（`api.github.com`、`codeload.github.co
 
 ## ヘルプ
 
-[よくある質問](https://github.com/seking/obsidian-sync-evo/blob/main/docs/ja/faq.md)を見るか、[issue](https://github.com/seking/obsidian-sync-evo/issues) を開いてください。報告には、トークンや人に見せたくないファイル名を書かないでください。セキュリティの問題は、公開せずに報告してください。方法は [SECURITY.md](https://github.com/seking/obsidian-sync-evo/blob/main/SECURITY.md) にあります。
+[よくある質問](https://github.com/seking/obsidian-sync-evo/blob/main/docs/ja/faq.md)を見るか、[issue](https://github.com/seking/obsidian-sync-evo/issues) を開いてください。GitHub のアカウントが無い時は、contact@gyap.jp にメールをください。報告には、トークンや人に見せたくないファイル名を書かないでください。セキュリティの問題は、公開せずに報告してください。方法は [SECURITY.md](https://github.com/seking/obsidian-sync-evo/blob/main/SECURITY.md) にあります。
 
 ## ライセンス
 

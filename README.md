@@ -131,7 +131,7 @@ Sync Evo connects only to GitHub (`api.github.com`, `codeload.github.com`), Drop
 
 ## Help
 
-See the [FAQ](https://github.com/seking/obsidian-sync-evo/blob/main/docs/faq.md), or open an [issue](https://github.com/seking/obsidian-sync-evo/issues). Do not put a token or a private file name into a report. To report a security problem privately, see [SECURITY.md](https://github.com/seking/obsidian-sync-evo/blob/main/SECURITY.md).
+See the [FAQ](https://github.com/seking/obsidian-sync-evo/blob/main/docs/faq.md), or open an [issue](https://github.com/seking/obsidian-sync-evo/issues). Without a GitHub account, write to contact@gyap.jp. Do not put a token or a private file name into a report. To report a security problem privately, see [SECURITY.md](https://github.com/seking/obsidian-sync-evo/blob/main/SECURITY.md).
 
 ## License
 
