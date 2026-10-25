@@ -77,9 +77,11 @@ export interface SettingsHost extends ExclusionHost {
 }
 
 /**
- * The settings screen. It is drawn with `display()`, which the app has marked
- * as deprecated since 1.13 in favour of declared settings: those do not exist
- * in 1.11.4, the oldest version the plugin runs on.
+ * The settings screen. The app has it drawn with `display()`, which it has
+ * marked as deprecated since 1.13 in favour of declared settings: those do
+ * not exist in 1.11.4, the oldest version the plugin runs on. The screen
+ * draws itself again with `draw()`, the same as `display()`, so that the
+ * deprecated method is called by the app alone.
  */
 export class SyncEvoSettingTab extends PluginSettingTab {
 	private readonly host: SettingsHost;
@@ -106,6 +108,11 @@ export class SyncEvoSettingTab extends PluginSettingTab {
 	}
 
 	override display(): void {
+		this.draw();
+	}
+
+	/** Draws the whole screen, as when it is opened. */
+	private draw(): void {
 		const { containerEl, host } = this;
 		const t = host.t;
 		containerEl.empty();
@@ -130,7 +137,7 @@ export class SyncEvoSettingTab extends PluginSettingTab {
 						.setWarning()
 						.onClick(() => {
 							host.resetSettings();
-							this.display();
+							this.draw();
 						});
 				});
 			return;
@@ -167,7 +174,7 @@ export class SyncEvoSettingTab extends PluginSettingTab {
 						});
 						const now = this.host.deviceSettings?.autoSync.intervalMinutes;
 						this.raisedForGdrive = backend === "gdrive" && before !== undefined && now !== undefined && now > before ? now : null;
-						this.display();
+						this.draw();
 					});
 			});
 
@@ -365,7 +372,7 @@ export class SyncEvoSettingTab extends PluginSettingTab {
 				button.setButtonText(t("settings.dropbox.disconnect")).onClick(async () => {
 					button.setDisabled(true);
 					await host.disconnectDropbox();
-					this.display();
+					this.draw();
 				});
 			});
 		}
@@ -436,7 +443,7 @@ export class SyncEvoSettingTab extends PluginSettingTab {
 				button.setButtonText(t("settings.gdrive.disconnect")).onClick(async () => {
 					button.setDisabled(true);
 					await host.disconnectGdrive();
-					this.display();
+					this.draw();
 				});
 			});
 		}
@@ -539,7 +546,7 @@ export class SyncEvoSettingTab extends PluginSettingTab {
 			const commit = (): void => {
 				void host.setGdriveClientId(text.getValue()).then((changed) => {
 					if (!changed) return;
-					this.display();
+					this.draw();
 					new Notice(t("settings.gdriveClient.reconnect"));
 				});
 			};
@@ -566,7 +573,7 @@ export class SyncEvoSettingTab extends PluginSettingTab {
 
 	/** Draws the screen again, when it is shown: after the connection to Dropbox changed from outside it. */
 	redrawIfShown(): void {
-		if (this.containerEl.isShown()) this.display();
+		if (this.containerEl.isShown()) this.draw();
 	}
 
 	/**
