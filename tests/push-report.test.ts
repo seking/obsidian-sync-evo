@@ -263,6 +263,8 @@ describe("the section a push added to .gitignore", () => {
 	const outside = "Nothing else in .gitignore was changed.";
 	const howTo =
 		"You can change these lines in the Sync Evo settings. If you do not want them, delete the lines in between and keep the first and the last line (the two that start with #): if those two are deleted as well, the next sync adds the lines again.";
+	const unwanted =
+		"These are the lines Sync Evo manages. If you do not want them, delete the lines in between and keep the first and the last line (the two that start with #): if those two are deleted as well, the next sync adds the lines again.";
 	const request = {
 		firstPush: { added: ["new.md"], modified: [".gitignore"], deleted: [] },
 		remoteEmpty: false,
@@ -270,16 +272,13 @@ describe("the section a push added to .gitignore", () => {
 		recordCount: 2,
 	};
 
-	test("the question before the first push shows the lines, before the lists, and what a no leaves behind", () => {
+	test("the question before the first push folds the lines to one line, before the lists, and says what a no leaves behind", () => {
 		const question = pushQuestion(t, target, { ...request, sectionAdded: added });
 		expect(question.parts.slice(1)).toEqual([
 			{
-				text: "Sync Evo added the lines below to the top of the .gitignore of this vault. They are the lines Sync Evo manages, and say what is not synced:",
-				paths: { shown: lines, more: 0 },
+				text: "Sync Evo added rules for what is not synced to the .gitignore of this vault (4 lines). You can change them in the Sync Evo settings.",
+				folded: { paths: { shown: lines, more: 0 }, notes: [outside, "This upload includes the change.", unwanted] },
 			},
-			{ text: outside },
-			{ text: "This upload includes the change." },
-			{ text: howTo },
 			{ text: "1 file to add:", paths: { shown: ["new.md"], more: 0 } },
 			{ text: "1 file to modify:", paths: { shown: [".gitignore"], more: 0 } },
 		]);
@@ -288,55 +287,63 @@ describe("the section a push added to .gitignore", () => {
 		);
 		// Without it, the question is the one it was.
 		expect(pushQuestion(t, target, request).parts).toHaveLength(3);
-		expect(question.parts).toHaveLength(7);
+		expect(question.parts).toHaveLength(4);
 		expect(pushQuestion(t, target, request).note).toBe("If you cancel, nothing is uploaded and nothing is changed.");
 	});
 
 	test("the files of the remote the lines match are counted, with a few of them", () => {
 		const tracked = Array.from({ length: 7 }, (_, index) => `.trash/${index}.md`);
 		const question = pushQuestion(t, target, { ...request, sectionAdded: { ...added, tracked } });
-		expect(question.parts[5]).toEqual({
+		expect(question.parts[2]).toEqual({
 			text: "7 files that these lines exclude are on GitHub. Sync Evo no longer syncs them on any device:",
 			paths: { shown: tracked.slice(0, 5), more: 2 },
 		});
 		// With where they can be taken out of the remote.
-		expect(question.parts[6]).toEqual({
+		expect(question.parts[3]).toEqual({
 			text: "To remove them from GitHub, use \"Remove from GitHub\" in the Sync Evo settings. The files on devices that use Sync Evo stay.",
 		});
-		expect(question.parts).toHaveLength(9);
+		expect(question.parts).toHaveLength(6);
 		const one = pushQuestion(t, target, { ...request, sectionAdded: { ...added, tracked: [".DS_Store"] } });
-		expect(one.parts[5]?.text).toBe("1 file that these lines exclude is on GitHub. Sync Evo no longer syncs it on any device:");
+		expect(one.parts[2]?.text).toBe("1 file that these lines exclude is on GitHub. Sync Evo no longer syncs it on any device:");
 	});
 
 	test("a .gitignore that was made says so, and nothing about the rest of the file; no empty one is promised for an empty remote", () => {
 		const question = pushQuestion(t, target, { ...request, remoteEmpty: true, sectionAdded: { ...added, created: true } });
-		expect(question.parts.slice(1, 5).map((part) => part.text)).toEqual([
-			"The repository is empty.",
-			"This vault had no .gitignore, so Sync Evo created one with the lines below. They are the lines Sync Evo manages, and say what is not synced:",
-			"This upload includes the change.",
-			howTo,
+		expect(question.parts.slice(1, 3)).toEqual([
+			{ text: "The repository is empty." },
+			{
+				text: "This vault had no .gitignore, so Sync Evo created one with rules for what is not synced (4 lines). You can change them in the Sync Evo settings.",
+				folded: { paths: { shown: lines, more: 0 }, notes: ["This upload includes the change.", unwanted] },
+			},
 		]);
+		// Every line is in the fold, however many, up to what a list of the question holds.
+		const many = Array.from({ length: 60 }, (_, index) => `line ${index}`);
+		const long = pushQuestion(t, target, { ...request, sectionAdded: { ...added, lines: many } });
+		expect(long.parts[1]?.text).toContain("(60 lines)");
+		expect(long.parts[1]?.folded?.paths).toEqual({ shown: many.slice(0, 50), more: 10 });
 	});
 
 	test("the question in Japanese", () => {
 		const tracked = [".trash/old.md"];
 		const question = pushQuestion(ja, target, { ...request, sectionAdded: { ...added, tracked } });
-		expect(question.parts.slice(1, 6)).toEqual([
+		expect(question.parts.slice(1, 3)).toEqual([
 			{
-				text: "この保管庫の .gitignore の先頭に、下の行を足しました。Sync Evo が管理する行で、同期しない物を決めます：",
-				paths: { shown: lines, more: 0 },
-			},
-			{ text: ".gitignore のほかの部分は、変えていません。" },
-			{ text: "この変更は、今回のアップロードに入ります。" },
-			{
-				text: "これらの行は、Sync Evo の設定画面で変えられます。要らない時は、最初と最後の行（# で始まる2行）だけを残して、間の行を消してください。その2行も消すと、次の同期でまた足します。",
+				text: "この保管庫の .gitignore に、同期しない物の規則を足しました（4 行）。Sync Evo の設定画面で変えられます。",
+				folded: {
+					paths: { shown: lines, more: 0 },
+					notes: [
+						".gitignore のほかの部分は、変えていません。",
+						"この変更は、今回のアップロードに入ります。",
+						"Sync Evo が管理する行です。要らない時は、最初と最後の行（# で始まる2行）だけを残して、間の行を消してください。その2行も消すと、次の同期でまた足します。",
+					],
+				},
 			},
 			{ text: "これらの行で除外しているファイルが、GitHub に 1 件あります。どのデバイスの Sync Evo も、これらを同期しなくなります：", paths: { shown: tracked, more: 0 } },
 		]);
 		expect(question.note).toBe("やめた場合は、何もアップロードしません。.gitignore に足した行は、このデバイスに残り、次のアップロードに入ります。");
 		const created = pushQuestion(ja, target, { ...request, sectionAdded: { ...added, created: true } });
 		expect(created.parts[1]?.text).toBe(
-			"この保管庫に .gitignore が無かったので、下の行で作りました。Sync Evo が管理する行で、同期しない物を決めます：",
+			"この保管庫に .gitignore が無かったので、同期しない物の規則で作りました（4 行）。Sync Evo の設定画面で変えられます。",
 		);
 	});
 

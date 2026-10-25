@@ -428,6 +428,18 @@ export const en = baseCatalog({
 		"Sync Evo added the lines below to the top of the .gitignore of this vault. They are the lines Sync Evo manages, and say what is not synced:",
 	"section.added.created":
 		"This vault had no .gitignore, so Sync Evo created one with the lines below. They are the lines Sync Evo manages, and say what is not synced:",
+	// The one line the question before a first push folds the lines to;
+	// pressed, it shows them, with the paragraphs below.
+	"section.added.introFolded": {
+		one: "Sync Evo added rules for what is not synced to the .gitignore of this vault ({count} line). You can change them in the Sync Evo settings.",
+		other: "Sync Evo added rules for what is not synced to the .gitignore of this vault ({count} lines). You can change them in the Sync Evo settings.",
+	},
+	"section.added.createdFolded": {
+		one: "This vault had no .gitignore, so Sync Evo created one with rules for what is not synced ({count} line). You can change them in the Sync Evo settings.",
+		other: "This vault had no .gitignore, so Sync Evo created one with rules for what is not synced ({count} lines). You can change them in the Sync Evo settings.",
+	},
+	"section.added.unwanted":
+		"These are the lines Sync Evo manages. If you do not want them, delete the lines in between and keep the first and the last line (the two that start with #): if those two are deleted as well, the next sync adds the lines again.",
 	"section.added.outside": "Nothing else in .gitignore was changed.",
 	"section.added.sends": "This upload includes the change.",
 	"section.added.sent": "This upload included the change.",

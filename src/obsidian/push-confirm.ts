@@ -63,6 +63,14 @@ class PushConfirmModal extends Modal {
 		const question = pushQuestion(t, this.target, this.request);
 		this.setTitle(question.title);
 		for (const part of question.parts) {
+			if (part.folded !== undefined) {
+				// The browser's own: pressed, or Enter on it, opens and closes it.
+				const fold = contentEl.createEl("details", { cls: "sync-evo-question-fold" });
+				fold.createEl("summary", { text: part.text });
+				renderPathList(fold, t, part.folded.paths);
+				for (const text of part.folded.notes) fold.createEl("p", { text });
+				continue;
+			}
 			contentEl.createEl("p", { text: part.text });
 			if (part.paths !== undefined) renderPathList(contentEl, t, part.paths);
 		}

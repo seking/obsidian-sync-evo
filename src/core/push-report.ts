@@ -120,9 +120,14 @@ export function pushQuestion(
 		}
 		// Before the lists: the `.gitignore` is in one of them because of this.
 		if (request.sectionAdded !== undefined) {
+			// Folded to one line: some 30 lines, which are what a phone had
+			// to be scrolled past to the files and the buttons.
 			const section = request.sectionAdded;
-			parts.push({ text: sectionIntro(t, section), paths: capList(section.lines, CONFIRM_LIST_LIMIT) });
-			for (const text of sectionNotes(t, section, "sends")) parts.push({ text });
+			const count = section.lines.length;
+			parts.push({
+				text: t(section.created ? "section.added.createdFolded" : "section.added.introFolded", { count }),
+				folded: { paths: capList(section.lines, CONFIRM_LIST_LIMIT), notes: sectionFoldedNotes(t, section) },
+			});
 			if (section.tracked.length > 0) {
 				const text = t("section.added.tracked", { count: section.tracked.length });
 				parts.push({ text, paths: capList(section.tracked, QUESTION_TRACKED_LIMIT) });
@@ -255,6 +260,14 @@ function sectionNotes(t: Translate, section: SectionAdded, delivery: SectionDeli
 	);
 	// A file that was made had nothing else in it to leave alone.
 	return [...(section.created ? [] : [t("section.added.outside")]), delivered, t("section.added.howTo")];
+}
+
+/**
+ * What the question shows under the line that stands for the section, once
+ * it is opened. Where to change the lines is in that line, so not here.
+ */
+function sectionFoldedNotes(t: Translate, section: SectionAdded): string[] {
+	return [...(section.created ? [] : [t("section.added.outside")]), t("section.added.sends"), t("section.added.unwanted")];
 }
 
 /** The text for a push that was stopped. Nothing of it shows on the remote. */

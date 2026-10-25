@@ -54,6 +54,16 @@
 	font-weight: var(--font-normal);
 }
 
+/* A part of a question folded to one line (the lines Sync Evo added to .gitignore): the line is pressed to open it, so it is spaced as a paragraph and tall enough for a finger. */
+.sync-evo-question-fold {
+	margin-block: var(--p-spacing);
+}
+
+.sync-evo-question-fold > summary {
+	padding-block: var(--size-4-1);
+	cursor: pointer;
+}
+
 /* The answer of a question that changes nothing. It is the first button of its row for the keyboard (`keyboardOn`), and is shown last: at the end of a row, and on top where a phone stacks the buttons from the bottom. */
 .modal-button-container > .sync-evo-safe-answer {
 	order: 1;

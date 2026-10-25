@@ -372,6 +372,10 @@ export const ja = completeTranslation(en, {
 		"この保管庫の .gitignore の先頭に、下の行を足しました。Sync Evo が管理する行で、同期しない物を決めます：",
 	"section.added.created":
 		"この保管庫に .gitignore が無かったので、下の行で作りました。Sync Evo が管理する行で、同期しない物を決めます：",
+	"section.added.introFolded": "この保管庫の .gitignore に、同期しない物の規則を足しました（{count} 行）。Sync Evo の設定画面で変えられます。",
+	"section.added.createdFolded": "この保管庫に .gitignore が無かったので、同期しない物の規則で作りました（{count} 行）。Sync Evo の設定画面で変えられます。",
+	"section.added.unwanted":
+		"Sync Evo が管理する行です。要らない時は、最初と最後の行（# で始まる2行）だけを残して、間の行を消してください。その2行も消すと、次の同期でまた足します。",
 	"section.added.outside": ".gitignore のほかの部分は、変えていません。",
 	"section.added.sends": "この変更は、今回のアップロードに入ります。",
 	"section.added.sent": "この変更は、今回アップロードしました。",

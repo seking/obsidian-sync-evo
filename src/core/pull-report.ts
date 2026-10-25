@@ -68,6 +68,19 @@ export interface QuestionPart {
 	readonly text: string;
 	/** Listed below the text, up to `CONFIRM_LIST_LIMIT`. */
 	readonly paths?: CappedList<string>;
+	/**
+	 * Shown only once the text is pressed: the text is then the one line
+	 * that stands for them, and these are under it. For what is long and
+	 * read only by who wants to, so that a phone does not have to be
+	 * scrolled past it to the lists and the buttons.
+	 */
+	readonly folded?: FoldedPart;
+}
+
+/** What a part of a question shows once it is opened: a list, and the paragraphs under it. */
+export interface FoldedPart {
+	readonly paths: CappedList<string>;
+	readonly notes: readonly string[];
 }
 
 /** The words of a question a sync stops to ask. */
