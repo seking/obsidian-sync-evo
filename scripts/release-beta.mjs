@@ -106,7 +106,12 @@ const releaseTags = capture("gh", ["api", "--paginate", "repos/{owner}/{repo}/re
 if (releaseTags === null) fail(`could not list the releases: ${reason}`);
 const remoteTags = capture("git", ["ls-remote", "--tags", "--refs", "origin"]);
 if (remoteTags === null) fail(`could not list the tags of origin: ${reason}`);
+// The betas of the old repository (seking/obsidian-sync-evo-old), which this
+// one replaced on 2026-10-22. A device may still run one, and BRAT takes a
+// beta for new only when its number is larger.
+const oldRepositoryTags = ["0.5.0-beta.6"];
 const tags = [
+	...oldRepositoryTags,
 	...lines(releaseTags),
 	...lines(remoteTags).map((line) => line.replace(/^.*\trefs\/tags\//, "")),
 ];
