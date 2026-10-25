@@ -30,7 +30,7 @@ body:
     id: service
     attributes:
       label: Service
-      description: As chosen under "Connection" in the settings of Sync Evo.
+      description: As chosen under "Connection" in the Sync Evo settings.
       options:
         - GitHub
         - Dropbox

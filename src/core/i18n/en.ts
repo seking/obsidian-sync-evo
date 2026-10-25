@@ -55,7 +55,7 @@ export const en = baseCatalog({
 	"settings.dropboxFolder.name": "Folder",
 	"settings.dropboxFolder.desc":
 		"The name of the folder of this vault inside Apps/Sync Evo on Dropbox. Devices with the same name sync with each other. Changing it starts the sync over.",
-	"settings.dropboxFolder.invalid": "This cannot be the name of a folder, so it was not saved. Do not leave it empty, and do not use / or \\.",
+	"settings.dropboxFolder.invalid": "Not saved: a folder name cannot be empty or contain / or \\.",
 	"settings.gdrive.name": "Google Drive",
 	"settings.gdrive.desc":
 		"\"Connect\" shows a code and copies it. \"Open the browser\" opens google.com/device: enter the code there, choose your Google account, and allow Sync Evo. Then come back to Obsidian.",
@@ -131,10 +131,10 @@ export const en = baseCatalog({
 	"settings.howItSyncs.heading": "How it syncs",
 	"settings.autoSync.onStartup.name": "Sync on startup",
 	"settings.autoSync.onStartup.desc":
-		"Syncs when Obsidian starts, and when you come back to it from another app. Not when the last sync started less than 5 minutes ago.",
+		"Syncs when Obsidian starts, and when you come back to it from another app. Skipped if the last sync started less than 5 minutes ago.",
 	"settings.autoSync.atInterval.name": "Sync at an interval",
 	"settings.autoSync.atInterval.desc":
-		"Syncs while Obsidian is in front, each time the interval below has passed since the last sync started.",
+		"Syncs while Obsidian is in the foreground, each time the interval below has passed since the last sync started.",
 	"settings.autoSync.interval.name": "Interval (minutes)",
 	"settings.autoSync.interval.desc":
 		"From {min} to {max} minutes. At least {sendingMin} while automatic sync also uploads changes.",
@@ -153,7 +153,7 @@ export const en = baseCatalog({
 		"When this is off, automatic sync only downloads: what you edit on this device is not uploaded until you sync manually.",
 	"settings.onConflict.name": "On a conflict",
 	"settings.onConflict.desc":
-		"What happens to a file that was changed both on this device and on {remote}. Merging goes line by line, and a file that cannot be merged is kept as a conflict file. What a file held on this device before a merge is put in .trash/.sync-evo-merged/ in this vault.",
+		"What happens to a file that was changed both on this device and on {remote}. Merging goes line by line, and a file that cannot be merged is kept as a conflict file. Before a merge, the local version of the file is copied to .trash/.sync-evo-merged/ in this vault.",
 	"settings.onConflict.merge": "Automatically merge",
 	"settings.onConflict.copy": "Create conflict file",
 	"settings.symlinks.name": "Skipped symbolic links",
@@ -174,7 +174,7 @@ export const en = baseCatalog({
 	},
 	"settings.exclusion.untrack.name": "Excluded files still on {remote}",
 	"settings.exclusion.untrack.desc":
-		"Sync Evo does not sync them on any device. Removing them from {remote} leaves the files on your devices with Sync Evo as they are.",
+		"Sync Evo does not sync them on any device. Removing them from {remote} leaves the files on devices that use Sync Evo as they are.",
 	"settings.exclusion.untrack.button": "Remove from {remote}",
 	"settings.exclusion.untrack.noState":
 		"The files cannot be removed from {remote} at the moment, and nothing was changed. Run a sync to see why.",
@@ -183,23 +183,23 @@ export const en = baseCatalog({
 	"settings.exclusion.noState":
 		"What is not synced cannot be shown or changed here at the moment. Run a sync to see why.",
 	"settings.exclusion.syncRunning":
-		"A sync is running, so nothing can be changed here until it has ended, and what is shown may be out of date. Open the settings again afterwards.",
+		"A sync is running, so nothing can be changed here until it has ended, and what is shown may be out of date. Reopen the settings afterwards.",
 	"settings.exclusion.unsettled":
-		"An earlier change to .gitignore did not finish, and the file may be incomplete. It is not shown until that is settled. Check that .gitignore at the root of the vault can be read on this device, then open the settings again.",
+		"An earlier change to .gitignore did not finish, and the file may be incomplete. It is not shown until that is settled. Check that .gitignore at the root of the vault can be read on this device, then reopen the settings.",
 	"settings.exclusion.unreadable.notAFile":
 		"There is a folder named .gitignore at the root of this vault, so there are no exclusions to show or change. Rename or remove that folder.",
 	"settings.exclusion.unreadable.tooLarge":
 		"The .gitignore of this vault is over {limit} MB, so it is not read and cannot be changed here. Make it smaller on a computer.",
 	"settings.exclusion.unreadable.notDownloaded":
-		"The .gitignore of this vault is not on this device yet (a cloud drive keeps only a placeholder), so it cannot be shown or changed here. Have the cloud drive keep it on this device, then open the settings again.",
+		"The .gitignore of this vault is not on this device yet (a cloud drive keeps only a placeholder), so it cannot be shown or changed here. Have the cloud drive keep it on this device, then reopen the settings.",
 	"settings.exclusion.unreadable.respelled":
 		"The .gitignore of this vault is spelled with other upper and lower case (.GITIGNORE, say), so it is not read as exclusions and cannot be changed here. Rename it to .gitignore.",
 	"settings.exclusion.unreadable.readFailed":
-		"The .gitignore of this vault could not be read, so it cannot be shown or changed here. Open the settings again to retry.",
+		"The .gitignore of this vault could not be read, so it cannot be shown or changed here. Reopen the settings to retry.",
 	"settings.exclusion.unreadable.notText":
 		"The .gitignore of this vault is not UTF-8 text, so it cannot be shown or changed here without damaging it. Save it as UTF-8 on a computer.",
 	"settings.exclusion.broken":
-		"The two lines that mark the lines Sync Evo manages in .gitignore (they start with \"# >>> Sync Evo\" and \"# <<< Sync Evo\") do not form one pair: one is missing, one is there twice, or they are in the wrong order. The switches are hidden until that is put right. Correct the file under \"Write rules directly (.gitignore)\": keep one of each, the first above the second. Or delete every line that starts with either of the two, and the next sync adds the managed lines again.",
+		"The two marker lines in .gitignore (starting with \"# >>> Sync Evo\" and \"# <<< Sync Evo\") do not form one pair. One is missing, one appears twice, or they are in the wrong order. The switches are hidden until this is fixed. To fix it, edit the file under \"Write rules directly (.gitignore)\" so that it has one of each, the first above the second. Or delete every line that starts with either of them: the next sync adds the managed lines again.",
 	"settings.exclusion.noSection.name": "Lines managed by Sync Evo",
 	"settings.exclusion.noSection.desc":
 		"The .gitignore of this vault has no lines managed by Sync Evo yet. Add them with the button below. Until then, Sync Evo on every device excludes what the default lines would, but git on a computer does not. The next sync that uploads changes adds them as well.",
@@ -210,7 +210,7 @@ export const en = baseCatalog({
 		"With these lines .gitignore would be over {limit} MB, so they cannot be added, here or by a sync. Shorten the file first.",
 	"settings.exclusion.fileKinds.name": "File types",
 	"settings.exclusion.fileKinds.desc":
-		"Applies to files outside the configuration folder. Notes, canvases and bases are always synced.",
+		"Applies to files outside the config folder. Notes, canvases and bases are always synced.",
 	"settings.exclusion.folders.name": "Excluded folders",
 	"settings.exclusion.folders.desc": "Add folders that are not synced, as paths from the root of the vault.",
 	"settings.exclusion.folders.clear": "Clear the field",
@@ -221,15 +221,15 @@ export const en = baseCatalog({
 		"This is not the path of a folder from the root of the vault, so nothing was added.",
 	"settings.exclusion.config.name": "Vault configuration sync",
 	"settings.exclusion.config.desc":
-		"Which parts of the configuration folder are synced. A change that is downloaded may only take effect after Obsidian is reloaded.",
+		"Which parts of the config folder are synced. A change that is downloaded may only take effect after Obsidian is reloaded.",
 	"settings.exclusion.config.summary": "{count} of {total} synced",
 	"settings.exclusion.communityPluginList.warning":
 		"While this is on, keep Sync Evo enabled on all your devices. If it is not enabled on one of them, Sync Evo is turned off on this device as well the next time Obsidian starts, and syncing stops.",
 	"settings.exclusion.communityPlugins.warning":
 		"The data.json of your other plugins is synced as well (it can hold tokens and other credentials). Plugin code that comes from your other devices runs on this device. Turn it on only with devices and a repository you trust.",
-	"settings.exclusion.fixedOff.name": "Exclusions that are not in effect",
+	"settings.exclusion.fixedOff.name": "Default exclusions that are turned off",
 	"settings.exclusion.fixedOff.desc":
-		"What the lines below excluded (the trash, the layout of the workspace, files an operating system leaves behind, and so on) is synced now. The line was deleted, or a later line that starts with ! undoes it. Only Sync Evo's own folder is still not synced by Sync Evo, but git on a computer commits it.",
+		"What the lines below excluded (the .trash folder, the layout of the workspace, files an operating system leaves behind, and so on) is synced now. The line was deleted, or a later line that starts with ! undoes it. Only Sync Evo's own folder is still not synced by Sync Evo, but git on a computer commits it.",
 	"settings.exclusion.fixedOff.restore": "Restore",
 	"settings.exclusion.fixedOff.restoreNote":
 		"Restoring puts the deleted lines back among the lines Sync Evo manages. A line that a later line starting with ! undoes stays listed here after that: change that later line under \"Write rules directly (.gitignore)\".",
@@ -239,7 +239,7 @@ export const en = baseCatalog({
 		"A line of .gitignore that starts with ! undoes each of them. Change those lines under \"Write rules directly (.gitignore)\".",
 	"settings.exclusion.editor.name": "Write rules directly (.gitignore)",
 	"settings.exclusion.editor.desc":
-		"What is not synced on all devices is written into the .gitignore at the root of this vault, shown here whole. Git on a computer follows it too, but git keeps uploading what is already on {remote}. Write your own rules outside the lines Sync Evo manages (between \"# >>> Sync Evo\" and \"# <<< Sync Evo\"). Nothing is saved until you press Save, and using a switch discards what is typed here and not saved.",
+		"What is not synced on all devices is written into the .gitignore at the root of this vault, shown here whole. Git on a computer follows it too, but git still tracks files that are already on {remote}. Write your own rules outside the lines Sync Evo manages (between \"# >>> Sync Evo\" and \"# <<< Sync Evo\"). Nothing is saved until you press Save, and using a switch discards what is typed here and not saved.",
 	"settings.exclusion.editor.absent": "This vault has no .gitignore yet. Saving creates it.",
 	"settings.exclusion.editor.save": "Save",
 	"settings.exclusion.editor.saved": "Saved .gitignore. The next sync uploads it to {remote}.",
@@ -260,7 +260,7 @@ export const en = baseCatalog({
 		".gitignore was changed after this screen read it, so nothing was written. The screen now shows the file as it is. Make the change again.",
 	"settings.exclusion.write.refused": "This device refused to write .gitignore. Nothing was changed.",
 	"settings.exclusion.write.unsettled":
-		".gitignore could not be written to its end, or an earlier change to it could not be finished. The file may be incomplete, and no upload goes by it until that is settled. Check that the file can be written on this device, then open the settings again.",
+		".gitignore could not be written to its end, or an earlier change to it could not be finished. The file may be incomplete, and no upload goes by it until that is settled. Check that the file can be written on this device, then reopen the settings.",
 	"settings.exclusion.write.overLimit":
 		"With this change .gitignore would be over {limit} MB, and a file over that is not synced. Nothing was written.",
 	"settings.exclusion.write.unreadable":
@@ -280,10 +280,10 @@ export const en = baseCatalog({
 	"check.dropbox.connected": "Connected to Dropbox. The folder Apps/Sync Evo/{folder} is there.",
 	"check.dropbox.empty": "Connected to Dropbox. The folder Apps/Sync Evo/{folder} is not there yet: the first upload makes it.",
 	"check.dropbox.noFolder": "Enter the name of the folder on Dropbox first.",
-	"check.dropbox.notConnected": "This device is not connected to Dropbox. Press \"Connect\" in the settings of Sync Evo.",
+	"check.dropbox.notConnected": "This device is not connected to Dropbox. Press \"Connect\" in the Sync Evo settings.",
 	"check.dropbox.unauthorized":
-		"Dropbox no longer accepts the connection of this device. It may have been removed in the settings of Dropbox. Connect again in the settings of Sync Evo.",
-	"check.dropbox.forbidden": "Dropbox did not allow Sync Evo to read the folder. Connect again in the settings of Sync Evo.",
+		"Dropbox no longer accepts this device's connection: it may have been removed under \"Connected apps\" on Dropbox. Press \"Connect\" again in the Sync Evo settings.",
+	"check.dropbox.forbidden": "Dropbox did not allow Sync Evo to read the folder. Connect again in the Sync Evo settings.",
 	"gdrive.code.title": "Connect to Google Drive",
 	"gdrive.code.asking": "Asking Google for a code…",
 	"gdrive.code.body":
@@ -298,23 +298,23 @@ export const en = baseCatalog({
 	"gdrive.noClientSecret":
 		"This build of Sync Evo has no Google client credentials, so it cannot connect to Google Drive. Use a released version of Sync Evo.",
 	"gdrive.ownClientNoSecret":
-		"Your own Google client has no client secret entered. Enter it under \"Your own Google client\" in the settings of Sync Evo, or empty the client ID there.",
+		"Your own Google client has no client secret entered. Enter it under \"Your own Google client\" in the Sync Evo settings, or empty the client ID there.",
 	// What the paid plan tells as a sync starts (T082). `{remote}` is Dropbox
 	// or Google Drive; dates are those of the device.
 	"paid.warning": {
-		one: "Sync Evo with {remote} is free until {date}, {count} more day. After that, a license key is needed to go on syncing with {remote}. See the settings of Sync Evo. GitHub is free.",
-		other: "Sync Evo with {remote} is free until {date}, {count} more days. After that, a license key is needed to go on syncing with {remote}. See the settings of Sync Evo. GitHub is free.",
+		one: "Sync Evo with {remote} is free until {date}, {count} more day. After that, a license key is needed to go on syncing with {remote}. See the Sync Evo settings. GitHub is free.",
+		other: "Sync Evo with {remote} is free until {date}, {count} more days. After that, a license key is needed to go on syncing with {remote}. See the Sync Evo settings. GitHub is free.",
 	},
 	"paid.readOnly.pulling":
-		"The free time of Sync Evo with {remote} ended on {ended}. Until {stops}, Sync Evo only downloads, and uploads nothing. To sync again, enter a license key in the settings of Sync Evo.",
+		"The free time of Sync Evo with {remote} ended on {ended}. Until {stops}, Sync Evo only downloads, and uploads nothing. To sync again, enter a license key in the Sync Evo settings.",
 	"paid.readOnly.blocked":
-		"Nothing was uploaded. The free time of Sync Evo with {remote} ended on {ended}. Until {stops}, Sync Evo only downloads. To sync again, enter a license key in the settings of Sync Evo.",
+		"Nothing was uploaded. The free time of Sync Evo with {remote} ended on {ended}. Until {stops}, Sync Evo only downloads. To sync again, enter a license key in the Sync Evo settings.",
 	"paid.stopped":
-		"Sync Evo no longer syncs with {remote}: the free time ended on {ended}. Nothing was changed. To sync again, enter a license key in the settings of Sync Evo.",
+		"Sync Evo no longer syncs with {remote}: the free time ended on {ended}. Nothing was changed. To sync again, enter a license key in the Sync Evo settings.",
 	// The reason of a failure that the paid plan refused (`paid-plan`): not
 	// met while the plan is decided before a sync starts.
 	"paid.refused":
-		"The free time of Sync Evo with {remote} is over. To sync again, enter a license key in the settings of Sync Evo.",
+		"The free time of Sync Evo with {remote} is over. To sync again, enter a license key in the Sync Evo settings.",
 	"gdrive.folderGone":
 		"The folder Sync Evo/{folder} that this vault synced with is no longer to be seen on Google Drive: it was deleted, put in the trash, or is out of sight of Sync Evo. Nothing on this device was changed. The next sync starts over, as a first sync.",
 	"gdrive.duplicateFolder":
@@ -324,25 +324,25 @@ export const en = baseCatalog({
 	"check.gdrive.connected": "Connected to Google Drive. The folder Sync Evo/{folder} is there.",
 	"check.gdrive.empty": "Connected to Google Drive. The folder Sync Evo/{folder} is not there yet: the first upload makes it.",
 	"check.gdrive.noFolder": "Enter the name of the folder on Google Drive first.",
-	"check.gdrive.notConnected": "This device is not connected to Google Drive. Press \"Connect\" in the settings of Sync Evo.",
+	"check.gdrive.notConnected": "This device is not connected to Google Drive. Press \"Connect\" in the Sync Evo settings.",
 	"check.gdrive.unauthorized":
-		"Google no longer accepts the connection of Sync Evo. Sync Evo may have been removed in your Google Account, or the connection was ended for another reason. Connect again in the settings of Sync Evo.",
-	"check.gdrive.forbidden": "Google Drive did not allow Sync Evo to read the folder. Connect again in the settings of Sync Evo.",
+		"Google no longer accepts the connection of Sync Evo. Sync Evo may have been removed in your Google Account, or the connection was ended for another reason. Connect again in the Sync Evo settings.",
+	"check.gdrive.forbidden": "Google Drive did not allow Sync Evo to read the folder. Connect again in the Sync Evo settings.",
 	"check.empty": "Connected to {repository}. The repository is empty.",
 	"check.unauthorized":
-		"GitHub did not accept the token. It is wrong, or it was revoked or has expired. Create a new token and save it under the selected secret.",
+		"GitHub rejected the token: it may be mistyped, revoked, or expired. Create a new fine-grained token with Contents read and write on this repository, then save it in the selected secret.",
 	"check.forbidden":
-		"The token is valid but lacks permission. It needs Contents read and write on {repository}.",
-	"check.notFound": "{repository} does not exist, or the token was not given access to it.",
+		"The token is valid but lacks permission. It needs Contents read and write on {repository}. Edit the token on GitHub and set Contents to \"Read and write\" for {repository}.",
+	"check.notFound": "GitHub found no repository {repository} for this token. Check the spelling (owner/name), and check that the token's \"Repository access\" includes this repository: a token limited to other repositories gets this same answer.",
 	"check.branchNotFound":
-		"{repository} has no branch named {branch}. Sync Evo does not create it for you, so check the name.",
+		"{repository} has no branch named {branch}. Check the branch name in the settings, or create the branch on GitHub first.",
 	"check.unreachable": "Could not reach GitHub. Check the network connection and try again.",
 	"check.rateLimited": "GitHub's request limit has been reached. Try again later.",
-	"check.other": "The connection test failed: {detail}",
+	"check.other": "The connection test failed ({detail}). Check the settings above and try again.",
 	"check.noRepository": "Enter the repository as owner/name first.",
 	"check.noBranch": "Enter a branch first.",
-	"check.noTokenSecret": "Select the secret that holds the token first.",
-	"check.noTokenValue": "The secret {name} has no value. Save the token under it, or select another secret.",
+	"check.noTokenSecret": "Choose the secret that holds the token first.",
+	"check.noTokenValue": "The secret \"{name}\" is empty. Paste the token into it, or choose another secret.",
 	// A sync started with the settings as every vault starts with them:
 	// which service is meant is not known yet.
 	"check.notSetUp":
@@ -351,12 +351,12 @@ export const en = baseCatalog({
 	// Things the user is told once, and again only after they went away and
 	// came back. Neither stops the sync.
 	"notice.ownFolderOnRemote":
-		"Sync Evo's own folder is on {remote}. Sync Evo never syncs that folder: it is left as it is, on {remote} and on this device. Everything else is synced as usual. To remove the folder, use \"Remove from {remote}\" in the settings of Sync Evo (while .gitignore has the line for that folder):\n{list}",
+		"Sync Evo's own folder is on {remote}. Sync Evo never syncs that folder: it is left as it is, on {remote} and on this device. Everything else is synced as usual. To remove the folder, use \"Remove from {remote}\" in the Sync Evo settings (while .gitignore has the line for that folder):\n{list}",
 	"notice.gitAtRoot":
 		"This vault has a .git at its root, so it is a Git repository. Use Git (or the Obsidian Git plugin) or Sync Evo on this device, not both: to Git, what Sync Evo syncs looks like changes of its own not yet committed, so its pulls can stop, and its commits can take them in. If you moved this device to Sync Evo, stop using Git here (turn off Obsidian Git), and delete the .git folder once you no longer need it. Sync Evo keeps syncing either way. See \"Switching a device from Git to Sync Evo\" in the FAQ.",
 
 	"notice.remotePathCollision":
-		"There are paths on {remote} that differ only in upper and lower case, or only in their Unicode form (NFC and NFD). Not every device can keep such paths apart, so none of them is written here. Rename them on {remote}:\n{list}",
+		"There are paths on {remote} that differ only in upper and lower case, or only in their Unicode form (NFC and NFD). Some devices cannot tell such paths apart, so none of them is written to this device. Rename them on {remote}:\n{list}",
 	"notice.tooLarge":
 		"Files over {limit} MB are not synced. They are skipped and left as they are, on {remote} and on this device:\n{list}",
 	"notice.lfsPointer":
@@ -383,7 +383,7 @@ export const en = baseCatalog({
 	"notice.nestedGitignore":
 		"There are .gitignore files in subfolders. Sync Evo syncs them as ordinary files and does not read them as rules: only the .gitignore at the root of the vault decides what is synced. Git on a computer does apply them, so the same vault is treated differently there. Put the rules you need into the .gitignore at the root:\n{list}",
 	"notice.fixedExclusionOff":
-		"What was excluded is synced now (the trash, the layout of the workspace, files an operating system leaves behind, and so on): the lines of .gitignore below, which Sync Evo manages, were deleted, or a later line undoes them. Only Sync Evo's own folder is still not synced by Sync Evo, but git on a computer commits it. Deleted lines can be restored in the settings of Sync Evo; where a later line that starts with ! undoes one, change that line:\n{list}",
+		"What was excluded is synced now (the .trash folder, the layout of the workspace, files an operating system leaves behind, and so on): the lines of .gitignore below, which Sync Evo manages, were deleted, or a later line undoes them. Only Sync Evo's own folder is still not synced by Sync Evo, but git on a computer commits it. Deleted lines can be restored in the Sync Evo settings; where a later line that starts with ! undoes one, change that line:\n{list}",
 	"notice.submodule":
 		"What is inside these submodules cannot be downloaded. Sync Evo downloads a submodule that points to a repository on GitHub and is listed in the .gitmodules of the repository. A submodule inside a submodule, and one with too many files to be listed, are not downloaded. What this device has in those folders is left as it is. Everything else is synced as usual:\n{list}",
 	"notice.submoduleNoAccess":
@@ -397,11 +397,11 @@ export const en = baseCatalog({
 	// asking. In the question before a first push, and else in a message of
 	// its own.
 	"notice.exclusionChange": {
-		one: "From this version of Sync Evo on, what is excluded is not synced, also where it is on {remote}. {count} file on {remote} is no longer synced on this device. What is excluded on all devices is listed in the settings of Sync Evo, under \"Excluded files still on {remote}\".",
-		other: "From this version of Sync Evo on, what is excluded is not synced, also where it is on {remote}. {count} files on {remote} are no longer synced on this device. What is excluded on all devices is listed in the settings of Sync Evo, under \"Excluded files still on {remote}\".",
+		one: "From this version of Sync Evo on, what is excluded is not synced, also where it is on {remote}. {count} file on {remote} is no longer synced on this device. What is excluded on all devices is listed in the Sync Evo settings, under \"Excluded files still on {remote}\".",
+		other: "From this version of Sync Evo on, what is excluded is not synced, also where it is on {remote}. {count} files on {remote} are no longer synced on this device. What is excluded on all devices is listed in the Sync Evo settings, under \"Excluded files still on {remote}\".",
 	},
 	"notice.localLink":
-		"This vault has links in it (symbolic links, or junctions). Sync Evo does not sync a link or what is in it, and leaves it as it is, on {remote} and on this device, where it points to. Everything else is synced as usual:\n{list}",
+		"This vault has links in it (symbolic links, or junctions). Sync Evo does not sync a link or anything inside it, and leaves the link as it is, on {remote} and on this device. Everything else is synced as usual:\n{list}",
 	"notice.renamingLeft":
 		"Sync Evo changed the upper and lower case of these names in two steps, and stopped in between. The name without \".sync-evo-renaming\" at the end is taken by something else, or this device refused the rename, so they keep this name for now and are not synced. Nor is anything at or below the name without it, until they have their name back. Move or rename what has that name, and the next sync gives them their name back:\n{list}",
 	"notice.caseRenamedFolder":
@@ -419,7 +419,7 @@ export const en = baseCatalog({
 		other: "{count} links in the vault are not synced.",
 	},
 	// The last line of a notice that leaves something out.
-	"notice.seeResults": "Everything is in \"Show the last sync results\" (a command).",
+	"notice.seeResults": "See the full list with the command \"Show the last sync results\".",
 	// The button on a notice of a sync that could not start for what the
 	// settings lack.
 	"notice.openSettings": "Open settings",
@@ -435,14 +435,14 @@ export const en = baseCatalog({
 	"section.added.unknown":
 		"This upload may not have included the change. The next sync checks, and uploads it if it is still needed.",
 	"section.added.howTo":
-		"You can change these lines in the settings of Sync Evo. If you do not want them, delete the lines in between and keep the first and the last line (the two that start with #): if those two are deleted as well, the next sync adds the lines again.",
+		"You can change these lines in the Sync Evo settings. If you do not want them, delete the lines in between and keep the first and the last line (the two that start with #): if those two are deleted as well, the next sync adds the lines again.",
 	"section.added.tracked": {
 		one: "{count} file that these lines exclude is on {remote}. Sync Evo no longer syncs it on any device:",
 		other: "{count} files that these lines exclude are on {remote}. Sync Evo no longer syncs them on any device:",
 	},
 	"section.added.brief": "Sync Evo added the lines it manages to .gitignore.",
 	"section.added.untrackHint":
-		"To remove them from {remote}, use \"Remove from {remote}\" in the settings of Sync Evo. The files on your devices with Sync Evo stay.",
+		"To remove them from {remote}, use \"Remove from {remote}\" in the Sync Evo settings. The files on devices that use Sync Evo stay.",
 
 	// Lists inside a message.
 	"list.separator": ", ",
@@ -466,8 +466,8 @@ export const en = baseCatalog({
 	"results.manual": "{time}: sync",
 	"results.automatic": "{time}: automatic sync",
 	"results.error": "Errors",
-	"results.warn": "To see to",
-	"results.info": "For your information",
+	"results.warn": "Needs attention",
+	"results.info": "Notes",
 	"results.copy": "Copy all",
 	"results.copied": "Copied the results.",
 	"results.copyFailed": "Could not copy. Select the text by hand and copy it.",
@@ -490,17 +490,17 @@ export const en = baseCatalog({
 	// once, and not again while it stays the same.
 	"auto.heading": "Automatic sync:",
 	"auto.waiting.deletions":
-		"Downloading would delete many files on this device, which needs your confirmation. Nothing was changed. Sync manually to be asked.",
+		"Downloading would delete many files on this device, which needs your confirmation. Nothing was changed. Run Sync to confirm.",
 	"auto.waiting.rewritten":
-		"The history of the repository was rewritten, so downloading needs your confirmation. Nothing was changed. Sync manually to be asked.",
+		"The history of the repository was rewritten, so downloading needs your confirmation. Nothing was changed. Run Sync to confirm.",
 	"auto.waiting.firstFetch":
-		"The first download into this vault is not done yet. Nothing was changed. Sync manually to start it or carry on with it.",
+		"The first download into this vault is not done yet. Nothing was changed. Run Sync to start or continue it.",
 	"auto.waiting.firstPush":
-		"The first upload from this device needs your confirmation. Nothing was uploaded. Sync manually to be asked.",
+		"The first upload from this device needs your confirmation. Nothing was uploaded. Run Sync to confirm.",
 	"auto.waiting.pushDeletions":
-		"Uploading would delete many files on {remote}, which needs your confirmation. Nothing was uploaded. Sync manually to be asked.",
+		"Uploading would delete many files on {remote}, which needs your confirmation. Nothing was uploaded. Run Sync to confirm.",
 	"auto.waiting.emptyVault":
-		"None of the files synced before is on this device, which needs your confirmation. Nothing was uploaded. Sync manually to be asked.",
+		"None of the files synced before is on this device, which needs your confirmation. Nothing was uploaded. Run Sync to confirm.",
 	"pull.progress.starting": "Download: starting…",
 	"pull.progress.listing": "Download: checking {remote}…",
 	"pull.progress.scanning": "Download: looking through the vault…",
@@ -511,7 +511,7 @@ export const en = baseCatalog({
 	"pull.progress.archiveWaiting": "Download: waiting for the stopped download to end…",
 	"pull.progress.stopping": "Download: stopping…",
 	"pull.progress.archiveRetry":
-		"The last download did not finish. Keep Obsidian in front and wait until this one is done.",
+		"The last download did not finish. Keep Obsidian open and in the foreground until this one is done.",
 	"pull.progress.graphClosed":
 		"Graph views are closed while the files are written. They reopen when the download ends.",
 	"pull.progress.rateLimited":
@@ -538,9 +538,9 @@ export const en = baseCatalog({
 	"pull.remoteEmpty": "The repository is empty. There is nothing to download.",
 	"pull.declined": "The download was cancelled. Nothing was changed.",
 	"pull.declinedAfterTrash":
-		"The download was cancelled. Only the files listed below were moved to .trash/ in this vault. Nothing else was changed.",
+		"The download was cancelled. Only the files listed below were moved to the .trash folder of this vault. Nothing else was changed.",
 	"pull.cancelled": "The download was stopped. The next download continues from there.",
-	"pull.cancelledAfter": "Done before it stopped: {details}.",
+	"pull.cancelledAfter": "Completed before stopping: {details}.",
 	"pull.connectionChanged":
 		"The download was stopped because the connection was changed. The next download starts with the new connection.",
 	"pull.failed": "The download failed. {reason}",
@@ -553,7 +553,7 @@ export const en = baseCatalog({
 	},
 	"pull.incompleteSome": "Some files could not be downloaded and are left for the next sync. {reason}",
 	"pull.reason.hashMismatch": "The content GitHub sent did not match its own listing.",
-	"pull.reason.trashFailed": "A file on this device could not be moved to .trash/ in this vault.",
+	"pull.reason.trashFailed": "A file on this device could not be moved to the .trash folder of this vault.",
 	"pull.notDownloaded": {
 		one: "{count} file is not on this device yet (a cloud drive keeps only a placeholder). Have the cloud drive keep it on this device, then sync again:\n{list}",
 		other: "{count} files are not on this device yet (a cloud drive keeps only a placeholder). Have the cloud drive keep them on this device, then sync again:\n{list}",
@@ -563,18 +563,18 @@ export const en = baseCatalog({
 		other: "{count} files on this device could not be read and were left as they are. Check them, then sync again:\n{list}",
 	},
 	"pull.waitingForUnread": {
-		one: "{count} other file was not downloaded either, since it comes after the files above. Once those are seen to, the next sync downloads it.",
-		other: "{count} other files were not downloaded either, since they come after the files above. Once those are seen to, the next sync downloads them.",
+		one: "{count} other file was not downloaded either, because it is queued behind the files above. Once those are fixed, the next sync downloads it.",
+		other: "{count} other files were not downloaded either, because they are queued behind the files above. Once those are fixed, the next sync downloads them.",
 	},
 	"pull.waitingAlone": {
-		one: "{count} file was not downloaded or deleted, and is left for the next sync. It waits for something Sync Evo told you about to be seen to on this device.",
-		other: "{count} files were not downloaded or deleted, and are left for the next sync. They wait for something Sync Evo told you about to be seen to on this device.",
+		one: "{count} file was not downloaded or deleted, and is left for the next sync. It waits until a problem Sync Evo reported on this device is fixed.",
+		other: "{count} files were not downloaded or deleted, and are left for the next sync. They wait until a problem Sync Evo reported on this device is fixed.",
 	},
 	"pull.conflicts": {
 		one: "The content of {count} file on this device was kept as a conflict file:\n{list}",
 		other: "The content of {count} files on this device was kept as conflict files:\n{list}",
 	},
-	"pull.conflict.conflict": "{copy} (a conflict: {path} now has the content from {remote})",
+	"pull.conflict.conflict": "{copy} ({path} now has the version from {remote})",
 	"pull.conflict.becameSymlink":
 		"{copy} ({path} is a symbolic link on {remote} now, which is not written to this device)",
 	"pull.conflict.becameFolder": "{copy} ({path} is a folder on {remote} now)",
@@ -585,40 +585,40 @@ export const en = baseCatalog({
 	},
 	"pull.merged.item": "{path} (before: {kept})",
 	"pull.replacedSettings": {
-		one: "{count} file in the configuration folder now has the content from {remote}. What it held on this device before is in .trash/ in this vault:\n{list}",
-		other: "{count} files in the configuration folder now have the content from {remote}. What they held on this device before is in .trash/ in this vault:\n{list}",
+		one: "{count} file in the config folder now has the content from {remote}. What it held on this device before is in the .trash folder of this vault:\n{list}",
+		other: "{count} files in the config folder now have the content from {remote}. What they held on this device before is in the .trash folder of this vault:\n{list}",
 	},
 	"pull.replacedSettings.brief": {
-		one: "{count} file in the configuration folder now has the content from {remote}.",
-		other: "{count} files in the configuration folder now have the content from {remote}.",
+		one: "{count} file in the config folder now has the content from {remote}.",
+		other: "{count} files in the config folder now have the content from {remote}.",
 	},
 	"pull.trashed": {
-		one: "{count} file was moved to .trash/ in this vault by the download, so that its content is not lost. You can get it back from there:\n{list}",
-		other: "{count} files were moved to .trash/ in this vault by the download, so that their content is not lost. You can get them back from there:\n{list}",
+		one: "{count} file was moved to the .trash folder of this vault by the download, so that its content is not lost. You can get it back from there:\n{list}",
+		other: "{count} files were moved to the .trash folder of this vault by the download, so that their content is not lost. You can get them back from there:\n{list}",
 	},
 	"pull.trashed.brief": {
 		one: "{count} file was moved to .trash/.",
 		other: "{count} files were moved to .trash/.",
 	},
 	"pull.halfWritten": {
-		one: "An earlier download stopped while it was writing {count} file. What was left of it was moved to .trash/ in this vault. The content from {remote} is downloaded again. If you had edited the file since, you can get your edit back from there:\n{list}",
-		other: "An earlier download stopped while it was writing {count} files. What was left of them was moved to .trash/ in this vault. The content from {remote} is downloaded again. If you had edited them since, you can get your edits back from there:\n{list}",
+		one: "An earlier download stopped while it was writing {count} file. What was left of it was moved to the .trash folder of this vault. The content from {remote} is downloaded again. If you had edited the file since, you can get your edit back from there:\n{list}",
+		other: "An earlier download stopped while it was writing {count} files. What was left of them was moved to the .trash folder of this vault. The content from {remote} is downloaded again. If you had edited them since, you can get your edits back from there:\n{list}",
 	},
 	"pull.halfMerged": {
 		one: "An earlier download stopped while it was writing the merged content of {count} file. The content from {remote} is downloaded again, without the changes of this device. What the file held on this device before the merge is in .trash/.sync-evo-merged/ in this vault:\n{list}",
 		other: "An earlier download stopped while it was writing the merged content of {count} files. The content from {remote} is downloaded again, without the changes of this device. What the files held on this device before the merge is in .trash/.sync-evo-merged/ in this vault:\n{list}",
 	},
 	"pull.halfCopies": {
-		one: "{count} conflict file that an earlier download left unfinished was moved to .trash/ in this vault. A complete one is made again. If you had edited it, your edit is there:\n{list}",
-		other: "{count} conflict files that an earlier download left unfinished were moved to .trash/ in this vault. Complete ones are made again. If you had edited them, your edits are there:\n{list}",
+		one: "{count} conflict file that an earlier download left unfinished was moved to the .trash folder of this vault. A complete one is made again. If you had edited it, your edit is there:\n{list}",
+		other: "{count} conflict files that an earlier download left unfinished were moved to the .trash folder of this vault. Complete ones are made again. If you had edited them, your edits are there:\n{list}",
 	},
 	"pull.halfCopies.brief": {
 		one: "{count} unfinished conflict file was moved to .trash/.",
 		other: "{count} unfinished conflict files were moved to .trash/.",
 	},
 	"pull.tidiedCopies": {
-		one: "{count} conflict file in _conflicts/ was made 30 days ago or more, and was moved to .trash/ in this vault. To keep a conflict file, move it out of _conflicts/ or rename it.",
-		other: "{count} conflict files in _conflicts/ were made 30 days ago or more, and were moved to .trash/ in this vault. To keep a conflict file, move it out of _conflicts/ or rename it.",
+		one: "{count} conflict file in _conflicts/ was made 30 days ago or more, and was moved to the .trash folder of this vault. To keep a conflict file, move it out of _conflicts/ or rename it.",
+		other: "{count} conflict files in _conflicts/ were made 30 days ago or more, and were moved to the .trash folder of this vault. To keep a conflict file, move it out of _conflicts/ or rename it.",
 	},
 	"pull.tidiedCopies.brief": {
 		one: "{count} conflict file 30 days old was moved to .trash/.",
@@ -651,13 +651,13 @@ export const en = baseCatalog({
 	"push.progress.finishing": "Upload: finishing…",
 	"push.progress.stopping": "Upload: stopping…",
 	"push.progress.rateLimited":
-		"GitHub's limit on creating content was reached. The upload continues at {time}. Keep Obsidian in front until then: an upload that stops uploads nothing.",
+		"GitHub's limit on creating content was reached. The upload continues at {time}. Keep Obsidian open and in the foreground until then: an upload that stops uploads nothing.",
 	"push.count.added": { one: "{count} file added", other: "{count} files added" },
 	"push.count.modified": { one: "{count} file modified", other: "{count} files modified" },
 	"push.count.deleted": { one: "{count} file deleted", other: "{count} files deleted" },
 	"push.summary": "Upload finished: {details}.",
 	"push.nothing": "Nothing to upload. {remote} is up to date.",
-	"push.nothingSent": "Nothing was uploaded. Some files cannot be uploaded; the notices say why.",
+	"push.nothingSent": "Nothing was uploaded. Some files cannot be uploaded; the last sync results say why.",
 	"push.recovered":
 		"The previous upload had gone through: {details}. It is recorded on this device now.",
 	"push.recoveredUntrack": {
@@ -669,13 +669,13 @@ export const en = baseCatalog({
 	"push.pullFirst.remoteEmpty":
 		"Nothing was uploaded. This device has synced with this repository before, and the repository is empty now. Download first to look at that.",
 	"push.pullFirst.notDefaultBranch":
-		"Nothing was uploaded. The repository is empty. GitHub makes the first commit of an empty repository on its default branch, {branch}. Set the branch in the settings of Sync Evo to {branch}, or change the default branch of the repository on GitHub, then sync again.",
+		"Nothing was uploaded. The repository is empty. GitHub makes the first commit of an empty repository on its default branch, {branch}. Set the branch in the Sync Evo settings to {branch}, or change the default branch of the repository on GitHub, then sync again.",
 	"push.pullFirst.gitignoreUnreadable":
-		"Nothing was uploaded. The .gitignore of this vault decides what is uploaded, and it cannot be read on this device: a cloud drive keeps only a placeholder of it, there is a folder named .gitignore, or its name differs in upper and lower case (.GITIGNORE, say). Put that right, then upload again.",
+		"Nothing was uploaded. The .gitignore of this vault decides what is uploaded, and it cannot be read on this device: a cloud drive keeps only a placeholder of it, there is a folder named .gitignore, or its name differs in upper and lower case (.GITIGNORE, say). Fix that, then upload again.",
 	"push.pullFirst.remoteMoved":
 		"Nothing was uploaded. Another device changed what is on {remote} after this upload began. Download first, then upload again.",
 	"push.pullFirst.gitignore":
-		"Nothing was uploaded. The .gitignore of this vault decides what is uploaded, and its content could not be relied on. Sync again; if .gitignore is open in another app, close it first.",
+		"Nothing was uploaded. The .gitignore of this vault decides what is uploaded, and its content could not be read reliably. Sync again; if .gitignore is open in another app, close it first.",
 	"push.declined": "The upload was cancelled. Nothing was uploaded.",
 	"push.cancelled": "The upload was stopped. Nothing was uploaded.",
 	"push.connectionChanged": "The upload was stopped because the connection was changed. Nothing was uploaded.",
@@ -711,8 +711,8 @@ export const en = baseCatalog({
 		other: "{count} files were not uploaded: they grew past {limit} MB while the upload ran. Files over {limit} MB are not synced:\n{list}",
 	},
 	"push.refusedSize": {
-		one: "{count} file was not uploaded: GitHub refused it as too large. Make this file smaller or move it out of the vault. A file that is not on {remote} yet is also left alone once it is excluded. If it is a conflict file, check its content and then delete it:\n{list}",
-		other: "{count} files were not uploaded: GitHub refused them as too large. Make these files smaller or move them out of the vault. A file that is not on {remote} yet is also left alone once it is excluded. If one is a conflict file, check its content and then delete it:\n{list}",
+		one: "{count} file was not uploaded: GitHub refused it as too large. Make this file smaller or move it out of the vault. Or exclude it: a file that is not on {remote} yet is simply left out of uploads once excluded. If it is a conflict file, check its content and then delete it:\n{list}",
+		other: "{count} files were not uploaded: GitHub refused them as too large. Make these files smaller or move them out of the vault. Or exclude them: a file that is not on {remote} yet is simply left out of uploads once excluded. If one is a conflict file, check its content and then delete it:\n{list}",
 	},
 	"push.refusedSpace": {
 		one: "{count} file was not uploaded: there is no room left on {remote}. Make room there, and the next sync uploads it:\n{list}",
@@ -723,12 +723,12 @@ export const en = baseCatalog({
 		other: "{count} files were not uploaded: adding or changing a file under .github/workflows/ needs the Workflows read and write permission on the token. Give the token that permission and the next sync uploads them. Otherwise, put these files back as they were and change them with git on a computer. If one is a conflict file that an earlier version of Sync Evo left there, with .conflict-from- in its name, check its content and then delete it:\n{list}",
 	},
 	"push.remoteChanged": {
-		one: "{count} file was neither uploaded nor deleted: another device changed it on {remote} first. The next sync takes it up as a conflict:\n{list}",
-		other: "{count} files were neither uploaded nor deleted: another device changed them on {remote} first. The next sync takes them up as conflicts:\n{list}",
+		one: "{count} file was neither uploaded nor deleted: another device changed it on {remote} first. The next sync handles it as a conflict:\n{list}",
+		other: "{count} files were neither uploaded nor deleted: another device changed them on {remote} first. The next sync handles them as conflicts:\n{list}",
 	},
 	"push.remoteChanged.brief": {
-		one: "{count} file was changed on {remote} by another device first. The next sync takes it up.",
-		other: "{count} files were changed on {remote} by another device first. The next sync takes them up.",
+		one: "{count} file was changed on {remote} by another device first. The next sync picks it up.",
+		other: "{count} files were changed on {remote} by another device first. The next sync picks them up.",
 	},
 	"push.leftOut": {
 		one: "{count} file was left out: it changed or could not be read while the upload ran, or it is open and could not be saved. The next upload looks at it again:\n{list}",
@@ -740,8 +740,8 @@ export const en = baseCatalog({
 	"untrack.confirm.proceed": "Remove",
 	"untrack.confirm.cancel": "Cancel",
 	"untrack.confirm.body": {
-		one: "This removes the {count} file below from {remote}. The files on your devices with Sync Evo stay (git on a computer deletes it at the next git pull).",
-		other: "This removes the {count} files below from {remote}. The files on your devices with Sync Evo stay (git on a computer deletes them at the next git pull).",
+		one: "This removes the {count} file below from {remote}. The files on devices that use Sync Evo stay (git on a computer deletes it at the next git pull).",
+		other: "This removes the {count} files below from {remote}. The files on devices that use Sync Evo stay (git on a computer deletes them at the next git pull).",
 	},
 	"untrack.confirm.missing": {
 		one: "{count} of these files is not on this device. If it is in the list, it is marked there. After it is removed, its content is only in the history on {remote}.",
@@ -762,11 +762,11 @@ export const en = baseCatalog({
 	"untrack.nothing":
 		"There was nothing to remove from {remote}: none of the listed files is still there and excluded. Nothing was changed.",
 	"untrack.kept": {
-		one: "{count} file was not removed from {remote}: another device changed it there first. The next sync takes it in. If it is still excluded then, remove it again:\n{list}",
-		other: "{count} files were not removed from {remote}: another device changed them there first. The next sync takes them in. If they are still excluded then, remove them again:\n{list}",
+		one: "{count} file was not removed from {remote}: another device changed it there first. The next sync downloads it. If it is still excluded then, remove it again:\n{list}",
+		other: "{count} files were not removed from {remote}: another device changed them there first. The next sync downloads them. If they are still excluded then, remove them again:\n{list}",
 	},
 	"untrack.remoteMoved":
-		"Nothing was removed from {remote}. Another device changed what is there meanwhile. Try again in the settings of Sync Evo.",
+		"Nothing was removed from {remote}. Another device changed what is there meanwhile. Try again in the Sync Evo settings.",
 	"untrack.cancelled": "The removal was stopped. Nothing was removed from {remote}.",
 	"untrack.connectionChanged":
 		"The removal was stopped because the connection was changed. Nothing was removed from {remote}.",
@@ -778,23 +778,23 @@ export const en = baseCatalog({
 	},
 	"untrack.failed": "Removing from {remote} failed. {reason}",
 	"untrack.syncFirst.remoteEmpty":
-		"Nothing was removed from {remote}. The repository is empty now. Sync first, then try again in the settings of Sync Evo.",
+		"Nothing was removed from {remote}. The repository is empty now. Sync first, then try again in the Sync Evo settings.",
 	"untrack.syncFirst.pullUnfinished":
-		"Nothing was removed from {remote}. This device has not downloaded everything yet. Sync until no file is left for later, then try again in the settings of Sync Evo.",
+		"Nothing was removed from {remote}. This device has not downloaded everything yet. Sync until no file is left for later, then try again in the Sync Evo settings.",
 	"untrack.syncFirst.gitignoreUnsettled":
-		"Nothing was removed from {remote}. The content of the .gitignore of this vault could not be relied on. Sync, then try again in the settings of Sync Evo; if .gitignore is open in another app, close it first.",
+		"Nothing was removed from {remote}. The content of the .gitignore of this vault could not be read reliably. Sync, then try again in the Sync Evo settings; if .gitignore is open in another app, close it first.",
 	"untrack.syncFirst.gitignoreUnreadable":
-		"Nothing was removed from {remote}. The .gitignore of this vault cannot be read on this device. The settings of Sync Evo say why. Put that right, then try again.",
+		"Nothing was removed from {remote}. The .gitignore of this vault cannot be read on this device. The Sync Evo settings say why. Fix that, then try again.",
 	"untrack.syncFirst.noSection":
-		"Nothing was removed from {remote}. The .gitignore of this vault has no lines managed by Sync Evo, so the exclusions are not in the file. Add the lines in the settings of Sync Evo, then try again.",
+		"Nothing was removed from {remote}. The .gitignore of this vault has no lines managed by Sync Evo, so the exclusions are not in the file. Add the lines in the Sync Evo settings, then try again.",
 	"untrack.syncFirst.sectionBroken":
-		"Nothing was removed from {remote}. The two lines that mark the lines Sync Evo manages in .gitignore do not form one pair. Correct the file in the settings of Sync Evo, then try again.",
+		"Nothing was removed from {remote}. The two lines that mark the lines Sync Evo manages in .gitignore do not form one pair. Correct the file in the Sync Evo settings, then try again.",
 	"untrack.syncFirst.gitignoreDiffers":
-		"Nothing was removed from {remote}. The .gitignore on {remote} is not the one this device last synced. Sync, then try again in the settings of Sync Evo.",
+		"Nothing was removed from {remote}. The .gitignore on {remote} is not the one this device last synced. Sync, then try again in the Sync Evo settings.",
 	"untrack.skipped.pullDeclined":
-		"Nothing was removed from {remote}, because the download was cancelled. The exclusions stay. You can remove the files later in the settings of Sync Evo.",
+		"Nothing was removed from {remote}, because the download was cancelled. The exclusions stay. You can remove the files later in the Sync Evo settings.",
 	"untrack.skipped.pullCancelled":
-		"Nothing was removed from {remote}, because the download was stopped. The exclusions stay. You can remove the files later in the settings of Sync Evo.",
+		"Nothing was removed from {remote}, because the download was stopped. The exclusions stay. You can remove the files later in the Sync Evo settings.",
 
 	// Why there is no sync state to work with.
 	"state.waiting": "Preparing…",
@@ -802,7 +802,7 @@ export const en = baseCatalog({
 		"This vault was synced by a newer version of Sync Evo. Update the plugin to sync. Nothing was changed.",
 	"state.noAppId": "Obsidian did not give the ID of this vault, so Sync Evo cannot sync it.",
 	"state.noIndexedDb":
-		"This device does not provide the storage Sync Evo needs (IndexedDB), so nothing can be synced.",
+		"This device has no IndexedDB storage, which Sync Evo needs, so nothing can be synced.",
 	"state.openFailed":
 		"The sync could not be prepared, so nothing was synced. Restart Obsidian and try again.",
 	"state.discardFailed":
@@ -832,8 +832,8 @@ export const en = baseCatalog({
 		other: "{count} files have other content than on {remote}. They get the content from {remote}, and the content on this device is kept in the folder _conflicts/ as conflict files:",
 	},
 	"confirm.firstFetch.differentSettings": {
-		one: "{count} file in the configuration folder has other content than on {remote}. It gets the content from {remote}, and the content on this device is moved to .trash/ in this vault:",
-		other: "{count} files in the configuration folder have other content than on {remote}. They get the content from {remote}, and the content on this device is moved to .trash/ in this vault:",
+		one: "{count} file in the config folder has other content than on {remote}. It gets the content from {remote}, and the content on this device is moved to the .trash folder of this vault:",
+		other: "{count} files in the config folder have other content than on {remote}. They get the content from {remote}, and the content on this device is moved to the .trash folder of this vault:",
 	},
 	"confirm.firstFetch.localOnly": {
 		one: "{count} file is only on this device. It stays on this device as it is. The next upload includes it, unless it is excluded; before anything is uploaded, the list of the files is shown and you are asked once more:",
@@ -866,7 +866,7 @@ export const en = baseCatalog({
 	"confirm.emptyVault.bodyOne":
 		"The {count} file that was synced before is not on this device. This happens when the vault was created again, or when its folder was deleted. It is still on {remotePlace}.",
 	"confirm.emptyVault.body":
-		"None of the {count} files that were synced before is on this device. This happens when the vault was created again, or when its folders were deleted. They are still on {remotePlace}.",
+		"None of the {count} previously synced files are on this device. This happens when the vault was created again, or when its folders were deleted. They are still on {remotePlace}.",
 	"confirm.emptyVault.refetch": "Download again from {remote}",
 	"confirm.emptyVault.refetchNote":
 		"The files on {remote} are downloaded to this device. Nothing is deleted on {remote}.",
@@ -887,14 +887,14 @@ export const en = baseCatalog({
 	"confirm.startOver.note": "If you cancel, nothing is changed.",
 	"confirm.rewritten.title": "Repository history rewritten",
 	"confirm.rewritten.body":
-		"The repository no longer builds on what this device last synced with, as happens after a force push. Changes that this device uploaded may be gone from {remote}. Following {remote} takes the files below away from this device.",
+		"The repository no longer builds on what this device last synced with, as happens after a force push. Changes that this device uploaded may be gone from {remote}. Following {remote} removes the files below from this device.",
 	"confirm.rewritten.deletions": { one: "{count} file to delete:", other: "{count} files to delete:" },
 	"confirm.rewritten.overwrites": {
 		one: "{count} file to replace with the content from {remote}:",
 		other: "{count} files to replace with the content from {remote}:",
 	},
 	"confirm.rewritten.trashNote":
-		"\"Proceed\" follows {remote}. These files are first moved to .trash/ in this vault, so you can get them back.",
+		"\"Proceed\" follows {remote}. These files are first moved to the .trash folder of this vault, so you can get them back.",
 	"confirm.rewritten.keepNote":
 		"\"Keep my files\" leaves these files as they are and downloads everything else. \"Cancel\" downloads nothing.",
 	// What Dropbox has no repository, commit or history for (`DROPBOX_VARIANT`).
@@ -911,13 +911,13 @@ export const en = baseCatalog({
 	"confirm.rewritten.title.dropbox":
 		"Folder gone from Dropbox",
 	"confirm.rewritten.body.dropbox":
-		"The folder of this vault on Dropbox was deleted or emptied since this device last synced with it. Changes that this device uploaded may be gone from {remote}. Following {remote} takes the files below away from this device.",
+		"The folder of this vault on Dropbox was deleted or emptied since this device last synced with it. Changes that this device uploaded may be gone from {remote}. Following {remote} removes the files below from this device.",
 	"auto.waiting.rewritten.dropbox":
-		"The folder of this vault on Dropbox was deleted or emptied, so downloading needs your confirmation. Nothing was changed. Sync manually to be asked.",
+		"The folder of this vault on Dropbox was deleted or emptied, so downloading needs your confirmation. Nothing was changed. Run Sync to confirm.",
 	"push.pullFirst.remoteEmpty.dropbox":
 		"Nothing was uploaded. This device has synced with this folder before, and the folder is not on Dropbox now. Download first to look at that.",
 	"untrack.syncFirst.remoteEmpty.dropbox":
-		"Nothing was removed from {remote}. The folder is not on Dropbox now. Sync first, then try again in the settings of Sync Evo.",
+		"Nothing was removed from {remote}. The folder is not on Dropbox now. Sync first, then try again in the Sync Evo settings.",
 	"pull.reason.hashMismatch.dropbox":
 		"The content Dropbox sent did not match its own listing.",
 	"confirm.delete.body.dropbox": {
@@ -940,13 +940,13 @@ export const en = baseCatalog({
 	"confirm.rewritten.title.gdrive":
 		"Folder gone from Google Drive",
 	"confirm.rewritten.body.gdrive":
-		"The folder of this vault on Google Drive was deleted or emptied since this device last synced with it. Changes that this device uploaded may be gone from {remote}. Following {remote} takes the files below away from this device.",
+		"The folder of this vault on Google Drive was deleted or emptied since this device last synced with it. Changes that this device uploaded may be gone from {remote}. Following {remote} removes the files below from this device.",
 	"auto.waiting.rewritten.gdrive":
-		"The folder of this vault on Google Drive was deleted or emptied, so downloading needs your confirmation. Nothing was changed. Sync manually to be asked.",
+		"The folder of this vault on Google Drive was deleted or emptied, so downloading needs your confirmation. Nothing was changed. Run Sync to confirm.",
 	"push.pullFirst.remoteEmpty.gdrive":
 		"Nothing was uploaded. This device has synced with this folder before, and the folder is not on Google Drive now. Download first to look at that.",
 	"untrack.syncFirst.remoteEmpty.gdrive":
-		"Nothing was removed from {remote}. The folder is not on Google Drive now. Sync first, then try again in the settings of Sync Evo.",
+		"Nothing was removed from {remote}. The folder is not on Google Drive now. Sync first, then try again in the Sync Evo settings.",
 	"pull.reason.hashMismatch.gdrive":
 		"The content Google Drive sent did not match its own listing.",
 	"confirm.delete.body.gdrive": {

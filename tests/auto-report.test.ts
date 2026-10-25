@@ -277,7 +277,7 @@ describe("a pull that started by itself", () => {
 		const notices = autoNotices(t, report, true);
 		expect(notices).toEqual([{ text: HEADING + report.questions[0], level: "warn", stays: true, question: true }]);
 		expect(notices[0]?.text.startsWith(HEADING + start)).toBe(true);
-		expect(notices[0]?.text).toContain("Nothing was changed. Sync manually to ");
+		expect(notices[0]?.text).toContain("Nothing was changed. Run Sync to ");
 		// Named once, by the heading.
 		expect(notices[0]?.text.match(/utomatic sync/g)).toHaveLength(1);
 	});
@@ -285,7 +285,7 @@ describe("a pull that started by itself", () => {
 	test("the wait for a first fetch is worded so that it is true with and without something to confirm", () => {
 		// Not begun at all, or begun and stopped, with a file that differs since.
 		expect(pull({ outcome: "waiting", waitingFor: "first-fetch" }).questions).toEqual([
-			"The first download into this vault is not done yet. Nothing was changed. Sync manually to start it or carry on with it.",
+			"The first download into this vault is not done yet. Nothing was changed. Run Sync to start or continue it.",
 		]);
 		const ja = translatorFor("ja");
 		const report = pullAutoReport(ja, pulled({ outcome: "waiting", waitingFor: "first-fetch" }), options);
@@ -425,7 +425,7 @@ describe("a push that started by itself", () => {
 		const notices = autoNotices(t, report, true);
 		expect(notices).toEqual([{ text: HEADING + report.questions[0], level: "warn", stays: true, question: true }]);
 		expect(notices[0]?.text.startsWith(HEADING + start)).toBe(true);
-		expect(notices[0]?.text).toContain("Nothing was uploaded. Sync manually to be asked.");
+		expect(notices[0]?.text).toContain("Nothing was uploaded. Run Sync to confirm.");
 		expect(notices[0]?.text.match(/utomatic sync/g)).toHaveLength(1);
 	});
 

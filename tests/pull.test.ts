@@ -1294,7 +1294,7 @@ describe("a conflict inside the configuration folder", () => {
 		const report = pullReport(translatorFor("en"), result, reportOptions);
 		expect(report.summary).toBe("Download finished: 4 files updated.");
 		expect(report.details).toHaveLength(1);
-		expect(report.details[0]).toContain("3 files in the configuration folder now have the content from GitHub.");
+		expect(report.details[0]).toContain("3 files in the config folder now have the content from GitHub.");
 		expect(pullReport(translatorFor("ja"), result, reportOptions).summary).toBe("ダウンロードが終わりました：更新 4 件");
 
 		// Nothing is left for a second pull, and nothing for a push.
@@ -4802,8 +4802,8 @@ describe("going on after a pull that stopped while writing", () => {
 		// that was moved away does not name: told as the conflict it is.
 		expect(result.conflicts).toEqual([{ path: "a.md", copyPath: copy, cause: "conflict" }]);
 		expect(pullReport(translatorFor("en"), result, reportOptions).details).toEqual([
-			`The content of 1 file on this device was kept as a conflict file:\n${copy} (a conflict: a.md now has the content from GitHub)`,
-			"An earlier download stopped while it was writing 1 file. What was left of it was moved to .trash/ in this vault. The content from GitHub is downloaded again. If you had edited the file since, you can get your edit back from there:\na.md",
+			`The content of 1 file on this device was kept as a conflict file:\n${copy} (a.md now has the version from GitHub)`,
+			"An earlier download stopped while it was writing 1 file. What was left of it was moved to the .trash folder of this vault. The content from GitHub is downloaded again. If you had edited the file since, you can get your edit back from there:\na.md",
 		]);
 		expect(await h.store.getMeta(AWAITED_CONFLICTS_KEY)).toBeUndefined();
 		// Told once.
@@ -5056,7 +5056,7 @@ describe("going on after a pull that stopped while writing", () => {
 		expect(result.counts).toEqual({ fetched: 0, deleted: 0, renamed: 0, conflicts: 1 });
 		expect(result.conflicts).toEqual([{ path: "a.md", copyPath: copy, cause: "conflict" }]);
 		expect(pullReport(translatorFor("en"), result, reportOptions).details).toEqual([
-			`The content of 1 file on this device was kept as a conflict file:\n${copy} (a conflict: a.md now has the content from GitHub)`,
+			`The content of 1 file on this device was kept as a conflict file:\n${copy} (a.md now has the version from GitHub)`,
 		]);
 		expect(h.vault.snapshot()).toEqual({ "a.md": "theirs", [copy]: "mine" });
 		expect(h.copies()).toEqual([copy]);
@@ -5806,7 +5806,7 @@ describe("going on after a pull that stopped while writing", () => {
 				expect(await h.records()).toEqual(hashes({ "b.md": "B2", "c.md": "C" }));
 				expect(await h.base()).toBe(base);
 				expect(pullReport(translatorFor("en"), result, reportOptions).details).toEqual([
-					"1 file could not be downloaded and is left for the next sync. A file on this device could not be moved to .trash/ in this vault.",
+					"1 file could not be downloaded and is left for the next sync. A file on this device could not be moved to the .trash folder of this vault.",
 				]);
 			}
 
@@ -6082,9 +6082,9 @@ describe("going on after a pull that stopped while writing", () => {
 			);
 			expect(pullReport(translatorFor("en"), result, reportOptions)).toEqual({
 				summary:
-					"The download was cancelled. Only the files listed below were moved to .trash/ in this vault. Nothing else was changed.",
+					"The download was cancelled. Only the files listed below were moved to the .trash folder of this vault. Nothing else was changed.",
 				details: [
-					"An earlier download stopped while it was writing 1 file. What was left of it was moved to .trash/ in this vault. The content from GitHub is downloaded again. If you had edited the file since, you can get your edit back from there:\nf11.md",
+					"An earlier download stopped while it was writing 1 file. What was left of it was moved to the .trash folder of this vault. The content from GitHub is downloaded again. If you had edited the file since, you can get your edit back from there:\nf11.md",
 				],
 			});
 
@@ -6753,7 +6753,7 @@ describe("a question that is left for later", () => {
 		const report = pullReport(translatorFor("en"), await h.pull(), reportOptions);
 
 		expect(report.summary).toBe(
-			"Downloading would delete many files on this device, which needs your confirmation. Nothing was changed. Sync manually to be asked.",
+			"Downloading would delete many files on this device, which needs your confirmation. Nothing was changed. Run Sync to confirm.",
 		);
 		expect(report.details).toEqual([]);
 	});
@@ -7421,7 +7421,7 @@ describe("conflict copies that have had their time", () => {
 		// The record stays: the file is one the vault deleted, for the push to send.
 		expect(Object.keys(await h.records())).toContain(old);
 		expect(pullReport(translatorFor("en"), second, reportOptions).details).toEqual([
-			"1 conflict file in _conflicts/ was made 30 days ago or more, and was moved to .trash/ in this vault. To keep a conflict file, move it out of _conflicts/ or rename it.",
+			"1 conflict file in _conflicts/ was made 30 days ago or more, and was moved to the .trash folder of this vault. To keep a conflict file, move it out of _conflicts/ or rename it.",
 		]);
 
 		expect((await h.pull()).tidiedCopies).toEqual([]);

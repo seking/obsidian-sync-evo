@@ -842,7 +842,7 @@ describe("a vault with none of the files that have a record", () => {
 		await untouched(h, before);
 		expect(await readPushFailure(h.store)).toBeNull();
 		expect(pushReport(translatorFor("en"), result, { sizeLimit: 50 * 1024 * 1024 }).summary).toBe(
-			"None of the files synced before is on this device, which needs your confirmation. Nothing was uploaded. Sync manually to be asked.",
+			"None of the files synced before is on this device, which needs your confirmation. Nothing was uploaded. Run Sync to confirm.",
 		);
 
 		expect((await h.push()).outcome).toBe("waiting");
@@ -4406,7 +4406,7 @@ describe("a question that is left for later", () => {
 		expect(h.backend.pushes).toBe(0);
 		const report = pushReport(translatorFor("en"), result, { sizeLimit: 50 * 1024 * 1024 });
 		expect(report.summary).toBe(
-			"The first upload from this device needs your confirmation. Nothing was uploaded. Sync manually to be asked.",
+			"The first upload from this device needs your confirmation. Nothing was uploaded. Run Sync to confirm.",
 		);
 		expect(report.details).toHaveLength(1);
 	});

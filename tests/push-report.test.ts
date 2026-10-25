@@ -85,7 +85,7 @@ describe("the line of progress of a push", () => {
 		const text = pushProgressText(t, { phase: "sending", done: 2, total: 4 }, until);
 		expect(text.split("\n")).toEqual([
 			"Upload: sending files (2/4)…",
-			"GitHub's limit on creating content was reached. The upload continues at 14:05. Keep Obsidian in front until then: an upload that stops uploads nothing.",
+			"GitHub's limit on creating content was reached. The upload continues at 14:05. Keep Obsidian open and in the foreground until then: an upload that stops uploads nothing.",
 		]);
 	});
 
@@ -156,7 +156,7 @@ describe("the question a push stops with", () => {
 	test("a vault without its files: how many, where they still are, and what each of the three answers does", () => {
 		expect(emptyVaultQuestion(t, target, { missing: 14, deletions: 15 })).toEqual({
 			title: "No files in the vault",
-			body: "None of the 14 files that were synced before is on this device. This happens when the vault was created again, or when its folders were deleted. They are still on GitHub (octo/notes, branch main).",
+			body: "None of the 14 previously synced files are on this device. This happens when the vault was created again, or when its folders were deleted. They are still on GitHub (octo/notes, branch main).",
 			choices: [
 				{
 					answer: "refetch",
@@ -262,7 +262,7 @@ describe("the section a push added to .gitignore", () => {
 	const added = { lines, created: false, tracked: [] };
 	const outside = "Nothing else in .gitignore was changed.";
 	const howTo =
-		"You can change these lines in the settings of Sync Evo. If you do not want them, delete the lines in between and keep the first and the last line (the two that start with #): if those two are deleted as well, the next sync adds the lines again.";
+		"You can change these lines in the Sync Evo settings. If you do not want them, delete the lines in between and keep the first and the last line (the two that start with #): if those two are deleted as well, the next sync adds the lines again.";
 	const request = {
 		firstPush: { added: ["new.md"], modified: [".gitignore"], deleted: [] },
 		remoteEmpty: false,
@@ -301,7 +301,7 @@ describe("the section a push added to .gitignore", () => {
 		});
 		// With where they can be taken out of the remote.
 		expect(question.parts[6]).toEqual({
-			text: "To remove them from GitHub, use \"Remove from GitHub\" in the settings of Sync Evo. The files on your devices with Sync Evo stay.",
+			text: "To remove them from GitHub, use \"Remove from GitHub\" in the Sync Evo settings. The files on devices that use Sync Evo stay.",
 		});
 		expect(question.parts).toHaveLength(9);
 		const one = pushQuestion(t, target, { ...request, sectionAdded: { ...added, tracked: [".DS_Store"] } });
@@ -364,7 +364,7 @@ describe("the section a push added to .gitignore", () => {
 		const text = sectionAddedText(t, { ...added, tracked }, "sent");
 		expect(
 			text.endsWith(
-				`\n6 files that these lines exclude are on GitHub. Sync Evo no longer syncs them on any device:\n${tracked.slice(0, 3).join("\n")}\n…and 3 more\nTo remove them from GitHub, use \"Remove from GitHub\" in the settings of Sync Evo. The files on your devices with Sync Evo stay.`,
+				`\n6 files that these lines exclude are on GitHub. Sync Evo no longer syncs them on any device:\n${tracked.slice(0, 3).join("\n")}\n…and 3 more\nTo remove them from GitHub, use \"Remove from GitHub\" in the Sync Evo settings. The files on devices that use Sync Evo stay.`,
 			),
 		).toBe(true);
 	});
@@ -454,7 +454,7 @@ describe("how a push ended", () => {
 
 	test("nothing sent while files were left unsent is not called up to date", () => {
 		const report = pushReport(t, result({ outcome: "nothing-to-push", revision: null, held: ["a.md"] }), options);
-		expect(report.summary).toBe("Nothing was uploaded. Some files cannot be uploaded; the notices say why.");
+		expect(report.summary).toBe("Nothing was uploaded. Some files cannot be uploaded; the last sync results say why.");
 		expect(report.details).toEqual([
 			"1 file was not uploaded: a download has not finished with it, or it is open and could not be saved. Sync again:\na.md",
 		]);
@@ -585,7 +585,7 @@ describe("how a push ended", () => {
 			).details;
 		expect(said(t)).toEqual([
 			"1 file was not uploaded: it grew past 50 MB while the upload ran. Files over 50 MB are not synced:\ngrown.mov",
-			"1 file was not uploaded: GitHub refused it as too large. Make this file smaller or move it out of the vault. A file that is not on GitHub yet is also left alone once it is excluded. If it is a conflict file, check its content and then delete it:\nbig.mov",
+			"1 file was not uploaded: GitHub refused it as too large. Make this file smaller or move it out of the vault. Or exclude it: a file that is not on GitHub yet is simply left out of uploads once excluded. If it is a conflict file, check its content and then delete it:\nbig.mov",
 			"1 file was not uploaded: adding or changing a file under .github/workflows/ needs the Workflows read and write permission on the token. Give the token that permission and the next sync uploads it. Otherwise, put this file back as it was and change it with git on a computer. If it is a conflict file that an earlier version of Sync Evo left there, with .conflict-from- in its name, check its content and then delete it:\n.github/workflows/ci.yml",
 			"1 file was left out: it changed or could not be read while the upload ran, or it is open and could not be saved. The next upload looks at it again:\na.md",
 		]);
@@ -601,7 +601,7 @@ describe("how a push ended", () => {
 		const said = (translate: typeof t) =>
 			pushReport(translate, result({ leftOut: [{ path: "a.md", reason: "remote-changed" }] }), options).details;
 		expect(said(t)).toEqual([
-			"1 file was neither uploaded nor deleted: another device changed it on GitHub first. The next sync takes it up as a conflict:\na.md",
+			"1 file was neither uploaded nor deleted: another device changed it on GitHub first. The next sync handles it as a conflict:\na.md",
 		]);
 		expect(said(ja)).toEqual([
 			"1 件のファイルを、アップロードも削除もしていません。ほかのデバイスが、先に GitHub で変えていました。次の同期で、競合として扱います：\na.md",
@@ -622,7 +622,7 @@ describe("how a push ended", () => {
 				}),
 				options,
 			);
-		expect(said(t).summary).toBe("Nothing was uploaded. Some files cannot be uploaded; the notices say why.");
+		expect(said(t).summary).toBe("Nothing was uploaded. Some files cannot be uploaded; the last sync results say why.");
 		expect(said(t).details).toEqual([
 			"1 new file was not uploaded: it is not on this device yet (a cloud drive keeps only a placeholder). Have the cloud drive keep it on this device, then sync again:\nnotes/new.md",
 			"1 file was left out: it changed or could not be read while the upload ran, or it is open and could not be saved. The next upload looks at it again:\nbad.md",
@@ -650,7 +650,7 @@ describe("how a push ended", () => {
 				options,
 			);
 		const part = said(t);
-		expect(part.summary).toBe("Nothing was uploaded. Some files cannot be uploaded; the notices say why.");
+		expect(part.summary).toBe("Nothing was uploaded. Some files cannot be uploaded; the last sync results say why.");
 		expect(part.details).toHaveLength(1);
 		expect(part.details[0]).toMatchObject({ level: "warn", standing: true });
 		expect(part.details[0]?.text).toBe(
@@ -697,7 +697,7 @@ describe("how much each thing a push tells matters", () => {
 			["info", false],
 			["warn", false],
 		]);
-		expect(details[3]?.brief).toBe("1 file was changed on GitHub by another device first. The next sync takes it up.");
+		expect(details[3]?.brief).toBe("1 file was changed on GitHub by another device first. The next sync picks it up.");
 	});
 
 	test("the section it added is only worth knowing, with a short line, and every file the lines match on the screen", () => {

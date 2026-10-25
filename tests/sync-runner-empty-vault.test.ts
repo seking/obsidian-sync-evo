@@ -297,7 +297,7 @@ describe("a push that finds none of the files it has a record of", () => {
 		expect(app.answered).toEqual(["later", "later"]);
 		expect(app.ran).toEqual(["pull", "push", "pull", "push"]);
 		expect(app.notices).toEqual([
-			"Automatic sync:\nNone of the files synced before is on this device, which needs your confirmation. Nothing was uploaded. Sync manually to be asked.",
+			"Automatic sync:\nNone of the files synced before is on this device, which needs your confirmation. Nothing was uploaded. Run Sync to confirm.",
 		]);
 	});
 });

@@ -83,7 +83,7 @@ The settings screen writes both for you.
 These settings are written into the `.gitignore` at the root of the vault, between two lines that start with `# >>> Sync Evo` and `# <<< Sync Evo`. They apply alike to all your devices and to git on a computer.
 
 - **Excluded folders**: folders that are not synced, as paths from the root of the vault.
-- **Vault configuration sync**: which parts of the configuration folder (`.obsidian/`) are synced. They use the names Obsidian Sync uses.
+- **Vault configuration sync**: which parts of the config folder (`.obsidian/`) are synced. They use the names Obsidian Sync uses.
 
 ### Not synced (this device only)
 

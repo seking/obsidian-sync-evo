@@ -109,7 +109,7 @@ describe("the question before untracking", () => {
 		expect(question.shown).toEqual(["drafts/a.md", "drafts/b.md"]);
 		expect(question.parts).toEqual([
 			{
-				text: "This removes the 2 files below from GitHub. The files on your devices with Sync Evo stay (git on a computer deletes them at the next git pull).",
+				text: "This removes the 2 files below from GitHub. The files on devices that use Sync Evo stay (git on a computer deletes them at the next git pull).",
 				paths: { shown: ["drafts/a.md", "drafts/b.md"], more: 0 },
 			},
 		]);
@@ -118,7 +118,7 @@ describe("the question before untracking", () => {
 	test("one file", () => {
 		const question = untrackQuestion(t, request({ files: [plain("drafts/a.md")] }));
 		expect(question.parts[0]?.text).toBe(
-			"This removes the 1 file below from GitHub. The files on your devices with Sync Evo stay (git on a computer deletes it at the next git pull).",
+			"This removes the 1 file below from GitHub. The files on devices that use Sync Evo stay (git on a computer deletes it at the next git pull).",
 		);
 	});
 
@@ -215,7 +215,7 @@ describe("how untracking ended", () => {
 			"There was nothing to remove from GitHub: none of the listed files is still there and excluded. Nothing was changed.",
 		);
 		expect(said("remote-moved")).toBe(
-			"Nothing was removed from GitHub. Another device changed what is there meanwhile. Try again in the settings of Sync Evo.",
+			"Nothing was removed from GitHub. Another device changed what is there meanwhile. Try again in the Sync Evo settings.",
 		);
 		expect(said("cancelled")).toBe("The removal was stopped. Nothing was removed from GitHub.");
 	});
@@ -240,7 +240,7 @@ describe("how untracking ended", () => {
 		const said = (reason: UntrackRefusal): string =>
 			untrackReport(t, ended({ outcome: "sync-first", reason, revision: null, untracked: [] })).summary;
 		expect(said("gitignore-differs")).toBe(
-			"Nothing was removed from GitHub. The .gitignore on GitHub is not the one this device last synced. Sync, then try again in the settings of Sync Evo.",
+			"Nothing was removed from GitHub. The .gitignore on GitHub is not the one this device last synced. Sync, then try again in the Sync Evo settings.",
 		);
 		expect(said("no-section")).toContain("has no lines managed by Sync Evo");
 		for (const reason of reasons) expect(said(reason).startsWith("Nothing was removed from GitHub.")).toBe(true);
@@ -291,10 +291,10 @@ describe("how untracking after a sync ended", () => {
 			return report.summary;
 		};
 		expect(said("pull-declined")).toBe(
-			"Nothing was removed from GitHub, because the download was cancelled. The exclusions stay. You can remove the files later in the settings of Sync Evo.",
+			"Nothing was removed from GitHub, because the download was cancelled. The exclusions stay. You can remove the files later in the Sync Evo settings.",
 		);
 		expect(said("pull-cancelled")).toBe(
-			"Nothing was removed from GitHub, because the download was stopped. The exclusions stay. You can remove the files later in the settings of Sync Evo.",
+			"Nothing was removed from GitHub, because the download was stopped. The exclusions stay. You can remove the files later in the Sync Evo settings.",
 		);
 		expect(said("cancelled")).toBe("The removal was stopped. Nothing was removed from GitHub.");
 	});
@@ -408,7 +408,7 @@ describe("whether anything was untracked", () => {
 
 describe("where untracking is pointed to", () => {
 	test.each([
-		["en", 'use "Remove from GitHub" in the settings of Sync Evo'],
+		["en", 'use "Remove from GitHub" in the Sync Evo settings'],
 		["ja", "Sync Evo の設定画面で「GitHub から削除」を行います"],
 	])("in %s, the notice about Sync Evo's own folder on the remote says where it can be taken out", (language, words) => {
 		const [text] = noticeTexts(translatorFor(language), [{ kind: "own-folder-on-remote", path: ".obsidian/plugins/sync-evo" }], 1);

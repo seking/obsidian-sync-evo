@@ -126,7 +126,7 @@ describe("pullProgressText", () => {
 		const retrying = { phase: "applying", done: 0, total: 6655, closedViews: false, archive: "retrying" } as const;
 		expect(pullProgressText(t, retrying).split("\n")).toEqual([
 			"Download: getting all files at once…",
-			"The last download did not finish. Keep Obsidian in front and wait until this one is done.",
+			"The last download did not finish. Keep Obsidian open and in the foreground until this one is done.",
 		]);
 		expect(pullProgressText(ja, retrying).split("\n")).toEqual([
 			"ダウンロード：全ファイルをまとめて転送中…",
@@ -266,7 +266,7 @@ describe("the summary", () => {
 		);
 		const counts = { fetched: 5, deleted: 1, renamed: 0, conflicts: 0 };
 		expect(pullReport(t, result({ outcome: "cancelled", counts }), options).summary).toBe(
-			"The download was stopped. The next download continues from there.\nDone before it stopped: 5 files updated, 1 file deleted.",
+			"The download was stopped. The next download continues from there.\nCompleted before stopping: 5 files updated, 1 file deleted.",
 		);
 		expect(pullReport(ja, result({ outcome: "cancelled", counts }), options).summary).toBe(
 			"ダウンロードを中止しました。次のダウンロードで、続きから進みます。\n中止するまでに済んだ分：更新 5 件、削除 1 件",
@@ -284,11 +284,11 @@ describe("the summary", () => {
 			// Nothing in it says that this pull fetched the file: one that
 			// was declined or stopped did not.
 			expect(report.details).toEqual([
-				"An earlier download stopped while it was writing 1 file. What was left of it was moved to .trash/ in this vault. The content from GitHub is downloaded again. If you had edited the file since, you can get your edit back from there:\nnotes/a.md",
+				"An earlier download stopped while it was writing 1 file. What was left of it was moved to the .trash folder of this vault. The content from GitHub is downloaded again. If you had edited the file since, you can get your edit back from there:\nnotes/a.md",
 			]);
 		}
 		expect(pullReport(t, result({ halfWritten: ["a.md", "b.md"] }), options).details).toEqual([
-			"An earlier download stopped while it was writing 2 files. What was left of them was moved to .trash/ in this vault. The content from GitHub is downloaded again. If you had edited them since, you can get your edits back from there:\na.md\nb.md",
+			"An earlier download stopped while it was writing 2 files. What was left of them was moved to the .trash folder of this vault. The content from GitHub is downloaded again. If you had edited them since, you can get your edits back from there:\na.md\nb.md",
 		]);
 		expect(pullReport(ja, result({ halfWritten: ["a.md", "b.md"] }), options).details).toEqual([
 			"前のダウンロードが、2 件のファイルを書いている途中で止まっていました。残っていた内容は、この保管庫の .trash/ へ移しました。GitHub の内容を、ダウンロードし直します。その後に編集していた時は、そこから戻せます：\na.md\nb.md",
@@ -317,10 +317,10 @@ describe("the summary", () => {
 	test("conflict copies that were tidied are counted, with how one is kept, and not listed", () => {
 		const copies = ["_conflicts/2026-09-01 a (iPhone).md", "_conflicts/2026-09-02 b (Mac).md"];
 		expect(pullReport(t, result({ tidiedCopies: copies.slice(0, 1) }), options).details).toEqual([
-			"1 conflict file in _conflicts/ was made 30 days ago or more, and was moved to .trash/ in this vault. To keep a conflict file, move it out of _conflicts/ or rename it.",
+			"1 conflict file in _conflicts/ was made 30 days ago or more, and was moved to the .trash folder of this vault. To keep a conflict file, move it out of _conflicts/ or rename it.",
 		]);
 		expect(pullReport(t, result({ outcome: "incomplete", tidiedCopies: copies }), options).details).toEqual([
-			"2 conflict files in _conflicts/ were made 30 days ago or more, and were moved to .trash/ in this vault. To keep a conflict file, move it out of _conflicts/ or rename it.",
+			"2 conflict files in _conflicts/ were made 30 days ago or more, and were moved to the .trash folder of this vault. To keep a conflict file, move it out of _conflicts/ or rename it.",
 		]);
 		expect(pullReport(ja, result({ tidiedCopies: copies }), options).details).toEqual([
 			"作ってから30日たった競合ファイル 2 件を、_conflicts/ からこの保管庫の .trash/ へ移しました。残したい競合ファイルは、_conflicts/ の外へ移すか、名前を変えてください。",
@@ -332,11 +332,11 @@ describe("the summary", () => {
 		const copy = "_conflicts/2026-10-03 a (iPhone).md";
 		for (const outcome of ["completed", "cancelled", "declined", "incomplete"] as const) {
 			expect(pullReport(t, result({ outcome, halfCopies: [copy] }), options).details).toEqual([
-				`1 conflict file that an earlier download left unfinished was moved to .trash/ in this vault. A complete one is made again. If you had edited it, your edit is there:\n${copy}`,
+				`1 conflict file that an earlier download left unfinished was moved to the .trash folder of this vault. A complete one is made again. If you had edited it, your edit is there:\n${copy}`,
 			]);
 		}
 		expect(pullReport(t, result({ halfCopies: [copy, "b.md"] }), options).details).toEqual([
-			`2 conflict files that an earlier download left unfinished were moved to .trash/ in this vault. Complete ones are made again. If you had edited them, your edits are there:\n${copy}\nb.md`,
+			`2 conflict files that an earlier download left unfinished were moved to the .trash folder of this vault. Complete ones are made again. If you had edited them, your edits are there:\n${copy}\nb.md`,
 		]);
 		expect(pullReport(ja, result({ halfCopies: [copy] }), options).details).toEqual([
 			`前のダウンロードが作りかけていた競合ファイル 1 件を、この保管庫の .trash/ へ移しました。競合ファイルは作り直します。競合ファイルを編集していた時は、編集した内容がそこにあります：\n${copy}`,
@@ -352,7 +352,7 @@ describe("the summary", () => {
 		const copy = "_conflicts/2026-10-03 a (iPhone).md";
 		for (const moved of [{ halfWritten: ["a.md"] }, { halfCopies: [copy] }]) {
 			expect(pullReport(t, result({ outcome: "declined", ...moved }), options).summary).toBe(
-				"The download was cancelled. Only the files listed below were moved to .trash/ in this vault. Nothing else was changed.",
+				"The download was cancelled. Only the files listed below were moved to the .trash folder of this vault. Nothing else was changed.",
 			);
 			expect(pullReport(ja, result({ outcome: "declined", ...moved }), options).summary).toBe(
 				"ダウンロードをやめました。下に示すファイルだけを、この保管庫の .trash/ へ移しました。ほかは何も変更していません。",
@@ -424,7 +424,7 @@ describe("files left for the next sync", () => {
 	test("a half-written file that could not be moved away", () => {
 		const deferred = [{ path: "a.md", reason: "trash-failed" }] as const;
 		expect(pullReport(t, result({ outcome: "incomplete", deferred }), options).details).toEqual([
-			"1 file could not be downloaded and is left for the next sync. A file on this device could not be moved to .trash/ in this vault.",
+			"1 file could not be downloaded and is left for the next sync. A file on this device could not be moved to the .trash folder of this vault.",
 		]);
 		expect(pullReport(ja, result({ outcome: "incomplete", deferred }), options).details).toEqual([
 			"1 件のファイルをダウンロードできませんでした。次の同期で、もう一度試します。このデバイスのファイルを、この保管庫の .trash/ へ移せませんでした。",
@@ -540,7 +540,7 @@ describe("files left for the next sync", () => {
 		expect(details[0]).toContain("big.md");
 		expect(details[1]).toContain("bad.md");
 		expect(details[2]).toBe(
-			"2 other files were not downloaded either, since they come after the files above. Once those are seen to, the next sync downloads them.",
+			"2 other files were not downloaded either, because they are queued behind the files above. Once those are fixed, the next sync downloads them.",
 		);
 		expect(pullReport(ja, waiting, options).details[2]).toBe(
 			"ほかに 2 件のファイルも、上のファイルの後に回したため、ダウンロードしていません。上のファイルが片付くと、次の同期でダウンロードします。",
@@ -569,14 +569,14 @@ describe("files left for the next sync", () => {
 			],
 		});
 		expect(pullReport(t, waiting, options).details).toEqual([
-			"2 files were not downloaded or deleted, and are left for the next sync. They wait for something Sync Evo told you about to be seen to on this device.",
+			"2 files were not downloaded or deleted, and are left for the next sync. They wait until a problem Sync Evo reported on this device is fixed.",
 		]);
 		expect(pullReport(ja, waiting, options).details).toEqual([
 			"2 件のファイルを、ダウンロードも削除もせず、次の同期に回しました。Sync Evo が知らせた、このデバイスの物が片付くのを待っています。",
 		]);
 		const one = result({ outcome: "incomplete", deferred: [{ path: "Notes/a.md", reason: "depends-on-deferred" }] });
 		expect(pullReport(t, one, options).details).toEqual([
-			"1 file was not downloaded or deleted, and is left for the next sync. It waits for something Sync Evo told you about to be seen to on this device.",
+			"1 file was not downloaded or deleted, and is left for the next sync. It waits until a problem Sync Evo reported on this device is fixed.",
 		]);
 	});
 
@@ -624,7 +624,7 @@ describe("what the user has to know", () => {
 		});
 		const report = pullReport(t, conflicted, options);
 		const lines = [
-			"_conflicts/2026-10-03 a (Mac).md (a conflict: a.md now has the content from GitHub)",
+			"_conflicts/2026-10-03 a (Mac).md (a.md now has the version from GitHub)",
 			"_conflicts/2026-10-03 link (Mac) (link is a symbolic link on GitHub now, which is not written to this device)",
 			"_conflicts/2026-10-03 dir (Mac) (dir is a folder on GitHub now)",
 			"_conflicts/2026-10-03 Notes (Mac).md (another file was renamed to Notes.md on GitHub)",
@@ -698,7 +698,7 @@ describe("what the user has to know", () => {
 		expect(pullReport(t, replaced, options)).toEqual({
 			summary: "Download finished: 3 files updated.",
 			details: [
-				"2 files in the configuration folder now have the content from GitHub. What they held on this device before is in .trash/ in this vault:\n.obsidian/app.json\n.obsidian/appearance.json",
+				"2 files in the config folder now have the content from GitHub. What they held on this device before is in the .trash folder of this vault:\n.obsidian/app.json\n.obsidian/appearance.json",
 			],
 		});
 		expect(pullReport(ja, replaced, options)).toEqual({
@@ -708,12 +708,12 @@ describe("what the user has to know", () => {
 			],
 		});
 		expect(pullReport(t, result({ replacedSettings: [".obsidian/app.json"] }), options).details).toEqual([
-			"1 file in the configuration folder now has the content from GitHub. What it held on this device before is in .trash/ in this vault:\n.obsidian/app.json",
+			"1 file in the config folder now has the content from GitHub. What it held on this device before is in the .trash folder of this vault:\n.obsidian/app.json",
 		]);
 		// Many are counted in full and listed in part.
 		const many = Array.from({ length: 7 }, (_, index) => `.obsidian/f${index}.json`);
 		const [text = ""] = pullReport(t, result({ replacedSettings: many }), options).details;
-		expect(text).toContain("7 files in the configuration folder");
+		expect(text).toContain("7 files in the config folder");
 		expect(text.split("\n")).toHaveLength(5);
 
 		// After the conflicts, which are counted by themselves.
@@ -733,7 +733,7 @@ describe("what the user has to know", () => {
 	test("files moved to .trash/ to protect them", () => {
 		const report = pullReport(t, result({ trashed: ["a.md"] }), options);
 		expect(report.details).toEqual([
-			"1 file was moved to .trash/ in this vault by the download, so that its content is not lost. You can get it back from there:\na.md",
+			"1 file was moved to the .trash folder of this vault by the download, so that its content is not lost. You can get it back from there:\na.md",
 		]);
 	});
 
@@ -757,7 +757,7 @@ describe("what the user has to know", () => {
 	test("the links of the vault name Dropbox where it is the remote", () => {
 		const dropbox = translatorFor("en", "Dropbox");
 		const [text = ""] = pullReport(dropbox, result({ notices: [{ kind: "local-link", path: "Projects" }] }), options).details;
-		expect(text).toContain("leaves it as it is, on Dropbox and on this device");
+		expect(text).toContain("leaves the link as it is, on Dropbox and on this device");
 		expect(text).not.toContain("GitHub");
 		const [japanese = ""] = pullReport(
 			translatorFor("ja", "Dropbox"),
@@ -818,7 +818,7 @@ describe("what the user has to know", () => {
 			"There are .gitignore files in subfolders. Sync Evo syncs them as ordinary files and does not read them as rules: only the .gitignore at the root of the vault decides what is synced. Git on a computer does apply them, so the same vault is treated differently there. Put the rules you need into the .gitignore at the root:\nnotes/.gitignore\nsrc/lib/.gitignore",
 		);
 		expect(report.details[14]).toBe(
-			"What was excluded is synced now (the trash, the layout of the workspace, files an operating system leaves behind, and so on): the lines of .gitignore below, which Sync Evo manages, were deleted, or a later line undoes them. Only Sync Evo's own folder is still not synced by Sync Evo, but git on a computer commits it. Deleted lines can be restored in the settings of Sync Evo; where a later line that starts with ! undoes one, change that line:\n/.trash/\n*.icloud",
+			"What was excluded is synced now (the .trash folder, the layout of the workspace, files an operating system leaves behind, and so on): the lines of .gitignore below, which Sync Evo manages, were deleted, or a later line undoes them. Only Sync Evo's own folder is still not synced by Sync Evo, but git on a computer commits it. Deleted lines can be restored in the Sync Evo settings; where a later line that starts with ! undoes one, change that line:\n/.trash/\n*.icloud",
 		);
 		expect(report.details[15]).toBe(
 			"What is inside these submodules cannot be downloaded. Sync Evo downloads a submodule that points to a repository on GitHub and is listed in the .gitmodules of the repository. A submodule inside a submodule, and one with too many files to be listed, are not downloaded. What this device has in those folders is left as it is. Everything else is synced as usual:\nknowledge\nvendor/lib",
@@ -1085,9 +1085,9 @@ describe("how much each thing a pull tells matters", () => {
 
 describe("a pull that could not be carried out", () => {
 	const cases: [BackendErrorKind, string][] = [
-		["unauthorized", "GitHub did not accept the token"],
+		["unauthorized", "GitHub rejected the token"],
 		["forbidden", "octo/notes"],
-		["not-found", "octo/notes does not exist"],
+		["not-found", "GitHub found no repository octo/notes"],
 		["branch-not-found", "no branch named main"],
 		["unreachable", "Could not reach GitHub"],
 		["incomplete-listing", "more files than GitHub lists"],
@@ -1135,7 +1135,7 @@ describe("a pull that could not be carried out", () => {
 		const dropbox: DeviceSettings = { ...settings, backend: "dropbox", dropboxFolder: "Vault", dropboxAccount: { id: "dbid:1", email: "a@example.com" } };
 		const error = new BackendError("paid-plan", "x");
 		expect(failureReason(translatorFor("en", "Dropbox"), dropbox, error)).toBe(
-			"The free time of Sync Evo with Dropbox is over. To sync again, enter a license key in the settings of Sync Evo.",
+			"The free time of Sync Evo with Dropbox is over. To sync again, enter a license key in the Sync Evo settings.",
 		);
 		expect(failureReason(translatorFor("ja", "Dropbox"), dropbox, error)).toContain("Dropbox");
 	});
@@ -1210,7 +1210,7 @@ describe("the question before a first fetch", () => {
 				paths: { shown: ["a.md"], more: 0 },
 			},
 			{
-				text: "2 files in the configuration folder have other content than on GitHub. They get the content from GitHub, and the content on this device is moved to .trash/ in this vault:",
+				text: "2 files in the config folder have other content than on GitHub. They get the content from GitHub, and the content on this device is moved to the .trash folder of this vault:",
 				paths: { shown: [".obsidian/app.json", ".obsidian/appearance.json"], more: 0 },
 			},
 			{
@@ -1223,7 +1223,7 @@ describe("the question before a first fetch", () => {
 			discardsState: false,
 		});
 		expect(one.parts[1]?.text).toBe(
-			"1 file in the configuration folder has other content than on GitHub. It gets the content from GitHub, and the content on this device is moved to .trash/ in this vault:",
+			"1 file in the config folder has other content than on GitHub. It gets the content from GitHub, and the content on this device is moved to the .trash folder of this vault:",
 		);
 
 		expect(firstFetchQuestion(ja, target, { files, discardsState: false }).parts.slice(1)).toEqual([

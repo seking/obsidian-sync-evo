@@ -91,7 +91,7 @@ A conflict file is named `<date> <name> (<device>).<extension>`:
 Also:
 
 - A conflict file is synced like any other file, whatever is excluded.
-- A file in the configuration folder gets no conflict file. The vault's version goes to `.trash/` in the vault.
+- A file in the config folder gets no conflict file. The vault's version goes to `.trash/` in the vault.
 
 ### Conflict files are tidied after 30 days
 

@@ -251,7 +251,7 @@ export const ja = completeTranslation(en, {
 	"check.dropbox.noFolder": "先に、Dropbox のフォルダの名前を入れてください。",
 	"check.dropbox.notConnected": "このデバイスは Dropbox に接続していません。Sync Evo の設定画面で「接続する」を押してください。",
 	"check.dropbox.unauthorized":
-		"Dropbox が、このデバイスの接続を受け付けなくなりました。Dropbox の設定で Sync Evo が外された可能性があります。Sync Evo の設定画面で、接続し直してください。",
+		"Dropbox が、このデバイスの接続を受け付けなくなりました。Dropbox の「リンク済みアプリ」から Sync Evo が外された可能性があります。Sync Evo の設定画面で、もう一度「接続する」を押してください。",
 	"check.dropbox.forbidden": "Dropbox が、フォルダを読むことを許しませんでした。Sync Evo の設定画面で、接続し直してください。",
 	"gdrive.code.title": "Google Drive に接続する",
 	"gdrive.code.asking": "Google にコードを求めています…",
@@ -293,20 +293,21 @@ export const ja = completeTranslation(en, {
 	"check.gdrive.forbidden": "Google Drive が、フォルダを読むことを許しませんでした。Sync Evo の設定画面で、接続し直してください。",
 	"check.empty": "{repository} に接続できました。リポジトリは空です。",
 	"check.unauthorized":
-		"GitHub がトークンを受け付けませんでした。トークンが間違っているか、取り消されたか、期限が切れています。新しいトークンを作り、選択中のシークレットに保存してください。",
+		"GitHub がトークンを受け付けませんでした。トークンが間違っているか、取り消されたか、期限が切れています。このリポジトリの Contents の読み書きを許可した fine-grained のトークンを新しく作り、選択中のシークレットに保存してください。",
 	"check.forbidden":
-		"トークンは有効ですが、権限が足りません。{repository} の Contents の読み取りと書き込みの権限が必要です。",
-	"check.notFound": "{repository} が存在しないか、トークンにこのリポジトリへのアクセスが許可されていません。",
+		"トークンは有効ですが、権限が足りません。{repository} の Contents の読み取りと書き込みの権限が必要です。GitHub でトークンを編集し、{repository} の Contents を「Read and write」にしてください。",
+	"check.notFound":
+		"このトークンでは、{repository} というリポジトリが見つかりません。名前（owner/name）の綴りと、トークンの「Repository access」にこのリポジトリが入っているかを確かめてください。ほかのリポジトリだけに限ったトークンでも、同じ答えになります。",
 	"check.branchNotFound":
-		"{repository} に {branch} というブランチがありません。Sync Evo はブランチを作らないので、名前を確かめてください。",
+		"{repository} に {branch} というブランチがありません。設定のブランチの名前を確かめるか、先に GitHub でブランチを作ってください。",
 	"check.unreachable": "GitHub に接続できませんでした。ネットワーク接続を確かめて、もう一度試してください。",
 	"check.rateLimited": "GitHub のリクエスト数の上限に達しました。しばらくしてから、もう一度試してください。",
-	"check.other": "接続のテストに失敗しました：{detail}",
+	"check.other": "接続のテストに失敗しました（{detail}）。上の設定を確かめて、もう一度試してください。",
 	"check.noRepository": "先に、リポジトリを owner/name の形で入力してください。",
 	"check.noBranch": "先に、ブランチを入力してください。",
 	"check.noTokenSecret": "先に、トークンを保存したシークレットを選んでください。",
 	"check.noTokenValue":
-		"シークレット {name} に値がありません。トークンをこの名前で保存するか、別のシークレットを選んでください。",
+		"シークレット「{name}」が空です。トークンを貼り付けるか、別のシークレットを選んでください。",
 	"check.notSetUp":
 		"Sync Evo の設定が、まだ済んでいません。Sync Evo の設定画面で、同期するサービス（GitHub、Dropbox、Google Drive）を選び、求められる項目を入れてください。",
 
@@ -524,7 +525,7 @@ export const ja = completeTranslation(en, {
 	"push.count.deleted": "削除 {count} 件",
 	"push.summary": "アップロードが終わりました：{details}",
 	"push.nothing": "アップロードするものはありません。{remote} は最新です。",
-	"push.nothingSent": "何もアップロードしていません。アップロードできないファイルが残っています。理由は、知らせに出したとおりです。",
+	"push.nothingSent": "何もアップロードしていません。アップロードできないファイルが残っています。理由は、前回の同期の結果にあります。",
 	"push.recovered": "前回のアップロードは、できていました：{details}。このデバイスに記録しました。",
 	"push.recoveredUntrack": "前に行った {remote} からの削除は、できていました（{count} 件）。このデバイスに記録しました。このデバイスのファイルは、そのままです。",
 	"push.pullFirst.noBase":

@@ -394,7 +394,7 @@ describe("untracking", () => {
 		expect(await h.remote()).toEqual([".gitignore", "drafts/c.md", "notes/a.md"]);
 		expect(Object.keys(await h.records()).sort()).toEqual([".gitignore", "drafts/c.md", "notes/a.md"]);
 		expect(untrackReport(translatorFor("en"), result).details).toEqual([
-			"1 file was not removed from GitHub: another device changed it there first. The next sync takes it in. If it is still excluded then, remove it again:\ndrafts/c.md",
+			"1 file was not removed from GitHub: another device changed it there first. The next sync downloads it. If it is still excluded then, remove it again:\ndrafts/c.md",
 		]);
 	});
 

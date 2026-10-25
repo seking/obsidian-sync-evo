@@ -57,7 +57,7 @@ How it works, once it has started:
 - A device that first runs a Sync Evo with the paid plan when those 3 months are over, or nearly, is still free for 14 days from that day, so that you are told before it ends.
 - Once 14 days are left before your free time ends, and again once 7 days are left, Sync Evo tells you at the next sync.
 - After it ends, Sync Evo only downloads for 30 days, and uploads nothing. Then it stops syncing with Dropbox or Google Drive. Nothing is deleted, on your devices or in your Dropbox or Google Drive.
-- Enter the key in the settings of Sync Evo, on each device. Sync Evo checks it with Dodo Payments. When Dodo cannot be reached, a key that was valid keeps working for 14 days.
+- Enter the key in the Sync Evo settings, on each device. Sync Evo checks it with Dodo Payments. When Dodo cannot be reached, a key that was valid keeps working for 14 days.
 
 [Terms of service](https://gyap.jp/sync-evo/terms), including refunds.
 
