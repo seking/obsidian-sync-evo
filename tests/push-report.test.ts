@@ -654,7 +654,7 @@ describe("how a push ended", () => {
 		expect(part.details).toHaveLength(1);
 		expect(part.details[0]).toMatchObject({ level: "warn", standing: true });
 		expect(part.details[0]?.text).toBe(
-			"2 new files were not uploaded: their paths differ only in upper and lower case from another path on GitHub, or from another new file, and not every device can keep such paths apart. Rename them, and the next sync uploads them:\nCase.md\nnotes/x.md",
+			"2 new files were not uploaded: their paths differ only in upper and lower case from another path on GitHub, or from another new file. Some devices cannot tell such paths apart. Rename them, and the next sync uploads them:\nCase.md\nnotes/x.md",
 		);
 		expect(said(ja).details[0]?.text).toBe(
 			"2 件の新しいファイルを、アップロードしていません。GitHub のほかのパス、またはほかの新しいファイルと、大文字と小文字だけが違い、区別できないデバイスがあるためです。名前を変えると、次の同期でアップロードします：\nCase.md\nnotes/x.md",

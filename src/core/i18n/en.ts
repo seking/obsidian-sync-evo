@@ -699,8 +699,8 @@ export const en = baseCatalog({
 		other: "{count} files were not uploaded: there are files or folders in their place on {remote} that this device has not downloaded yet. Download first, then upload again:\n{list}",
 	},
 	"push.caseCollision": {
-		one: "{count} new file was not uploaded: its path differs only in upper and lower case from another path on {remote}, or from another new file, and not every device can keep such paths apart. Rename it, and the next sync uploads it:\n{list}",
-		other: "{count} new files were not uploaded: their paths differ only in upper and lower case from another path on {remote}, or from another new file, and not every device can keep such paths apart. Rename them, and the next sync uploads them:\n{list}",
+		one: "{count} new file was not uploaded: its path differs only in upper and lower case from another path on {remote}, or from another new file. Some devices cannot tell such paths apart. Rename it, and the next sync uploads it:\n{list}",
+		other: "{count} new files were not uploaded: their paths differ only in upper and lower case from another path on {remote}, or from another new file. Some devices cannot tell such paths apart. Rename them, and the next sync uploads them:\n{list}",
 	},
 	"push.notDownloaded": {
 		one: "{count} new file was not uploaded: it is not on this device yet (a cloud drive keeps only a placeholder). Have the cloud drive keep it on this device, then sync again:\n{list}",

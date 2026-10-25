@@ -503,6 +503,33 @@ describe("a sync the user starts, with settings that are not ready", () => {
 		expect(() => app.buttons[0]?.click()).not.toThrow();
 	});
 
+	test("its notice is taken down by the next sync the user starts, once the settings were put right without its button", async () => {
+		const { runner, tokens } = setup();
+		tokens["github-token"] = null;
+		await runner.run("sync");
+		const missing = app.notices[0];
+		expect(missing).toContain("github-token");
+		expect(app.hidden).toEqual([]);
+
+		tokens["github-token"] = "github_pat_SECRET";
+		await runner.run("sync");
+
+		expect(app.hidden.filter((text) => text === missing)).toHaveLength(1);
+		expect(app.notices).toContain(OFFLINE);
+		// Once: a later sync does not take it down again.
+		await runner.run("sync");
+		expect(app.hidden.filter((text) => text === missing)).toHaveLength(1);
+	});
+
+	test("a notice that stays of another kind is not taken down by it", async () => {
+		const { runner, tokens } = setup();
+		await runner.run("sync");
+		expect(app.notices).toContain(OFFLINE);
+		tokens["github-token"] = null;
+		await runner.run("sync");
+		expect(app.hidden).not.toContain(OFFLINE);
+	});
+
 	test("a sync that started by itself puts up no button, and goes by the notice it told once", async () => {
 		const { runner } = setup({ repository: "", tokenSecret: "" });
 		await runner.runAuto("full");

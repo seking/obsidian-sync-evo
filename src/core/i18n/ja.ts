@@ -198,7 +198,7 @@ export const ja = completeTranslation(en, {
 		"入にしている間は、全デバイスで Sync Evo を有効にしておいてください。有効でないデバイスがあると、このデバイスの Sync Evo も次の起動で無効になり、同期が止まります。",
 	"settings.exclusion.communityPlugins.warning":
 		"ほかのプラグインの data.json も同期されます（トークンなどが入っていることがあります）。ほかのデバイスから来たプラグインのコードが、このデバイスで動きます。信頼できるデバイスとリポジトリでだけ、入にしてください。",
-	"settings.exclusion.fixedOff.name": "効いていない除外",
+	"settings.exclusion.fixedOff.name": "効いていない初期設定の除外",
 	"settings.exclusion.fixedOff.desc":
 		"下の行で除外していた物（ゴミ箱、画面の配置のファイル、OS が残すファイルなど）が、今は同期されます。行が消されたか、後ろの ! で始まる行で打ち消されているためです。Sync Evo 自身のフォルダだけは、Sync Evo は同期しませんが、パソコンの git ではコミットされます。",
 	"settings.exclusion.fixedOff.restore": "元に戻す",

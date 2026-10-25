@@ -309,6 +309,9 @@ export class SyncRunner {
 	 * The notices of syncs that started by themselves that say a question
 	 * waits for a sync the user starts (`AutoReport.questions`), until one
 	 * does. They stay until dismissed, and would lie over that question.
+	 * So does the notice of a sync the user started with settings that were
+	 * not ready: once they are put right in the settings, without its
+	 * button, it would still say what is missing over the next sync.
 	 */
 	private questions: Notice[] = [];
 	/** The notices of this plugin that stay until they are tapped, with their text and level (`whileAsking`). */
@@ -516,7 +519,9 @@ export class SyncRunner {
 				// started has nothing else to show, and nothing is kept for
 				// the screen of the results.
 				const shown = nothingEntered(settings) ? t("check.notSetUp") : text;
-				this.show(shown, 0, "warn", { label: t("notice.openSettings"), run: () => openSettings(host.app, host.manifest.id) });
+				const notice = this.show(shown, 0, "warn", { label: t("notice.openSettings"), run: () => openSettings(host.app, host.manifest.id) });
+				// Taken down by the next sync the user starts (`hideQuestions`).
+				if (notice !== null) this.questions.push(notice);
 			} else {
 				// With a repository and a branch there is a connection, and a
 				// sync state to remember this in. Without, none is ever opened.
