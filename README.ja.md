@@ -89,8 +89,6 @@ Sync Evo は、まだコミュニティプラグインの一覧にありませ�
 
 ### Google Drive
 
-Google Drive には、Sync Evo 0.5.0 以降が要ります。0.5.0 は、まだ公開していません。今試すには、BRAT でベータを入れます。
-
 今は無料です。いずれ、3か月の無料の後にライセンスキーが要るようになる可能性があります。[料金](https://github.com/seking/obsidian-sync-evo/blob/main/README.ja.md#料金)
 
 1. 設定 → コミュニティプラグイン → Sync Evo で、**サービス**を**Google Drive**にします。

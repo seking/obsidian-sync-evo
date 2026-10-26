@@ -89,8 +89,6 @@ Free for now. It may later need a license key, after 3 months free. See [Pricing
 
 ### Google Drive
 
-Google Drive needs Sync Evo 0.5.0 or later, which is not released yet. To try it now, install the beta with BRAT.
-
 Free for now. It may later need a license key, after 3 months free. See [Pricing](https://github.com/seking/obsidian-sync-evo#pricing).
 
 1. In Settings → Community plugins → Sync Evo, set **Service** to **Google Drive**.
