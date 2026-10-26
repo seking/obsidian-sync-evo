@@ -175,6 +175,15 @@ export default class SyncEvoPlugin extends Plugin implements SettingsHost, SyncH
 	private dropboxAccess: { readonly refreshToken: string; readonly tokens: RefreshingTokens } | null = null;
 
 	/**
+	 * The `state` of each return from Dropbox taken up since the plugin
+	 * loaded. The same return can come twice (the browser may open
+	 * `obsidian://` twice); the second is passed over with no notice, as
+	 * it would otherwise tell that no sign-in waits, or exchange a code
+	 * already used.
+	 */
+	private readonly dropboxReturns = new Set<string>();
+
+	/**
 	 * The code asked of Google ahead of a press of "Connect", kept while it
 	 * lasts, so that drawing the settings again asks for none. Taken by the
 	 * press it is used for.
@@ -579,6 +588,14 @@ export default class SyncEvoPlugin extends Plugin implements SettingsHost, SyncH
 	/** What the browser brought back to `obsidian://sync-evo-dropbox`. Never rejects. */
 	private async finishDropboxSignIn(params: { readonly [key: string]: string | undefined }): Promise<void> {
 		const t = this.t;
+		const state = params.state;
+		if (state !== undefined) {
+			if (this.dropboxReturns.has(state)) {
+				log("dropbox: a return from the browser came again, and was passed over");
+				return;
+			}
+			this.dropboxReturns.add(state);
+		}
 		const http = deviceNetwork().http;
 		const pending = this.store.readSignIn();
 		const result = await finishSignIn(
