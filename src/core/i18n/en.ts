@@ -453,7 +453,11 @@ export const en = baseCatalog({
 		one: "{count} file that the rules Sync Evo added exclude is on {remote}. Sync Evo no longer syncs it on any device:",
 		other: "{count} files that the rules Sync Evo added exclude are on {remote}. Sync Evo no longer syncs them on any device:",
 	},
-	"section.added.brief": "Sync Evo added the lines it manages to .gitignore.",
+	// The one line a notice has for it; the lines are on the screen of the
+	// results. "Created": the vault had no .gitignore.
+	"section.added.brief": "Sync Evo added rules for what is not synced to .gitignore. You can change them in the Sync Evo settings.",
+	"section.added.briefCreated":
+		"Sync Evo wrote rules for what is not synced to a new .gitignore. You can change them in the Sync Evo settings.",
 	"section.added.untrackHint":
 		"To remove them from {remote}, use \"Remove from {remote}\" in the Sync Evo settings. The files on devices that use Sync Evo stay.",
 
@@ -863,6 +867,18 @@ export const en = baseCatalog({
 		"The repository is empty. If this vault has no .gitignore, an empty one is created and uploaded.",
 	"confirm.firstPush.remoteEmptyWithGitignore":
 		"The repository is empty.",
+	// Asked only of an empty repository that is public, or that GitHub did
+	// not say is private: an empty one is otherwise sent to without asking.
+	"confirm.firstPush.public": "This repository is public. Anyone can see the files that are uploaded.",
+	"confirm.firstPush.publicUnknown":
+		"Sync Evo could not find out whether this repository is public. If it is, anyone can see the files that are uploaded.",
+	// The one line under a list of a question that stands for the files
+	// Obsidian does not show (a name on the way starts with "."); pressed,
+	// it lists them.
+	"confirm.hiddenFiles": {
+		one: "And {count} hidden file, such as Obsidian's settings",
+		other: "And {count} hidden files, such as Obsidian's settings",
+	},
 	"confirm.firstPush.added": { one: "{count} file to add:", other: "{count} files to add:" },
 	"confirm.firstPush.modified": { one: "{count} file to modify:", other: "{count} files to modify:" },
 	"confirm.firstPush.deleted": { one: "{count} file to delete:", other: "{count} files to delete:" },
@@ -915,10 +931,6 @@ export const en = baseCatalog({
 		"Could not reach Dropbox. Check the network connection and try again.",
 	"check.rateLimited.dropbox":
 		"Dropbox asked to wait before more requests. Try again later.",
-	"confirm.firstPush.remoteEmpty.dropbox":
-		"The folder is not on Dropbox yet. If this vault has no .gitignore, an empty one is created and uploaded.",
-	"confirm.firstPush.remoteEmptyWithGitignore.dropbox":
-		"The folder is not on Dropbox yet.",
 	"pull.remoteEmpty.dropbox":
 		"The folder is not on Dropbox yet. There is nothing to download.",
 	"confirm.rewritten.title.dropbox":
@@ -944,10 +956,6 @@ export const en = baseCatalog({
 		"Could not reach Google Drive. Check the network connection and try again.",
 	"check.rateLimited.gdrive":
 		"Google Drive asked to wait before more requests. Try again later.",
-	"confirm.firstPush.remoteEmpty.gdrive":
-		"The folder is not on Google Drive yet. If this vault has no .gitignore, an empty one is created and uploaded.",
-	"confirm.firstPush.remoteEmptyWithGitignore.gdrive":
-		"The folder is not on Google Drive yet.",
 	"pull.remoteEmpty.gdrive":
 		"The folder is not on Google Drive yet. There is nothing to download.",
 	"confirm.rewritten.title.gdrive":

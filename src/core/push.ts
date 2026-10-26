@@ -37,10 +37,13 @@
 //    commits gets it as its first (`start`).
 // 4. The scan, with every open editor saved, the hashing, and the plan.
 // 5. Asking the user: before the first push of a sync state, and when the
-//    plan deletes too much. One question, also when both are a reason. The
-//    conflict copies that were tidied are deleted without being counted
-//    (`discountTidied`). Before that question, another one when every file
-//    with a record is gone from the vault (`askEmptyVault`).
+//    plan deletes too much. One question, also when both are a reason. Not
+//    before the first push to a remote without commits, unless anyone can
+//    see it (`Backend.isPublic`): nothing there is written over or deleted,
+//    and the result tells what was sent. The conflict copies that were
+//    tidied are deleted without being counted (`discountTidied`). Before
+//    that question, another one when every file with a record is gone from
+//    the vault (`askEmptyVault`).
 // 6. For a remote without commits, its first: the `.gitignore` alone
 //    (`start`). The rest is sent on top of it.
 // 7. Sending. Each file is read when it is sent, and recorded as it was
@@ -163,6 +166,14 @@ export interface PushConfirmRequest {
 	 */
 	readonly remoteEmpty: boolean;
 	/**
+	 * Only with `remoteEmpty`, and only when it was asked of the remote:
+	 * whether the repository is public, `null` when that could not be found
+	 * out. A push the user started does not ask about an empty remote that
+	 * is known not to be public; one that started by itself asks, without
+	 * having asked the remote (`PushDeps.automatic`).
+	 */
+	readonly remotePublic?: boolean | null;
+	/**
 	 * The files the push deletes on the remote that count toward the
 	 * threshold, when they are past it; `null` when they are not. After the
 	 * question about a vault without its files was answered "delete"
@@ -231,7 +242,7 @@ export interface PushProgress {
 export interface PushDeps {
 	/** The sync state, opened. */
 	readonly store: StateStore;
-	readonly backend: Pick<Backend, "hashContent" | "list" | "checkBase" | "push" | "start">;
+	readonly backend: Pick<Backend, "hashContent" | "list" | "checkBase" | "push" | "start" | "isPublic">;
 	readonly vault: PushVault;
 	/** The configuration folder and the plugin's own folder. */
 	readonly paths: ExclusionPaths;
@@ -269,6 +280,13 @@ export interface PushDeps {
 	 * says no; it is there for a caller that is about something else.
 	 */
 	readonly addSection?: boolean;
+	/**
+	 * Set for a push that started by itself. It does not give an empty
+	 * remote its first push, which is all of the vault and long: the
+	 * question is asked as before (and answered "later"), and the push
+	 * waits for one the user starts, which sends without asking (D-2).
+	 */
+	readonly automatic?: boolean;
 	/**
 	 * Set for the light check, as for a pull (`PullDeps.index`): the vault
 	 * is not walked. A new file with a `.` name somewhere in its path is
@@ -576,6 +594,18 @@ class PushRun {
 		}
 	}
 
+	/** Whether the remote is public (`Backend.isPublic`); `null` also when asking failed. */
+	private async publicity(): Promise<boolean | null> {
+		const { backend } = this.deps;
+		if (backend.isPublic === undefined) return false;
+		try {
+			return await backend.isPublic();
+		} catch (error) {
+			if (error instanceof BackendError && error.kind === "cancelled") throw error;
+			return null;
+		}
+	}
+
 	private aborted(): boolean {
 		return this.deps.signal?.aborted === true;
 	}
@@ -819,12 +849,23 @@ class PushRun {
 		// The reasons to ask, in one question. No answer is remembered
 		// here: a push that fails is counted and asked again,
 		// and the first push counts as asked once one has gone through.
-		// Before anything goes to a remote without commits, the question is
-		// also the one a first fetch would have asked (`first-fetch.ts`),
-		// which a push alone never comes by: everything in the vault is
-		// about to be sent to the repository it names.
-		const firstDue =
+		// Before anything goes to a remote without commits that is public,
+		// the question is also the one a first fetch would have asked
+		// (`first-fetch.ts`), which a push alone never comes by: everything
+		// in the vault is about to be sent to the repository it names.
+		let firstDue =
 			(await store.getMeta(FIRST_PUSH_CONFIRMED_KEY)) !== true || (starting && !(await isFirstFetchConfirmed(store)));
+		// An empty remote is sent to without a question (D-2): nothing on it
+		// is written over or deleted, and it was most likely made for this
+		// very vault. Not one that anyone can see, which a file is public
+		// on for good once sent; nor one of which that is not known. Once
+		// this push has gone through, the same marks are set as after a
+		// "yes" (`start`, `finishPush`), so that nothing asks later.
+		let remotePublic: boolean | null | undefined;
+		if (firstDue && starting && deps.automatic !== true) {
+			remotePublic = await this.asked(() => this.publicity());
+			if (remotePublic === false) firstDue = false;
+		}
 		// First, and alone: the vault may be one that was made again, and
 		// then nothing of what the other question lists is the user's doing.
 		if (missing !== null) {
@@ -842,6 +883,7 @@ class PushRun {
 			const answer = await deps.confirm({
 				firstPush: firstDue ? files : null,
 				remoteEmpty: starting,
+				...(firstDue && remotePublic !== undefined ? { remotePublic } : {}),
 				deletions: !guardDue ? null : missing === null ? plan.countedDeletions : files.deleted,
 				recordCount: plan.recordCount,
 				...(missing === null || firstDue ? {} : { alsoSent: { added: files.added, modified: files.modified } }),

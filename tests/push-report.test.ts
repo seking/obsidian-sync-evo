@@ -95,7 +95,7 @@ describe("the line of progress of a push", () => {
 });
 
 describe("the question a push stops with", () => {
-	test("before the first push: where it goes, and every file by what happens to it", () => {
+	test("before the first push: where it goes, and every file by what happens to it, those Obsidian does not show folded", () => {
 		const question = pushQuestion(t, target, {
 			firstPush: { added: [".obsidian/graph.json", "new.md"], modified: ["edit.md"], deleted: [] },
 			deletions: null,
@@ -107,11 +107,52 @@ describe("the question a push stops with", () => {
 				{
 					text: "This is the first upload from this device to octo/notes, branch main. It changes what is on GitHub as listed below. Once an upload has gone through, later uploads do not show this list.",
 				},
-				{ text: "2 files to add:", paths: { shown: [".obsidian/graph.json", "new.md"], more: 0 } },
+				{ text: "2 files to add:", paths: { shown: ["new.md"], more: 0 } },
+				{
+					text: "And 1 hidden file, such as Obsidian's settings",
+					folded: { paths: { shown: [".obsidian/graph.json"], more: 0 }, notes: [] },
+				},
 				{ text: "1 file to modify:", paths: { shown: ["edit.md"], more: 0 } },
 			],
 			note: "If you cancel, nothing is uploaded and nothing is changed.",
 		});
+	});
+
+	test("a file is hidden by a name anywhere on its way that starts with a dot; each list folds its own, also when it has nothing else", () => {
+		const question = pushQuestion(ja, target, {
+			firstPush: {
+				added: [".gitignore", ".obsidian/app.json", "notes/.drafts/a.md", "notes/a.md", "x.md"],
+				modified: [".obsidian/workspace.json"],
+				deleted: [],
+			},
+			deletions: null,
+			remoteEmpty: false,
+			recordCount: 3,
+		});
+		expect(question.parts.slice(1)).toEqual([
+			{ text: "追加するファイル：5 件", paths: { shown: ["notes/a.md", "x.md"], more: 0 } },
+			{
+				text: "ほかに、Obsidian の設定など、見えないファイル 3 件",
+				folded: { paths: { shown: [".gitignore", ".obsidian/app.json", "notes/.drafts/a.md"], more: 0 }, notes: [] },
+			},
+			// Every file of the list is hidden: the count stays, with the line that opens on them.
+			{ text: "変更するファイル：1 件" },
+			{
+				text: "ほかに、Obsidian の設定など、見えないファイル 1 件",
+				folded: { paths: { shown: [".obsidian/workspace.json"], more: 0 }, notes: [] },
+			},
+		]);
+	});
+
+	test("the hidden files stop at fifty too, apart from the others", () => {
+		const hidden = Array.from({ length: 55 }, (_, i) => `.obsidian/p${i}.json`);
+		const shown = Array.from({ length: 52 }, (_, i) => `n${i}.md`);
+		const question = pushQuestion(t, target, { firstPush: { added: [...hidden, ...shown], modified: [], deleted: [] }, deletions: null, remoteEmpty: false, recordCount: 0 });
+		expect(question.parts[1]).toMatchObject({ text: "107 files to add:", paths: { more: 2 } });
+		expect(question.parts[1]?.paths?.shown).toHaveLength(50);
+		expect(question.parts[2]?.text).toBe("And 55 hidden files, such as Obsidian's settings");
+		expect(question.parts[2]?.folded?.paths.shown).toHaveLength(50);
+		expect(question.parts[2]?.folded?.paths.more).toBe(5);
 	});
 
 	test("the lists stop at fifty paths", () => {
@@ -146,7 +187,11 @@ describe("the question a push stops with", () => {
 		expect(question.title).toBe("Confirm deletions");
 		expect(question.parts.slice(1)).toEqual([
 			{ text: "The same upload also includes the files below." },
-			{ text: "2 files to modify:", paths: { shown: [".obsidian/app.json", ".obsidian/core-plugins.json"], more: 0 } },
+			{ text: "2 files to modify:" },
+			{
+				text: "And 2 hidden files, such as Obsidian's settings",
+				folded: { paths: { shown: [".obsidian/app.json", ".obsidian/core-plugins.json"], more: 0 }, notes: [] },
+			},
 			{ text: "1 file to add:", paths: { shown: ["new.md"], more: 0 } },
 		]);
 		const bare = pushQuestion(t, target, { firstPush: null, deletions: ["a.md"], remoteEmpty: false, recordCount: 3, alsoSent: { added: [], modified: [] } });
@@ -238,22 +283,39 @@ describe("the question a push stops with", () => {
 });
 
 describe("the question before the first push to a remote without commits", () => {
-	test("says that the remote is empty, and that two commits are made", () => {
-		const request = {
-			firstPush: { added: [".gitignore", "a.md"], modified: [], deleted: [] },
-			remoteEmpty: true,
-			deletions: null,
-			recordCount: 0,
-		};
+	// Asked only of a public repository, or one GitHub did not say is private.
+	const request = {
+		firstPush: { added: [".gitignore", "a.md"], modified: [], deleted: [] },
+		remoteEmpty: true,
+		remotePublic: true,
+		deletions: null,
+		recordCount: 0,
+	} as const;
+
+	test("says that the remote is empty and public, and that two commits are made", () => {
 		const texts = pushQuestion(t, target, request).parts.map((part) => part.text);
 		expect(texts[0]).toContain("octo/notes");
 		expect(texts[1]).toBe(
 			"The repository is empty. If this vault has no .gitignore, an empty one is created and uploaded.",
 		);
-		expect(texts[2]).toBe("2 files to add:");
-		expect(pushQuestion(ja, target, request).parts[1]?.text).toContain("リポジトリは空で");
+		expect(texts[2]).toBe("This repository is public. Anyone can see the files that are uploaded.");
+		expect(texts[3]).toBe("2 files to add:");
+		expect(pushQuestion(ja, target, request).parts.slice(1, 3).map((part) => part.text)).toEqual([
+			"リポジトリは空です。この保管庫に .gitignore が無い時は、空の .gitignore を作ってアップロードします。",
+			"このリポジトリは公開されています。アップロードしたファイルは、誰でも見られます。",
+		]);
 		// Not when the remote has commits.
-		expect(pushQuestion(t, target, { ...request, remoteEmpty: false }).parts).toHaveLength(2);
+		expect(pushQuestion(t, target, { ...request, remoteEmpty: false }).parts).toHaveLength(3);
+	});
+
+	test("says so when it is not known whether the repository is public", () => {
+		const texts = pushQuestion(ja, target, { ...request, remotePublic: null }).parts.map((part) => part.text);
+		expect(texts[2]).toBe(
+			"このリポジトリが公開されているかどうかを、確かめられませんでした。公開されている時は、アップロードしたファイルを誰でも見られます。",
+		);
+		expect(pushQuestion(t, target, { ...request, remotePublic: null }).parts[2]?.text).toBe(
+			"Sync Evo could not find out whether this repository is public. If it is, anyone can see the files that are uploaded.",
+		);
 	});
 });
 
@@ -280,14 +342,15 @@ describe("the section a push added to .gitignore", () => {
 				folded: { paths: { shown: lines, more: 0 }, notes: [unwanted, outside, "This upload includes the change."] },
 			},
 			{ text: "1 file to add:", paths: { shown: ["new.md"], more: 0 } },
-			{ text: "1 file to modify:", paths: { shown: [".gitignore"], more: 0 } },
+			{ text: "1 file to modify:" },
+			{ text: "And 1 hidden file, such as Obsidian's settings", folded: { paths: { shown: [".gitignore"], more: 0 }, notes: [] } },
 		]);
 		expect(question.note).toBe(
 			"If you cancel, nothing is uploaded. The lines added to .gitignore stay on this device, and the next upload includes them.",
 		);
 		// Without it, the question is the one it was.
-		expect(pushQuestion(t, target, request).parts).toHaveLength(3);
-		expect(question.parts).toHaveLength(4);
+		expect(pushQuestion(t, target, request).parts).toHaveLength(4);
+		expect(question.parts).toHaveLength(5);
 		expect(pushQuestion(t, target, request).note).toBe("If you cancel, nothing is uploaded and nothing is changed.");
 	});
 
@@ -302,15 +365,16 @@ describe("the section a push added to .gitignore", () => {
 		expect(question.parts[3]).toEqual({
 			text: "To remove them from GitHub, use \"Remove from GitHub\" in the Sync Evo settings. The files on devices that use Sync Evo stay.",
 		});
-		expect(question.parts).toHaveLength(6);
+		expect(question.parts).toHaveLength(7);
 		const one = pushQuestion(t, target, { ...request, sectionAdded: { ...added, tracked: [".DS_Store"] } });
 		expect(one.parts[2]?.text).toBe("1 file that the rules Sync Evo added exclude is on GitHub. Sync Evo no longer syncs it on any device:");
 	});
 
 	test("a .gitignore that was made says so, and nothing about the rest of the file; no empty one is promised for an empty remote", () => {
-		const question = pushQuestion(t, target, { ...request, remoteEmpty: true, sectionAdded: { ...added, created: true } });
-		expect(question.parts.slice(1, 3)).toEqual([
+		const question = pushQuestion(t, target, { ...request, remoteEmpty: true, remotePublic: true, sectionAdded: { ...added, created: true } });
+		expect(question.parts.slice(1, 4)).toEqual([
 			{ text: "The repository is empty." },
+			{ text: "This repository is public. Anyone can see the files that are uploaded." },
 			{
 				text: "This vault had no .gitignore, so Sync Evo created one with 2 rules for what is not synced. You can change them in the Sync Evo settings.",
 				folded: { paths: { shown: lines, more: 0 }, notes: [unwanted, "This upload includes the change."] },
@@ -719,10 +783,50 @@ describe("how much each thing a push tells matters", () => {
 		const section = { lines: ["# >>> Sync Evo", "/.trash/", "# <<< Sync Evo"], created: false, tracked, asked: false, sent: true };
 		const [detail] = pushDetails(t, result({ sectionAdded: section }), options);
 		expect(detail?.level).toBe("info");
-		expect(detail?.brief).toBe("Sync Evo added the lines it manages to .gitignore.");
+		expect(detail?.brief).toBe("Sync Evo added rules for what is not synced to .gitignore. You can change them in the Sync Evo settings.");
 		expect(detail?.text).toBe(sectionAddedText(t, section, "sent"));
 		expect(detail?.full).toBe(sectionAddedText(t, section, "sent", Number.POSITIVE_INFINITY));
 		expect(detail?.full).toContain(tracked.join("\n"));
+		// The screen of the results folds the lines, as the question does, and lists every file they match.
+		expect(detail?.parts).toEqual([
+			{
+				text: "Sync Evo added 1 rule for what is not synced to the .gitignore of this vault. You can change it in the Sync Evo settings.",
+				folded: {
+					paths: { shown: section.lines, more: 0 },
+					notes: [
+						"These are the lines Sync Evo manages. If you do not want them, delete the lines in between and keep the first and the last line (the two that start with #): if those two are deleted as well, the next sync adds the lines again.",
+						"Nothing else in .gitignore was changed.",
+						"This upload included the change.",
+					],
+				},
+			},
+			{
+				text: "6 files that the rules Sync Evo added exclude are on GitHub. Sync Evo no longer syncs them on any device:",
+				paths: { shown: tracked, more: 0 },
+			},
+			{ text: "To remove them from GitHub, use \"Remove from GitHub\" in the Sync Evo settings. The files on devices that use Sync Evo stay." },
+		]);
+	});
+
+	test("a push that asked nothing has one short line for the section in its notice, in Japanese too", () => {
+		const lines = ["# >>> Sync Evo", "/.trash/", ".DS_Store", "# <<< Sync Evo"];
+		const brief = (created: boolean): string | undefined =>
+			pushDetails(ja, result({ sectionAdded: { lines, created, tracked: [], asked: false, sent: true } }), options)[0]?.brief;
+		expect(brief(true)).toBe("同期しない物の規則を .gitignore に書きました。Sync Evo の設定画面で変えられます。");
+		expect(brief(false)).toBe("同期しない物の規則を .gitignore に足しました。Sync Evo の設定画面で変えられます。");
+		const [made] = pushDetails(ja, result({ sectionAdded: { lines, created: true, tracked: [], asked: false, sent: false } }), options);
+		expect(made?.parts).toEqual([
+			{
+				text: "この保管庫に .gitignore が無かったので、同期しない物の規則（2 件）を書いて作りました。Sync Evo の設定画面で変えられます。",
+				folded: {
+					paths: { shown: lines, more: 0 },
+					notes: [
+						"Sync Evo が管理する行です。要らない時は、最初と最後の行（# で始まる2行）だけを残して、間の行を消してください。その2行も消すと、次の同期でまた足します。",
+						"この変更は、まだアップロードしていません。次の同期でアップロードします。",
+					],
+				},
+			},
+		]);
 	});
 
 	test("a notice lists the first files of a kind, the screen of the results all of them", () => {

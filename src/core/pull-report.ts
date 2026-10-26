@@ -73,7 +73,8 @@ export interface QuestionPart {
 	 * that stands for them, and these are under it. For what is long and
 	 * read only by who wants to, so that a phone does not have to be
 	 * scrolled past it to the lists and the buttons. Every dialog draws it
-	 * (`renderQuestionPart`), though only the push's question has one yet.
+	 * (`renderQuestionPart`), and so does the screen of the results
+	 * (`ReportDetail.parts`).
 	 */
 	readonly folded?: FoldedPart;
 }
@@ -391,6 +392,12 @@ export interface ReportDetail {
 	readonly full: string;
 	/** For "info": the short line the summary gets in its place, with the count alone. */
 	readonly brief?: string;
+	/**
+	 * What the screen of the results shows in place of `full`, where some
+	 * of it is long and read only by who wants to: folded, as in a question
+	 * (`QuestionPart.folded`). `full` is still what is copied.
+	 */
+	readonly parts?: readonly QuestionPart[];
 	readonly level: NoticeLevel;
 	readonly standing: boolean;
 }
@@ -404,11 +411,13 @@ export function reportDetail(
 	standing: boolean,
 	words: (limit: number) => string,
 	brief?: string,
+	parts?: readonly QuestionPart[],
 ): ReportDetail {
 	return {
 		text: words(NOTICE_LIST_LIMIT),
 		full: words(NO_LIST_LIMIT),
 		...(brief === undefined ? {} : { brief }),
+		...(parts === undefined ? {} : { parts }),
 		level,
 		standing,
 	};

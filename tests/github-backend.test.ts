@@ -49,6 +49,15 @@ class FakeClient implements GitHubBackendClient {
 		return "main";
 	}
 
+	/** What `isPrivate` answers, or the failure it throws. */
+	privacy: boolean | BackendError = true;
+
+	async isPrivate(): Promise<boolean> {
+		this.calls.push("isPrivate");
+		if (this.privacy instanceof BackendError) throw this.privacy;
+		return this.privacy;
+	}
+
 	async createFile(path: string): Promise<CreatedFile> {
 		this.calls.push(`createFile ${path}`);
 		return { commitSha: A, blobSha: T, parents: 0 };
@@ -635,6 +644,23 @@ describe("hashContent", () => {
 		const content = new Uint8Array(4 * 1024 * 1024 + 1);
 		expect(await backend.hashContent(content)).toBe(blobHash(content));
 		expect(yields).toBe(1);
+	});
+});
+
+describe("isPublic", () => {
+	test("is the other way round of what the repository says of being private", async () => {
+		const client = new FakeClient();
+		expect(await new GitHubBackend(client).isPublic()).toBe(false);
+		client.privacy = false;
+		expect(await new GitHubBackend(client).isPublic()).toBe(true);
+	});
+
+	test("is not known when GitHub could not be asked; a stop is thrown", async () => {
+		const client = new FakeClient();
+		client.privacy = new BackendError("unreachable", "offline");
+		expect(await new GitHubBackend(client).isPublic()).toBeNull();
+		client.privacy = new BackendError("cancelled", "stopped");
+		await expect(new GitHubBackend(client).isPublic()).rejects.toMatchObject({ kind: "cancelled" });
 	});
 });
 

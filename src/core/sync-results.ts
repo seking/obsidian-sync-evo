@@ -14,7 +14,14 @@
 // leaves on the screen of the results: the last syncs that had something
 // to tell, each with every path, which a notice lists only the first of.
 
-import { dateTime, type NoticeLevel, type PartReport, type ReportDetail } from "./pull-report";
+import {
+	type CappedList,
+	dateTime,
+	type NoticeLevel,
+	type PartReport,
+	type QuestionPart,
+	type ReportDetail,
+} from "./pull-report";
 import type { Translate } from "./i18n";
 
 /** How many syncs the screen of the results keeps, the newest first. */
@@ -32,7 +39,10 @@ export interface ShownNotice {
 /** One thing a sync told, with every path. */
 export interface ResultItem {
 	readonly level: NoticeLevel;
+	/** What is copied, and what the screen shows without `parts`. */
 	readonly text: string;
+	/** What the screen shows in place of `text`, with what is long folded (`ReportDetail.parts`). */
+	readonly parts?: readonly QuestionPart[];
 }
 
 /** A sync that had something to tell, as the screen of the results shows it. */
@@ -47,7 +57,7 @@ export interface SyncResult {
 }
 
 export function resultItem(detail: ReportDetail): ResultItem {
-	return { level: detail.level, text: detail.full };
+	return { level: detail.level, text: detail.full, ...(detail.parts === undefined ? {} : { parts: detail.parts }) };
 }
 
 /** Whether a notice leaves out some of what a detail says: paths past the first few, or all of it but a line. */
@@ -122,10 +132,10 @@ export function levelHeading(t: Translate, level: NoticeLevel): string {
 export function resultSections(
 	t: Translate,
 	result: SyncResult,
-): { readonly heading: string; readonly texts: readonly string[] }[] {
+): { readonly heading: string; readonly items: readonly ResultItem[] }[] {
 	return LEVELS.flatMap((level) => {
-		const texts = result.items.filter((item) => item.level === level).map((item) => item.text);
-		return texts.length === 0 ? [] : [{ heading: levelHeading(t, level), texts }];
+		const items = result.items.filter((item) => item.level === level);
+		return items.length === 0 ? [] : [{ heading: levelHeading(t, level), items }];
 	});
 }
 
@@ -139,7 +149,9 @@ export function resultsText(t: Translate, results: readonly SyncResult[]): strin
 	return results
 		.map((result) => {
 			const lines = [`# ${resultTitle(t, result)}`, ...result.summaries];
-			for (const section of resultSections(t, result)) lines.push("", `## ${section.heading}`, paragraphs(section.texts));
+			for (const section of resultSections(t, result)) {
+				lines.push("", `## ${section.heading}`, paragraphs(section.items.map((item) => item.text)));
+			}
 			return lines.join("\n");
 		})
 		.join("\n\n");
@@ -152,7 +164,10 @@ export function resultsText(t: Translate, results: readonly SyncResult[]): strin
  */
 export function readResults(stored: unknown): SyncResult[] {
 	if (!Array.isArray(stored)) return [];
-	return stored.filter(isSyncResult).slice(0, RESULTS_KEPT);
+	return stored
+		.filter(isSyncResult)
+		.slice(0, RESULTS_KEPT)
+		.map((result) => ({ ...result, items: result.items.map(drawable) }));
 }
 
 function isSyncResult(value: unknown): value is SyncResult {
@@ -172,4 +187,28 @@ function isResultItem(value: unknown): value is ResultItem {
 	if (typeof value !== "object" || value === null) return false;
 	const { level, text } = value as Record<string, unknown>;
 	return typeof text === "string" && LEVELS.includes(level as NoticeLevel);
+}
+
+// Parts that another version stored and this one cannot draw are let go
+// of: the item is then shown as its text, which says all of it.
+function drawable(item: ResultItem): ResultItem {
+	const parts: unknown = item.parts;
+	if (parts === undefined || (Array.isArray(parts) && parts.every(isQuestionPart))) return item;
+	return { level: item.level, text: item.text };
+}
+
+function isQuestionPart(value: unknown): value is QuestionPart {
+	if (typeof value !== "object" || value === null) return false;
+	const { text, paths, folded } = value as Record<string, unknown>;
+	if (typeof text !== "string" || (paths !== undefined && !isPathList(paths))) return false;
+	if (folded === undefined) return true;
+	if (typeof folded !== "object" || folded === null) return false;
+	const fold = folded as Record<string, unknown>;
+	return isPathList(fold.paths) && Array.isArray(fold.notes) && fold.notes.every((note) => typeof note === "string");
+}
+
+function isPathList(value: unknown): value is CappedList<string> {
+	if (typeof value !== "object" || value === null) return false;
+	const { shown, more } = value as Record<string, unknown>;
+	return Array.isArray(shown) && shown.every((path) => typeof path === "string") && typeof more === "number";
 }

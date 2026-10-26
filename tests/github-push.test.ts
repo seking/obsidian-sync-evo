@@ -1435,6 +1435,8 @@ describe("the first commit of a repository without commits", () => {
 		vault.putAll({ ".gitignore": "private/\n", "a.md": "A", "notes/b.md": "B", "private/x.md": "X", ".trash/old.md": "O" }, now() - 60_000);
 		const expected = withSection("private/\n", defaultSectionLines(paths));
 		const asked: PushConfirmRequest[] = [];
+		// A public one: the question shows the section.
+		github.private = false;
 
 		// As the app runs it: `addSection` is left out.
 		const pushed = await runPush({
@@ -1454,6 +1456,7 @@ describe("the first commit of a repository without commits", () => {
 		expect(pushed).toMatchObject({ outcome: "pushed", counts: { added: 3, modified: 0, deleted: 0 } });
 		expect(pushed.sectionAdded).toMatchObject({ created: false, tracked: [], asked: true, sent: true });
 		expect(asked[0]?.sectionAdded?.lines).toEqual(expected.split("\n").slice(0, -2));
+		expect(asked[0]?.remotePublic).toBe(true);
 		expect(vault.text(".gitignore")).toBe(expected);
 		// Two commits: the `.gitignore` alone, by the one request that works
 		// in an empty repository, and the rest on top of it.
@@ -1466,6 +1469,47 @@ describe("the first commit of a repository without commits", () => {
 		expect([...(github.trees.get(parent?.tree ?? "")?.keys() ?? [])]).toEqual([".gitignore"]);
 		expect(github.text(".gitignore")).toBe(expected);
 		expect([...github.files().keys()].sort()).toEqual([".gitignore", "a.md", "notes/b.md"]);
+	});
+
+	test("whether the repository is public is what GitHub says of it, and not known when it does not say", async () => {
+		const { github, backend } = setup();
+		expect(await backend.isPublic()).toBe(false);
+		github.private = false;
+		expect(await backend.isPublic()).toBe(true);
+		expect(github.requests.filter((request) => request.method === "GET" && request.path === "")).toHaveLength(2);
+		// Without the field, or with a failure: the caller then asks, as of a public one.
+		github.before = (request) => (request.path === "" ? respond(200, { default_branch: "main" }) : undefined);
+		expect(await backend.isPublic()).toBeNull();
+		github.before = (request) => (request.path === "" ? respond(404, { message: "Not Found" }) : undefined);
+		expect(await backend.isPublic()).toBeNull();
+	});
+
+	test("a push of the app to a private repository asks nothing, and the result tells the section", async () => {
+		const { github, backend } = setup();
+		const paths = { configDir: ".obsidian", pluginDir: ".obsidian/plugins/sync-evo" };
+		const now = (): number => Date.UTC(2026, 9, 3, 12, 0, 0);
+		const vault = new MemoryPullVault({ caseSensitive: true, now });
+		vault.putAll({ "a.md": "A" }, now() - 60_000);
+		const asked: PushConfirmRequest[] = [];
+
+		const pushed = await runPush({
+			store: new MemoryStateStore(),
+			backend,
+			vault,
+			paths,
+			deviceName: "iPhone",
+			now,
+			confirm: async (request) => {
+				asked.push(request);
+				return "proceed";
+			},
+			askEmptyVault: async () => "delete",
+		});
+
+		expect(asked).toEqual([]);
+		expect(pushed).toMatchObject({ outcome: "pushed", counts: { added: 2, modified: 0, deleted: 0 } });
+		expect(pushed.sectionAdded).toMatchObject({ created: true, asked: false, sent: true });
+		expect([...github.files().keys()].sort()).toEqual([".gitignore", "a.md"]);
 	});
 
 	test("is one file on the default branch, made with the one request that works there", async () => {

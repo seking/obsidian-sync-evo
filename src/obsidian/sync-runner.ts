@@ -78,6 +78,7 @@ import {
 	pushPart,
 	pushProgressText,
 	pushStoppedText,
+	sectionAddedParts,
 	sectionAddedText,
 } from "../core/push-report";
 import { SentBlobMemory } from "../core/sent-blobs";
@@ -869,8 +870,9 @@ export class SyncRunner {
 				// that the remote did not send. Without the section its lines
 				// are applied all the same (`effectiveRules`), so what is
 				// sent is the same; the next push the user starts adds it,
-				// and tells of it.
-				...(auto === null ? {} : { addSection: false }),
+				// and tells of it. Nor does it give an empty remote its
+				// first push (`PushDeps.automatic`).
+				...(auto === null ? {} : { addSection: false, automatic: true }),
 				...beingEdited,
 				onProgress: (progress) => {
 					this.debt.syncReached(check, progress.phase);
@@ -972,7 +974,11 @@ export class SyncRunner {
 				if (cancelled && this.stopping && !this.connectionChanged) this.summaries.push(text);
 				else this.told.push({ level, text });
 				if (section !== null) {
-					this.told.push({ level: "info", text: sectionAddedText(t, section, "unknown", Number.POSITIVE_INFINITY) });
+					this.told.push({
+						level: "info",
+						text: sectionAddedText(t, section, "unknown", Number.POSITIVE_INFINITY),
+						parts: sectionAddedParts(t, section, "unknown"),
+					});
 				}
 			}
 		} finally {

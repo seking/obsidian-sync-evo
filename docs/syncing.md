@@ -115,7 +115,7 @@ Sync Evo stops and asks before it goes on when:
 - a download or an upload would delete many files: more than 50, or more than 5 that are also more than a tenth of all files.
 - an upload finds none of the files it synced before in the vault, however few they are. A vault whose folder was deleted and created again looks like this. Sync Evo can then download them again from the remote instead of deleting them there.
 - the first download finds files in the vault that differ from the remote's.
-- a device uploads for the first time.
+- a device uploads for the first time. Not when the remote is empty (an empty repository, or a folder that is not there yet): nothing on it is written over or deleted, and the result tells what was uploaded. Except for a public repository, which anyone can see.
 - the history of the repository was rewritten (a force push).
 
 ## Commands

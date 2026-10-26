@@ -19,6 +19,7 @@ import {
 	resultTitle,
 	type SyncResult,
 } from "../core/sync-results";
+import { renderQuestionPart } from "./pull-confirm";
 import type { ResultsStore } from "./results-store";
 
 /**
@@ -72,7 +73,15 @@ class ResultsModal extends Modal {
 			for (const line of result.summaries) sync.createEl("p", { text: line, cls: "sync-evo-result-text" });
 			for (const section of resultSections(t, result)) {
 				sync.createDiv({ cls: "sync-evo-subheading", text: section.heading });
-				for (const text of section.texts) sync.createEl("p", { text, cls: "sync-evo-result-text" });
+				for (const item of section.items) {
+					if (item.parts === undefined) {
+						sync.createEl("p", { text: item.text, cls: "sync-evo-result-text" });
+						continue;
+					}
+					// As a question draws it: what is long is a line that opens.
+					const parts = sync.createDiv({ cls: "sync-evo-result-text" });
+					for (const part of item.parts) renderQuestionPart(parts, t, part);
+				}
 			}
 		});
 

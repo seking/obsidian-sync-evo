@@ -384,7 +384,8 @@ export const ja = completeTranslation(en, {
 	"section.added.howTo":
 		"これらの行は、Sync Evo の設定画面で変えられます。要らない時は、最初と最後の行（# で始まる2行）だけを残して、間の行を消してください。その2行も消すと、次の同期でまた足します。",
 	"section.added.tracked": "Sync Evo が足した規則で除外しているファイルが、{remote} に {count} 件あります。どのデバイスの Sync Evo も、これらを同期しなくなります：",
-	"section.added.brief": ".gitignore に、Sync Evo が管理する行を足しました。",
+	"section.added.brief": "同期しない物の規則を .gitignore に足しました。Sync Evo の設定画面で変えられます。",
+	"section.added.briefCreated": "同期しない物の規則を .gitignore に書きました。Sync Evo の設定画面で変えられます。",
 	"section.added.untrackHint": "{remote} から消すには、Sync Evo の設定画面で「{remote} から削除」を行います。Sync Evo のデバイスのファイルは残ります。",
 
 	"list.separator": "、",
@@ -654,6 +655,10 @@ export const ja = completeTranslation(en, {
 	"confirm.firstPush.remoteEmpty":
 		"リポジトリは空です。この保管庫に .gitignore が無い時は、空の .gitignore を作ってアップロードします。",
 	"confirm.firstPush.remoteEmptyWithGitignore": "リポジトリは空です。",
+	"confirm.firstPush.public": "このリポジトリは公開されています。アップロードしたファイルは、誰でも見られます。",
+	"confirm.firstPush.publicUnknown":
+		"このリポジトリが公開されているかどうかを、確かめられませんでした。公開されている時は、アップロードしたファイルを誰でも見られます。",
+	"confirm.hiddenFiles": "ほかに、Obsidian の設定など、見えないファイル {count} 件",
 	"confirm.firstPush.added": "追加するファイル：{count} 件",
 	"confirm.firstPush.modified": "変更するファイル：{count} 件",
 	"confirm.firstPush.deleted": "削除するファイル：{count} 件",
@@ -693,10 +698,6 @@ export const ja = completeTranslation(en, {
 		"Dropbox に接続できませんでした。ネットワーク接続を確かめて、もう一度試してください。",
 	"check.rateLimited.dropbox":
 		"Dropbox が、しばらく待つよう求めています。しばらくしてから、もう一度試してください。",
-	"confirm.firstPush.remoteEmpty.dropbox":
-		"Dropbox に、このフォルダはまだありません。この保管庫に .gitignore が無い時は、空の .gitignore を作ってアップロードします。",
-	"confirm.firstPush.remoteEmptyWithGitignore.dropbox":
-		"Dropbox に、このフォルダはまだありません。",
 	"pull.remoteEmpty.dropbox":
 		"Dropbox に、このフォルダはまだありません。ダウンロードするものはありません。",
 	"confirm.rewritten.title.dropbox":
@@ -720,10 +721,6 @@ export const ja = completeTranslation(en, {
 		"Google Drive に接続できませんでした。ネットワーク接続を確かめて、もう一度試してください。",
 	"check.rateLimited.gdrive":
 		"Google Drive が、しばらく待つよう求めています。しばらくしてから、もう一度試してください。",
-	"confirm.firstPush.remoteEmpty.gdrive":
-		"Google Drive に、このフォルダはまだありません。この保管庫に .gitignore が無い時は、空の .gitignore を作ってアップロードします。",
-	"confirm.firstPush.remoteEmptyWithGitignore.gdrive":
-		"Google Drive に、このフォルダはまだありません。",
 	"pull.remoteEmpty.gdrive":
 		"Google Drive に、このフォルダはまだありません。ダウンロードするものはありません。",
 	"confirm.rewritten.title.gdrive":

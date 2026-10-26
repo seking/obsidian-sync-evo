@@ -352,14 +352,21 @@ describe("syncing two devices through Google Drive", () => {
 		expect(Object.keys(drive.tree("Sync Evo/Renamed")).sort()).toEqual([".gitignore", "a.md", "b.md"]);
 	});
 
-	test("nothing is made on Drive before the first upload is confirmed", async () => {
+	test("the first upload to a folder that is not on Drive yet is made without asking: no one else sees it", async () => {
 		const drive = new FakeDrive();
 		const a = device(drive, "Pixel");
 		a.vault.put("a.md", "A");
 		await a.pull();
-		expect((await a.push({ confirm: async () => "cancel" })).outcome).toBe("declined");
-		expect(drive.calls.filter((call) => call.startsWith("POST") || call.startsWith("PATCH"))).toEqual([]);
-		expect(drive.idOf("Sync Evo")).toBeUndefined();
+		let asked = 0;
+		const pushed = await a.push({
+			confirm: async () => {
+				asked += 1;
+				return "cancel";
+			},
+		});
+		expect(pushed.outcome).toBe("pushed");
+		expect(asked).toBe(0);
+		expect(drive.tree("Sync Evo/Vault")).toMatchObject({ "a.md": "A" });
 	});
 
 	test("an empty file goes up and comes down, both ways, and an edit to and from empty goes across", async () => {

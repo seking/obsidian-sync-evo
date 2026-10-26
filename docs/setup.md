@@ -36,7 +36,8 @@ Sync Evo is not in the community plugin directory yet. Until it is, install it w
 4. Press **Test** under "Connection test". It tells you whether the token reaches the repository and the branch.
 5. Sync: tap the two circling arrows (**Sync**) in the ribbon, the strip of icons at the edge of the screen, or run **Sync Evo: Sync** from the command palette.
    - The first download asks when files in the vault differ from the repository's.
-   - The first upload shows what it will upload, and asks.
+   - The first upload to an empty repository does not ask; the result tells what was uploaded. If the repository is public, it asks first: anyone can see what is uploaded.
+   - The first upload to a repository that already has files shows what it will upload, and asks.
 
 ## Dropbox
 

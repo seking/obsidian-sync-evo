@@ -107,6 +107,15 @@ describe("the notices of a part of a sync the user started", () => {
 			{ level: "info", text: "Moved." },
 		]);
 	});
+
+	test("with the parts of a detail that has some, for the screen to fold what is long; the notice has the short line", () => {
+		const parts = [{ text: "2 rules were added.", folded: { paths: { shown: ["/.trash/", ".DS_Store"], more: 0 }, notes: ["Change them in the settings."] } }];
+		const added: ReportDetail = { ...detail("info", "Added:\n/.trash/\n.DS_Store", undefined, "Rules were added."), parts };
+		expect(partResults(part({ details: [added] }))).toEqual([{ level: "info", text: "Added:\n/.trash/\n.DS_Store", parts }]);
+		expect(partNotices(t, part({ details: [added] }))).toEqual([
+			{ text: `Download finished.\nRules were added.\n\n${MORE}`, level: "info", stays: false },
+		]);
+	});
 });
 
 describe("what a notice leaves out", () => {
@@ -157,6 +166,19 @@ describe("the syncs the screen keeps", () => {
 			]),
 		).toEqual([good]);
 		expect(readResults(Array.from({ length: 30 }, (_, at) => result(at)))).toHaveLength(RESULTS_KEPT);
+	});
+
+	test("parts are kept as they were stored, and let go of where they cannot be drawn: the item is then its text", () => {
+		const parts = [
+			{ text: "Lines.", folded: { paths: { shown: ["a"], more: 0 }, notes: ["n"] } },
+			{ text: "Files:", paths: { shown: ["b.md"], more: 1 } },
+		];
+		const good = result(1, { items: [{ level: "info", text: "All of it.", parts }] });
+		expect(readResults([good])).toEqual([good]);
+		for (const broken of [{ text: 1 }, { text: "x", paths: { shown: [1], more: 0 } }, { text: "x", folded: { paths: { shown: [] } } }, "x"]) {
+			const stored = result(1, { items: [{ level: "info", text: "All of it.", parts: [broken] as never }] });
+			expect(readResults([stored])).toEqual([result(1, { items: [{ level: "info", text: "All of it." }] })]);
+		}
 	});
 });
 

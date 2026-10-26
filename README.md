@@ -30,7 +30,7 @@ It works on phones and computers alike, with no Git to install.
 ## How your notes are kept safe
 
 - A note changed on two devices is merged, or kept twice, with the device's version in `_conflicts/`. Before a merge, the note as it was is kept in `.trash/`.
-- Sync Evo stops and asks before it deletes many files, before a device's first upload, when the first download finds files that differ, and when the history on GitHub was rewritten.
+- Sync Evo stops and asks before it deletes many files, before a device's first upload to a service that already holds files or to a public GitHub repository, when the first download finds files that differ, and when the history on GitHub was rewritten.
 - An upload does not write over a file that changed on the service since this device last downloaded. With Google Drive it rarely can, and the other version stays in Drive's version history.
 - An interrupted download goes on from where it stopped. So does an upload to GitHub or Google Drive.
 

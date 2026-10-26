@@ -490,6 +490,17 @@ export class GitHubClient {
 	}
 
 	/**
+	 * Whether the repository is private, as GitHub says of it. A public
+	 * one is seen by anyone, with or without a token.
+	 */
+	async isPrivate(): Promise<boolean> {
+		const what = "get repository";
+		const json = await this.json(what, this.get(""), 200);
+		if (typeof json.private !== "boolean") throw this.malformed(what);
+		return json.private;
+	}
+
+	/**
 	 * Creates one file on the configured branch, as a commit of its own.
 	 * The one way to write to a repository without commits, which the Git
 	 * Data API refuses. Answers with the sha of the commit and of the blob,

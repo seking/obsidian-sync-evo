@@ -424,6 +424,16 @@ export interface Backend {
 	 * empty, which a pull has to look at first.
 	 */
 	start?(request: StartRequest): Promise<StartResult>;
+
+	/**
+	 * Whether anyone at all can see what the remote holds: a public
+	 * repository. `null` when that could not be found out. Absent on a
+	 * remote that is a place in the user's own account, which no one else
+	 * sees unless the user shares it (Dropbox, Google Drive): never public.
+	 * Asked before the first push to an empty remote, which is sent without
+	 * a question unless it is public (D-2).
+	 */
+	isPublic?(): Promise<boolean | null>;
 }
 
 export type BackendErrorKind =

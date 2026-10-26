@@ -72,6 +72,8 @@ export class FakeGitHub {
 	head: string | null = null;
 	/** The branch the repository names as its default. */
 	defaultBranch = "main";
+	/** Whether the repository is private, as `GET /repos/{owner}/{repo}` says. */
+	private = true;
 	before: ((request: SentRequest) => HttpResponse | Error | undefined | void) | undefined;
 	/**
 	 * What the fake makes of a content that is sent inside a tree, before
@@ -152,7 +154,7 @@ export class FakeGitHub {
 
 	private answer({ method, path, body }: SentRequest): HttpResponse {
 		const data = (body ?? {}) as Record<string, unknown>;
-		if (method === "GET" && path === "") return respond(200, { default_branch: this.defaultBranch });
+		if (method === "GET" && path === "") return respond(200, { default_branch: this.defaultBranch, private: this.private });
 		if (method === "PUT" && path.startsWith("/contents/")) {
 			// A path that is there is only replaced when its sha is named;
 			// a new one goes on top of the head, when there is one.

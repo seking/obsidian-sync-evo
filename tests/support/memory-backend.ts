@@ -160,6 +160,17 @@ export class MemoryBackend implements Backend {
 		return { status: "pushed", revision, written, listing: { revision, entries: this.entries() } };
 	}
 
+	/** What `isPublic` answers, or the failure it throws. A private repository unless a test says otherwise. */
+	publicity: boolean | null | Error = false;
+	/** How many times `isPublic` was asked. */
+	publicityAsked = 0;
+
+	async isPublic(): Promise<boolean | null> {
+		this.publicityAsked += 1;
+		if (this.publicity instanceof Error) throw this.publicity;
+		return this.publicity;
+	}
+
 	/** The branch a remote without revisions gets its first one on; `null`: the configured one. */
 	defaultBranch: string | null = null;
 	/** Fails `start` after the revision was made, like an answer that never arrives. */

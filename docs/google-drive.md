@@ -85,7 +85,7 @@ Sync Evo asks Google only for the files it made itself (the `drive.file` permiss
 **The folder is gone.** When the folder of the vault was deleted, put in the trash, or can no longer be seen by Sync Evo:
 
 - Sync Evo changes nothing on the device, and says so.
-- The next sync starts over, as a first sync does. It asks before the first upload.
+- The next sync starts over, as a first sync does. When there is no folder of that name any more, the first upload makes one, without asking.
 
 ## Disconnecting
 

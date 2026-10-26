@@ -15,6 +15,7 @@ import { BackendError, type EntryKind, type ListResult, type PushRefusal, type R
 import { conflictCopyPath, mergedCopyPath } from "../src/core/conflict-name";
 import { readTidiedCopies, TIDIED_COPIES_KEY } from "../src/core/conflict-tidy";
 import { createExclusion, defaultSectionLines } from "../src/core/exclusion";
+import { isFirstFetchConfirmed } from "../src/core/first-fetch";
 import { GITIGNORE_WRITE_KEY } from "../src/core/gitignore-file";
 import { SECTION_END, SECTION_START, withSection } from "../src/core/gitignore-section";
 import { readNotices } from "../src/core/notices";
@@ -2441,8 +2442,51 @@ describe("the first push to a remote without commits", () => {
 		expect((await h.push()).outcome).toBe("nothing-to-push");
 	});
 
-	test("asks first, naming everything that is sent and that the remote is empty; and only once", async () => {
+	test("sends without asking, to a repository that is not public, and leaves the marks a yes would: nothing asks later", async () => {
 		const h = fresh({ ".gitignore": "", "a.md": "A" });
+
+		expect(await h.push()).toMatchObject({ outcome: "pushed", counts: { added: 2 } });
+
+		expect(h.asked).toEqual([]);
+		expect(h.backend.publicityAsked).toBe(1);
+		expect(await h.store.getMeta(FIRST_PUSH_CONFIRMED_KEY)).toBe(true);
+		expect(await isFirstFetchConfirmed(h.store)).toBe(true);
+		h.vault.put("b.md", "B");
+		expect((await h.sync()).push).toMatchObject({ outcome: "pushed" });
+		expect(h.asked).toEqual([]);
+		expect(h.pullAsked).toEqual([]);
+		// Asked of the remote only while it is empty.
+		expect(h.backend.publicityAsked).toBe(1);
+	});
+
+	test("a sync that started by itself sends nothing to an empty remote and writes nothing: it waits, and the user's sync then sends without asking", async () => {
+		const h = fresh({ "a.md": "A" });
+		h.answer = "later";
+
+		const { pull, push } = await h.sync({ pull: { automatic: true }, push: { automatic: true } });
+
+		expect(pull.outcome).toBe("remote-empty");
+		expect(push).toMatchObject({ outcome: "waiting", waitingFor: "first-push" });
+		// Asked as before, of a sync that has no one to ask: not of the remote.
+		expect(h.asked).toEqual([
+			{ firstPush: { added: ["a.md"], modified: [], deleted: [] }, remoteEmpty: true, deletions: null, recordCount: 0 },
+		]);
+		expect(h.backend.publicityAsked).toBe(0);
+		expect(h.backend.revision).toBeNull();
+		// No empty .gitignore, and no section.
+		expect(h.vault.snapshot()).toEqual({ "a.md": "A" });
+		expect(await h.store.getMeta(FIRST_PUSH_CONFIRMED_KEY)).toBeUndefined();
+		// Every one waits the same.
+		expect((await h.push({ automatic: true })).outcome).toBe("waiting");
+
+		expect((await h.sync()).push).toMatchObject({ outcome: "pushed", counts: { added: 2 } });
+		expect(h.asked).toHaveLength(2);
+		expect(await h.remote()).toEqual({ ".gitignore": "", "a.md": "A" });
+	});
+
+	test("a public repository is asked about first, naming everything that is sent, that the remote is empty and public; and only once", async () => {
+		const h = fresh({ ".gitignore": "", "a.md": "A" });
+		h.backend.publicity = true;
 
 		expect((await h.push()).outcome).toBe("pushed");
 
@@ -2450,6 +2494,7 @@ describe("the first push to a remote without commits", () => {
 			{
 				firstPush: { added: [".gitignore", "a.md"], modified: [], deleted: [] },
 				remoteEmpty: true,
+				remotePublic: true,
 				deletions: null,
 				recordCount: 0,
 			},
@@ -2460,8 +2505,34 @@ describe("the first push to a remote without commits", () => {
 		expect(h.pullAsked).toEqual([]);
 	});
 
+	test.each<[string, null | Error]>([
+		["GitHub does not say", null],
+		["asking fails", new BackendError("unreachable", "offline")],
+	])("whether the repository is public is not known when %s: asked, as of a public one", async (_name, publicity) => {
+		const h = fresh({ "a.md": "A" });
+		h.backend.publicity = publicity;
+		h.answer = "cancel";
+
+		expect((await h.push()).outcome).toBe("declined");
+
+		expect(h.asked).toMatchObject([{ firstPush: { added: ["a.md"] }, remoteEmpty: true, remotePublic: null }]);
+		expect(h.backend.revision).toBeNull();
+	});
+
+	test("a remote that cannot be public (Dropbox, Google Drive) is sent to without asking", async () => {
+		const h = fresh({ "a.md": "A" });
+		// Such a backend has no `isPublic`.
+		Object.defineProperty(h.backend, "isPublic", { value: undefined });
+
+		expect(await h.push()).toMatchObject({ outcome: "pushed", counts: { added: 2 } });
+
+		expect(h.asked).toEqual([]);
+		expect(h.backend.publicityAsked).toBe(0);
+	});
+
 	test("a no sends nothing, and makes no revision and no .gitignore", async () => {
 		const h = fresh({ "a.md": "A" });
+		h.backend.publicity = true;
 		h.answer = "cancel";
 
 		expect((await h.push()).outcome).toBe("declined");
@@ -2497,7 +2568,7 @@ describe("the first push to a remote without commits", () => {
 		await expectNothingToPull(h);
 		h.vault.put("a.md", "A");
 		expect((await h.push()).outcome).toBe("pushed");
-		expect(h.asked).toHaveLength(1);
+		expect(h.asked).toEqual([]);
 	});
 
 	test("a vault with nothing to send makes no revision", async () => {
@@ -2520,6 +2591,7 @@ describe("the first push to a remote without commits", () => {
 
 	test("another device made the first revision meanwhile: nothing is sent, and a pull comes first", async () => {
 		const h = fresh({ "a.md": "A" });
+		h.backend.publicity = true;
 		h.answer = () => {
 			h.backend.commit({ "theirs.md": "T" });
 			return "proceed";
@@ -2564,6 +2636,7 @@ describe("the first push to a remote without commits", () => {
 
 	test("no empty .gitignore is left in the vault when the remote did not take it", async () => {
 		const h = fresh({ "a.md": "A" });
+		h.backend.publicity = true;
 		h.answer = () => {
 			h.backend.commit({ ".gitignore": "private/\n", "theirs.md": "T" });
 			return "proceed";
@@ -2600,7 +2673,7 @@ describe("the first push to a remote without commits", () => {
 		expect(h.vault.snapshot()).toEqual({ ".GITIGNORE": "private/\n", "a.md": "A" });
 	});
 
-	test("a sync asks once about a vault that has files: the pull has nothing to ask of an empty remote", async () => {
+	test("a sync of a vault that has files asks nothing: the pull has nothing to ask of an empty remote, and the push sends", async () => {
 		const h = fresh({ "a.md": "A" });
 
 		const { pull, push } = await h.sync();
@@ -2608,19 +2681,21 @@ describe("the first push to a remote without commits", () => {
 		expect(pull.outcome).toBe("remote-empty");
 		expect(push).toMatchObject({ outcome: "pushed" });
 		expect(h.pullAsked).toEqual([]);
-		expect(h.asked).toMatchObject([{ firstPush: { added: ["a.md"] }, remoteEmpty: true }]);
+		expect(h.asked).toEqual([]);
+		expect(await h.remote()).toEqual({ ".gitignore": "", "a.md": "A" });
 	});
 
-	test("the question a first fetch would have asked is asked here, though a push has gone through before", async () => {
+	test("the question a first fetch would have asked is asked here of a public repository, though a push has gone through before", async () => {
 		const h = fresh({ "a.md": "A" });
 		// A push is remembered, and no first fetch: not what a sync leaves
-		// behind, and still nothing goes to an empty repository unasked.
+		// behind, and still nothing goes to an empty public repository unasked.
 		await h.store.setMeta(FIRST_PUSH_CONFIRMED_KEY, true);
+		h.backend.publicity = true;
 		h.answer = "cancel";
 
 		expect((await h.push()).outcome).toBe("declined");
 
-		expect(h.asked).toMatchObject([{ firstPush: { added: ["a.md"] }, remoteEmpty: true }]);
+		expect(h.asked).toMatchObject([{ firstPush: { added: ["a.md"] }, remoteEmpty: true, remotePublic: true }]);
 		expect(h.backend.revision).toBeNull();
 	});
 });
@@ -3827,12 +3902,15 @@ describe("the section a push adds to a .gitignore that has none", () => {
 			expect(h.backend.revisionCount).toBe(1);
 			expect(await h.remote()).toEqual({ ".gitignore": top });
 			expect(h.vault.snapshot()).toEqual({ ".gitignore": top });
-			expect(result.sectionAdded).toEqual({ lines: shown, created: true, tracked: [], asked: true, sent: true });
+			// Not asked of a remote that is empty and not public: the result tells it.
+			expect(h.asked).toEqual([]);
+			expect(result.sectionAdded).toEqual({ lines: shown, created: true, tracked: [], asked: false, sent: true });
 			await expectNothingToPull(h);
 		});
 
 		test("the .gitignore of the vault gets the section before it becomes the first revision, and the rest follows", async () => {
 			const h = harness();
+			h.backend.publicity = true;
 			h.vault.putAll({ ".gitignore": "private/\n", "a.md": "A", "private/x.md": "X", ".trash/old.md": "O" });
 			const revisions: Record<string, string>[] = [];
 			const start = h.backend.start.bind(h.backend);
@@ -3853,6 +3931,7 @@ describe("the section a push adds to a .gitignore that has none", () => {
 				{
 					firstPush: { added: [".gitignore", "a.md"], modified: [], deleted: [] },
 					remoteEmpty: true,
+					remotePublic: true,
 					deletions: null,
 					recordCount: 0,
 					sectionAdded: { lines: shown, created: false, tracked: [] },
@@ -3863,6 +3942,7 @@ describe("the section a push adds to a .gitignore that has none", () => {
 
 		test("a no sends nothing; the section stays in the vault, the result says so, and the next push sends it", async () => {
 			const h = harness();
+			h.backend.publicity = true;
 			h.vault.put("a.md", "A");
 			h.answer = "cancel";
 
@@ -3976,6 +4056,7 @@ describe("the section a push adds to a .gitignore that has none", () => {
 
 		test("by a push that was turned down after the first commit of the remote was made: that commit holds it, and it counts as sent", async () => {
 			const h = harness();
+			h.backend.publicity = true;
 			h.vault.put("a.md", "A");
 			// Another device pushes between the first commit and the rest.
 			const push = h.backend.push.bind(h.backend);

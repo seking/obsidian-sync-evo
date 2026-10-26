@@ -52,6 +52,7 @@ import {
 import { placeWords, type RemotePlace } from "./remote-place";
 import type { DeviceSettings } from "./settings";
 import { BackendError } from "./backend";
+import { isDotPath } from "./vault-routes";
 
 /**
  * The one line of progress, with a line more while a request limit is
@@ -105,7 +106,7 @@ export function pushQuestion(
 	const { firstPush, deletions } = request;
 	const parts: QuestionPart[] = [];
 	const listed = (text: string, paths: readonly string[]): void => {
-		parts.push({ text, paths: capList(paths, CONFIRM_LIST_LIMIT) });
+		parts.push(...listedParts(t, text, paths));
 	};
 
 	if (firstPush !== null) {
@@ -118,6 +119,9 @@ export function pushQuestion(
 					? t("confirm.firstPush.remoteEmpty")
 					: t("confirm.firstPush.remoteEmptyWithGitignore");
 			parts.push({ text });
+			// The one reason left to ask before sending to an empty remote.
+			if (request.remotePublic === true) parts.push({ text: t("confirm.firstPush.public") });
+			if (request.remotePublic === null) parts.push({ text: t("confirm.firstPush.publicUnknown") });
 		}
 		// Before the lists: the `.gitignore` is in one of them because of this.
 		if (request.sectionAdded !== undefined) {
@@ -125,10 +129,8 @@ export function pushQuestion(
 			// had to be scrolled past to the files and the buttons.
 			const section = request.sectionAdded;
 			parts.push({
-				text: t(section.created ? "section.added.createdFolded" : "section.added.introFolded", {
-					count: section.lines.filter(isRule).length,
-				}),
-				folded: { paths: sectionFoldedList(section.lines), notes: sectionFoldedNotes(t, section) },
+				text: sectionFoldedLine(t, section),
+				folded: { paths: sectionFoldedList(section.lines), notes: sectionFoldedNotes(t, section, "sends") },
 			});
 			if (section.tracked.length > 0) {
 				const text = t("section.added.tracked", { count: section.tracked.length });
@@ -158,6 +160,27 @@ export function pushQuestion(
 	// "Nothing is changed" would not be true of a file that was written.
 	const note = request.sectionAdded === undefined ? t("confirm.push.note") : t("confirm.push.noteSection");
 	return { title, parts, note };
+}
+
+/**
+ * A list of a question, without the files Obsidian does not show: a path
+ * with a name on the way that starts with a `.` (`isDotPath`), such as the
+ * configuration folder and `.gitignore`. Those mean nothing to most people,
+ * and a new vault has a dozen of them: they are counted in one line under
+ * the list, which shows them once it is pressed. The text above counts
+ * them with the rest, and stays when every one of them is such a file.
+ */
+function listedParts(t: Translate, text: string, paths: readonly string[]): QuestionPart[] {
+	const shown = paths.filter((path) => !isDotPath(path));
+	const hidden = paths.filter(isDotPath);
+	const parts: QuestionPart[] = [shown.length === 0 ? { text } : { text, paths: capList(shown, CONFIRM_LIST_LIMIT) }];
+	if (hidden.length > 0) {
+		parts.push({
+			text: t("confirm.hiddenFiles", { count: hidden.length }),
+			folded: { paths: capList(hidden, CONFIRM_LIST_LIMIT), notes: [] },
+		});
+	}
+	return parts;
 }
 
 /** One answer to the question about a vault without its files: the words on its button, and what it does. */
@@ -244,13 +267,47 @@ export function sectionAddedText(
 	return lines.join("\n");
 }
 
+/**
+ * The same, for the screen of the results: the line the question folds the
+ * lines to, which opens on them and on what is said of them. The files of
+ * the remote the lines match stay outside it, every one: no device syncs
+ * them from now on.
+ */
+export function sectionAddedParts(t: Translate, section: SectionAdded, delivery: SectionDelivery): QuestionPart[] {
+	const parts: QuestionPart[] = [
+		{
+			text: sectionFoldedLine(t, section),
+			folded: { paths: { shown: section.lines, more: 0 }, notes: sectionFoldedNotes(t, section, delivery) },
+		},
+	];
+	if (section.tracked.length > 0) {
+		parts.push(
+			{ text: t("section.added.tracked", { count: section.tracked.length }), paths: { shown: section.tracked, more: 0 } },
+			{ text: t("section.added.untrackHint") },
+		);
+	}
+	return parts;
+}
+
+/** The one line that stands for the section, folded: how many rules, and where to change them. */
+function sectionFoldedLine(t: Translate, section: SectionAdded): string {
+	return t(section.created ? "section.added.createdFolded" : "section.added.introFolded", {
+		count: section.lines.filter(isRule).length,
+	});
+}
+
 function sectionIntro(t: Translate, section: SectionAdded): string {
 	return section.created ? t("section.added.created") : t("section.added.intro");
 }
 
 // One paragraph each: no language joins two sentences the way another does.
 function sectionNotes(t: Translate, section: SectionAdded, delivery: SectionDelivery): string[] {
-	const delivered = t(
+	// A file that was made had nothing else in it to leave alone.
+	return [...(section.created ? [] : [t("section.added.outside")]), deliveredText(t, delivery), t("section.added.howTo")];
+}
+
+function deliveredText(t: Translate, delivery: SectionDelivery): string {
+	return t(
 		(
 			{
 				sends: "section.added.sends",
@@ -260,16 +317,14 @@ function sectionNotes(t: Translate, section: SectionAdded, delivery: SectionDeli
 			} as const
 		)[delivery],
 	);
-	// A file that was made had nothing else in it to leave alone.
-	return [...(section.created ? [] : [t("section.added.outside")]), delivered, t("section.added.howTo")];
 }
 
 /**
- * What the question shows under the line that stands for the section, once
- * it is opened. Where to change the lines is in that line, so not here.
+ * What is shown under the line that stands for the section, once it is
+ * opened. Where to change the lines is in that line, so not here.
  */
-function sectionFoldedNotes(t: Translate, section: SectionAdded): string[] {
-	return [t("section.added.unwanted"), ...(section.created ? [] : [t("section.added.outside")]), t("section.added.sends")];
+function sectionFoldedNotes(t: Translate, section: SectionAdded, delivery: SectionDelivery): string[] {
+	return [t("section.added.unwanted"), ...(section.created ? [] : [t("section.added.outside")]), deliveredText(t, delivery)];
 }
 
 // A rule of .gitignore: not a comment, such as the two markers, and not blank.
@@ -370,8 +425,8 @@ export function pushSummaryText(t: Translate, result: PushRunResult, connectionC
 export function pushDetails(t: Translate, result: PushRunResult, options: PushReportOptions): ReportDetail[] {
 	const details: ReportDetail[] = [];
 	// What happened in this push, and is only worth knowing.
-	const info = (brief: string, words: (limit: number) => string): void => {
-		details.push(reportDetail("info", false, words, brief));
+	const info = (brief: string, words: (limit: number) => string, parts?: readonly QuestionPart[]): void => {
+		details.push(reportDetail("info", false, words, brief, parts));
 	};
 	// What is not sent, by every push for as long as that is so.
 	const standing = (words: (limit: number) => string): void => {
@@ -385,7 +440,13 @@ export function pushDetails(t: Translate, result: PushRunResult, options: PushRe
 	const section = result.sectionAdded;
 	if (section !== undefined && !(section.asked && section.sent)) {
 		const delivery = section.sent ? "sent" : "unsent";
-		info(t("section.added.brief"), (limit) => sectionAddedText(t, section, delivery, limit));
+		// The notice has the one line: the lines themselves mean nothing to
+		// most people. They are on the screen of the results, folded.
+		info(
+			t(section.created ? "section.added.briefCreated" : "section.added.brief"),
+			(limit) => sectionAddedText(t, section, delivery, limit),
+			sectionAddedParts(t, section, delivery),
+		);
 	}
 	if (result.recovered !== null) {
 		const text = recoveredPushText(t, result.recovered);

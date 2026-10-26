@@ -58,6 +58,7 @@ export type GitHubBackendClient = Pick<
 	| "updateRef"
 	| "branch"
 	| "defaultBranch"
+	| "isPrivate"
 	| "createFile"
 	| "sees"
 	| "repository"
@@ -395,6 +396,20 @@ export class GitHubBackend implements Backend {
 		if (source === undefined) return openZip(new Uint8Array(await this.client.getZip(revision)), { stripTopFolder: true });
 		const zip = await this.client.getZip(source.revision, repositoryOf(source));
 		return belowFolder(openZip(new Uint8Array(zip), { stripTopFolder: true }), source.submodule);
+	}
+
+	/**
+	 * Whether the repository is public, or `null` when GitHub did not say:
+	 * the caller then asks the user, as it does of a public one. Only a
+	 * stop is thrown.
+	 */
+	async isPublic(): Promise<boolean | null> {
+		try {
+			return !(await this.client.isPrivate());
+		} catch (error) {
+			if (error instanceof BackendError && error.kind === "cancelled") throw error;
+			return null;
+		}
 	}
 
 	/**
