@@ -1,7 +1,7 @@
 {
 	"id": "sync-evo",
 	"name": "Sync Evo",
-	"version": "0.5.0",
+	"version": "0.5.1",
 	"minAppVersion": "1.11.4",
 	"description": "Sync a vault with a GitHub repository, a Dropbox folder or a Google Drive folder, without Git on the device. Built for large vaults and for phones.",
 	"author": "seking",
