@@ -11,11 +11,12 @@
 
 ## インストール
 
-Sync Evo は、まだコミュニティプラグインの一覧にありません。載るまでは、[BRAT](https://github.com/TfTHacker/obsidian42-brat) で `seking/obsidian-sync-evo` からインストールします。
+Sync Evo は、コミュニティプラグインの一覧にあります。
 
-1. 設定 → コミュニティプラグインで、**制限モード**がオンならオフにします。**閲覧**を押し、**BRAT**を検索して、インストールし、有効にします。
-2. 設定 → BRAT で**Add beta plugin**を押し、`https://github.com/seking/obsidian-sync-evo` を入力します。バージョンは最新のままにして、追加します。
-3. 設定 → コミュニティプラグインで、**Sync Evo**を有効にします。更新は BRAT が行います。
+1. 設定 → コミュニティプラグインで、**制限モード**がオンならオフにします。
+2. **閲覧**を押し、**Sync Evo**を検索して、インストールし、有効にします。[一覧のページ](https://community.obsidian.md/plugins/sync-evo)を開いて **Add to Obsidian** を押し、開いた Obsidian でインストールして有効にしても入れられます。
+
+前に BRAT で入れた時は、そのまま使えます。BRAT のベータプラグインの一覧から Sync Evo を外すと、更新は Obsidian だけが行います。外してもファイルと設定は消えません。
 
 ## 始める前に
 

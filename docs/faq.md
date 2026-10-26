@@ -89,7 +89,9 @@ If you installed it from the community plugin directory:
 
 1. On the releases page, open the version to go back to, and download `main.js`, `manifest.json` and `styles.css`.
 2. Put them into the folder `.obsidian/plugins/sync-evo/` of the vault, in place of the files there. The folder is hidden. On a Mac, press `⌘⇧.` in Finder to show it. On Android, choose "Show hidden files" in the file manager. The Files app on iPhone and iPad does not show it, so use BRAT there.
-3. Restart Obsidian. Do not press **Update** for Sync Evo while you want to stay on that version.
+3. Restart Obsidian.
+
+Either way, do not press **Update** for Sync Evo in Settings → Community plugins while you want to stay on that version.
 
 A vault set to Dropbox needs Sync Evo 0.4.0 or later, and one set to Google Drive needs 0.5.0 or later. An earlier version does not sync it, and leaves its settings as they are.
 
