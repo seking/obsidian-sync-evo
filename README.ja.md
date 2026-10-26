@@ -11,7 +11,7 @@
 
 スマートフォンでもパソコンでも動きます。Git のインストールは要りません。
 
-<!-- TODO: screenshot -->
+![2台で変えたノートを Sync Evo が統合し、その知らせを出した画面](docs/images/merge.png)
 
 ## Sync Evo の特長
 

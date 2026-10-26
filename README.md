@@ -11,7 +11,7 @@ Sync your vault across all your devices, through your own GitHub, Dropbox or Goo
 
 It works on phones and computers alike, with no Git to install.
 
-<!-- TODO: screenshot -->
+![A note changed on two devices, merged by Sync Evo, and the notice that says so](docs/images/merge.png)
 
 ## Why Sync Evo
 
