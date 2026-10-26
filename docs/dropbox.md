@@ -33,7 +33,7 @@ Under "Connection" in the settings, **Service** chooses between GitHub, Dropbox 
 - The files are sent together.
 - Each file is sent only while Dropbox still holds the version this device last saw.
 - A file another device changed first is not overwritten. A file another device changed is not deleted. The upload sends the rest and says so. The next download takes that file up as a conflict.
-- An upload that is stopped after its files were sent leaves them on Dropbox. The next sync sends what is left.
+- Files are made final together at the end of an upload. An upload stopped before that leaves nothing on Dropbox, and the next sync sends them again.
 
 **Deleted files** stay in the version history of Dropbox for a while (30 days on the free plan). They are not put into a trash of Sync Evo's.
 

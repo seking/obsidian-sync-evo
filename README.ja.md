@@ -142,4 +142,6 @@ Copyright (C) 2026 seking. Sync Evo は2つの部分に分かれ、ライセン�
 
 同梱しているライブラリのライセンスは、[このページ](https://github.com/seking/obsidian-sync-evo/blob/main/docs/ja/third-party-licences.md)にあります。
 
+リリースの `main.js` は、このリポジトリから、1つだけ足してビルドしています。Sync Evo の Google のクライアントのシークレットです。Google の OAuth 2.0 のポリシーが、公開のリポジトリに置かないよう求めているためです。そのため、ビルドの結果がリリースと同じかを確かめる Obsidian の検査では、1行だけ違いが出ます。シークレットを入れてビルドすれば、`main.js` はリリースとバイト単位で一致します。
+
 Sync Evo をビルドする時や、開発に協力する時は、[CONTRIBUTING.md](https://github.com/seking/obsidian-sync-evo/blob/main/CONTRIBUTING.md) を見てください。

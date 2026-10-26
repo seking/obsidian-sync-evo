@@ -142,4 +142,6 @@ Copyright (C) 2026 seking. Sync Evo has two parts, under two licenses. Both come
 
 Third-party licences: [see this page](https://github.com/seking/obsidian-sync-evo/blob/main/docs/third-party-licences.md).
 
+The `main.js` in a release is built from this repository with one thing added: the client secret of Sync Evo's Google client, which Google's OAuth 2.0 Policies say must not be committed to a public repository. This is why Obsidian's check that the build output matches the release finds one line that differs. Built with the secret, `main.js` matches the release byte for byte.
+
 To build Sync Evo or help with it, see [CONTRIBUTING.md](https://github.com/seking/obsidian-sync-evo/blob/main/CONTRIBUTING.md).
