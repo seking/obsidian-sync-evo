@@ -109,7 +109,7 @@ export const en = baseCatalog({
 	"settings.branch.empty": "Enter a branch. The previous branch is still in use.",
 	"settings.token.name": "Token",
 	"settings.token.desc":
-		"A fine-grained personal access token with Contents read and write on this repository. It is kept in Obsidian's Keychain, not in a file of the vault. On iPhone and Android, every vault on the device can use the same secret; on a computer, each vault has its own.",
+		"A fine-grained personal access token with Contents read and write on this repository. It is kept in Obsidian's Keychain, not in a file of the vault. The first time, press the button of this setting, then the button at the very bottom of the window that opens to add a secret, and paste the token there. On iPhone and Android, every vault on the device can use the same secret; on a computer, each vault has its own.",
 	// A link to the page of GitHub that makes the token, filled in but for the repository.
 	"settings.token.create": "Create a token on GitHub (choose this repository on that page)",
 	"settings.deviceName.name": "Device name",

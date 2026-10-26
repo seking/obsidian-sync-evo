@@ -96,7 +96,7 @@ export const ja = completeTranslation(en, {
 	"settings.branch.empty": "ブランチを入力してください。前のブランチのままになっています。",
 	"settings.token.name": "トークン",
 	"settings.token.desc":
-		"このリポジトリの Contents の読み書きを許可した fine-grained personal access token です。Obsidian のキーチェーンに保存され、保管庫のファイルには書かれません。iPhone と Android では、デバイスのどの保管庫からも同じシークレットを使えます。パソコンでは、保管庫ごとに別です。",
+		"このリポジトリの Contents の読み書きを許可した fine-grained personal access token です。Obsidian のキーチェーンに保存され、保管庫のファイルには書かれません。初めての時は、この欄のボタンで開く画面の、いちばん下の「シークレットを追加…」を押し、トークンを貼ります。iPhone と Android では、デバイスのどの保管庫からも同じシークレットを使えます。パソコンでは、保管庫ごとに別です。",
 	"settings.token.create": "GitHub でトークンを作る（そのページで、このリポジトリを選びます）",
 	"settings.deviceName.name": "デバイス名",
 	"settings.deviceName.desc": "コミットメッセージと、競合ファイルの名前に使われます。",
