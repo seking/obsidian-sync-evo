@@ -10,7 +10,7 @@
  * Source: https://github.com/seking/obsidian-sync-evo
  */
 
-import { type App, Notice, Platform, type Plugin, PluginSettingTab, SecretComponent, Setting } from "obsidian";
+import { type App, Notice, Platform, type Plugin, PluginSettingTab, SecretComponent, Setting, type TextComponent } from "obsidian";
 import { type CheckOutcome, connectionCheckText, isSuccess } from "../core/connection-check";
 import { newSignIn, type SignIn } from "../../pro/src/core/dropbox/auth";
 import type { DeviceCode } from "../../pro/src/core/gdrive/auth";
@@ -203,6 +203,7 @@ export class SyncEvoSettingTab extends PluginSettingTab {
 			let repositoryRejected = false;
 			repository.addText((text) => {
 				text.setPlaceholder(t("settings.repository.placeholder")).setValue(stored.repository);
+				typedAsIs(text);
 				const commit = (): void => {
 					const value = repositoryToStore(text.getValue());
 					if (value === null) {
@@ -228,6 +229,7 @@ export class SyncEvoSettingTab extends PluginSettingTab {
 			let branchRejected = false;
 			branch.addText((text) => {
 				text.setPlaceholder(t("settings.branch.placeholder")).setValue(stored.branch);
+				typedAsIs(text);
 				const commit = (): void => {
 					const value = branchToStore(text.getValue());
 					if (value === null) {
@@ -385,6 +387,7 @@ export class SyncEvoSettingTab extends PluginSettingTab {
 		let folderRejected = false;
 		folder.addText((text) => {
 			text.setValue(stored.dropboxFolder);
+			typedAsIs(text);
 			const commit = (): void => {
 				const value = dropboxFolderToStore(text.getValue());
 				if (value === null) {
@@ -457,6 +460,7 @@ export class SyncEvoSettingTab extends PluginSettingTab {
 		let folderRejected = false;
 		folder.addText((text) => {
 			text.setValue(stored.gdriveFolder);
+			typedAsIs(text);
 			const commit = (): void => {
 				const value = dropboxFolderToStore(text.getValue());
 				if (value === null) {
@@ -507,6 +511,7 @@ export class SyncEvoSettingTab extends PluginSettingTab {
 		}
 		row.addText((text) => {
 			text.setValue(info.key);
+			typedAsIs(text);
 			// Taken when the field is left: each key that is taken is an
 			// activation on Dodo, and half a key is none.
 			const commit = (): void => {
@@ -544,6 +549,7 @@ export class SyncEvoSettingTab extends PluginSettingTab {
 		const id = new Setting(group.listEl).setName(t("settings.gdriveClient.id.name"));
 		id.addText((text) => {
 			text.setValue(stored.gdriveClientId ?? "");
+			typedAsIs(text);
 			const commit = (): void => {
 				void host.setGdriveClientId(text.getValue()).then((changed) => {
 					if (!changed) return;
@@ -784,4 +790,15 @@ export class SyncEvoSettingTab extends PluginSettingTab {
 /** A line under the description of a setting, for what is wrong with the value. */
 function note(setting: Setting): HTMLElement {
 	return setting.descEl.createDiv({ cls: "mod-warning" });
+}
+
+/**
+ * For a value that is used as typed: a phone's keyboard would capitalize its
+ * first letter (a branch `Main` is not `main`, nor a folder `Vault` on Google
+ * Drive `vault`) and correct it into a word. Capitals typed with Shift stay.
+ */
+function typedAsIs(text: TextComponent): void {
+	text.inputEl.spellcheck = false;
+	text.inputEl.setAttr("autocapitalize", "off");
+	text.inputEl.setAttr("autocorrect", "off");
 }
