@@ -1,6 +1,6 @@
 # Sync Evo
 
-[![CI](https://github.com/seking/obsidian-sync-evo/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/seking/obsidian-sync-evo/actions/workflows/ci.yml)
+[![CI](https://github.com/seking/obsidian-sync-evo/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/seking/obsidian-sync-evo/actions/workflows/ci.yml) [![Version](https://img.shields.io/github/v/release/seking/obsidian-sync-evo?label=version)](https://github.com/seking/obsidian-sync-evo/releases/latest)
 
 [日本語](https://github.com/seking/obsidian-sync-evo/blob/main/README.ja.md)
 
