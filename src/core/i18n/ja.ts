@@ -108,7 +108,7 @@ export const ja = completeTranslation(en, {
 	"settings.test.running": "確認中…",
 	"settings.unknownVersion":
 		"この保管庫の設定は、新しいバージョンの Sync Evo で保存されたものです。使うには、プラグインを更新してください。それまで Sync Evo は同期せず、設定も変更しません。",
-	"settings.reset.name": "やり直す",
+	"settings.reset.name": "設定をやり直す",
 	"settings.reset.desc":
 		"このデバイスにある、この保管庫の設定を破棄します。破棄すると、このバージョンで設定を入力し直せます。トークンは、Obsidian のキーチェーンに残ります。",
 	"settings.reset.button": "設定を破棄",

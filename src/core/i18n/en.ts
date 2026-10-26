@@ -122,7 +122,7 @@ export const en = baseCatalog({
 	"settings.test.running": "Checking…",
 	"settings.unknownVersion":
 		"The settings of this vault were written by a newer version of Sync Evo. Update the plugin to use them. Until then Sync Evo does not sync and leaves the settings as they are.",
-	"settings.reset.name": "Start over",
+	"settings.reset.name": "Reset settings",
 	"settings.reset.desc":
 		"Discards the settings of this vault on this device so that you can enter them again in this version. The token stays in Obsidian's Keychain.",
 	"settings.reset.button": "Discard settings",
