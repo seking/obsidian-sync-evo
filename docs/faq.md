@@ -111,4 +111,6 @@ A fine-grained token ends on the day chosen when it was made. The link in the se
 
 Do this on each device: every device keeps its own copy of the token.
 
-<!-- TODO: How do I move from another sync plugin? -->
+## How do I move from another sync method?
+
+Sync the vault one last time with the old method, turn it off, and then set up Sync Evo, one device after another. See [Moving from another method](compared.md#moving-from-another-method).

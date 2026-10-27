@@ -3,6 +3,7 @@
 [日本語](https://github.com/seking/obsidian-sync-evo/blob/main/docs/ja/README.md)
 
 - [GitHub, Dropbox or Google Drive?](choosing-a-service.md): which to choose, side by side.
+- [Sync Evo and other ways to sync](compared.md): how it differs from Obsidian Sync, Obsidian Git and others, and when another one fits better.
 - [Setting up](setup.md): what you need, and step-by-step setup for GitHub, Dropbox and Google Drive.
 - [How syncing works](syncing.md): when it runs, merging, conflict files, `.trash/`, when it stops and asks, commands.
 - [Settings](settings.md): connection and token, license key, your own Google client, what is not synced, `.gitignore` rules, automatic sync.

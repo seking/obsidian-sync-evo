@@ -118,6 +118,7 @@ Sync Evo connects only to GitHub (`api.github.com`, `codeload.github.com`), Drop
 
 - [Setting up, step by step](https://github.com/seking/obsidian-sync-evo/blob/main/docs/setup.md)
 - [GitHub, Dropbox or Google Drive?](https://github.com/seking/obsidian-sync-evo/blob/main/docs/choosing-a-service.md)
+- [Sync Evo and other ways to sync](https://github.com/seking/obsidian-sync-evo/blob/main/docs/compared.md)
 - [How syncing works](https://github.com/seking/obsidian-sync-evo/blob/main/docs/syncing.md), and its [commands](https://github.com/seking/obsidian-sync-evo/blob/main/docs/syncing.md#commands)
 - [Settings](https://github.com/seking/obsidian-sync-evo/blob/main/docs/settings.md)
 - [Dropbox](https://github.com/seking/obsidian-sync-evo/blob/main/docs/dropbox.md)

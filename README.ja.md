@@ -118,6 +118,7 @@ Sync Evo が接続するのは、GitHub（`api.github.com`、`codeload.github.co
 
 - [セットアップの手順](https://github.com/seking/obsidian-sync-evo/blob/main/docs/ja/setup.md)
 - [GitHub・Dropbox・Google Drive のどれか](https://github.com/seking/obsidian-sync-evo/blob/main/docs/ja/choosing-a-service.md)
+- [Sync Evo とほかの同期の手段](https://github.com/seking/obsidian-sync-evo/blob/main/docs/ja/compared.md)
 - [同期のしくみ](https://github.com/seking/obsidian-sync-evo/blob/main/docs/ja/syncing.md)と[コマンド](https://github.com/seking/obsidian-sync-evo/blob/main/docs/ja/syncing.md#コマンド)
 - [設定](https://github.com/seking/obsidian-sync-evo/blob/main/docs/ja/settings.md)
 - [Dropbox](https://github.com/seking/obsidian-sync-evo/blob/main/docs/ja/dropbox.md)

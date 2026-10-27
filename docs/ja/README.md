@@ -3,6 +3,7 @@
 [English](https://github.com/seking/obsidian-sync-evo/blob/main/docs/README.md)
 
 - [GitHub・Dropbox・Google Drive のどれか](choosing-a-service.md)：どれを選ぶか、並べて比べます。
+- [Sync Evo とほかの同期の手段](compared.md)：Obsidian Sync や Obsidian Git などとの違いと、ほかの方が合う場合です。
 - [セットアップ](setup.md)：要る物と、GitHub・Dropbox・Google Drive のセットアップの手順です。
 - [同期のしくみ](syncing.md)：いつ同期するか、統合、競合ファイル、`.trash/`、止まって確かめる時、コマンドです。
 - [設定](settings.md)：接続とトークン、ライセンスキー、自分の Google のクライアント、同期しない物、`.gitignore` の規則、自動同期です。
