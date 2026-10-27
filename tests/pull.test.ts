@@ -3241,7 +3241,7 @@ describe("a path a rule cuts off from the remote", () => {
 	}
 
 	test("a first fetch does not fetch what a rule matches, though the remote holds it", async () => {
-		// As stock-research has it: the plugins are in the repository.
+		// As in a vault synced with git before: the plugins are in the repository.
 		const h = harness();
 		const files = {
 			".gitignore": withSection(null, defaultSectionLines(paths)),
