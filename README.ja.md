@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/images/icon.png" alt="Sync Evo" width="112"></p>
+
 # Sync Evo
 
 [![CI](https://github.com/seking/obsidian-sync-evo/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/seking/obsidian-sync-evo/actions/workflows/ci.yml) [![Version](https://img.shields.io/github/v/release/seking/obsidian-sync-evo?label=version)](https://github.com/seking/obsidian-sync-evo/releases/latest) [![Downloads](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fraw.githubusercontent.com%2Fobsidianmd%2Fobsidian-releases%2Fmaster%2Fcommunity-plugin-stats.json&query=%24%5B%22sync-evo%22%5D.downloads&label=downloads)](https://community.obsidian.md/plugins/sync-evo)
