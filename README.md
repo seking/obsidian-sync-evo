@@ -9,7 +9,7 @@
 Sync your vault across all your devices, through your own GitHub, Dropbox or Google Drive.
 
 > [!NOTE]
-> **Payment is required for full access, once the paid plan starts.** For now, all of Sync Evo is free. Syncing with Dropbox and Google Drive may become paid later, with a license key: $3 a month, $24 a year, or $49 once, one key for both. Any paid plan will be announced here and in the release notes before it starts, and even then, Dropbox and Google Drive stay free for 3 months from the day it starts, or from the day you start using them, if that is later. [Pricing](https://github.com/seking/obsidian-sync-evo#pricing)
+> **The paid plan starts on 2026-11-10.** Until then, all of Sync Evo is free. GitHub stays free. Dropbox and Google Drive stay free for 3 months from that day, or from the day you start using them, if that is later, and then need a license key: $3 a month, $24 a year, or $49 once, one key for both. [Pricing](https://github.com/seking/obsidian-sync-evo#pricing)
 
 It works on phones and computers alike, with no Git to install.
 
@@ -49,9 +49,9 @@ With Dropbox and Google Drive, you just sign in. There is no repository or token
 
 ## Pricing
 
-- **GitHub**: free for now.
-- **Dropbox and Google Drive**: free for now. They may become paid later: free for 3 months, and then a license key is needed. One key is for both: $3 a month, $24 a year, or $49 once. Keys are sold through Dodo Payments, which handles the payment and the tax.
-- **Not started yet.** A paid plan, for any service, will be announced in this README and in the release notes before it starts. It starts with a later version of Sync Evo.
+- **GitHub**: free.
+- **Dropbox and Google Drive**: free until the paid plan starts, and for 3 months after that, and then a license key is needed. One key is for both: $3 a month, $24 a year, or $49 once. Keys are sold through Dodo Payments, which handles the payment and the tax.
+- **Starts on 2026-11-10**, with a later version of Sync Evo.
 
 How it works, once it has started:
 
