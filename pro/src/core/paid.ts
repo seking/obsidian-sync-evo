@@ -38,7 +38,9 @@ import type { BackendId } from "../../../src/core/settings";
  * Sync Evo works as it did before. The one value to set, in the version
  * that switches it on (T082).
  */
-export const RELEASE_PAID_ENABLED_AT: number | null = null;
+// 2026-11-10, at its end in Japan: after the version that sets it is out,
+// so that no one's 3 months begin before it.
+export const RELEASE_PAID_ENABLED_AT: number | null = Date.parse("2026-11-10T15:00:00Z");
 
 /**
  * Put in by esbuild at build time (`define` in esbuild.config.mjs): the day

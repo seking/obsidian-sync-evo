@@ -10,7 +10,7 @@
  * Source: https://github.com/seking/obsidian-sync-evo
  */
 
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import { DropboxBackend } from "../src/core/dropbox/backend";
 import { runPull } from "../../src/core/pull";
 import { type PushDeps, type PushRunResult, runPush } from "../../src/core/push";
@@ -18,6 +18,13 @@ import { FakeDropbox } from "./support/fake-dropbox";
 import { MemoryPullVault } from "../../tests/support/memory-pull-vault";
 import { MemoryStateStore } from "../../tests/support/memory-state-store";
 import { freeGuard } from "./support/paid";
+
+// The plan not switched on, as these tests are not about it: the backends'
+// own guard lets everything through (paid-guard.test.ts tests it on).
+vi.mock("../src/core/paid", async (importOriginal) => ({
+	...(await importOriginal<typeof import("../src/core/paid")>()),
+	PAID_ENABLED_AT: null,
+}));
 
 // Whole syncs against Dropbox: the pull and the push of the core, through
 // the Dropbox backend, against Dropbox in memory, from two devices.

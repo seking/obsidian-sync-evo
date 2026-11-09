@@ -24,6 +24,13 @@ import type { SyncResult } from "../src/core/sync-results";
 import type { SyncHost } from "../src/obsidian/sync-runner";
 import { MemoryStateStore } from "./support/memory-state-store";
 
+// The plan not switched on, as these tests are not about it: the backends'
+// own guard lets everything through (paid-guard.test.ts tests it on).
+vi.mock("../pro/src/core/paid", async (importOriginal) => ({
+	...(await importOriginal<typeof import("../pro/src/core/paid")>()),
+	PAID_ENABLED_AT: null,
+}));
+
 // The runner is the one part of a sync that shows things, so the app's
 // module is stood in for: its notices are kept, and its requests are
 // answered as the test says. Only the ways a sync can end before it reaches

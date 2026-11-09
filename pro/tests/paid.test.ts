@@ -10,6 +10,7 @@
  * Source: https://github.com/seking/obsidian-sync-evo
  */
 
+import { readFileSync } from "node:fs";
 import { describe, expect, test } from "vitest";
 import { translatorFor } from "../../src/core/i18n";
 import {
@@ -46,8 +47,12 @@ import {
 const at = (iso: string): number => Date.parse(iso);
 
 describe("the switch", () => {
-	test("is off in this version: nothing of the plan is decided or shown", () => {
-		expect(RELEASE_PAID_ENABLED_AT).toBeNull();
+	test("is on in this version, from the day the READMEs say it started", () => {
+		expect(RELEASE_PAID_ENABLED_AT).not.toBeNull();
+		const day = new Date(RELEASE_PAID_ENABLED_AT ?? 0).toISOString().slice(0, 10);
+		const readme = (name: string): string => readFileSync(new URL(`../../${name}`, import.meta.url), "utf8");
+		expect(readme("README.md")).toContain(`The paid plan started on ${day}`);
+		expect(readme("README.ja.md")).toContain(`有料化は ${day}`);
 		// The tests are no build to try the plan out: the release's day, and the live mode.
 		expect(PAID_ENABLED_AT).toBe(RELEASE_PAID_ENABLED_AT);
 		expect(DODO_TEST_BUILD).toBe(false);

@@ -10,13 +10,20 @@
  * Source: https://github.com/seking/obsidian-sync-evo
  */
 
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import type { PushFile, PushRefusal, RemoteListing } from "../../src/core/backend";
 import { decodeRevision, encodeRevision, GDriveBackend } from "../src/core/gdrive/backend";
 import { DriveApiError } from "../src/core/gdrive/client";
 import { DriveDuplicateFolderError, DriveFolderGoneError } from "../src/core/gdrive/errors";
 import { FakeDrive } from "./support/fake-gdrive";
 import { freeGuard } from "./support/paid";
+
+// The plan not switched on, as these tests are not about it: the backends'
+// own guard lets everything through (paid-guard.test.ts tests it on).
+vi.mock("../src/core/paid", async (importOriginal) => ({
+	...(await importOriginal<typeof import("../src/core/paid")>()),
+	PAID_ENABLED_AT: null,
+}));
 
 function backend(drive: FakeDrive, folderId: string | null = null, found: string[] = []): GDriveBackend {
 	return new GDriveBackend(drive, { folder: "Vault", folderId, onFolderFound: (id) => found.push(id), plan: freeGuard() });

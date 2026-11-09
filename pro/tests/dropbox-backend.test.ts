@@ -11,13 +11,20 @@
  */
 
 import { createHash } from "node:crypto";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import type { FetchedFile, PushFile, PushRefusal, RemoteEntry, RemoteListing } from "../../src/core/backend";
 import { DropboxBackend } from "../src/core/dropbox/backend";
 import { DropboxApiError } from "../src/core/dropbox/client";
 import { DROPBOX_BLOCK_BYTES, dropboxContentHash } from "../src/core/dropbox/content-hash";
 import { FakeDropbox } from "./support/fake-dropbox";
 import { freeGuard } from "./support/paid";
+
+// The plan not switched on, as these tests are not about it: the backends'
+// own guard lets everything through (paid-guard.test.ts tests it on).
+vi.mock("../src/core/paid", async (importOriginal) => ({
+	...(await importOriginal<typeof import("../src/core/paid")>()),
+	PAID_ENABLED_AT: null,
+}));
 
 const ROOT = "/Vault";
 

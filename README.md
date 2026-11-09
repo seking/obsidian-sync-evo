@@ -56,6 +56,7 @@ With Dropbox and Google Drive, you just sign in. There is no repository or token
 
 How it works:
 
+- The paid plan started on 2026-11-10, with version 0.6.0.
 - The 3 months are counted for each Dropbox or Google account, from the day the paid plan started, or from the first sync with the account, if that is later.
 - A device that first runs a Sync Evo with the paid plan when those 3 months are over, or nearly, is still free for 14 days from that day, so that you are told before it ends.
 - Once 14 days are left before your free time ends, and again once 7 days are left, Sync Evo tells you at the next sync.
