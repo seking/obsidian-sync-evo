@@ -51,7 +51,10 @@ describe("the switch", () => {
 		expect(RELEASE_PAID_ENABLED_AT).not.toBeNull();
 		const day = new Date(RELEASE_PAID_ENABLED_AT ?? 0).toISOString().slice(0, 10);
 		const readme = (name: string): string => readFileSync(new URL(`../../${name}`, import.meta.url), "utf8");
-		const { version } = JSON.parse(readme("manifest.json")) as { version: string };
+		// The starting release is historical: later patches must not rewrite it.
+		const version = "0.6.0";
+		const versions = JSON.parse(readme("versions.json")) as Record<string, string>;
+		expect(versions[version]).toBeDefined();
 		expect(readme("README.md")).toContain(`The paid plan started on ${day}, with version ${version}.`);
 		expect(readme("README.ja.md")).toContain(`有料化は ${day} に、${version} で始めました。`);
 		// The tests are no build to try the plan out: the release's day, and the live mode.

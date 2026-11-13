@@ -180,3 +180,28 @@
 	user-select: all;
 	-webkit-user-select: all;
 }
+
+/* Give a pasted license key its own full-width row on every device. */
+.setting-item.sync-evo-license {
+	flex-direction: column;
+	align-items: stretch;
+}
+
+.setting-item.sync-evo-license .setting-item-info {
+	width: 100%;
+	margin-inline-end: 0;
+}
+
+.setting-item.sync-evo-license .setting-item-control {
+	width: 100%;
+	flex-wrap: wrap;
+	justify-content: flex-start;
+}
+
+.setting-item.sync-evo-license .setting-item-control input {
+	flex: 1 0 100%;
+	width: 100%;
+	min-width: 0;
+	box-sizing: border-box;
+	font-family: var(--font-monospace);
+}

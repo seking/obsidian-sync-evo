@@ -10,7 +10,7 @@
  * Source: https://github.com/seking/obsidian-sync-evo
  */
 
-import { type App, Notice, Platform, type Plugin, PluginSettingTab, SecretComponent, Setting, type TextComponent } from "obsidian";
+import { type App, type ButtonComponent, Notice, Platform, type Plugin, PluginSettingTab, SecretComponent, Setting, type TextComponent } from "obsidian";
 import { type CheckOutcome, connectionCheckText, isSuccess } from "../core/connection-check";
 import { newSignIn, type SignIn } from "../../pro/src/core/dropbox/auth";
 import type { DeviceCode } from "../../pro/src/core/gdrive/auth";
@@ -509,28 +509,54 @@ export class SyncEvoSettingTab extends PluginSettingTab {
 				});
 			});
 		}
+		row.settingEl.addClass("sync-evo-license");
+		status.setAttribute("role", "status");
+		status.setAttribute("aria-live", "polite");
+		row.descEl.createDiv({ text: t("settings.license.instructions") });
+		let field: TextComponent;
+		let activate: ButtonComponent;
+		let remove: ButtonComponent;
+		let busy = false;
+		const refresh = (): void => {
+			const current = host.paidInfo(host.deviceSettings ?? stored);
+			const valid = current?.license.status === "valid" && field.getValue().trim() === current.key;
+			activate.setDisabled(busy || field.getValue().trim() === "" || valid);
+			activate.setButtonText(t(valid ? "settings.license.activated" : "settings.license.activate"));
+			remove.setDisabled(busy || !current?.key);
+			field.setDisabled(busy);
+			field.inputEl.type = valid ? "password" : "text";
+		};
+		const submit = async (key: string): Promise<void> => {
+			if (busy) return;
+			busy = true;
+			status.setText(t("settings.license.checking"));
+			refresh();
+			try {
+				await host.setLicenseKey(key);
+				if (key === "") field.setValue("");
+				const current = host.paidInfo(host.deviceSettings ?? stored);
+				if (current !== null) show(current);
+			} finally {
+				busy = false;
+				refresh();
+			}
+		};
 		row.addText((text) => {
+			field = text;
 			text.setValue(info.key);
 			typedAsIs(text);
-			// Taken when the field is left: each key that is taken is an
-			// activation on Dodo, and half a key is none.
-			const commit = (): void => {
-				const typed = text.getValue().trim();
-				if (typed === (host.paidInfo(stored)?.key ?? "")) return;
-				status.empty();
-				status.createDiv({ text: t("settings.license.checking") });
-				void host.setLicenseKey(typed).then(() => {
-					const current = host.deviceSettings;
-					const now = current === null ? null : host.paidInfo(current);
-					if (now !== null) show(now);
-				});
-			};
-			text.inputEl.addEventListener("change", commit);
-			this.commits.push(commit);
-			// A × beside the field empties it and takes the key off at once,
-			// as an emptied field does when it is left.
-			addClearButton(row, text, t("settings.license.clear"), commit);
+			text.inputEl.setAttribute("aria-label", t("settings.license.name"));
+			text.inputEl.addEventListener("input", () => refresh());
 		});
+		row.addButton((button) => {
+			activate = button;
+			button.setCta().onClick(() => submit(field.getValue().trim()));
+		});
+		row.addButton((button) => {
+			remove = button;
+			button.setButtonText(t("settings.license.clear")).onClick(() => submit(""));
+		});
+		refresh();
 	}
 
 	/**

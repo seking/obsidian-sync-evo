@@ -44,10 +44,10 @@ Sync Evo with Dropbox and Google Drive is free for 3 months, and then a license 
 **License key** is shown under "Connection" with Dropbox and Google Drive:
 
 - Buy a key on the web, at [gyap.jp/sync-evo](https://gyap.jp/sync-evo/#pricing). On a computer, **Get a key** opens that page. The settings on phones have no link to buy one, only the link "See the README of Sync Evo for details.".
-- Enter the key on each device. It is taken when you leave the field. The × beside the field ("Remove the key from this device") empties it and removes the key at once.
+- Enter the key on each device and press **Activate**. Leaving the field does not submit it. While checking, the controls are disabled. **Activated — ready to use on this device.** confirms success; otherwise the status explains the problem and you can press **Activate** to try again. An activated key is masked.
 - One key is for this device, whichever vault it is entered in. It is kept in the app's local storage, not in a file of the vault.
 - Sync Evo checks the key with Dodo Payments, the seller of the keys. It sends the key, and the **Device name** as the name of this device's activation. Nothing from the vault. See [Network use and privacy](network.md#license-key).
-- One key works on up to 5 devices. Emptying the field removes the key from this device, and ends its activation with Dodo, which frees its place for another device. If you no longer have a device, end its activation in the [billing portal](https://customer.dodopayments.com/login/bus_0NpvnyuwMvGA62iaE3swK) of Dodo Payments, or write to contact@gyap.jp.
+- One key works on up to 5 devices. Pressing **Deactivate on this device** removes the key from this device, and ends its activation with Dodo, which frees its place for another device. If you no longer have a device, end its activation in the [billing portal](https://customer.dodopayments.com/login/bus_0NpvnyuwMvGA62iaE3swK) of Dodo Payments, or write to contact@gyap.jp.
 - Below the field, Sync Evo says where this device stands:
   - "Free until … with this account.", while the free time lasts ("Free for 3 months with this account. The day it ends is shown after the next sync.", until Sync Evo has learnt when it began),
   - "The free time ended on …. Until …, Sync Evo only downloads.", for 30 days after it,
